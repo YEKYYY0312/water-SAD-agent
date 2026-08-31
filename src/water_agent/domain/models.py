@@ -154,6 +154,7 @@ class EvalResult(BaseModel):
     gold_articles_all_hit: list[str] = Field(default_factory=list)
     forbidden_articles_hit: list[str] = Field(default_factory=list)
     load_error: str = ""
+    exception_trace: str = ""
     line_no: int | None = None
     context_articles: list[str] = Field(default_factory=list)
 
