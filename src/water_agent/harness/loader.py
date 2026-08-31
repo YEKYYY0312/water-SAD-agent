@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ class EvalLoadIssue:
 class EvalLoadBundle:
     cases: list[EvalCase | CalcCase]
     issues: list[EvalLoadIssue]
+    line_nos: list[int] = field(default_factory=list)  # 与 cases 逐位对齐的 JSONL 行号
 
     @property
     def has_issues(self) -> bool:
@@ -59,6 +60,7 @@ def load_eval_cases(path: str | Path, *, strict: bool = True) -> list[EvalCase |
 
 def load_eval_bundle(path: str | Path, *, strict: bool = True) -> EvalLoadBundle:
     cases: list[EvalCase | CalcCase] = []
+    line_nos: list[int] = []
     issues: list[EvalLoadIssue] = []
     for line_no, raw_line in iter_eval_records(path):
         try:
@@ -77,9 +79,10 @@ def load_eval_bundle(path: str | Path, *, strict: bool = True) -> EvalLoadBundle
             continue
         try:
             cases.append(_parse_eval_case(payload, line_no=line_no))
+            line_nos.append(line_no)
         except EvalLoadError as exc:
             issue = EvalLoadIssue(line_no=line_no, error=str(exc), raw=raw_line)
             if strict:
                 raise
             issues.append(issue)
-    return EvalLoadBundle(cases=cases, issues=issues)
+    return EvalLoadBundle(cases=cases, issues=issues, line_nos=line_nos)
