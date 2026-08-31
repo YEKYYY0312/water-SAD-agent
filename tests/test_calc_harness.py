@@ -110,3 +110,30 @@ def test_mismatched_status_fails() -> None:
     result = score_calc_case(case, calc_result=calc_result)
     assert not result.passed
     assert "expected status missing_inputs, got succeeded" in result.failure_reason
+
+
+def test_expected_assumptions_check() -> None:
+    # DN50,Q=5 给水 会产生 '高于' 的 assumption
+    payload = {
+        "id": "mini-0004",
+        "type": "calc",
+        "variant": "programmatic",
+        "query": "DN50,Q=5L/s 给水 高流速",
+        "formula": "velocity",
+        "input": {"diameter_mm": 50, "flow_lps": 5, "scenario": "water_supply"},
+        "gold": {"velocity_mps": 2.546479},
+        "tolerances": {"relative": 0.01, "absolute": 0.001},
+        "expected_status": "succeeded",
+        "expected_assumptions": ["高于"],
+    }
+    case = CalcCase.model_validate(payload)
+    calc_result = run_calc(case.formula, case.input)
+    result = score_calc_case(case, calc_result=calc_result)
+    assert result.passed
+
+    # if we expect '低于' it should fail
+    payload['expected_assumptions'] = ["低于"]
+    case2 = CalcCase.model_validate(payload)
+    res2 = score_calc_case(case2, calc_result=calc_result)
+    assert not res2.passed
+    assert "expected assumption missing: 低于" in res2.failure_reason

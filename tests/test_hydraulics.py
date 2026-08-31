@@ -180,8 +180,9 @@ class TestPumpHead:
 
 class TestDispatch:
     def test_all_formulas_are_dispatchable(self) -> None:
-        for formula in FORMULA_SET:
-            assert formula in run_calc.__globals__.get("_CALC_FUNCTIONS", {}) or True
+        assert FORMULA_SET == set(run_calc.__globals__.get("_CALC_FUNCTIONS", {}).keys()), (
+            f"公式清单与分发表不一致：{FORMULA_SET ^ set(run_calc.__globals__.get('_CALC_FUNCTIONS', {}).keys())}"
+        )
 
     def test_unknown_formula(self) -> None:
         result = run_calc("shevelev_auto", {})
