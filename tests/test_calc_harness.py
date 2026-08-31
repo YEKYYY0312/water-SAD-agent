@@ -59,6 +59,7 @@ def test_loader_routes_calc_case(tmp_path) -> None:
     assert all(isinstance(case, CalcCase) for case in bundle.cases)
     assert bundle.cases[0].formula == "velocity"
     assert bundle.cases[0].gold == {"velocity_mps": 1.132}
+    assert bundle.line_nos == [1, 2, 3]
 
 
 def test_runner_programmatic_calc(tmp_path) -> None:
@@ -71,6 +72,40 @@ def test_runner_programmatic_calc(tmp_path) -> None:
     assert report.passed == 3
     assert report.failed == 0
     assert report_path.exists()
+    # P1：line_no 全链路贯通（loader → runner → report）
+    assert [result.line_no for result in report.cases] == [1, 2, 3]
+
+
+def test_runner_isolates_case_crash(tmp_path, monkeypatch) -> None:
+    """P1 单用例隔离：任一条崩溃不得丢失整份报告，失败用例记录堆栈。"""
+    mini = tmp_path / "mini_crash.jsonl"
+    _write_mini(mini)
+
+    import water_agent.graphs.calc as calc_graph_module
+
+    original_run_calc = calc_graph_module.run_calc
+
+    def boom(formula: str, inputs: dict):
+        if inputs.get("diameter_mm") == 150 and formula == "velocity":
+            raise RuntimeError("模拟计算子图崩溃")
+        return original_run_calc(formula, inputs)
+
+    monkeypatch.setattr(calc_graph_module, "run_calc", boom)
+    runner = HarnessRunner(eval_path=mini, report_dir=tmp_path / "reports", trace_dir=tmp_path / "traces")
+    report, report_path, load_issues = runner.run()
+
+    assert load_issues == []
+    assert report.total == 3
+    assert report.passed == 2
+    assert report.failed == 1
+    crashed = next(result for result in report.cases if not result.passed)
+    assert crashed.case_id == "mini-0001"
+    assert crashed.actual_status == "error"
+    assert "模拟计算子图崩溃" in crashed.failure_reason
+    assert crashed.exception_trace
+    assert [result.line_no for result in report.cases] == [1, 2, 3]
+    assert report_path.exists()
+    assert (tmp_path / "traces" / "mini-0001_error.trace").exists()
 
 
 def test_score_calc_numeric_tolerance() -> None:

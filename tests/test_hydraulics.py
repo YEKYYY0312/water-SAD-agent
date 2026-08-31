@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import math
 
-import pytest
-
 from water_agent.tools.hydraulics import (
     FORMULA_SET,
     calc_diameter,
@@ -176,6 +174,86 @@ class TestPumpHead:
         result = calc_pump_head({"static_head_m": 10, "friction_head_m": 2.8, "local_head_m": 0.5})
         assert not result.ok
         assert "residual_head_m" in result.missing_inputs
+
+
+class TestInputTypeGuard:
+    """P1：字符串/NaN/inf/bool 等类型穿透必须返回结构化错误，不得裸崩。"""
+
+    def test_fill_ratio_non_numeric_string(self) -> None:
+        result = calc_slope_manning(
+            {"flow_lps": 30, "diameter_mm": 300, "fill_ratio": "abc", "manning_n": 0.013}
+        )
+        assert not result.ok
+        assert result.errors and "fill_ratio" in result.errors[0]
+
+    def test_fill_ratio_numeric_string_accepted(self) -> None:
+        result = calc_slope_manning(
+            {"flow_lps": 30, "diameter_mm": 300, "fill_ratio": "0.5", "manning_n": 0.013}
+        )
+        assert result.ok
+        assert_value(result, "slope", 0.00385, abs_=0.0001)
+
+    def test_gravity_non_numeric_string(self) -> None:
+        result = calc_head_loss_darcy_weisbach(
+            {
+                "length_m": 100,
+                "diameter_mm": 150,
+                "velocity_mps": 1.132,
+                "friction_factor": 0.02,
+                "gravity_mps2": "abc",
+            }
+        )
+        assert not result.ok
+        assert result.errors and "gravity_mps2" in "".join(result.errors)
+
+    def test_gravity_negative(self) -> None:
+        result = calc_head_loss_darcy_weisbach(
+            {
+                "length_m": 100,
+                "diameter_mm": 150,
+                "velocity_mps": 1.132,
+                "friction_factor": 0.02,
+                "gravity_mps2": -9.81,
+            }
+        )
+        assert not result.ok
+
+    def test_gravity_numeric_string_default_equivalent(self) -> None:
+        result = calc_head_loss_darcy_weisbach(
+            {
+                "length_m": 100,
+                "diameter_mm": 150,
+                "velocity_mps": 1.132,
+                "friction_factor": 0.02,
+                "gravity_mps2": "9.81",
+            }
+        )
+        assert result.ok
+        expected = 0.02 * (100 / 0.15) * (1.132**2 / (2 * 9.81))
+        assert_value(result, "head_loss_m", expected, abs_=1e-9)
+
+    def test_nan_and_inf_rejected(self) -> None:
+        for bad in (float("nan"), float("inf"), -float("inf")):
+            result = calc_velocity({"flow_lps": bad, "diameter_mm": 150})
+            assert not result.ok, f"flow_lps={bad} 应判非法"
+
+    def test_bool_rejected(self) -> None:
+        result = calc_velocity({"flow_lps": True, "diameter_mm": 150})
+        assert not result.ok
+
+    def test_pump_head_zero_component_allowed(self) -> None:
+        # 口径表 §5：某分量为 0 时显式传 0 允许（仅 <0 非法）
+        result = calc_pump_head(
+            {"static_head_m": 10, "friction_head_m": 0, "local_head_m": 0.5, "residual_head_m": 2}
+        )
+        assert result.ok
+        assert abs(result.values["pump_head_m"] - 12.5) < 1e-9
+
+    def test_pump_head_non_numeric(self) -> None:
+        result = calc_pump_head(
+            {"static_head_m": 10, "friction_head_m": "abc", "local_head_m": 0.5, "residual_head_m": 2}
+        )
+        assert not result.ok
 
 
 class TestDispatch:
