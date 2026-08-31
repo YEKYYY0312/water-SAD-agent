@@ -12,7 +12,7 @@
 
 ## 验证命令（改动完成前必须执行）
 ```bash
-bash scripts/verify.sh   # 统一门禁：pytest + ruff + rag_p0(11/12) + calc_p0(22/22)
+bash scripts/verify.sh   # 统一门禁：pytest + ruff + rag_p0(11/12) + calc_p0(28/28)
 _venv/bin/mypy src/water_agent   # 仅记录告警，Step 10 清零
 _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（需网络+百炼 Key）
 ```
