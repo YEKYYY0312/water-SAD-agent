@@ -1,0 +1,43 @@
+{
+  "created_at": "2026-08-31T04:11:20.898812+00:00",
+  "data_root": "/Users/yaerken/Desktop/给排水agent/knowledge",
+  "audit_report_path": "data/quality/reports/20260831T041054782421_semantic_audit.json",
+  "source_files": [
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB18918-2002.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50015-2019.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB5749-2022.jsonl",
+    "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GBT50104-2010.jsonl"
+  ],
+  "included_specs": [
+    "GB50013-2018",
+    "GB50014-2021",
+    "GB50015-2019",
+    "GB50318-2017"
+  ],
+  "excluded_specs": [
+    "GB18918-2002",
+    "GB5749-2022",
+    "GBT50104-2010"
+  ],
+  "records_scanned": 1992,
+  "records_included": 1595,
+  "records_quarantined": 397,
+  "included_by_label": {
+    "normal_article": 1315,
+    "table_fragment": 280
+  },
+  "quarantined_by_reason": {
+    "empty_or_low_signal": 4,
+    "excluded_spec:GB18918-2002": 86,
+    "excluded_spec:GB5749-2022": 137,
+    "excluded_spec:GBT50104-2010": 17,
+    "invalid_article_format": 105,
+    "invalid_article_format;ocr_suspect": 4,
+    "ocr_suspect": 44
+  },
+  "duplicate_article_groups_preserved": 499,
+  "content_hash": "f30c6a22a1a1f64ca1766864af87ae004e75872cb4f67c4c6e400d144bde841b"
+}

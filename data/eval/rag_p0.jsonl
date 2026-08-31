@@ -1,0 +1,13 @@
+{"id": "rag-p0-0001", "type": "rag", "variant": "mock", "query": "给水管道的设计秒流量", "gold_articles_any": ["FIX 1.1.1"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0002", "type": "rag", "variant": "mock", "query": "给水管道最小管径", "gold_articles_any": ["FIX 1.1.2"], "gold_articles_all": ["FIX 1.1.2", "FIX 2.1.2"], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0003", "type": "rag", "variant": "mock", "query": "排水管道最小管径", "gold_articles_any": ["FIX 2.1.2"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0004", "type": "rag", "variant": "mock", "query": "排水管道设计流量", "gold_articles_any": ["FIX 2.1.1"], "gold_articles_all": [], "forbidden_articles": ["FIX 1.1.2"], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0005", "type": "rag", "variant": "mock", "query": "水泵扬程如何确定", "gold_articles_any": ["FIX 3.1.1"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0006", "type": "rag", "variant": "mock", "query": "高位水箱容积如何确定", "gold_articles_any": ["FIX 3.1.2"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0007", "type": "rag", "variant": "mock", "query": "消防用水量如何确定", "gold_articles_any": ["FIX 4.1.1"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0008", "type": "rag", "variant": "mock", "query": "污水管道充满度", "gold_articles_any": ["FIX 5.1.1"], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-0009", "type": "rag", "variant": "mock", "query": "量子纠缠与宇宙常数", "gold_articles_any": [], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "failed", "eval": "citation_exists"}
+{"id": "rag-p0-0010", "type": "rag", "variant": "mock", "query": "", "gold_articles_any": [], "gold_articles_all": [], "forbidden_articles": [], "expected_status": "failed", "eval": "citation_exists"}
+{"id": "rag-p0-0011", "type": "rag", "variant": "bad_citation", "query": "给水管道的设计秒流量", "gold_articles_any": [], "gold_articles_all": [], "forbidden_articles": ["FAKE 0.0.0"], "expected_status": "failed", "eval": "citation_exists"}
+{"id": "rag-p0-0012", "type": "rag", "variant": "mock", "query": "污水厂运行成本与投资收益分析", "gold_articles_any": ["FIX 2.1.1"], "gold_articles_all": [], "forbidden_articles": ["FIX 1.1.2"], "expected_status": "succeeded", "eval": "citation_exists"}
+{"id": "rag-p0-9999", "type": "rag", "variant": "mock"}

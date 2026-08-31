@@ -1,0 +1,10 @@
+{"spec_id": "FIX", "chapter": "1", "section": "1.1", "article": "1.1.1", "title": "给水管道设计秒流量", "text": "生活给水管道的设计秒流量应按最大小时流量和设计秒流量确定，按用水定额与用水人数计算。"}
+{"spec_id": "FIX", "chapter": "1", "section": "1.1", "article": "1.1.2", "title": "给水管道最小管径", "text": "生活给水管道的公称直径不得小于DN15，支管与入户管的最小管径应符合相关要求。"}
+{"spec_id": "FIX", "chapter": "1", "section": "1.2", "article": "1.2.1", "title": "给水管道流速", "text": "给水管道内水流速度宜控制在0.6m/s至1.5m/s范围内，不宜超过2.0m/s。"}
+{"spec_id": "FIX", "chapter": "2", "section": "2.1", "article": "2.1.1", "title": "排水管道设计流量", "text": "排水管道设计流量应按最大时流量确定，并考虑生活污水、雨水的汇合水量。"}
+{"spec_id": "FIX", "chapter": "2", "section": "2.1", "article": "2.1.2", "title": "排水管道最小管径", "text": "生活排水管道的最小管径不得小于DN50，接入立管的支管最小管径应符合规定。"}
+{"spec_id": "FIX", "chapter": "2", "section": "2.2", "article": "2.2.1", "title": "排水管道坡度", "text": "排水管道的敷设坡度应根据管径和设计流量确定，且不得小于最小设计坡度。"}
+{"spec_id": "FIX", "chapter": "3", "section": "3.1", "article": "3.1.1", "title": "水泵扬程", "text": "水泵的扬程应按最不利配水点所需水压、管路水头损失与几何高差确定。"}
+{"spec_id": "FIX", "chapter": "3", "section": "3.1", "article": "3.1.2", "title": "高位水箱容积", "text": "高位水箱的容积应根据调节容量和消防贮水量确定，并满足规范规定的最小贮水量。"}
+{"spec_id": "FIX", "chapter": "4", "section": "4.1", "article": "4.1.1", "title": "消防用水量", "text": "消防用水量应按建筑物类别、用途和火灾危险等级确定。"}
+{"spec_id": "FIX", "chapter": "5", "section": "5.1", "article": "5.1.1", "title": "污水管道充满度", "text": "污水管道的设计充满度应按管径和流量确定，不得超过规定的最大设计充满度。"}
