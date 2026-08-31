@@ -42,4 +42,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> 全部通过：pytest + ruff + rag_p0(11/12) + calc_p0(22/22)"
+echo "==> 全部通过：pytest + ruff + rag_p0(11/12) + calc_p0(28/28)"
