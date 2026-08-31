@@ -62,8 +62,8 @@
     "DEEPSEEK_API_KEY": "not_set"
   },
   "git": {
-    "status": "BLOCKED_BY_SANDBOX",
-    "note": "沙箱拒绝在项目目录创建 .git（Operation not permitted）。uv.lock/AGENTS.md/pyproject 均已就绪，git init + 首次 commit 需用户在真实终端执行：git init && git add -A && git commit -m 'chore: 工程基线（git/锁/静态检查）'"
+    "status": "INITIALIZED",
+    "note": "git 已 init（用户真实终端完成）。Step 5 验收时共 12 次提交，HEAD=2300dc3 feat: 引用声明工具与确定性校验器。"
   },
   "step0_post_state": {
     "generated_at": "2026-08-31T18:35:00Z",
@@ -116,5 +116,17 @@
     "ruff": "0 errors（All checks passed）",
     "mypy": "32 errors in 13 files（checked 51 source files；存量告警，Step 10 清零。较 step0 的 29 增 3，来自 Step 2–4 新代码，仅记录）"
   },
-  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（308）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–4（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层）已全部完成并各有 post_state 验收佐证。git 已 init，共 10 次提交（HEAD=e2fca9d）。已知阻塞（只记录，本步不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（SKIP）。"
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（323）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–5（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器）已全部完成并各有 post_state 验收佐证。git 已 init，共 12 次提交（HEAD=2300dc3）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（SKIP）。",
+  "step5_post_state": {
+    "generated_at": "2026-08-31T14:55:40Z",
+    "note": "本 post_state 补录于 2026-08-31T14:55:40Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "2300dc3 feat: 引用声明工具与确定性校验器（Step 5 交付；评审修复另立 commit）",
+    "modules": "domain/citation.py（CitationClaim + validate_citations 纯函数校验器：invalid 输出 did-you-mean 可行动错误，missing_version 仅标记不判废止）+ tools/cite.py（cite_clauses：article_ids 格式防护与去重，claims_sink 声明落库）+ graphs/rag.py（citation_check_node 改用 validate_citations，行为保持 source_id 集合比较）+ state.py/json_trace.py（state 层 citations 统一为 list[CitationClaim]）",
+    "tests": "tests/test_citation_check.py：14 passed（∈context 通过 / ∉context 拦截含建议 / FAKE 0.0.0 验收单测 / 版本未知仅标记 / 工具声明与注册 / RAG 图 observation 回流）",
+    "pytest_full": "323 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）",
+    "mypy": "32 errors in 13 files（checked 53 source files；与 Step 4 持平，本步无新增告警，Step 10 清零）",
+    "rag_p0": "11/12（评测契约未变，bad_citation 变体仍判失败）",
+    "calc_p0": "28/28"
+  }
 }
