@@ -9,9 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from water_agent.domain.models import CalcCase, EvalReport
+from water_agent.domain.models import CalcCase, EvalReport, EvalResult
 from water_agent.domain.state import default_state
 from water_agent.generation.mock import MockGenerator
+from water_agent.graphs.calc import build_calc_graph
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.harness.doubles import BadCitationGenerator
 from water_agent.harness.loader import EvalLoadBundle, EvalLoadError, load_eval_bundle
@@ -65,12 +66,39 @@ class HarnessRunner:
             return BadCitationGenerator()
         return MockGenerator()
 
+    def _run_calc_case(self, case: CalcCase, *, line_no: int | None = None) -> EvalResult:
+        """calc 端到端：走计算子图（真工具 + 确定性解释器），判分仍用 Step 1 run_calc。
+
+        子图 compute 内部调 run_calc 使用与评测一致的输入，故数值与直接判分同源；
+        缺参/非法路径可能短路（无 compute 产物），回退 run_calc 取结构化 CalcResult，
+        保证判分确定性与 Step 1 一致。
+        """
+        app = build_calc_graph()
+        state = {
+            "query": case.query or "",
+            "intent": "calc",
+            "formula": case.formula,
+            "params": dict(case.input),
+            "calc_result": None,
+            "missing_inputs": [],
+            "assumptions": [],
+            "errors": [],
+            "candidates": [],
+            "answer": "",
+            "status": "running",
+            "step_count": 0,
+        }
+        started = time.perf_counter()
+        graph_result = app.invoke(state)
+        latency_ms = (time.perf_counter() - started) * 1000
+        calc_result = graph_result.get("calc_result")
+        if calc_result is None:
+            calc_result = run_calc(case.formula, case.input)
+        return score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+
     def _run_case(self, case, *, line_no: int | None = None):
         if isinstance(case, CalcCase):
-            started = time.perf_counter()
-            calc_result = run_calc(case.formula, case.input)
-            latency_ms = (time.perf_counter() - started) * 1000
-            return score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+            return self._run_calc_case(case, line_no=line_no)
         trace_id = uuid4().hex
         run_id = uuid4().hex
         recorder = JsonTraceRecorder(self.trace_dir)
