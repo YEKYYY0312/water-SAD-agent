@@ -132,8 +132,17 @@ def calc_head_loss_darcy_weisbach(inputs: dict[str, Any]) -> CalcResult:
         return bad
     invalid = _positive_numbers(inputs, ["length_m", "diameter_mm", "velocity_mps"])
     friction = inputs.get("friction_factor")
-    if invalid or friction is None or float(friction) <= 0:
-        return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid] + ["friction_factor 必须为正数"])
+    friction_errors: list[str] = []
+    if friction is None:
+        friction_errors.append("friction_factor 必须为正数")
+    else:
+        try:
+            if float(friction) <= 0:
+                friction_errors.append("friction_factor 必须为正数")
+        except (TypeError, ValueError):
+            friction_errors.append("friction_factor 必须为正数")
+    if invalid or friction_errors:
+        return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid] + friction_errors)
 
     length_m = _numeric(inputs, "length_m")
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
@@ -226,7 +235,7 @@ def calc_pump_head(inputs: dict[str, Any]) -> CalcResult:
     bad = _require(inputs, ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
     if bad is not None:
         return bad
-    invalid = [name for name in ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"] if float(inputs[name]) < 0]
+    invalid = _positive_numbers(inputs, ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
     if invalid:
         return CalcResult(ok=False, errors=[f"{name} 不允许为负数" for name in invalid])
 
