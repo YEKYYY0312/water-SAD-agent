@@ -70,3 +70,17 @@ def test_generator_does_not_modify_curated_source():
         read_curated_records(Path(tmp))
         after = hashlib.sha256((Path(tmp) / "clauses" / "GB50014-2021.jsonl").read_bytes()).hexdigest()
         assert before == after
+
+
+def test_candidate_query_skips_countermeasure_style_lines():
+    """「应对…」开头的规定性行不像用户问题，生成候选 query 时应跳过（N1 恒真条件回归）。"""
+    with TemporaryDirectory() as tmp:
+        record = {
+            **VALID,
+            "text": "应对措施：设置事故排放口。\n管道系统应设置事故排放口，并采取重力自流方式排入事故池。",
+        }
+        _write_curated(Path(tmp), [record])
+        candidates = select_candidates(read_curated_records(Path(tmp)), count=1)
+        query = candidates[0]["query"]
+        assert not query.startswith("应对"), f"query 不应取「应对」开头的行，实际：{query}"
+        assert "事故排放口" in query
