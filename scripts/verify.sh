@@ -26,13 +26,13 @@ else
     echo "rag_p0 与基线一致（11/12）"
 fi
 
-step "calc_p0 harness（期望 22/22）"
+step "calc_p0 harness（期望 28/28）"
 CALC_JSON="$($PY -m water_agent.harness.runner data/eval/calc_p0.jsonl 2>/dev/null || true)"
 CALC_PASS="$(printf '%s' "$CALC_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('pass_rate', 0.0))" 2>/dev/null || echo 0)"
 if [ "$CALC_PASS" != "1.0" ]; then
     fail "calc_p0 pass_rate=$CALC_PASS（预期 1.0）"
 else
-    echo "calc_p0 通过（22/22）"
+    echo "calc_p0 通过（28/28）"
 fi
 
 if [ "$FAILED" -ne 0 ]; then

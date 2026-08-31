@@ -50,3 +50,6 @@ cursor/
 
 # Env
 .env.local
+
+# Workbuddy AI memory (sensitive / ephemeral)
+.workbuddy-ai/
