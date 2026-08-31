@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
+from water_agent.domain.citation import CitationClaim, validate_citations
 from water_agent.domain.state import (
     MAX_CITATION_RETRIES,
     MAX_TOTAL_STEPS,
@@ -97,7 +98,13 @@ def build_rag_graph(
     def generate_node(state: WaterAgentState) -> dict:
         _enter("generate", state)
         generated = generator.generate(state.get("query", ""), state.get("context", []))
-        result = {"answer": generated.answer, "citations": generated.citations, "step_count": state.get("step_count", 0) + 1}
+        # state 层统一为 CitationClaim：legacy 生成器的 Citation 转换为 system 声明；
+        # agentic 路径由 cite_clauses 写入 model 声明，Step 6 消费同一结构。
+        claims = [
+            CitationClaim(source_id=cit.source_id, declared_by="system")
+            for cit in generated.citations
+        ]
+        result = {"answer": generated.answer, "citations": claims, "step_count": state.get("step_count", 0) + 1}
         if trace is not None:
             trace.record(
                 node="generate",
@@ -112,13 +119,21 @@ def build_rag_graph(
         return result
 
     def citation_check_node(state: WaterAgentState) -> dict:
-        """校验引用真实存在于本次检索结果，不得仅凭规范号判断有效。"""
+        """校验引用真实存在于本次检索结果。
+
+        转用 ``validate_citations`` 做集合级确定性校验（行为保持：source_id 集合比较，
+        不改评测契约）；invalid 时把可行动错误文本作为结构化 observation 写入
+        ``errors``，供 Step 6 回流给模型自纠。
+        """
         _enter("citation_check", state)
-        valid = {c.source_id for c in state.get("context", [])}
-        bad = [c.source_id for c in state.get("citations", []) if c.source_id not in valid]
+        cited_ids = [claim.source_id for claim in state.get("citations", [])]
+        context_ids = [clause.source_id for clause in state.get("context", [])]
+        check = validate_citations(cited_ids, context_ids)
+        bad = check.invalid
         errors = list(state.get("errors", []))
+        if check.errors:
+            errors.extend(check.errors)
         if bad:
-            errors.append(f"引用校验失败：{bad} 不在本次检索结果中")
             result = {"citation_ok": False, "retry_count": state.get("retry_count", 0) + 1, "errors": errors, "query": state.get("query", "").strip()}
         else:
             result = {"citation_ok": True, "errors": errors}
@@ -130,7 +145,7 @@ def build_rag_graph(
                 context=state.get("context", []),
                 citations=state.get("citations", []),
                 retry_count=result.get("retry_count", state.get("retry_count", 0)),
-                error=errors[-1] if bad else None,
+                error=errors[-1] if check.errors else None,
                 status=state.get("status", STATUS_RUNNING),
             )
             if bad:
@@ -144,7 +159,7 @@ def build_rag_graph(
                     error=errors[-1],
                     status=state.get("status", STATUS_RUNNING),
                 )
-        _exit("citation_check", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if bad else None)
+        _exit("citation_check", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if check.errors else None)
         return result
 
     def finalize_node(state: WaterAgentState) -> dict:
