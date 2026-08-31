@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence as _Seq
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from water_agent.domain.citation import CitationClaim
 from water_agent.domain.models import Citation, RetrievedClause
 
 
@@ -26,7 +28,7 @@ class JsonTraceRecorder:
 
     @staticmethod
     def _serialize(value: Any) -> Any:
-        if isinstance(value, (RetrievedClause, Citation)):
+        if isinstance(value, (RetrievedClause, Citation, CitationClaim)):
             return value.model_dump(mode="json") | {"source_id": value.source_id}
         if isinstance(value, list):
             return [JsonTraceRecorder._serialize(item) for item in value]
@@ -55,7 +57,7 @@ class JsonTraceRecorder:
         *,
         query: str | None = None,
         context: list[RetrievedClause] | None = None,
-        citations: list[Citation] | None = None,
+        citations: _Seq[Citation | CitationClaim] | None = None,
         retry_count: int = 0,
         error: str | None = None,
         status: str = "running",

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from water_agent.domain.models import Citation, RetrievedClause
+from water_agent.domain.citation import CitationClaim
+from water_agent.domain.models import RetrievedClause
 
 # 循环/重试上限（约束：所有循环必须有明确上限）
 MAX_TOTAL_STEPS = 10
@@ -26,7 +27,7 @@ class WaterAgentState(TypedDict):
     calc_result: dict[str, Any] | None
     drawings: list[Any]
     doc_draft: str | None
-    citations: list[Citation]
+    citations: list[CitationClaim]
     answer: str
     approval: bool | None
     errors: list[str]
