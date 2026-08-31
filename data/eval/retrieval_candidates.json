@@ -1,0 +1,1371 @@
+{
+  "created_at": "2026-08-28T13:53:02.143416+00:00",
+  "type": "retrieval_candidates",
+  "curated_root": "data/curated",
+  "total_candidates": 70,
+  "candidates": [
+    {
+      "id": "cand-49b0b2b6aa",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "6.1.8",
+      "fragment_id": "7db87b7106e68fbbb68ceb16",
+      "title": "、 7. 1. 7、 7. 6. 9、 7. 6. 12、 8. 9、 8. 0. 11、 9. 1. 2、 9. 1. 7、",
+      "query": "请提供GB50013-2018 6.1.8的条款内容。",
+      "candidate_gold_articles": [
+        "GB50013-2018 6.1.8"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 1,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-5373e30b19",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.1.1",
+      "fragment_id": "8336df0d5166c26a89fde1ac",
+      "title": "排水工程包括雨水系统和污水系统，应遵循从源头到末端",
+      "query": "排水工程包括雨水系统和污水系统，应遵循从源头到末端",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.1.1"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 7,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-be1b220b51",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.1.2",
+      "fragment_id": "fd335739ae52e6d9be46096d",
+      "title": "城市排水工程规划期限宜与城市总体规用划期限一致。",
+      "query": "城市排水工程规划期限宜与城市总体规用划期限一致",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.1.2"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 2,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-8a18291325",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "9.9.14",
+      "fragment_id": "7e5df8eee468514cd9b4bda0",
+      "title": "、9. 9. 15、9. 9. 16、9. 9. 17、9. 9. 18、9. 9.25、9. 9. 26、9. 9. 27、",
+      "query": "--- | ----------- | ------------------ | --------- | --------------- | ---",
+      "candidate_gold_articles": [
+        "GB50013-2018 9.9.14"
+      ],
+      "audit_labels": [
+        "table_fragment",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 2,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-2c7b4f753e",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.1.2",
+      "fragment_id": "758edb1b2830fe8e6b10ab04",
+      "title": "排水体制（分流制或合流制）的选择应根据城镇的总体规",
+      "query": "排水体制（分流制或合流制）的选择应根据城镇的总体规",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.1.2"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 8,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-5054742ab3",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.3.1",
+      "fragment_id": "bb1c95fb2000909c948bc679",
+      "title": "城市排水体制应根据城市环境保护要求、当地自然条件",
+      "query": "城市排水体制应根据城市环境保护要求、当地自然条件",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.3.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 4,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-8ee7d20c50",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.1.1",
+      "fragment_id": "c30717a316d4df6908e5345f",
+      "title": "水源选择前的水资源勘察和论证应符合现行国家标准《城",
+      "query": "水源选择前的水资源勘察和论证应符合现行国家标准《城",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.1.1"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 51,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-43490e4eeb",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.1",
+      "fragment_id": "ae4d473ba62106c86f3dc4f5",
+      "title": "雨水系统应包括源头减排、排水管渠、排滞除险等工程性",
+      "query": "雨水系统应包括源头减排、排水管渠、排滞除险等工程性",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.1"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 9,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-3860a1157d",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.3.2",
+      "fragment_id": "e9d204e975f7dcf0b099ec90",
+      "title": "除干旱地区外，城市新建地区和旧城改造地区的排水系",
+      "query": "除干旱地区外，城市新建地区和旧城改造地区的排水系",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.3.2"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 5,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-02431d8634",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.1.2",
+      "fragment_id": "50bb9c175265627fea4d1b69",
+      "title": "水源的选用应通过技术经济比较后综合确定，并应满足下",
+      "query": "水源的选用应通过技术经济比较后综合确定，并应满足下",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.1.2"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 52,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-5bc6851c94",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.2",
+      "fragment_id": "89cdd32c1fdef373e33eb61f",
+      "title": "源头减排设施应有利于雨水就近入渗、调蓄或收集利用，",
+      "query": "源头减排设施应有利于雨水就近入渗、调蓄或收集利用，",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.2"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 10,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-40769c3822",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.4.1",
+      "fragment_id": "82a4750d55d673041993e533",
+      "title": "城市排水受纳水体应有足够的容量和排泄用能力，其环境",
+      "query": "城市排水受纳水体应有足够的容量和排泄用能力，其环境",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.4.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 6,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-79ad2c5d85",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.1.4",
+      "fragment_id": "4ef910bf9c9059e2bd2b718a",
+      "title": "供水水源采用地表水时的设计枯水流量年保证率和设计",
+      "query": "供水水源采用地表水时的设计枯水流量年保证率和设计",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.1.4"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 53,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-8048ac3af4",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.3",
+      "fragment_id": "26b1d5225e531384e70748bf",
+      "title": "排水管渠设施应确保雨水管渠设计重现期下雨水的转输、",
+      "query": "排水管渠设施应确保雨水管渠设计重现期下雨水的转输、",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.3"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 11,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-095c05f222",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.4.2",
+      "fragment_id": "0363df7cb67850b06225a520",
+      "title": "城市排水受纳水体应根据城市的自然条件、 环境保护要",
+      "query": "城市排水受纳水体应根据城市的自然条件、 环境保护要",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.4.2"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 7,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-96dd23ee48",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.1.5",
+      "fragment_id": "f44069295c0cc545c9ff3f9d",
+      "title": "备用水源或应急水源的选择与构建应结合当地水资源状",
+      "query": "备用水源或应急水源的选择与构建应结合当地水资源状",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.1.5"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 54,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-be1e4c6b67",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.4",
+      "fragment_id": "0948fdafa2addd00a99f3dac",
+      "title": "源头减排设施、排水管渠设施和排滂除险设施应作为整体",
+      "query": "源头减排设施、排水管渠设施和排滂除险设施应作为整体",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.4"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 12,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-a8a81a58ad",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.1",
+      "fragment_id": "7a79030588aec8ee10695cdc",
+      "title": "排水管渠应以重力流 为主，宜顺坡敷设。 当受条件限制",
+      "query": "排水管渠应以重力流 为主，宜顺坡敷设。 当受条件限制",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 8,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-9ebc2bf002",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.1",
+      "fragment_id": "2edd6d3776fd40997c279b11",
+      "title": "地下水取水构筑物的位置应根据水文地质条件综合选择",
+      "query": "地下水取水构筑物的位置应根据水文地质条件综合选择",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.1"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 55,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-c317bbf920",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.5",
+      "fragment_id": "19df71108844b3a5a6e6a6e3",
+      "title": "雨水系统设计应采取工程性和非工程性措施加强城镇应",
+      "query": "雨水系统设计应采取工程性和非工程性措施加强城镇应",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.5"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 13,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-db61e68a25",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.2",
+      "fragment_id": "5043dd2a9162997945586230",
+      "title": "城市污水收集 、输送应采用管道或暗渠，严禁采用明渠。",
+      "query": "城市污水收集 、输送应采用管道或暗渠，严禁采用明渠",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.2"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 9,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-e2efaa17bf",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.2",
+      "fragment_id": "49375574183f94238ef1358f",
+      "title": "地下水取水构筑物形式的选择应根据水文地质条件，通过",
+      "query": "地下水取水构筑物形式的选择应根据水文地质条件，通过",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.2"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 56,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-f34025ca9c",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.6",
+      "fragment_id": "3d573523e46c1b1842d3d7fd",
+      "title": "受有害物质污染场地的雨水径流应单独收集处理，并应达",
+      "query": "受有害物质污染场地的雨水径流应单独收集处理，并应达",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.6"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 14,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-1d4b948eae",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.3",
+      "fragment_id": "bbc90545600c2e7f8695684a",
+      "title": "排水管渠应 布置在便于雨、污水汇集的慢车道或人行道",
+      "query": "排水管渠应 布置在便于雨、污水汇集的慢车道或人行道",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.3"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 10,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-2173e4aa76",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.3",
+      "fragment_id": "7e293c534a7648dc5e9b64fa",
+      "title": "地下水取水构筑物的设计应符合下列规定：",
+      "query": "地下水取水构筑物的设计应符合下列规定：",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.3"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 57,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-d49ad7769e",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.2.7",
+      "fragment_id": "7634ff4d6333219c4fe45a74",
+      "title": "雨水系统设计应采取措施防止洪水对城镇排水工程的影",
+      "query": "雨水系统设计应采取措施防止洪水对城镇排水工程的影",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.2.7"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 15,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-83b341fa6a",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.4",
+      "fragment_id": "0288327a4f2d6fb03edf9382",
+      "title": "规划有综合管廊的路段，排水管渠宜结合综合管廊统一",
+      "query": "规划有综合管廊的路段，排水管渠宜结合综合管廊统一",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.4"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 11,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-6c4b4acee7",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.4",
+      "fragment_id": "e92417a9b296b0cef4426c55",
+      "title": "从补给水源充足、透水性良好，且厚度在 40m 以上的中、",
+      "query": "从补给水源充足、透水性良好，且厚度在 40m 以上的中、",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.4"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 58,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-7b937e18fe",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.1",
+      "fragment_id": "e549514a5fb8dae636c8679b",
+      "title": "污水系统应包括收集管网、污水处理、深度和再生处理与",
+      "query": "污水系统应包括收集管网、污水处理、深度和再生处理与",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.1"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 16,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-fcc8ee32b5",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.5",
+      "fragment_id": "d1e96c7572bd93f9a625d3c3",
+      "title": "排水管渠断面尺寸应按设计流量确定。",
+      "query": "排水管渠断面尺寸应按设计流量确定",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.5"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 12,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-9156b952fb",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.5",
+      "fragment_id": "9f13eacbf6c65c8cd5a587bf",
+      "title": "管井结构和过滤器设计应符合现行国家标准《管井技术规",
+      "query": "管井结构和过滤器设计应符合现行国家标准《管井技术规",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.5"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 59,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-81fd90bfdf",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.2",
+      "fragment_id": "2adc3d7a5f5675282887735e",
+      "title": "城镇所有用水过程产生的污水和受污染的雨水径流应纳",
+      "query": "城镇所有用水过程产生的污水和受污染的雨水径流应纳",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.2"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 17,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-f610c0f13c",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.5.6",
+      "fragment_id": "7ac1f09c75d96ccee1516ffc",
+      "title": "排水管渠出水口内顶高程宜高千受纳水体的多年平均水",
+      "query": "排水管渠出水口内顶高程宜高千受纳水体的多年平均水",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.5.6"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 13,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-0a1c6731f0",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.6",
+      "fragment_id": "435e0f9a541b6b4ec0e077da",
+      "title": "管井井口应加设套管，并填入优质黏土或水泥浆等不透水",
+      "query": "管井井口应加设套管，并填入优质黏土或水泥浆等不透水",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.6"
+      ],
+      "audit_labels": [
+        "table_fragment",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 60,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-71d7f913bf",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.3",
+      "fragment_id": "8121ba79f6890afcfd424b57",
+      "title": "排入城镇污水管网的污水水质必须符合国家现行标准的",
+      "query": "排入城镇污水管网的污水水质必须符合国家现行标准的",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.3"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 18,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-048ec06e28",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.6.1",
+      "fragment_id": "a70db22843405bba2611c75e",
+      "title": "排水工程中的厂站不应设置在不良地质地段和洪水淹没",
+      "query": "排水工程中的厂站不应设置在不良地质地段和洪水淹没",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.6.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 14,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-3b9a43cc88",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.8",
+      "fragment_id": "3c375a4068b81dd2269bd11c",
+      "title": "",
+      "query": "大口井的深度不宜大千 | | 15m。 大口井的直径应根据设计",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.8"
+      ],
+      "audit_labels": [
+        "table_fragment",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 61,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-c019b29a13",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.4",
+      "fragment_id": "9bd862d6aa8aab3acd6e7f13",
+      "title": "工业园区的污、废水应优先考虑单独收集、处理，并应达标",
+      "query": "工业园区的污、废水应优先考虑单独收集、处理，并应达标",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.4"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 19,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-82dee73faa",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.6.2",
+      "fragment_id": "0a1d737d15c608418185db2a",
+      "title": "排水工程中厂站的抗震和防洪设防标准不应低千所在城",
+      "query": "排水工程中厂站的抗震和防洪设防标准不应低千所在城",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.6.2"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 15,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-7966627ed8",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.11",
+      "fragment_id": "048f0451bbbd9e7816de53b3",
+      "title": "",
+      "query": "大口井井壁进水孔的反滤层可分两层填充，滤料粒径的",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.11"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 63,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-db26c22e2c",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.5",
+      "fragment_id": "173379bada4faa8cbd1fe107",
+      "title": "污水系统设计应有防止外来水进入的措施。",
+      "query": "污水系统设计应有防止外来水进入的措施",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.5"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 20,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-afc9e5b140",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.6.3",
+      "fragment_id": "6cada785b21e20c20cf3003e",
+      "title": "排水管渠出水口应根据受纳水体顶托发生的概率、地区",
+      "query": "排水管渠出水口应根据受纳水体顶托发生的概率、地区",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.6.3"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 16,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-8228ef671d",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.12",
+      "fragment_id": "f2979f22e001602145b6ffe0",
+      "title": "无砂混凝土大口井适用于中、粗砂及砾石含水层时，井壁",
+      "query": "无砂混凝土大口井适用于中、粗砂及砾石含水层时，井壁",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.12"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 64,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-43f3ae75ae",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.6",
+      "fragment_id": "d6ab62742872cbf3f92b695e",
+      "title": "城镇已建有污水收集和集中处理设施时，分流制排水系统",
+      "query": "城镇已建有污水收集和集中处理设施时，分流制排水系统",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.6"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 21,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-665a2ebf4f",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "3.6.5",
+      "fragment_id": "7f5f9dcea7ba4fa0fbeb0a9e",
+      "title": "排水管渠系统中，在排水泵站和倒虹管前，应设置事故",
+      "query": "排水管渠系统中，在排水泵站和倒虹管前，应设置事故",
+      "candidate_gold_articles": [
+        "GB50318-2017 3.6.5"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 17,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-f4136ce27e",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.14",
+      "fragment_id": "3a72b1034e3d84b8eefed42d",
+      "title": "渗渠的规模和布置应保证在检修时仍能满足取水要求。",
+      "query": "渗渠的规模和布置应保证在检修时仍能满足取水要求",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.14"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 65,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-97d0d001c5",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.7",
+      "fragment_id": "fe0244f83628dbbb17e9234d",
+      "title": "污水处理应根据国家现行相关排放标准、污水水质特征、",
+      "query": "污水处理应根据国家现行相关排放标准、污水水质特征、",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.7"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 22,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-3c9c34deb8",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.1.1",
+      "fragment_id": "6b0efd099e8bfb79d691796e",
+      "title": "城市污水分区与系统布局应根据城市的规模、用地规划",
+      "query": "城市污水分区与系统布局应根据城市的规模、用地规划",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.1.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 18,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-d48357a3c8",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.15",
+      "fragment_id": "23dc8226d0a7120a91a3aed0",
+      "title": "渗渠中管渠的断面尺寸应按下列规定计算确定：",
+      "query": "渗渠中管渠的断面尺寸应按下列规定计算确定：",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.15"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 66,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-17e396f2aa",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.8",
+      "fragment_id": "50758304d5e586bfd68d2c51",
+      "title": "污水处理中排放的污水、污泥、臭气和噪声应符合国家现",
+      "query": "污水处理中排放的污水、污泥、臭气和噪声应符合国家现",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.8"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 23,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-326b62ecc5",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.1.2",
+      "fragment_id": "98d3b8b6c41df79d9af4e322",
+      "title": "城市污水处理厂可按设集中、分散或集中与分散相结合的",
+      "query": "城市污水处理厂可按设集中、分散或集中与分散相结合的",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.1.2"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 19,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-30d666ff1a",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.16",
+      "fragment_id": "fd448c6bf25bb03c2d58c5af",
+      "title": "水流通过渗渠孔眼的流速不应大千 0. Olm/s。",
+      "query": "水流通过渗渠孔眼的流速不应大千 0. Olm/s",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.16"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 67,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-7fa04af618",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.9",
+      "fragment_id": "5c702d65e6bd275aa0e3acb9",
+      "title": "再生水处理目标应根据国家现行标准和再生水规划确定。",
+      "query": "再生水处理目标应根据国家现行标准和再生水规划确定",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.9"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 24,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-a926fd9a4b",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.1.4",
+      "fragment_id": "1d5a3ade4723d92e8b805a61",
+      "title": "污水城收集系统应根据地形地势览进行布置，降低管道埋深。",
+      "query": "污水城收集系统应根据地形地势览进行布置，降低管道埋深",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.1.4"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 20,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-37c26b6364",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.17",
+      "fragment_id": "9655c0366d785f59a13ae20c",
+      "title": "渗渠外侧应做反滤层，层数、厚度和滤料粒径的计算应符",
+      "query": "渗渠外侧应做反滤层，层数、厚度和滤料粒径的计算应符",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.17"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 68,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-3916c9df27",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.10",
+      "fragment_id": "93d1aad3be12c02cd1953e05",
+      "title": "城镇污水厂应同步建设污泥处理处置设施，并应进行减",
+      "query": "城镇污水厂应同步建设污泥处理处置设施，并应进行减",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.10"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 25,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-84dadbf73f",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.2.3",
+      "fragment_id": "8f168edd9251f1e975ab2643",
+      "title": "各类污水排放 系数应根据城市历年供水散和污水胜资料",
+      "query": "各类污水排放 系数应根据城市历年供水散和污水胜资料",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.2.3"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 21,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-99690654a1",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.18",
+      "fragment_id": "8c6d2645d1e3e14f466a0105",
+      "title": "集取河道表流渗透水的渗渠阻塞系数应根据进水水质并",
+      "query": "集取河道表流渗透水的渗渠阻塞系数应根据进水水质并",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.18"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 69,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-051c7b08a8",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "3.3.11",
+      "fragment_id": "2a7ecbd8713e7b3bdcf38435",
+      "title": "排水工程设计应妥善处理污水与再生水处理及污泥处理",
+      "query": "排水工程设计应妥善处理污水与再生水处理及污泥处理",
+      "candidate_gold_articles": [
+        "GB50014-2021 3.3.11"
+      ],
+      "audit_labels": [
+        "table_fragment",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 26,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-a61c173f0a",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.3.1",
+      "fragment_id": "f03b7c8b9f1c62e61db46c99",
+      "title": "污水泵站规模应根据服务范围内远期最高日最高时污水",
+      "query": "污水泵站规模应根据服务范围内远期最高日最高时污水",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.3.1"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 22,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-35115f5f38",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.20",
+      "fragment_id": "225f8fadf5cce34b8eaa3cee",
+      "title": "渗渠的端部、转角和断面变换处应设置检查井。直线部",
+      "query": "渗渠的端部、转角和断面变换处应设置检查井。直线部",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.20"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 70,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-fa8c0542e3",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "4.1.2",
+      "fragment_id": "5bd7126c117e7949c12ced1f",
+      "title": "",
+      "query": "当降雨量小于规划确定的年径流总量控制率所对应的降",
+      "candidate_gold_articles": [
+        "GB50014-2021 4.1.2"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 27,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-3109d5fc00",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.3.3",
+      "fragment_id": "c7c384fad55566d9ec35fb0f",
+      "title": "污水泵站规划用地面积应根据泵站的建设规模确定，规",
+      "query": "污水泵站规划用地面积应根据泵站的建设规模确定，规",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.3.3"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 23,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-f346fda679",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.21",
+      "fragment_id": "1fae3fa02ec862378e162a27",
+      "title": "检查井宜采用钢筋混凝土结构，宽度宜为 lm~2m,井底",
+      "query": "检查井宜采用钢筋混凝土结构，宽度宜为 lm~2m,井底",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.21"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 71,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-6bafb30da0",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "4.1.4",
+      "fragment_id": "4766aad91eb6f0e38d106baf",
+      "title": "排滂除险设施的设计水量应根据内滞防治设计重现期及",
+      "query": "排滂除险设施的设计水量应根据内滞防治设计重现期及",
+      "candidate_gold_articles": [
+        "GB50014-2021 4.1.4"
+      ],
+      "audit_labels": [
+        "table_fragment",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 28,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-169ce716ee",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.4.1",
+      "fragment_id": "f002c3c5722ab0244f241252",
+      "title": "城市污水处理厂的规模应按规划远期污水橄和需接纳的",
+      "query": "城市污水处理厂的规模应按规划远期污水橄和需接纳的",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.4.1"
+      ],
+      "audit_labels": [
+        "normal_article"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 24,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-191d732a73",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.22",
+      "fragment_id": "2fc4780d6ac30899d35017f3",
+      "title": "地面式检查井应安装封闭式井盖，井顶应高出地面",
+      "query": "地面式检查井应安装封闭式井盖，井顶应高出地面",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.22"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 72,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-33f73cdcd0",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50014-2021",
+      "article": "4.1.5",
+      "fragment_id": "57b7ed02872caf90b5acc103",
+      "title": "",
+      "query": "的规定。人口密集、内滂易发、特别重要且经济条件较好的",
+      "candidate_gold_articles": [
+        "GB50014-2021 4.1.5"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50014-2021.jsonl",
+      "source_line": 29,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-fde8548f32",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50318-2017",
+      "article": "4.4.6",
+      "fragment_id": "9a0f277cf5bca503fd186198",
+      "title": "城市污水的处理程度应根据进厂污水的水质、水量和处",
+      "query": "城市污水的处理程度应根据进厂污水的水质、水量和处",
+      "candidate_gold_articles": [
+        "GB50318-2017 4.4.6"
+      ],
+      "audit_labels": [
+        "table_fragment"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50318-2017.jsonl",
+      "source_line": 26,
+      "notes": "自动生成候选，待人工审核后固化。"
+    },
+    {
+      "id": "cand-49faed1557",
+      "status": "candidate",
+      "is_candidate": true,
+      "spec_id": "GB50013-2018",
+      "article": "5.2.23",
+      "fragment_id": "ac8b5f10a849d6c650540d74",
+      "title": "渗渠出水量较大时，集水井宜分成两格，进水管人口处应",
+      "query": "渗渠出水量较大时，集水井宜分成两格，进水管人口处应",
+      "candidate_gold_articles": [
+        "GB50013-2018 5.2.23"
+      ],
+      "audit_labels": [
+        "normal_article",
+        "duplicate_article_variant"
+      ],
+      "source_file": "/Users/yaerken/Desktop/给排水agent/knowledge/clauses/GB50013-2018.jsonl",
+      "source_line": 73,
+      "notes": "自动生成候选，待人工审核后固化。"
+    }
+  ]
+}

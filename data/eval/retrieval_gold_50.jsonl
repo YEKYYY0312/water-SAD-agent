@@ -1,0 +1,10 @@
+{"id":"rag-001","query":"请替换为人工标注问题 001","gold_articles_any":["GB50014-2021 4.4.2"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-002","query":"请替换为人工标注问题 002","gold_articles_any":["GB50014-2021 4.4.3"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-003","query":"请替换为人工标注问题 003","gold_articles_any":["GB50013-2018 3.2.1"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-004","query":"请替换为人工标注问题 004","gold_articles_any":["GB50318-2017 5.1.1"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-005","query":"请替换为人工标注问题 005","gold_articles_any":["GB50014-2021 4.4.4"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-006","query":"请替换为人工标注问题 006","gold_articles_any":["GB50013-2018 3.2.2"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-007","query":"请替换为人工标注问题 007","gold_articles_any":["GB50318-2017 5.1.2"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-008","query":"请替换为人工标注问题 008","gold_articles_any":["GB50014-2021 4.5.1"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-009","query":"请替换为人工标注问题 009","gold_articles_any":["GB50013-2018 3.3.1"],"notes":"人工确认后替换 query 与 gold_articles_any"}
+{"id":"rag-010","query":"请替换为人工标注问题 010","gold_articles_any":["GB50318-2017 5.2.1"],"notes":"人工确认后替换 query 与 gold_articles_any"}
