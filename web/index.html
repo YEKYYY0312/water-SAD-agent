@@ -1,8 +1,10 @@
+<!-- 该文件为前端静态原型/设计稿，内含前端占位计算（vel()）与占位条文，仅做演示，严禁接入正式产品；
+正式前端见 docs/design/05-frontend.md 与 web/overview.md 第 8 节 -->
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="zh-CN" data-theme="dark" data-page-node-id="0oyc6nusLGGovBG8xZieJJ">
+<head data-page-node-id="lzWcWz2DbX3Po9rfz6jBm5">
+<meta charset="utf-8" data-page-node-id="yEr3FyK22Al9V7mLCK9REY">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="T6xwOx971VIBSYrPS48Ci3">
 <title>water-agent · 给排水 Agent 工作台</title>
 <style>
 /* ===================== 设计令牌 ===================== */
@@ -42,6 +44,7 @@ body{
 }
 button,input,textarea,select{font:inherit;color:inherit}
 button{background:none;border:none;cursor:pointer}
+[hidden]{display:none!important}
 .mono{font-family:var(--mono)}
 ::selection{background:var(--sel)}
 :focus-visible{outline:1px solid var(--acc);outline-offset:1px}
@@ -330,6 +333,7 @@ button{background:none;border:none;cursor:pointer}
 .act:hover{background:var(--bg-3);color:var(--fg-1)}
 .act[aria-pressed="true"]{color:var(--acc);background:var(--acc-bg)}
 .act svg{width:12px;height:12px}
+.flip{transform:scaleY(-1)}
 
 /* 输入区 */
 .composer{max-width:880px;margin:0 auto;width:100%;padding:6px 20px 10px}
@@ -499,192 +503,192 @@ button{background:none;border:none;cursor:pointer}
 }
 </style>
 </head>
-<body>
-<div class="app">
+<body data-page-node-id="JtsvSl4mlrYhIzH9nkGXhn">
+<div class="app" data-page-node-id="1vr3I1IAAiuTFuSApClYqM">
   <!-- ==================== 顶栏 ==================== -->
-  <header class="top">
-    <button class="ibtn" id="btnMenu" aria-label="切换侧边栏" style="display:none"></button>
-    <div class="brand" id="btnBrand" title="water-agent">
-      <div class="mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2c3.4 3.9 5.5 6.9 5.5 9.6A5.5 5.5 0 0 1 6.5 12.8c0-2.7 2.1-5.7 5.5-9.6Z"/><path d="M9.6 13.5a2.4 2.4 0 0 0 2.4 2.4"/></svg>
+  <header class="top" data-page-node-id="hAIZsqGopZg0VrWSCPgJKp">
+    <button class="ibtn" id="btnMenu" aria-label="切换侧边栏" style="display:none" data-page-node-id="zPbl3c4J9CICmUc4F4xZGR"></button>
+    <div class="brand" id="btnBrand" title="water-agent" data-page-node-id="qaYRJZud4jblABsspZBtUR">
+      <div class="mark" data-page-node-id="BLio8V7RHrrcNuvFIyOGGl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="CK5tqKFoWv4Ybtf6PRwIWH"><path d="M12 3.2c3.4 3.9 5.5 6.9 5.5 9.6A5.5 5.5 0 0 1 6.5 12.8c0-2.7 2.1-5.7 5.5-9.6Z" data-page-node-id="BxfFVRHYIF8wE8GLPktCdo"/><path d="M9.6 13.5a2.4 2.4 0 0 0 2.4 2.4" data-page-node-id="TYPN0OcvhdmubVWzxZhFkY"/></svg>
       </div>
-      <div class="brand-txt"><b>water-agent</b> <span>v0.4</span></div>
+      <div class="brand-txt" data-page-node-id="zgtfifKLjtlEyRZbSWSbXh"><b data-page-node-id="DxScOwzadBO2a6oXC2Kreh">water-agent</b> <span data-page-node-id="i8DhM8sgAqpUx1vJQ1fvqy">v0.4</span></div>
     </div>
-    <div class="vsep"></div>
-    <div class="crumb">
-      <span class="b">WS</span>
-      <span class="p">~/Desktop/给排水agent</span>
-      <span class="tag ok" id="permTag">工作区可写</span>
+    <div class="vsep" data-page-node-id="N7MfUQVqxi8Xfu58TtNuSA"></div>
+    <div class="crumb" data-page-node-id="hVYaWxiv1hV1GfEAI9pRy5">
+      <span class="b" data-page-node-id="H0GBOAOrioPApDPYYdDuFj">WS</span>
+      <span class="p" data-page-node-id="D53sEwXxXNNnkiCce7iFci">~/Desktop/给排水agent</span>
+      <span class="tag ok" id="permTag" data-page-node-id="uvkL5QGmKJx53mXjChmTOr">工作区可写</span>
     </div>
-    <div class="top-sp"></div>
-    <label class="sel-wrap" title="运行模式">
-      <select class="sel" id="selMode" aria-label="运行模式">
-        <option>标准模式</option><option>PTC 模式</option><option>极简模式</option><option>创造模式</option>
+    <div class="top-sp" data-page-node-id="2LbuqPXb5ewwtjgmm99CPc"></div>
+    <label class="sel-wrap" title="运行模式" data-page-node-id="jcHbLuUSVOBkf6I62hp6Fk">
+      <select class="sel" id="selMode" aria-label="运行模式" data-page-node-id="PeyGk03NomDFaTbtW1t4IX">
+        <option data-page-node-id="gW4P5dwFPWTNbW9jSD3eGa">标准模式</option><option data-page-node-id="c9ZUq0m6aXxQXNT12rBBCQ">PTC 模式</option><option data-page-node-id="xsnDWvMH7yKqJxEwCVLUJ0">极简模式</option><option data-page-node-id="wC36z9QXuSMaJIbBnSSekn">创造模式</option>
       </select>
     </label>
-    <label class="sel-wrap" id="permWrap" title="权限策略">
-      <select class="sel" id="selPerm" aria-label="权限策略">
-        <option>工作区可写</option><option>只读</option><option>完全访问</option>
+    <label class="sel-wrap" id="permWrap" title="权限策略" data-page-node-id="wG0vE7FjlwUT9Ol5dIQyG3">
+      <select class="sel" id="selPerm" aria-label="权限策略" data-page-node-id="7egu5AEwgRTRwaiBCBqvqr">
+        <option data-page-node-id="xR9SF9Aktr17K4no1t2XKq">工作区可写</option><option data-page-node-id="jJ5f0O2TxAewBWs3oH5nPD">只读</option><option data-page-node-id="g1LDfvJ0C2XMFzFZaFnT8A">完全访问</option>
       </select>
     </label>
-    <span class="chipx"><span class="dot" style="color:var(--ok)"></span>deepseek-chat</span>
-    <button class="chipx" id="btnCmdk" title="命令面板">⌘K</button>
-    <button class="ibtn" id="btnTheme" aria-label="切换主题"></button>
-    <button class="ibtn" id="btnInsp" aria-label="切换右侧面板"></button>
-    <button class="ibtn" aria-label="设置"></button>
+    <span class="chipx" data-page-node-id="FCgjgqAm8Cu94qWIuVTHJl"><span class="dot" style="color:var(--ok)" data-page-node-id="N7FU67zI7vDR3tIR8ErVOM"></span>deepseek-chat</span>
+    <button class="chipx" id="btnCmdk" title="命令面板" data-page-node-id="BVUncJLDbYWYJGkehkWxLm">⌘K</button>
+    <button class="ibtn" id="btnTheme" aria-label="切换主题" data-page-node-id="fpmtOr8mLEsA9P4QeAcK5Z"></button>
+    <button class="ibtn" id="btnInsp" aria-label="切换右侧面板" data-page-node-id="nB5BkakG60GGvLuGeMLfQs"></button>
+    <button class="ibtn" aria-label="设置" data-page-node-id="DpvE3p7UDSJdHaLoKVAoXw"></button>
   </header>
 
-  <div class="work" id="work">
+  <div class="work" id="work" data-page-node-id="gckeovGgcInd4bTqNa2J8U">
     <!-- ==================== 左栏 ==================== -->
-    <aside class="side" id="side">
-      <div class="segtab" role="tablist">
-        <button role="tab" aria-selected="true" data-lp="files">files</button>
-        <button role="tab" aria-selected="false" data-lp="sess">sessions</button>
+    <aside class="side" id="side" data-page-node-id="83hsEVloH8sfaEQwMFIw86">
+      <div class="segtab" role="tablist" data-page-node-id="OlcF0n75MvbSbV724pbHVz">
+        <button role="tab" aria-selected="true" data-lp="files" data-page-node-id="2JrVpFsPPn9ZbSHD0jGx8a">files</button>
+        <button role="tab" aria-selected="false" data-lp="sess" data-page-node-id="W1b2PFC8Hyah2IPepmVqa0">sessions</button>
       </div>
-      <div class="side-body">
-        <div class="pane on" id="lp-files">
-          <button class="newbtn" id="btnNew"><span>+</span> new session</button>
-          <div>
-            <div class="kicker">workspace</div>
-            <div class="tree" id="tree" style="margin-top:7px"></div>
+      <div class="side-body" data-page-node-id="zXqdEXZGfTpfB3hTruF7Af">
+        <div class="pane on" id="lp-files" data-page-node-id="tvptYT7ZOhLNicGZvG1IGU">
+          <button class="newbtn" id="btnNew" data-page-node-id="AfAASKh6ukRWSd2siKnBEx"><span data-page-node-id="qnl0qFBnTtdd7uyNL6dNyd">+</span> new session</button>
+          <div data-page-node-id="sqyZBeAfwGTItrFglziuND">
+            <div class="kicker" data-page-node-id="B4lZ8V7wexYSv6DjQ5Hq41">workspace</div>
+            <div class="tree" id="tree" style="margin-top:7px" data-page-node-id="5agFPEPniCACbDkiEEzadB"></div>
           </div>
         </div>
-        <div class="pane" id="lp-sess">
-          <button class="newbtn" id="btnNew2"><span>+</span> new session</button>
-          <div>
-            <div class="kicker">今天</div>
-            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessToday"></div>
+        <div class="pane" id="lp-sess" data-page-node-id="1XdUGT1N3bA6Vdi4kOvOum">
+          <button class="newbtn" id="btnNew2" data-page-node-id="VsAKFMDeLIMBP95UVHZ8eU"><span data-page-node-id="iEapAidUoRPbG3HSF4Tbhr">+</span> new session</button>
+          <div data-page-node-id="vq3YHagV5V82HMAkqEcQ57">
+            <div class="kicker" data-page-node-id="OFkDeSV8SNsHBhVS7MCoz3">今天</div>
+            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessToday" data-page-node-id="6LdsB4OkOOvQHic0vzuSBX"></div>
           </div>
-          <div>
-            <div class="kicker">最近 7 天</div>
-            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessWeek"></div>
+          <div data-page-node-id="jgdDQT0ltzbCIlTqsMJhEz">
+            <div class="kicker" data-page-node-id="xLDBCT9Qva05NYr9dP9mPC">最近 7 天</div>
+            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessWeek" data-page-node-id="RdG7KrGnByAUcm0SvtfA7X"></div>
           </div>
         </div>
       </div>
-      <div class="side-foot">
-        <div class="r"><span>corpus</span><b>12,483 条</b></div>
-        <div class="r"><span>specs</span><b>4 册 · 现行</b></div>
-        <div class="r"><span>index</span><b>qwen3.7 · 512</b></div>
+      <div class="side-foot" data-page-node-id="6W0GtliXi2joqFw9PEWESx">
+        <div class="r" data-page-node-id="EjAWILEg8n69M3h4tZlTjL"><span data-page-node-id="dovNugMf0zbzwjcv93umgR">corpus</span><b data-page-node-id="KpZUhbEpe7hsdQtEWOjROa">12,483 条</b></div>
+        <div class="r" data-page-node-id="HCtyNHoJppeAIRtUTvZazx"><span data-page-node-id="MJhevcc3mkFEbPZ7waaKR7">specs</span><b data-page-node-id="Wzt92E7kSSbqqoMljwLWlV">4 册 · 现行</b></div>
+        <div class="r" data-page-node-id="BU7oRLrVob1PJm0XGyhsuh"><span data-page-node-id="wYb2Md7uLuVO2ncq6qZ8Mp">index</span><b data-page-node-id="NjEcnGZFCDcv5UAfGQhx4V">qwen3.7 · 512</b></div>
       </div>
     </aside>
 
     <!-- ==================== 中栏 ==================== -->
-    <main class="main">
-      <div class="chat-head">
-        <span class="tag acc mono" id="hIntent">calc</span>
-        <h1 id="hTitle">高层住宅给水立管水力计算</h1>
-        <span class="tag mono">thread_8f2c1</span>
-        <span class="tag mono">trace 4d1b…9ac</span>
-        <div class="top-sp"></div>
-        <button class="hbtn" id="btnTrace"></button>
-        <button class="hbtn">导出计算书</button>
+    <main class="main" data-page-node-id="aDXlLu5EGQXTValDR0hHAM">
+      <div class="chat-head" data-page-node-id="GyoVFCQlNEVip5dD1vv8hY">
+        <span class="tag acc mono" id="hIntent" data-page-node-id="1gSJr3bya8dsD3StZXBYmW">calc</span>
+        <h1 id="hTitle" data-page-node-id="wy1yEMfBVhmJS7ljdtAT1O">高层住宅给水立管水力计算</h1>
+        <span class="tag mono" data-page-node-id="jzld4nUuaXCO9VHvp6GEKn">thread_8f2c1</span>
+        <span class="tag mono" data-page-node-id="ElA2QWFIzwjjuib62Vk5aE">trace 4d1b…9ac</span>
+        <div class="top-sp" data-page-node-id="wolEQbotxkgFtZqxHbPpNh"></div>
+        <button class="hbtn" id="btnTrace" data-page-node-id="O8IRHKAqWqv9mImDrvckWw"></button>
+        <button class="hbtn" data-page-node-id="iwas3IuIYiCzEFriTLwHAF">导出计算书</button>
       </div>
 
-      <div class="scroll" id="scroll">
-        <div class="stream" id="stream" role="log" aria-live="polite" aria-label="对话记录"></div>
+      <div class="scroll" id="scroll" data-page-node-id="g4aDYJ8xZrnzkBfDxtXvZ4">
+        <div class="stream" id="stream" role="log" aria-live="polite" aria-label="对话记录" data-page-node-id="aN8bROW7cQj5eXXoDJO3E1"></div>
       </div>
 
-      <div class="composer">
-        <div class="pbox" id="drop">
-          <div class="atts" id="atts" hidden></div>
-          <div class="pr">
-            <span class="ps1">❯</span>
+      <div class="composer" data-page-node-id="xQTeKqyfamB4uVtdX6MLnm">
+        <div class="pbox" id="drop" data-page-node-id="sEFQ7EZDOpvuDclFST9W39">
+          <div class="atts" id="atts" hidden data-page-node-id="CCj3YxFm8ntYWPrJZgr94m"></div>
+          <div class="pr" data-page-node-id="BVBmT9A6zTiBhBQEvKl5Av">
+            <span class="ps1" data-page-node-id="KfA8sJ8i4Fz8ymV36sgWsc">❯</span>
             <textarea id="input" rows="1" placeholder="描述工况或提问 —— 例如：DN150 立管，流量 20 L/s，求流速并校核" aria-label="输入消息"></textarea>
           </div>
-          <div class="pbar">
-            <button class="ibtn" id="btnAtt" aria-label="附加文件"></button>
-            <button class="ibtn" id="btnAt" aria-label="引用工作区文件"></button>
-            <button class="ibtn" aria-label="填入计算参数"></button>
-            <div class="r">
-              <span class="mono" style="font-size:10.5px;color:var(--fg-3)" id="cnt">0 / 2000</span>
-              <button class="send" id="btnSend" disabled>send ↵</button>
+          <div class="pbar" data-page-node-id="TEpoL7qoCZqwYjWnKoaBbk">
+            <button class="ibtn" id="btnAtt" aria-label="附加文件" data-page-node-id="7xlyzGffXczwmRJUWvfntL"></button>
+            <button class="ibtn" id="btnAt" aria-label="引用工作区文件" data-page-node-id="RCfC5i5y4S5j5Sd9dnRxUe"></button>
+            <button class="ibtn" aria-label="填入计算参数" data-page-node-id="4obtACWRMYIpuC92VEIBZm"></button>
+            <div class="r" data-page-node-id="SYTzdReFLxATOzTd3vhKNP">
+              <span class="mono" style="font-size:10.5px;color:var(--fg-3)" id="cnt" data-page-node-id="wy5uILzv8H84KsMEk3iECX">0 / 2000</span>
+              <button class="send" id="btnSend" disabled data-page-node-id="1g0kDY6xLZEwmDU1uG0j2p">send ↵</button>
             </div>
           </div>
         </div>
-        <div class="hints">
-          <span><span class="kbd">↵</span> 发送</span>
-          <span><span class="kbd">⇧↵</span> 换行</span>
-          <span><span class="kbd">⌘K</span> 命令面板</span>
-          <span>可拖入 PDF / DWG / Excel</span>
-          <div class="top-sp"></div>
-          <span id="hintSpec">spec: GB50015-2019</span>
+        <div class="hints" data-page-node-id="6Xjnaa327GKpOpCsSIFFpf">
+          <span data-page-node-id="OMN0tigIE5cL0cRa8hs7i3"><span class="kbd" data-page-node-id="lV5Q5VXcOkzZZX6Eb0AvSv">↵</span> 发送</span>
+          <span data-page-node-id="KBgcGGP6ZF3HjkgRwCBkjM"><span class="kbd" data-page-node-id="yJDpCae8w560BPGJORy2yv">⇧↵</span> 换行</span>
+          <span data-page-node-id="am757QsdTmGono4OOPjhzD"><span class="kbd" data-page-node-id="jyZyzxzbxjLAvc8ONjEBpF">⌘K</span> 命令面板</span>
+          <span data-page-node-id="L7nY6yEnpTM65ZJfHCKDqZ">可拖入 PDF / DWG / Excel</span>
+          <div class="top-sp" data-page-node-id="ktYbkhlril2OKMHgylIb94"></div>
+          <span id="hintSpec" data-page-node-id="PP0JTyElRqGhJyeIVdFQf5">spec: GB50015-2019</span>
         </div>
-        <div class="sugs" id="sugs"></div>
+        <div class="sugs" id="sugs" data-page-node-id="xIobSmgO8TRsELBeV85oAC"></div>
       </div>
     </main>
 
     <!-- ==================== 右栏 ==================== -->
-    <aside class="insp" id="insp" aria-label="右侧面板">
-      <div class="insp-h">
-        <span class="t" id="inspTitle">inspector</span>
-        <div class="top-sp"></div>
-        <button class="ibtn" id="btnInspX" aria-label="收起面板"></button>
+    <aside class="insp" id="insp" aria-label="右侧面板" data-page-node-id="sCyathnUVf5piRMyTZWnGj">
+      <div class="insp-h" data-page-node-id="1QTlh8KNmB8DP1byShw4bb">
+        <span class="t" id="inspTitle" data-page-node-id="HnLpMw0RNHceHBizh6Cqhj">inspector</span>
+        <div class="top-sp" data-page-node-id="tKr0fKlLn4JEGr6d2UMogT"></div>
+        <button class="ibtn" id="btnInspX" aria-label="收起面板" data-page-node-id="C7lifGQ6yVCCq2cSNLzh4i"></button>
       </div>
-      <div class="tabs" role="tablist">
-        <button class="tab" role="tab" aria-selected="true" data-ip="tools">工具<span class="c" id="cTools">7</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-ip="refs">引用<span class="c" id="cRefs">2</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-ip="calc">计算<span class="c" id="cCalc">2</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-ip="trace">trace<span class="c" id="cTrace">12</span></button>
-        <button class="tab" role="tab" aria-selected="false" data-ip="prev">预览</button>
+      <div class="tabs" role="tablist" data-page-node-id="39zjEPltBGDHtG2wkGl0Fw">
+        <button class="tab" role="tab" aria-selected="true" data-ip="tools" data-page-node-id="bxcfxAnbnkeaPCHlJR1rTl">工具<span class="c" id="cTools" data-page-node-id="pGbBaB0Vqa2o44hx6KvpBk">7</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="refs" data-page-node-id="E8WJ6dnwchJDBqc4hVYe3l">引用<span class="c" id="cRefs" data-page-node-id="2EHosvyrBO9jM2A98NdAJM">2</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="calc" data-page-node-id="J4oj8F6gI9ARPD2JG19nPD">计算<span class="c" id="cCalc" data-page-node-id="glA7DS3aayJo6s0Eu6Zfyy">2</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="trace" data-page-node-id="QDv0Bx9rhuzpkTY8uQMOpR">trace<span class="c" id="cTrace" data-page-node-id="TI5ORqq5gsCdYxKepzQ1Mx">12</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="prev" data-page-node-id="FFObXJMVCv7axSsg9J5y6L">预览</button>
       </div>
-      <div class="insp-b">
-        <div class="ip on" id="ip-tools">
-          <div class="card">
-            <div class="k">本轮执行<span class="r">1.42 s</span></div>
-            <div class="b mono" style="display:flex;flex-direction:column;gap:3px">
-              <div style="display:flex"><span style="color:var(--fg-2)">工具调用</span><span style="margin-left:auto;color:var(--fg)">7 次</span></div>
-              <div style="display:flex"><span style="color:var(--fg-2)">回环</span><span style="margin-left:auto;color:var(--warn)">1 次</span></div>
-              <div style="display:flex"><span style="color:var(--fg-2)">结果</span><span style="margin-left:auto;color:var(--ok)">全部成功</span></div>
+      <div class="insp-b" data-page-node-id="LMSp3mRrO4IhwHWDpTVA5f">
+        <div class="ip on" id="ip-tools" data-page-node-id="Pr3p3uzlOfg29rW9rEPayk">
+          <div class="card" data-page-node-id="q3X3KIm9ipmEGToM1djLZd">
+            <div class="k" data-page-node-id="3LrzWrKqd7pJev59z7yE2z">本轮执行<span class="r" data-page-node-id="twoiOMY64FiDdqBk5FHGD6">1.42 s</span></div>
+            <div class="b mono" style="display:flex;flex-direction:column;gap:3px" data-page-node-id="JmvW9z6As4gS63R51qU7g6">
+              <div style="display:flex" data-page-node-id="t9TBfiTivsD1bWSABdglLa"><span style="color:var(--fg-2)" data-page-node-id="Eda8yHLhx8SZzfsRy3Jq5G">工具调用</span><span style="margin-left:auto;color:var(--fg)" data-page-node-id="7ukgUNwXv383HZynQDCRUA">7 次</span></div>
+              <div style="display:flex" data-page-node-id="Grbs26tfYu1AezB5LyZTaQ"><span style="color:var(--fg-2)" data-page-node-id="m6Rmbzl5eBkhugXT2c3KVV">回环</span><span style="margin-left:auto;color:var(--warn)" data-page-node-id="CDqgVyiie7o856xqLLh9yO">1 次</span></div>
+              <div style="display:flex" data-page-node-id="D491762U6qXG85tNKsSsIN"><span style="color:var(--fg-2)" data-page-node-id="JAzi8VyW4wpEDaZtMiTIFN">结果</span><span style="margin-left:auto;color:var(--ok)" data-page-node-id="UOHAo3fhPXnYYPVBAJOExJ">全部成功</span></div>
             </div>
           </div>
-          <div class="kicker">timeline</div>
-          <div class="tl" id="tlTools"></div>
+          <div class="kicker" data-page-node-id="c9KWfs9YAVXVekxESquckx">timeline</div>
+          <div class="tl" id="tlTools" data-page-node-id="7NL9hGv0nr6QF3V2ugiuKa"></div>
         </div>
-        <div class="ip" id="ip-refs">
-          <div class="note"><span style="color:var(--ok)">✓</span>引用经存在性校验，未命中语料的条款不会输出</div>
-          <div id="refsPanel" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="ip" id="ip-refs" data-page-node-id="ijGE5SV9jfl0HpAlQpzQM2">
+          <div class="note" data-page-node-id="IoRFnfp4uIqKyiawaaY8IG"><span style="color:var(--ok)" data-page-node-id="VV7Rm8OcCpN7UIrydvVpI7">✓</span>引用经存在性校验，未命中语料的条款不会输出</div>
+          <div id="refsPanel" style="display:flex;flex-direction:column;gap:8px" data-page-node-id="nMg87pq00Y9GTTz9yq98YJ"></div>
         </div>
-        <div class="ip" id="ip-calc">
-          <div class="note"><span style="color:var(--cyan)">ƒ</span>数值由程序化内核计算，模型不参与运算</div>
-          <div id="calcPanel" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div class="ip" id="ip-calc" data-page-node-id="TpZktVPaf3mtRmQcwRLCxI">
+          <div class="note" data-page-node-id="ZF8rrWV69uzwlkgpJqfZHR"><span style="color:var(--cyan)" data-page-node-id="Qmewqh11yU8sOdMQBGFjCq">ƒ</span>数值由程序化内核计算，模型不参与运算</div>
+          <div id="calcPanel" style="display:flex;flex-direction:column;gap:10px" data-page-node-id="14e5K1OMEFJRM2tkRBWW6J"></div>
         </div>
-        <div class="ip" id="ip-trace">
-          <div class="note"><span style="color:var(--violet)">◇</span>run 事件流 · 落盘 data/traces/</div>
-          <div class="card"><div style="padding:8px 9px" id="tracePanel"></div></div>
+        <div class="ip" id="ip-trace" data-page-node-id="YV6PzUhXSDvMKGK5cSeH3W">
+          <div class="note" data-page-node-id="PWAaKvBrlS7DfNOaAooKSY"><span style="color:var(--violet)" data-page-node-id="cT6AVQdyUYrVTqDgCMZthg">◇</span>run 事件流 · 落盘 data/traces/</div>
+          <div class="card" data-page-node-id="nJj4PVv2wpDmsmn2BJvYvJ"><div style="padding:8px 9px" id="tracePanel" data-page-node-id="xfBNlLaYYY5c0Ian8kbous"></div></div>
         </div>
-        <div class="ip" id="ip-prev">
-          <div class="empty" id="prevEmpty"><span>未选择文件</span><span style="color:var(--fg-3)">在左侧文件树点击任意文件</span></div>
-          <div id="prevBody" hidden></div>
+        <div class="ip" id="ip-prev" data-page-node-id="RwjZXoXSwiR0kba0CmCVek">
+          <div class="empty" id="prevEmpty" data-page-node-id="526pvclzL6dxjq6DsrYIgr"><span data-page-node-id="2gwA7OxBRB6xSrS4IR4QQK">未选择文件</span><span style="color:var(--fg-3)" data-page-node-id="BKrGP19oCNAM3K56AAcJel">在左侧文件树点击任意文件</span></div>
+          <div id="prevBody" hidden data-page-node-id="Ba1wIC71ATEoxz5BtHQnNp"></div>
         </div>
       </div>
     </aside>
   </div>
 
   <!-- ==================== 状态栏 ==================== -->
-  <footer class="sbar" id="sbar">
-    <span class="i"><span class="dot ok"></span><b id="sbState">ready</b></span>
-    <span class="i">~/Desktop/给排水agent</span>
-    <span class="i hide"><b>deepseek-chat</b></span>
-    <span class="i hide">ctx <b>12.4k</b>/128k</span>
-    <span class="sp"></span>
-    <span class="i hide">tok <b id="sbTok">1.4k</b></span>
-    <span class="i">tps <b id="sbTps">42</b></span>
-    <span class="i hide">GB50015-2019</span>
-    <span class="i hide">UTF-8</span>
-    <span class="i">LF</span>
+  <footer class="sbar" id="sbar" data-page-node-id="OEG0jFrX1qj3aTMAvpR0XP">
+    <span class="i" data-page-node-id="xYLVE2F2jQNer2U5PrtSPN"><span class="dot ok" data-page-node-id="dqHYHxMnpAuj8Y1BbgBXpw"></span><b id="sbState" data-page-node-id="M4JAE5CnbbgYE8yqkHTadm">ready</b></span>
+    <span class="i" data-page-node-id="ND6NtB1g88rbzwK3YoIIG9">~/Desktop/给排水agent</span>
+    <span class="i hide" data-page-node-id="PAOVSRUNvwKLfYZmTZBYrd"><b data-page-node-id="vYgAm3m3GsHz6YaDql4ToK">deepseek-chat</b></span>
+    <span class="i hide" data-page-node-id="eWy4iwqp825iqHFuc9JARc">ctx <b data-page-node-id="A18JpGUgn7TjfDGs2A6H7L">12.4k</b>/128k</span>
+    <span class="sp" data-page-node-id="S8EsBOAffxUugEZlJ3xcJv"></span>
+    <span class="i hide" data-page-node-id="mFLRv5hT2Dx4QABGQVGkwG">tok <b id="sbTok" data-page-node-id="SptE0PbDA4RPxmrpibIHL8">1.4k</b></span>
+    <span class="i" data-page-node-id="3niUcYVkUgWsZcNM3ervAP">tps <b id="sbTps" data-page-node-id="T1ZDYZtnz2aHHZONnYglx8">42</b></span>
+    <span class="i hide" data-page-node-id="XPp5mMSW1IEuuR3y9lZt9J">GB50015-2019</span>
+    <span class="i hide" data-page-node-id="Dr2oE97dU7CsJYvmFLQjE7">UTF-8</span>
+    <span class="i" data-page-node-id="6ic4w1ADYAszceOphf2Pd9">LF</span>
   </footer>
 </div>
 
-<div class="scrim" id="scrim"></div>
+<div class="scrim" id="scrim" data-page-node-id="gQyrtJOMv7lfWjsg9qbHWI"></div>
 
-<div class="cmdk" id="cmdk">
-  <div class="cmdk-box">
-    <div class="cmdk-in"><span>❯</span><input id="cmdkIn" placeholder="输入命令…" aria-label="命令面板输入"></div>
-    <div class="cmdk-list" id="cmdkList"></div>
+<div class="cmdk" id="cmdk" data-page-node-id="M2UBu2bKRZUB30xKF0UIcV">
+  <div class="cmdk-box" data-page-node-id="bXaVBbr8Fk8BlixrDlBLc2">
+    <div class="cmdk-in" data-page-node-id="OlWfuCpaAgYL1XZXBzAmTU"><span data-page-node-id="LOPGwXLSFDav6NGoNd4gGy">❯</span><input id="cmdkIn" placeholder="输入命令…" aria-label="命令面板输入" data-page-node-id="KIPyL2a6MM5EzxnVnfgbQT"></div>
+    <div class="cmdk-list" id="cmdkList" data-page-node-id="5r9VuZhbjlrJJYdFuIhAkp"></div>
   </div>
 </div>
 
-<div class="toasts" id="toasts"></div>
+<div class="toasts" id="toasts" data-page-node-id="HuVkyNhnNJDpNbAGBkPmhW"></div>
 
 <script>
 /* ==================== 图标 ==================== */
@@ -926,7 +930,7 @@ function gateBlock(g){
 function actsRow(ms, tk){
   return '<div class="acts">'+
     '<button class="act" data-fb="up">'+sv('up')+'有用</button>'+
-    '<button class="act" data-fb="dn" style="transform:scaleY(-1)">'+sv('up')+'无用</button>'+
+    '<button class="act" data-fb="dn">'+sv('up','flip')+'无用</button>'+
     '<button class="act" data-copy="1">'+sv('copy')+'复制</button>'+
     '<button class="act" data-regen="1">'+sv('refr')+'重生成</button>'+
     '<span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--fg-3);display:flex;gap:10px;align-items:center">'+
