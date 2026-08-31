@@ -1,0 +1,88 @@
+{
+  "step": "step_minus_1_baseline_preflight",
+  "generated_at": "2026-08-31T08:36:00Z",
+  "note": "Step -1 现状基线记录：所有结论均来自本机新鲜命令输出，真实服务不可达时标记 SKIP，不伪造结果。",
+  "pytest": {
+    "exit_code": 0,
+    "collected": 214,
+    "result": "full green",
+    "command": "_venv/bin/pytest -q"
+  },
+  "harness_rag_p0": {
+    "input": "data/eval/rag_p0.jsonl",
+    "total": 12,
+    "passed": 11,
+    "failed": 1,
+    "pass_rate": 0.9166666666666666,
+    "expected": "11/12：1 条为设计的 bad_citation 陷阱用例（rag-p0-0011，FAKE 0.0.0 被正确拦截，retry 达上限）",
+    "load_issues": [
+      {
+        "line_no": 13,
+        "error": "line 13: Field required",
+        "note": "rag-p0-9999 是设计好的非法用例（仅 id/type/variant），用于验证加载器异常覆盖，非脏数据"
+      }
+    ],
+    "report_path": "data/eval/reports/rag_p0_20260831T083051Z.json"
+  },
+  "retrieval_baseline": {
+    "status": "SKIP_NON_REPRODUCIBLE_THIS_SESSION",
+    "existing_report": "data/eval/reports/retrieval_matrix_20260831T060102Z.md",
+    "existing_report_finding": {
+      "all_combos": "Recall@1/5/10 与 MRR 全部 1.0000",
+      "verdict": "报告自判无效：gold 泄漏（retrieval_gold.jsonl 的 70 条 query 由源条款自动派生，query≈条文原文，必然命中源条款），不能作为 P1 检索基线",
+      "bailian_rerank": "403 AccessDenied：同一 DASHSCOPE_API_KEY 可调 embedding，无 gte-rerank 权限，需在百炼开通"
+    },
+    "this_session_attempt": {
+      "real_embedding": "失败：沙箱终端经代理隧道访问 dashscope 返回 403；直连 DNS 解析失败（nodename nor servname）",
+      "proxy_state": "HTTP(S)_PROXY=127.0.0.1:63095 被注入且隧道 403；NO_PROXY 直连无 DNS",
+      "fallback_attempt": "mock_embed 与真实索引向量空间不匹配，首条 query 即 search_hybrid returned no hits，数值无意义，不使用",
+      "action": "待网络可访问百炼后，用非泄漏 gold 重跑 evaluate_retrieval_matrix.py"
+    },
+    "next_action": "构造独立可人工验证的 gold（不同措辞/引用式/跨条款 + 负例），修复泄漏后再跑真实矩阵"
+  },
+  "real_qa_chain": {
+    "status": "SKIP",
+    "reason": "DEEPSEEK_API_KEY 未设置（env 确认），真实 LLM 问答链路无新鲜运行证据"
+  },
+  "semantic_audit_garbled_text": {
+    "source": "src/water_agent/ingestion/semantic_audit.py",
+    "status": "mostly_fixed",
+    "findings": [
+      "09-next-steps.md 所述 19 行中文乱码（policy reason / manual_decisions_required）当前文件已为正常中文",
+      "最新审计报告 data/quality/reports/20260831T061407692639_semantic_audit.json 全文扫描 0 处 '???' 乱码"
+    ],
+    "remaining_placeholder": {
+      "line": 19,
+      "code": "OCR_SYMBOL_RE = re.compile(r\"[#|]{3,}|[??]{1,}\")",
+      "note": "TODO 标注：原字符在编码事故中丢失，[??] 为占位，需人工确认真实字符集后替换；当前为正则字符类中的 ?，行为等价于匹配单个 ?，属已知技术债而非数据损坏"
+    }
+  },
+  "api_keys": {
+    "DASHSCOPE_API_KEY": "set（可调 embedding；无 gte-rerank 权限；本沙箱终端网络不可达）",
+    "DEEPSEEK_API_KEY": "not_set"
+  },
+  "git": {
+    "status": "BLOCKED_BY_SANDBOX",
+    "note": "沙箱拒绝在项目目录创建 .git（Operation not permitted）。uv.lock/AGENTS.md/pyproject 均已就绪，git init + 首次 commit 需用户在真实终端执行：git init && git add -A && git commit -m 'chore: 工程基线（git/锁/静态检查）'"
+  },
+  "step0_post_state": {
+    "generated_at": "2026-08-31T18:35:00Z",
+    "ruff": "0 errors (从 42 清零：36 自动修复 + 6 处带理由 noqa 的防御性宽捕获)",
+    "mypy": "29 errors in 12 files (Step 10 前允许，基线记录)",
+    "pytest": "214 全绿，无回退",
+    "rag_p0": "11/12 与 Step -1 基线一致",
+    "uv_lock": "已生成 (48 packages, uv 0.12.6)",
+    "AGENTS.md": "已创建 (45 行 ≤80)"
+  },
+  "step1_post_state": {
+    "generated_at": "2026-08-31T10:55:00Z",
+    "formula_table": "docs/design/09-hydraulics-formulas.md 已落地（先于代码）：7 个公式口径，含适用场景/单位/公式/系数来源/缺参/越界策略",
+    "tools": "src/water_agent/tools/hydraulics.py：velocity / head_loss_darcy_weisbach / head_loss_hazen_williams / head_loss_shevelev / diameter / slope_manning / pump_head；公式由输入显式指定，缺参→missing_inputs，越界→assumptions",
+    "eval": "data/eval/calc_p0.jsonl 22 条（17 数值 gold 独立参考计算 + 5 缺参/越界陷阱），harness 通过率 22/22 = 100%（≥95% 达标）",
+    "harness": "domain/models.py 新增 CalcCase/CalcTolerances；loader 按 type 路由；scorer 双阈值数值判分（相对+绝对）；runner 支持 type==calc programmatic 变体",
+    "tests": "新增 test_hydraulics.py（37 用例，每公式 ≥2 组独立已知答案）+ test_calc_harness.py；全量 pytest 251 全绿无回退",
+    "ruff": "0 errors",
+    "mypy": "tools 目录 0 告警（全仓 29 存量告警，Step 10 清零）"
+  },
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿、rag_p0 11/12、calc_p0 22/22、ruff 清零。Step 1 水力计算内核与程序化评测闭环完成。检索与真实问答的真实质量基线因网络/权限/Key 原因 SKIP，待条件具备后重跑，且检索 gold 需先修复泄漏。git init 需用户真实终端执行。"
+}

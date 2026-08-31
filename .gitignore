@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+_venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Cache
+.uv-cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data outputs (keep fixtures/eval source, ignore generated artifacts)
+data/traces/
+data/eval/reports/
+data/eval/traces/
+data/quality/reports/
+data/sessions/
+:memory:.lock
+:memory:.wal
+
+# TriviumDB index files (rebuildable from data/curated + scripts/build_index.py)
+*.db
+*.db-journal
+*.db.vec
+*.db.wal
+*.db.lock
+*.db.flush_ok
+data/indexes/
+
+# Curated corpus: keep source assets, ignore rebuildable report
+data/curated/build_report.json
+
+# Root clutter
+knowledge的替身*
+*.zip
+
+# IDE
+.idea/
+.vscode/
+cursor/
+*.swp
+.DS_Store
+
+# Env
+.env.local
