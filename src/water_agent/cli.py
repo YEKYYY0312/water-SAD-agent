@@ -16,6 +16,7 @@ from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
 from water_agent.generation.llm import build_llm_generator
 from water_agent.generation.mock import MockGenerator
+from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -44,6 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url", default="https://api.deepseek.com", help="LLM OpenAI 兼容 base_url")
     p.add_argument("--mock-generator", action="store_true", help="用确定性 MockGenerator 代替真实 LLM（自测链路用）")
     p.add_argument("--interactive", action="store_true", help="进入交互式问答循环（输入 exit 退出）")
+    p.add_argument(
+        "--mode",
+        choices=["auto", "calc", "legacy"],
+        default="auto",
+        help="意图路由：auto 自动识别（计算意图走 calc 子图，其余走 legacy RAG）；"
+        "calc 强制走计算子图；legacy 强制走旧 RAG 路径（默认 auto，legacy 行为不变）",
+    )
     p.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR), help="Trace 输出目录")
     p.add_argument("--json", action="store_true", help="以 JSON 输出（单次模式）")
     return p
@@ -144,7 +152,48 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
     return app, retriever, str(db_path or "")
 
 
+def run_calc_once(query: str) -> dict:
+    """走水力计算确定性子图（参数解析用规则替身，数值计算用真工具）。
+
+    计算意图的确定性入口；真实 LLM 参数理解在 Step 7 接入。
+    """
+    app = build_calc_graph()
+    state = {
+        "query": query.strip(),
+        "intent": "calc",
+        "formula": None,
+        "params": {},
+        "calc_result": None,
+        "missing_inputs": [],
+        "assumptions": [],
+        "errors": [],
+        "candidates": [],
+        "answer": "",
+        "status": "running",
+        "step_count": 0,
+    }
+    result = app.invoke(state)
+    calc_result = result.get("calc_result")
+    return {
+        "query": query,
+        "answer": result.get("answer", ""),
+        "status": result.get("status", ""),
+        "intent": "calc",
+        "formula": result.get("formula"),
+        "params": result.get("params", {}),
+        "missing_inputs": result.get("missing_inputs", []),
+        "assumptions": result.get("assumptions", []),
+        "errors": result.get("errors", []),
+        "candidates": result.get("candidates", []),
+        "result_values": dict(calc_result.values) if calc_result is not None else {},
+        "spec_record": "公式口径：docs/design/09-hydraulics-formulas.md（ADR-01：公式显式指定）",
+    }
+
+
 def run_once(query: str, *, args: argparse.Namespace) -> dict:
+    mode = getattr(args, "mode", "auto")
+    if mode == "calc" or (mode == "auto" and detect_intent(query) == "calc"):
+        return run_calc_once(query)
     recorder = JsonTraceRecorder(Path(args.trace_dir))
     app, retriever, db_path = build_app(args=args, trace=recorder)
     run_id = uuid4().hex
@@ -176,9 +225,25 @@ def run_once(query: str, *, args: argparse.Namespace) -> dict:
     }
 
 
+def _print_calc_result(payload: dict) -> None:
+    print(payload["answer"])
+    print(f"\n状态: {payload['status']}")
+    if payload["status"] == "missing_inputs":
+        print(f"待补充参数: {payload['missing_inputs']}")
+    if payload.get("assumptions"):
+        print(f"假设/异常: {'；'.join(payload['assumptions'])}")
+    if payload.get("candidates"):
+        print(f"候选方案: {'；'.join(payload['candidates'])}")
+    if payload.get("spec_record"):
+        print(payload["spec_record"])
+
+
 def _print_result(payload: dict, *, json_output: bool) -> None:
     if json_output:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    if payload.get("intent") == "calc":
+        _print_calc_result(payload)
         return
     print(payload["answer"])
     if payload["citations"]:
