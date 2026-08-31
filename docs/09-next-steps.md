@@ -1,6 +1,6 @@
-# 工程现状盘点与 P1 收口计划
+# 工程现状盘点与 P1 收尾计划
 
-> 生成时间：2026-08-31。基于对项目目录、设计文档、数据产物与测试的实际勘察，不是转述 README。
+> 更新时间：2026-08-31（晚）。基于 git 提交历史（HEAD=e2fca9d，共 10 次提交）、`scripts/verify.sh` 新鲜输出与代码实况校准，不是转述 README。
 
 ## 一、这个项目在做什么
 
@@ -14,22 +14,29 @@
 
 技术栈：LangGraph 编排 + TriviumDB（向量×文本混合检索 `search_hybrid`）+ 自建 harness 评测 + 本地 JSON trace。
 
-## 二、设计文档与代码的实际落差
+## 二、当前进度（P0 完成，P1 约 90%）
 
-`docs/design/` 有 9 份设计文档，质量高、颗粒度细（08-ingestion 甚至写到了 chunk schema 和 6 条递归兜底规则）。路线图分 P0–P5 六个阶段。
+任务书 Step 0–4 已全部完成，下一步 Step 5：
 
-实际进度：**P0 已完成，P1 做完了「规范问答」，没做「水力计算」。**
+| Step | 内容 | 状态 | 验收证据 |
+|---|---|---|---|
+| -1 / 0 | 现状基线 + 工程基建（git / ruff / uv.lock / AGENTS.md） | ✅ | `baseline_preflight.json` step0_post_state |
+| 1 | 水力计算内核 + 程序化评测（7 公式，口径表先于代码） | ✅ | calc_p0 28/28；test_hydraulics |
+| 2 | 计算确定性子图（parse→compute→validate→finish）+ 意图路由 | ✅ | test_calc_graph 21 用例；calc_p0 28/28 |
+| 3 | 多轮会话记忆（checkpointer + thread_id） | ✅ | test_chat_memory 9 用例；SqliteSaver 可用 |
+| 4 | 工具抽象层（ToolSpec + ToolRegistry + 首批工具） | ✅ | test_tools 16 用例 |
+| 5 | 引用声明工具与确定性校验器 | ⬜ 下一步 | — |
 
-README 仍然只描述 P0，与当前代码状态严重脱节，需要重写。
+统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
 
-## 三、已完成的资产（这些是真金白银，别丢）
+## 三、已完成的资产（真金白银，别丢）
 
 ### 数据管线
 
 | 环节 | 产物 | 状态 |
 |---|---|---|
 | 原始语料 | `knowledge/` 40MB，221 个 md + `clauses/` 7 本规范 1992 条 | 就位 |
-| 语义质检 | `data/quality/reports/*_semantic_audit.json` | 已跑 |
+| 语义质检 | `data/quality/reports/*_semantic_audit.json` | 已跑（乱码已修复，仅余 OCR 正则占位待人工确认） |
 | 精选语料 | `data/curated/clauses/` 1595 条入选 / 397 条隔离 | 已建 |
 | 父子级切块 | 3313 个子块 + `*.parents.json` | 已入库 |
 | 向量索引 | `qwen3.7__512__curated.db` + `qwen3.7__256__curated.db` | 已建两套维度 |
@@ -39,103 +46,52 @@ README 仍然只描述 P0，与当前代码状态严重脱节，需要重写。
 ### 代码能力
 
 - `embedding.py` —— 阿里云百炼 MODEL_NAME embedding，支持 256/512/768/1024 维，显式禁用本地兜底
-- `retrieval/rerank.py` —— IdentityReranker / LocalReranker / BailianReranker（gte-rerank）三套
+- `retrieval/rerank.py` —— IdentityReranker / LocalReranker / BailianReranker（gte-rerank，需开通权限）三套
 - `generation/llm.py` —— DeepSeek 生成器，引用只取自检索上下文
-- `graphs/rag.py` —— router → retrieve → generate → citation_check → finalize，带双上限重试守卫
+- `graphs/rag.py` —— legacy RAG 图（router → retrieve → generate → citation_check → finalize，双上限重试守卫），保留不删
+- `graphs/calc.py` —— 计算确定性子图 + 规则式话术解析 + `detect_intent` 意图路由（LLM 解析 Step 7 接入）
+- `graphs/chat.py` + `session.py` —— 多轮会话记忆（add_messages 累积 / thread_id 隔离 / SqliteSaver 持久化）
+- `tools/` —— hydraulics 7 公式工具族（公式显式指定、缺参→missing_inputs、越界→assumptions）+ `base.py`/`registry.py` 工具抽象层 + 首批工具（calc_velocity、retrieve_clauses）
 - `harness/` —— 评测加载 / 判分 / 报告 / CI 退出码
-- 测试 **214 个全部通过**（`_venv/bin/pytest -q` 退出码 0）
+- 测试 **308 个全部通过**（`_venv/bin/pytest -q` 退出码 0）
 
 ### 评测集
 
-- `retrieval_gold.jsonl` —— **70 条检索金标准**（GB50013 30 / GB50014 30 / GB50318 10），51 条 approve + 19 条 edit，人工审过
-- `rag_p0.jsonl` —— 13 条（12 有效 + 1 条故意非法用于异常覆盖），通过率 11/12
+- `retrieval_gold.jsonl` —— 70 条检索金标准（人工审过；**但存在 gold 泄漏，见 R1，暂不能作为基线**）
+- `rag_p0.jsonl` —— 13 条（12 有效 + 1 条设计非法用于异常覆盖），通过率 11/12
+- `calc_p0.jsonl` —— 28 条（gold 独立复算提精度、容差 rel=1e-4、4 条带 expected_assumptions 越界断言），28/28
 
-## 四、当前卡点与风险（按严重度排序）
+### 工程基线
 
-### R1. 检索基线分数从未落盘 —— 等于没跑
+- git 已 init，10 次提交，一步一 commit 与任务书纪律一致；`.gitignore` 覆盖可重建产物（索引/报告/trace/根目录杂物）
+- ruff 0 error；mypy 32 存量告警（Step 10 清零）；uv.lock 已锁定
 
-`scripts/evaluate_retrieval.py` 只把结果打到 stdout，没有写文件。`data/eval/reports/` 里最新一份还是 8-28 的 rag_p0 报告。
+## 四、P1 真正剩余项（收尾计划，按优先级）
 
-后果：做了 70 条金标准、建了两套索引、接了云端 rerank，但**没有任何一个数字能证明检索质量是多少**，也没法在后续改动后判断是变好还是变坏。这直接违反「评测先行」原则。
+### R1（关键阻塞）构造独立 gold 并重跑检索矩阵
 
-### R2. 真实问答链路未验证
+现有 70 条 gold 的 query 由源条款自动派生，query≈条文原文，必然命中源条款——既有矩阵报告（Recall@1/5/10 与 MRR 全 1.0）已自判无效，**检索质量至今没有可信数字**，直接违反「评测先行」。这是 P1 收尾的第一优先级。
 
-`LLMGenerator` 已接 DeepSeek，但 `DEEPSEEK_API_KEY` 未配置（`DASHSCOPE_API_KEY` 已配置）。`scripts/run_real_qa.sh` 的第三步从未成功执行过。
+做法：构造独立可人工验证的 gold（不同措辞 / 引用式 / 跨条款 + 负例），用 `scripts/evaluate_retrieval_matrix.py` 重跑（2 套维度 × {无 rerank / local / 百炼} 组合），产出第一份可比对的可信基线。百炼 rerank 需先开通 gte-rerank 权限（当前 403），不可达时按 SKIP 语义记录。
 
-也就是说：**从「检索到条款」到「LLM 生成带引用的回答」这最后一环，没有任何一次真实运行记录。** 引用是否真的指回正确条款、会不会编造条号，全都未知。
+顺带验证：质检报告的 458 组待人工复核重复条款（GB50013 占 336 组、GB50014 占 211 组）是否真的拉低 top5 有效覆盖率——等可信基线出来后用数据说话。
 
-### R3. P1 的另一半「水力计算」是 0 行代码
+### R2 真实 LLM 问答链路（需 DEEPSEEK_API_KEY）
 
-`find` 全项目无 `hydraulics` 目录。而 P1 验收标准里最硬的一条是**计算用例程序化判分通过率 ≥95%（相对误差 ≤1%）**。
+`LLMGenerator` 已接 DeepSeek，但 `DEEPSEEK_API_KEY` 未配置（`DASHSCOPE_API_KEY` 已配置），从「检索到条款」到「LLM 生成带引用回答」这最后一环没有任何一次真实运行记录。Key 配好后：人工核验 3–5 个问题的引用是否指回正确条款、有无编造条号。
 
-设计文档明确：`优先级：计算正确性 > 引用可追溯 > 更多能力`。现在做的规范问答是「放大器」，计算才是核心。
+### R3 自研 MCP server（路线图 P1 清单项）
 
-### R4. `semantic_audit.py` 有 19 行中文被写成 `?`
+把已就位的能力（规范条款检索、水力计算工具族）包装为 MCP server 供外部 Agent 调用。这是路线图 P1 的最后一个清单项，建议在 R1 可信基线落地后启动，避免在无度量状态下对外暴露能力。
 
-`src/water_agent/ingestion/semantic_audit.py` 第 226–232 行、257–260 行等位置，中文说明文字全部变成问号：
+## 五、后续展望（P1 收口后再动）
 
-```python
-AuditCategory.NORMAL_ARTICLE.value: {"strategy": "normal_parent_child_ingestion", "reason": "??????????"},
-```
+- **语料扩容**：`knowledge/` 下 221 个 md（40MB，标准图集 + 教材）完全未入库；GB50015-2019.jsonl 仅 4.7KB 需单独补语料。这些是「怎么设计 / 怎么选型」类问题的答案来源，纯规范条款只回答「规定是什么」。
+- **Step 5–7**：引用声明工具与确定性校验器 → agentic 外层循环与 ToolNode → 真实模型接入（DeepSeek function calling + 流式），按任务书推进。
+- 不建议现在碰 P2（文档生成）/ P3（DWG 图纸审查）——P3 被设计文档标为「最难」。
 
-写入报告时把乱码一起带进 `data/quality/reports/*_semantic_audit.json` 和 `.md`，导致「正式入库策略」和「待人工决策事项」两节完全不可读。乱码局限于这一个文件（已全量扫描确认），是可恢复的。
+## 六、需要拍板的事
 
-### R5. 587 组重复条款未清理
-
-质检报告：1992 条记录里有 587 组同 spec+article 的重复，其中 129 组判定为合法片段（条款被拆成多段），**458 组标记需人工复核**。GB50013-2018 占 336 组、GB50014-2021 占 211 组。
-
-隐患：同一条款可能在索引里有多份，检索 top5 被重复条款占满，拉低有效覆盖率。这大概率会是 R1 跑出基线后的第一个暴露点。
-
-### R6. 版本控制缺失
-
-项目根目录**未 git init**，251 个数据文件 + 4528 行源码没有任何版本保护。`cursor/` 是个独立空仓库，零提交。
-
-### R7. 根目录杂物
-
-`:memory:.lock`、`:memory:.wal`（TriviumDB 内存库残留）、`knowledge的替身`、`.zip`。
-
-## 五、下一步计划
-
-### 阶段 A —— 给已有工作兜底（今天，约 1–2 小时）
-
-目标：把已经做完的东西变成**可证明、可对比、可回归**的状态。
-
-| # | 动作 | 说明 |
-|---|---|---|
-| A1 | 修 `semantic_audit.py` 乱码 | 恢复 19 行中文说明，重跑质检覆盖报告。纯文本修复，零风险 |
-| A2 | 给 `evaluate_retrieval.py` 加报告落盘 | 复用 `harness/runner.py` 的报告写法，输出 `data/eval/reports/<stem>_<UTC>.json` |
-| A3 | 跑基线矩阵 | 2 套维度 × {无 rerank / 本地 rerank / 百炼 gte-rerank} = 6 组，产出第一份可比对的基线表 |
-| A4 | 配 `DEEPSEEK_API_KEY`，跑真实问答 | 人工核验 3–5 个问题的引用是否指回正确条款、有无编造 |
-| A5 | `git init` + 首次提交 | 需你确认。数据产物用 .gitignore 排除，只管代码与评测集 |
-| A6 | 重写 README | 现状与 README 已严重不符 |
-
-A3 的产出会直接决定后续优化方向：如果 top5 命中率本来就高，就不用折腾 rerank；如果低，再看是切块问题还是重复条款（R5）问题。
-
-### 阶段 B —— 水力计算子图（本周，P1 的真正硬门槛）
-
-| # | 动作 |
-|---|---|
-| B1 | 新建 `src/water_agent/hydraulics/`：流速 / 沿程水头损失 / 管径选择 / 泵扬程 / 排水坡度 |
-| B2 | 落实 ADR-01：**不锁定具体公式**，计算输入与评测用例必须显式指定公式口径，缺失时报错而非静默选择 |
-| B3 | 计算评测集 ≥20 条，用物理参考值做回归测试锁住公式 |
-| B4 | 接进 LangGraph 计算子图：参数解析 → 程序化校验 → 越界回环调参 |
-
-### 阶段 C —— 语料扩容（下周）
-
-现在索引里只有 4 本规范的条款型 JSONL。而 `knowledge/` 下 **221 个 md（40MB）完全没入库**——包括 05S2《给水工程》、08S305 小型潜水排污泵、09S304 卫生设备安装、04S901 施工图设计深度图样等标准图集，以及水力学、供暖、工程概算等教材。
-
-这些正是「怎么设计」「怎么选型」类问题的答案来源，而纯规范条款只回答「规定是什么」。
-
-另外 `GB50015-2019.jsonl` 只有 4.7KB（其余三本是 770KB/714KB/33KB），建筑给水排水设计标准基本是空的，需要单独补语料。
-
-### 顺序理由
-
-**A → B → C**。A 是止损（不落盘的基线等于白干，且 git 缺失风险随时可能爆）；B 是 P1 验收门槛且是项目核心价值；C 是放大器，可以晚做。
-
-不建议现在碰 P2（文档生成）/ P3（DWG 图纸审查）——P3 被设计文档自己标为「最难」，风险点排序里排第一。
-
-## 六、需要你拍板的三件事
-
-1. **A5 是否执行 `git init`**？设计文档要求「允许在用户确认后执行，但不得自动提交」。
-2. **DEEPSEEK_API_KEY** 是否提供？没有它 R2 无法验证，P1 的端到端就没法闭环。
-3. **阶段 B 的公式口径**由谁定？ADR-01 要求显式指定，这需要专业判断（比如沿程水头损失用舍维列夫、海曾-威廉还是柯尔勃洛克公式）。
+1. **R1 的 gold 构造方案**：人工出题的规模与负例比例（建议与现有 70 条对齐、按规范分布取样，并加入负例）。
+2. **DEEPSEEK_API_KEY 是否提供**：没有它 R2 无法闭环。
+3. **MCP server 范围**：只暴露检索 + 计算，还是包含会话记忆。

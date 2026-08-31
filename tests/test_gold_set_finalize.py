@@ -46,7 +46,6 @@ def test_only_human_confirmed_ids_become_gold():
         )
         assert manifest["finalized_count"] == 1
         assert manifest["skipped_unmatched_ids"] == 1
-        rows = json.loads("[" + ",".join(f.read_text() for f in [base / "gold.jsonl"]) if False else "[" + ",".join(filter(None, [])) + "]") if False else None
         gold = [json.loads(line) for line in (base / "gold.jsonl").read_text().splitlines()]
         assert len(gold) == 1
         assert gold[0]["status"] == "gold"

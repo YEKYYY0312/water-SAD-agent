@@ -84,5 +84,37 @@
     "ruff": "0 errors",
     "mypy": "tools 目录 0 告警（全仓 29 存量告警，Step 10 清零）"
   },
-  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿、rag_p0 11/12、calc_p0 22/22、ruff 清零。Step 1 水力计算内核与程序化评测闭环完成。检索与真实问答的真实质量基线因网络/权限/Key 原因 SKIP，待条件具备后重跑，且检索 gold 需先修复泄漏。git init 需用户真实终端执行。"
+  "step2_post_state": {
+    "generated_at": "2026-08-31T13:15:00Z",
+    "note": "本 post_state 补录于 2026-08-31T13:15Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "916635c feat: 水力计算子图与意图接入（P1 核心闭环）",
+    "graph": "src/water_agent/graphs/calc.py：parse_params → compute → validate → finish 确定性子图；规则式话术解析器 + detect_intent 意图路由（真实 LLM 参数解析 Step 7 接入）",
+    "cli": "cli.py 意图路由接入 calc 子图（--mode auto|calc|legacy）",
+    "harness": "runner 支持 type==calc 走子图端到端；缺参/非法路径回退 run_calc 结构化判分，数值与 Step 1 同源",
+    "tests": "tests/test_calc_graph.py：21 passed（缺参→missing_inputs；越界→assumptions；正常→succeeded）",
+    "calc_p0": "28/28 通过（100%，≥95% 达标；评测集已于 Step 1 修复轮 a8e0c08 扩至 28 条：gold 复算提精度、容差收紧 rel=1e-4、4 条带 expected_assumptions）",
+    "pytest_full": "308 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）"
+  },
+  "step3_post_state": {
+    "generated_at": "2026-08-31T13:15:00Z",
+    "note": "本 post_state 补录于 2026-08-31T13:15Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "3ec4622 feat: 多轮会话记忆（checkpointer + thread_id）",
+    "modules": "graphs/chat.py（ChatState：messages 用 add_messages 累积 + build_chat_app）与 session.py（new_session_id / session_db_path / save_session_meta，单库 data/sessions/sessions.sqlite，thread_id 隔离）",
+    "sqlite_saver": "可用：langgraph.checkpoint.sqlite 导入成功（SqliteSaver available），磁盘持久化路径打通",
+    "tests": "tests/test_chat_memory.py：9 passed（消息累积 / 不同 thread_id 互不串扰 / 持久化恢复）",
+    "pytest_full": "308 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）"
+  },
+  "step4_post_state": {
+    "generated_at": "2026-08-31T13:15:00Z",
+    "note": "本 post_state 补录于 2026-08-31T13:15Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "e2fca9d feat: 工具抽象层 ToolSpec + ToolRegistry 与首批工具（当前 HEAD）",
+    "modules": "tools/base.py（ToolSpec：name/description/args_model/execute/max_retries/timeout_seconds/guard）+ tools/registry.py（ToolRegistry：register 重名校验 / invoke 先 schema 校验、异常转结构化错误 / list_tools）；首批工具 calc_velocity 与 retrieve_clauses（结果截断 10KB 防上下文填充）",
+    "tests": "tests/test_tools.py：16 passed（schema 拒缺参与类型错 / 重名注册拒绝 / execute 异常转结构化错误 / list_tools 字段完整）",
+    "pytest_full": "308 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）",
+    "mypy": "32 errors in 13 files（checked 51 source files；存量告警，Step 10 清零。较 step0 的 29 增 3，来自 Step 2–4 新代码，仅记录）"
+  },
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（308）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–4（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层）已全部完成并各有 post_state 验收佐证。git 已 init，共 10 次提交（HEAD=e2fca9d）。已知阻塞（只记录，本步不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（SKIP）。"
 }
