@@ -89,8 +89,9 @@ def score_eval_case(
 
 
 def _within_tolerance(actual: float, gold: float, tolerances: CalcTolerances) -> bool:
-    threshold = max(tolerances.absolute, tolerances.relative * abs(gold))
-    return abs(actual - gold) <= threshold
+    abs_err = abs(actual - gold)
+    rel_err = abs_err / abs(gold) if gold else 0.0
+    return abs_err <= tolerances.absolute and rel_err <= tolerances.relative
 
 
 def score_calc_case(
@@ -123,6 +124,15 @@ def score_calc_case(
                     f"{key}: actual={actual_value:.6f}, gold={gold_value}, "
                     f"tol(rel={case.tolerances.relative}, abs={case.tolerances.absolute})"
                 )
+
+        # 额外检查：期望的 assumptions（如果有）应出现在工具输出的 assumptions 中
+        expected_assumptions = getattr(case, 'expected_assumptions', []) or []
+        if expected_assumptions:
+            actual_assumptions = calc_result.assumptions or []
+            for expected in expected_assumptions:
+                # treat expected as substring to match against any actual assumption
+                if not any(expected in a for a in actual_assumptions):
+                    reasons.append(f"expected assumption missing: {expected}")
 
     return EvalResult(
         case_id=case.id,

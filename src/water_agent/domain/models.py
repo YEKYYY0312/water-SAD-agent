@@ -132,6 +132,7 @@ class CalcCase(BaseModel):
     gold: dict[str, float]
     tolerances: CalcTolerances = Field(default_factory=CalcTolerances)
     expected_status: str = "succeeded"
+    expected_assumptions: list[str] = Field(default_factory=list)
     variant: str = "programmatic"
     spec_ref: str = ""
 
