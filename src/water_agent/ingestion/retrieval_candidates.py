@@ -33,8 +33,8 @@ def _candidate_query(record: dict[str, Any]) -> str:
             if (
                 len(cleaned) >= 12
                 and not cleaned.startswith("|")
-                and not cleaned.startswith(("1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 ", "9 ")) and not any(ch.isdigit() for ch in cleaned[:3])
-                and "应对" not in cleaned[:0]
+                and not cleaned.startswith(("1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 ", "9 "))                 and not any(ch.isdigit() for ch in cleaned[:3])
+                and not cleaned.startswith("应对")
             ):
                 return cleaned
     title = " ".join(str(record.get("title", "")).strip().split())
