@@ -8,8 +8,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from uuid import uuid4
+
+from langchain_core.messages import HumanMessage
 
 from water_agent.domain.state import default_state
 from water_agent.embedding import build_embedding_provider
@@ -17,11 +20,18 @@ from water_agent.generation.base import Generator
 from water_agent.generation.llm import build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.calc import build_calc_graph, detect_intent
+from water_agent.graphs.chat import build_chat_app
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.retrieval.rerank import BailianReranker, LocalReranker, build_bailian_reranker
 from water_agent.retrieval.trivium import TriviumRetrievalError, TriviumRetriever
+from water_agent.session import (
+    DEFAULT_SESSION_DIR,
+    new_session_id,
+    save_session_meta,
+    session_db_path,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
@@ -44,7 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default="deepseek-chat", help="LLM 模型名")
     p.add_argument("--base-url", default="https://api.deepseek.com", help="LLM OpenAI 兼容 base_url")
     p.add_argument("--mock-generator", action="store_true", help="用确定性 MockGenerator 代替真实 LLM（自测链路用）")
-    p.add_argument("--interactive", action="store_true", help="进入交互式问答循环（输入 exit 退出）")
+    p.add_argument("--interactive", action="store_true", help="进入交互式多轮会话（输入 exit 退出）")
+    p.add_argument("--resume", default=None, help="用现有 thread_id 恢复历史会话")
+    p.add_argument(
+        "--session-dir",
+        default=str(DEFAULT_SESSION_DIR),
+        help="会话库目录（默认 data/sessions，单库 sessions.sqlite）",
+    )
     p.add_argument(
         "--mode",
         choices=["auto", "calc", "legacy"],
@@ -261,13 +277,45 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
         print(f"索引: {payload['db_path']}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    query = (args.query or "").strip()
+def _build_chat_checkpointer(session_dir: str | Path, stack: ExitStack):
+    """优先 SqliteSaver 做磁盘持久化；不可用时降级 MemorySaver 并显式提示缺口。
 
-    if args.interactive:
-        print("交互式问答（输入 exit 退出）：")
+    ``stack`` 用于在会话结束时关闭底层 sqlite 连接（SqliteSaver 自身无 close()）。
+    """
+    db_path = session_db_path(session_dir)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        import sqlite3
+
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        stack.callback(conn.close)
+        return SqliteSaver(conn)
+    except Exception as exc:  # noqa: BLE001 — 持久化不可用不阻塞本步，但必须记录缺口
+        print(
+            json.dumps(
+                {"ok": False, "error": f"sqlite checkpointer 不可用，本轮改用 MemorySaver（进程内态，不落盘）：{exc}"},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        from langgraph.checkpoint.memory import MemorySaver
+
+        return MemorySaver()
+
+
+def _run_chat_session(args: argparse.Namespace, query: str = "") -> int:
+    """交互式多轮会话：checkpointer + thread_id 做会话隔离，--resume 恢复历史。"""
+    session_id = args.resume or new_session_id()
+    session_dir = Path(args.session_dir)
+    if not args.resume:
+        save_session_meta(session_id, session_dir=session_dir, query=(query or "interactive"))
+    print(f"会话 ID: {session_id}")
+    config = {"configurable": {"thread_id": session_id}}
+    with ExitStack() as stack:
+        saver = _build_chat_checkpointer(session_dir, stack)
+        app = build_chat_app(checkpointer=saver)
         while True:
             try:
                 line = input("> ").strip()
@@ -279,12 +327,33 @@ def main(argv: list[str] | None = None) -> int:
             if line.lower() in {"exit", "quit"}:
                 break
             try:
-                payload = run_once(line, args=args)
+                result = app.invoke(
+                    {"messages": [HumanMessage(content=line)], "query": line},
+                    config=config,
+                )
             except Exception as exc:  # noqa: BLE001 — 交互循环保持健壮，任一问题打印后继续
                 print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
                 continue
-            _print_result(payload, json_output=args.json)
-        return 0
+            if args.json:
+                print(
+                    json.dumps(
+                        {"session_id": session_id, "answer": result.get("answer", ""), "status": result.get("status", "")},
+                        ensure_ascii=False,
+                    )
+                )
+                continue
+            print(result.get("answer", ""))
+            print(f"状态: {result.get('status', '')}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    query = (args.query or "").strip()
+
+    if args.interactive:
+        return _run_chat_session(args, query=query)
 
     if not query:
         print("请提供问题参数，或用 --interactive 进入问答循环。", file=sys.stderr)
