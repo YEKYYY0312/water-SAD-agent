@@ -1247,13 +1247,8 @@ document.addEventListener('click', function(e){
     return;
   }
   if(t.dataset.dir){
-    var open = t.querySelector('.tw').textContent === '▾';
-    t.querySelector('.tw').textContent = open ? '▸' : '▾';
-    var sib = t.nextElementSibling, depth = 0;
-    while(sib && depth < 40){
-      if(sib.classList.contains('node')){ sib.hidden = open; depth++; sib = sib.nextElementSibling; }
-      else break;
-    }
+    t.querySelector('.tw').textContent = t.querySelector('.tw').textContent === '▾' ? '▸' : '▾';
+    refreshTree();
     return;
   }
   if(t.dataset.file){
