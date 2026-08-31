@@ -10,12 +10,11 @@
 2. 引用可追溯，禁止编造条款/规范号。
 3. 评测先行，改动不得让关键指标下降。
 
-## 验证命令
+## 验证命令（改动完成前必须执行）
 ```bash
-_venv/bin/pytest -q                                  # 全量测试，退出码 0
-_venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl    # 机制层：11/12
-_venv/bin/python scripts/evaluate_retrieval_matrix.py # 真实检索矩阵（需网络+百炼 Key）
-ruff check src && mypy src/water_agent                # 静态检查
+bash scripts/verify.sh   # 统一门禁：pytest + ruff + rag_p0(11/12) + calc_p0(22/22)
+_venv/bin/mypy src/water_agent   # 仅记录告警，Step 10 清零
+_venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（需网络+百炼 Key）
 ```
 真实模型/真实检索无 Key 或网络不可达时：输出结构化 SKIP，禁止伪造结果。
 
@@ -36,6 +35,7 @@ ruff check src && mypy src/water_agent                # 静态检查
 
 ## 工程基线入口
 - `data/eval/baseline_preflight.json`：Step -1 现状基线记录，改动前先对照。
+- `docs/design/10-sdd-harness.md`：SDD+Harness 工程规范（规格模板/错误状态语义/完成定义）。
 
 ## 术语
 - 机制层评测：mock/in-memory，离线确定性。质量层评测：真实模型+检索，需 Key，可 SKIP。
