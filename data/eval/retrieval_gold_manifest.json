@@ -1,0 +1,34 @@
+{
+  "created_at": "2026-08-30T04:01:29.154016+00:00",
+  "total": 70,
+  "finalized_count": 70,
+  "approve_count": 51,
+  "edit_count": 19,
+  "rejected_count": 0,
+  "skipped_blank_query": 0,
+  "skipped_blank_gold": 0,
+  "skipped_orphan": 0,
+  "skipped_disallowed_spec": 0,
+  "skipped_unknown_candidate": 0,
+  "duplicate_query_ids": [],
+  "duplicate_id_ids": [],
+  "by_spec": {
+    "GB50013-2018": 30,
+    "GB50014-2021": 30,
+    "GB50318-2017": 10
+  },
+  "by_category": {
+    "充满度": 1,
+    "布置": 7,
+    "材料": 4,
+    "流速": 1,
+    "流量": 11,
+    "规划": 5,
+    "规定要求": 38,
+    "设施": 3
+  },
+  "multi_article_count": 0,
+  "gold_path": "data/eval/retrieval_gold.jsonl",
+  "review_md_path": "data/eval/retrieval_candidates_70.md",
+  "curated_root": "data/curated"
+}

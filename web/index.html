@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>water-agent · 给排水 Agent 工作台</title>
+<style>
+/* ===================== 设计令牌 ===================== */
+[data-theme="dark"]{
+  --bg:#0B0D12; --bg-1:#101319; --bg-2:#151922; --bg-3:#1B212C; --bg-4:#212836;
+  --line:#1E2431; --line-2:#2A3242;
+  --fg:#DCE2EC; --fg-1:#98A2B6; --fg-2:#6B7488; --fg-3:#49525F;
+  --acc:#4D8DFF; --acc-2:#7BA9FF; --acc-bg:rgba(77,141,255,.10); --acc-line:rgba(77,141,255,.32);
+  --ok:#3FB950; --ok-bg:rgba(63,185,80,.10); --ok-line:rgba(63,185,80,.30);
+  --warn:#D9A03C; --warn-bg:rgba(217,160,60,.10); --warn-line:rgba(217,160,60,.30);
+  --err:#F0616D; --err-bg:rgba(240,97,109,.10); --err-line:rgba(240,97,109,.30);
+  --cyan:#2DD4BF; --violet:#A78BFA;
+  --sel:rgba(77,141,255,.22);
+}
+[data-theme="light"]{
+  --bg:#F6F7F9; --bg-1:#FFFFFF; --bg-2:#F2F4F7; --bg-3:#E9ECF1; --bg-4:#DFE3EA;
+  --line:#E2E6EC; --line-2:#CFD5DF;
+  --fg:#161B24; --fg-1:#5A6474; --fg-2:#7C8698; --fg-3:#9BA4B4;
+  --acc:#2563EB; --acc-2:#1D4ED8; --acc-bg:rgba(37,99,235,.07); --acc-line:rgba(37,99,235,.28);
+  --ok:#17803D; --ok-bg:rgba(23,128,61,.08); --ok-line:rgba(23,128,61,.28);
+  --warn:#A9700A; --warn-bg:rgba(169,112,10,.09); --warn-line:rgba(169,112,10,.28);
+  --err:#C93B45; --err-bg:rgba(201,59,69,.08); --err-line:rgba(201,59,69,.28);
+  --cyan:#0E9488; --violet:#7C3AED;
+  --sel:rgba(37,99,235,.14);
+}
+:root{
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --mono:"JetBrains Mono","SFMono-Regular","SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --r:3px; --r2:5px; --r3:8px;
+  --t:120ms ease;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--sans);font-size:13px;line-height:1.6;color:var(--fg);background:var(--bg);
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:none;border:none;cursor:pointer}
+.mono{font-family:var(--mono)}
+::selection{background:var(--sel)}
+:focus-visible{outline:1px solid var(--acc);outline-offset:1px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border:3px solid transparent;background-clip:content-box;border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-3)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* 分区小标签 —— 终端工作台的关键质感 */
+.kicker{
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--fg-3);display:flex;align-items:center;gap:8px;user-select:none;
+}
+.kicker::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* ===================== 骨架 ===================== */
+.app{display:grid;grid-template-rows:44px 1fr 26px;height:100vh}
+.work{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;min-height:0}
+.work.no-insp{grid-template-columns:240px minmax(0,1fr) 0px}
+
+/* ===================== 顶栏 ===================== */
+.top{
+  display:flex;align-items:center;gap:14px;padding:0 12px;background:var(--bg-1);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:8px;flex:none;cursor:pointer}
+.mark{
+  width:22px;height:22px;border:1px solid var(--acc-line);border-radius:var(--r);
+  display:grid;place-items:center;background:var(--acc-bg);
+}
+.mark svg{width:13px;height:13px;color:var(--acc)}
+.brand-txt{font-family:var(--mono);font-size:12.5px;letter-spacing:.02em}
+.brand-txt b{font-weight:600;color:var(--fg)}
+.brand-txt span{color:var(--fg-3)}
+.vsep{width:1px;height:18px;background:var(--line);flex:none}
+.crumb{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);display:flex;align-items:center;gap:6px;min-width:0}
+.crumb .p{color:var(--fg-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb .b{
+  font-size:10px;padding:1px 5px;border:1px solid var(--line-2);border-radius:var(--r);
+  color:var(--fg-2);
+}
+.top-sp{flex:1}
+.sel-wrap{position:relative;display:flex;align-items:center}
+.sel-wrap::after{
+  content:"";position:absolute;right:7px;width:0;height:0;pointer-events:none;
+  border-left:3px solid transparent;border-right:3px solid transparent;border-top:4px solid var(--fg-2);
+}
+.sel{
+  appearance:none;-webkit-appearance:none;height:26px;padding:0 22px 0 8px;font-family:var(--mono);
+  font-size:11px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);
+  color:var(--fg-1);cursor:pointer;transition:all var(--t);
+}
+.sel:hover{border-color:var(--line-2);color:var(--fg)}
+.sel:focus{outline:none;border-color:var(--acc)}
+.perm-warn .sel{border-color:var(--warn-line);color:var(--warn)}
+.chipx{
+  display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;font-family:var(--mono);font-size:11px;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--bg-2);color:var(--fg-1);
+  transition:all var(--t);
+}
+.chipx:hover{border-color:var(--line-2);color:var(--fg)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.ibtn{
+  width:26px;height:26px;display:grid;place-items:center;border-radius:var(--r);color:var(--fg-2);
+  border:1px solid transparent;transition:all var(--t);
+}
+.ibtn:hover{background:var(--bg-3);color:var(--fg);border-color:var(--line)}
+.ibtn svg{width:15px;height:15px}
+.kbd{
+  font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:var(--r);padding:0 4px;background:var(--bg-2);color:var(--fg-2);
+}
+
+/* ===================== 左栏 ===================== */
+.side{background:var(--bg-1);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.segtab{display:flex;border-bottom:1px solid var(--line);flex:none}
+.segtab button{
+  flex:1;height:32px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--fg-3);
+  border-bottom:1px solid transparent;transition:all var(--t);text-transform:uppercase;
+}
+.segtab button:hover{color:var(--fg-1);background:var(--bg-2)}
+.segtab button[aria-selected="true"]{color:var(--acc);border-bottom-color:var(--acc);background:var(--bg-2)}
+.side-body{flex:1;min-height:0;overflow-y:auto;padding:10px}
+.pane{display:none;flex-direction:column;gap:14px}
+.pane.on{display:flex}
+.newbtn{
+  display:flex;align-items:center;gap:7px;height:30px;padding:0 10px;width:100%;
+  border:1px solid var(--acc-line);background:var(--acc-bg);border-radius:var(--r);
+  color:var(--acc);font-family:var(--mono);font-size:11.5px;transition:all var(--t);
+}
+.newbtn:hover{background:var(--acc);color:#fff;border-color:var(--acc)}
+[data-theme="light"] .newbtn:hover{color:#fff}
+
+/* 文件树 */
+.tree{display:flex;flex-direction:column;gap:1px;font-family:var(--mono);font-size:11.5px}
+.node{
+  display:flex;align-items:center;gap:5px;height:22px;padding:0 6px;border-radius:var(--r);
+  color:var(--fg-1);transition:background var(--t);width:100%;text-align:left;
+}
+.node:hover{background:var(--bg-3);color:var(--fg)}
+.node.sel{background:var(--acc-bg);color:var(--acc)}
+.node .tw{width:10px;flex:none;color:var(--fg-3);font-size:9px}
+.node .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .cnt{margin-left:auto;color:var(--fg-3);font-size:10px;flex:none}
+.node .sz{margin-left:auto;color:var(--fg-3);font-size:10px;flex:none}
+.node.dir{color:var(--fg-1)}
+.node .fx{width:12px;height:12px;flex:none;color:var(--fg-3)}
+.node.f .fx{color:var(--fg-3)}
+.node.f.db .fx{color:var(--violet)}
+.node.f.md .fx{color:var(--acc)}
+.node.f.py .fx{color:var(--cyan)}
+.node.f.html .fx{color:var(--warn)}
+.node.f.jsonl .fx{color:var(--ok)}
+
+/* 会话 */
+.sess{
+  display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:var(--r);width:100%;
+  border:1px solid transparent;text-align:left;transition:all var(--t);
+}
+.sess:hover{background:var(--bg-3)}
+.sess[aria-current="true"]{background:var(--acc-bg);border-color:var(--acc-line)}
+.sess .st1{font-size:12.5px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sess[aria-current="true"] .st1{color:var(--acc)}
+.sess .st2{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);display:flex;gap:6px}
+.side-foot{border-top:1px solid var(--line);padding:8px 10px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3);flex:none}
+.side-foot .r{display:flex;justify-content:space-between;gap:8px}
+.side-foot .r b{color:var(--fg-1);font-weight:400}
+
+/* ===================== 中栏 ===================== */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);position:relative}
+.chat-head{
+  display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--line);
+  background:var(--bg-1);flex:none;min-height:38px;
+}
+.chat-head h1{font-size:13px;font-weight:600;letter-spacing:.01em}
+.tag{
+  display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 5px;font-family:var(--mono);
+  font-size:10px;border-radius:var(--r);border:1px solid var(--line-2);color:var(--fg-2);
+}
+.tag.acc{border-color:var(--acc-line);background:var(--acc-bg);color:var(--acc)}
+.tag.ok{border-color:var(--ok-line);background:var(--ok-bg);color:var(--ok)}
+.tag.warn{border-color:var(--warn-line);background:var(--warn-bg);color:var(--warn)}
+.tag.err{border-color:var(--err-line);background:var(--err-bg);color:var(--err)}
+.hbtn{
+  height:24px;padding:0 8px;border:1px solid var(--line);border-radius:var(--r);font-family:var(--mono);
+  font-size:11px;color:var(--fg-1);display:inline-flex;align-items:center;gap:5px;transition:all var(--t);
+}
+.hbtn:hover{border-color:var(--line-2);background:var(--bg-3);color:var(--fg)}
+.hbtn svg{width:12px;height:12px}
+
+.scroll{flex:1;min-height:0;overflow-y:auto}
+.stream{max-width:880px;margin:0 auto;padding:18px 20px 6px;display:flex;flex-direction:column;gap:20px}
+
+/* 消息 */
+.msg{display:flex;flex-direction:column;gap:6px}
+.msg-h{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.msg-h .who{color:var(--fg-1)}
+.msg-h .who.agent{color:var(--acc)}
+.msg-h .ln{flex:1;height:1px;background:var(--line)}
+.msg-user{align-items:flex-end}
+.ub{
+  max-width:76%;padding:8px 12px;border-radius:var(--r2);background:var(--bg-3);border:1px solid var(--line-2);
+  font-size:13px;color:var(--fg);
+}
+[data-theme="dark"] .ub{background:var(--bg-2)}
+.abody{display:flex;flex-direction:column;gap:11px}
+.ans{font-size:13.5px;line-height:1.75;color:var(--fg)}
+.ans p+p{margin-top:7px}
+.ans .n{
+  font-family:var(--mono);font-weight:600;color:var(--acc);background:var(--acc-bg);
+  padding:0 4px;border-radius:var(--r);border:1px solid var(--acc-line);
+}
+.ans strong{color:var(--warn);font-weight:600}
+.caret{display:inline-block;width:6px;height:14px;background:var(--acc);vertical-align:-2px;margin-left:3px;animation:bl 1s steps(2,start) infinite}
+@keyframes bl{to{visibility:hidden}}
+
+/* 工具日志块 */
+.tb{border:1px solid var(--line);border-radius:var(--r2);background:var(--bg-1);overflow:hidden}
+.tb-h{
+  display:flex;align-items:center;gap:7px;width:100%;padding:6px 9px;font-family:var(--mono);font-size:11.5px;
+  color:var(--fg-1);transition:background var(--t);
+}
+.tb-h:hover{background:var(--bg-2)}
+.tb-h .tw{width:9px;color:var(--fg-3);font-size:9px;transition:transform var(--t)}
+.tb[data-open="true"] .tw{transform:rotate(90deg)}
+.tb-h .t{color:var(--fg)}
+.tb-h .r{margin-left:auto;color:var(--fg-3);display:flex;gap:8px}
+.tb-b{display:none;padding:2px 0 5px;background:var(--bg)}
+.tb[data-open="true"] .tb-b{display:block}
+.tb-b .inner{margin:0 9px 0 15px;padding-left:9px;border-left:1px solid var(--line-2)}
+.row{display:flex;align-items:center;gap:8px;height:20px;font-family:var(--mono);font-size:11px}
+.row:hover{background:var(--bg-2)}
+.row .s{width:9px;flex:none;text-align:center}
+.row .nm{color:var(--fg);flex:none}
+.row .dt{color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .ms{margin-left:auto;color:var(--fg-3);flex:none}
+.s-ok{color:var(--ok)} .s-run{color:var(--acc)} .s-warn{color:var(--warn)}
+.s-err{color:var(--err)} .s-wait{color:var(--fg-3)}
+.s-run{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.sk{display:flex;flex-direction:column;gap:6px;padding:3px 0}
+.sk i{display:block;height:9px;border-radius:2px;background:var(--bg-3);animation:sw 1.3s linear infinite}
+.sk i:nth-child(1){width:78%} .sk i:nth-child(2){width:60%} .sk i:nth-child(3){width:70%}
+@keyframes sw{0%,100%{opacity:.45}50%{opacity:1}}
+
+/* 引用行 */
+.refs{display:flex;flex-direction:column;gap:6px}
+.ref{
+  display:flex;gap:0;text-align:left;border:1px solid var(--line);border-radius:var(--r2);
+  background:var(--bg-1);overflow:hidden;transition:all var(--t);
+}
+.ref:hover{border-color:var(--acc-line);background:var(--bg-2)}
+.ref .bar{width:2px;background:var(--acc);flex:none;opacity:.55}
+.ref:hover .bar{opacity:1}
+.ref .bd{padding:7px 10px;min-width:0;flex:1}
+.ref .r1{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ref .rid{font-family:var(--mono);font-size:11.5px;color:var(--acc);font-weight:600}
+.ref .rtt{font-size:11.5px;color:var(--fg-1)}
+.ref .sc{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--fg-3)}
+.ref .r2{display:block;font-size:11.5px;color:var(--fg-2);line-height:1.55;margin-top:2px}
+
+/* 计算块 */
+.calc{border:1px solid var(--line);border-radius:var(--r2);background:var(--bg-1);overflow:hidden}
+.calc .ch{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11.5px;background:var(--bg-2);
+}
+.calc .ch .t{color:var(--fg);font-weight:600}
+.calc .ch .r{margin-left:auto;color:var(--fg-3)}
+.cb{padding:10px;display:flex;flex-direction:column;gap:9px}
+.kv{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
+.kv td{padding:2px 0}
+.kv td.k{color:var(--fg-2);width:38%}
+.kv td.v{color:var(--fg);font-weight:600}
+.kv td.u{color:var(--fg-3);width:16%;text-align:right}
+.fm{
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-1);padding:7px 9px;border-radius:var(--r);
+  background:var(--bg-2);border:1px dashed var(--line-2);overflow-x:auto;white-space:nowrap;
+}
+.out{display:flex;align-items:flex-end;gap:12px;padding:9px 10px;border-radius:var(--r);background:var(--ok-bg);border:1px solid var(--ok-line)}
+.out.bad{background:var(--err-bg);border-color:var(--err-line)}
+.out .val{font-family:var(--mono);font-size:27px;line-height:1;font-weight:600;color:var(--ok)}
+.out.bad .val{color:var(--err)}
+.out .u{font-family:var(--mono);font-size:12px;color:var(--fg-1);margin-bottom:3px}
+.out .vd{margin-left:auto;text-align:right;font-size:11.5px;color:var(--fg-1);display:flex;align-items:center;gap:5px}
+.vd .s{font-family:var(--mono)}
+
+/* genui 图表 */
+.chart{border:1px solid var(--line);border-radius:var(--r2);background:var(--bg-1);overflow:hidden}
+.chart .ch{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11.5px;color:var(--fg);background:var(--bg-2);
+}
+.chart .ch .r{margin-left:auto;color:var(--fg-3);font-size:10px}
+.chart svg{display:block;width:100%;height:auto}
+
+/* 审批门 */
+.gate{border:1px solid var(--warn-line);border-radius:var(--r2);background:var(--warn-bg);overflow:hidden}
+.gate .gh{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--warn-line);
+  font-family:var(--mono);font-size:11.5px;color:var(--warn);
+}
+.gate .gh .r{margin-left:auto;display:flex;gap:6px}
+.gate .gb{padding:10px;display:flex;flex-direction:column;gap:9px}
+.gate ul{list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--fg)}
+.gate li{display:flex;gap:7px}
+.gate li .s{font-family:var(--mono);color:var(--warn);flex:none}
+.ga{display:flex;gap:7px;flex-wrap:wrap}
+.gbtn{
+  height:28px;padding:0 11px;border-radius:var(--r);border:1px solid var(--line-2);
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-1);background:var(--bg-2);transition:all var(--t);
+}
+.gbtn:hover{background:var(--bg-3);color:var(--fg);border-color:var(--fg-3)}
+.gbtn.ok{border-color:var(--ok-line);background:var(--ok);color:#fff}
+.gbtn.ok:hover{background:var(--ok);filter:brightness(1.08);color:#fff}
+[data-theme="light"] .gbtn.ok{color:#fff}
+.note{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);display:flex;align-items:center;gap:5px}
+
+/* 操作行 */
+.acts{display:flex;align-items:center;gap:1px}
+.act{
+  height:24px;padding:0 7px;border-radius:var(--r);font-family:var(--mono);font-size:11px;
+  color:var(--fg-3);display:inline-flex;align-items:center;gap:5px;transition:all var(--t);
+}
+.act:hover{background:var(--bg-3);color:var(--fg-1)}
+.act[aria-pressed="true"]{color:var(--acc);background:var(--acc-bg)}
+.act svg{width:12px;height:12px}
+
+/* 输入区 */
+.composer{max-width:880px;margin:0 auto;width:100%;padding:6px 20px 10px}
+.pbox{
+  border:1px solid var(--line-2);border-radius:var(--r3);background:var(--bg-1);overflow:hidden;
+  transition:border-color var(--t),box-shadow var(--t);
+}
+.pbox:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-bg)}
+.pbox.drag{border-color:var(--acc);border-style:dashed;background:var(--acc-bg)}
+.atts{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px 0}
+.att{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 7px;border-radius:var(--r);
+  background:var(--bg-3);border:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--fg-1);
+}
+.att button{color:var(--fg-3);display:grid;place-items:center}
+.att button:hover{color:var(--err)}
+.att svg{width:11px;height:11px}
+.pr{display:flex;gap:8px;padding:9px 10px 4px;align-items:flex-start}
+.ps1{font-family:var(--mono);font-size:13px;color:var(--acc);line-height:1.5;flex:none;user-select:none}
+.pr textarea{
+  flex:1;border:0;outline:none;resize:none;background:transparent;font-size:13.5px;line-height:1.6;
+  max-height:170px;color:var(--fg);
+}
+.pr textarea::placeholder{color:var(--fg-3)}
+.pbar{display:flex;align-items:center;gap:2px;padding:4px 8px 7px}
+.pbar .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.send{
+  height:26px;padding:0 10px;border-radius:var(--r);background:var(--acc);color:#fff;
+  font-family:var(--mono);font-size:11.5px;display:inline-flex;align-items:center;gap:6px;transition:all var(--t);
+}
+.send:hover{filter:brightness(1.1)}
+.send[disabled]{background:var(--bg-3);color:var(--fg-3);cursor:not-allowed;filter:none}
+.hints{padding:5px 4px 0;font-family:var(--mono);font-size:10.5px;color:var(--fg-3);display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.sugs{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px}
+.sug{
+  height:24px;padding:0 9px;border-radius:99px;border:1px solid var(--line);background:var(--bg-1);
+  font-size:11.5px;color:var(--fg-2);transition:all var(--t);
+}
+.sug:hover{border-color:var(--acc-line);color:var(--acc);background:var(--acc-bg)}
+
+/* ===================== 右栏 ===================== */
+.insp{background:var(--bg-1);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.work.no-insp .insp{display:none}
+.insp-h{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);flex:none;
+}
+.insp-h .t{font-family:var(--mono);font-size:11.5px;color:var(--fg-1)}
+.tabs{display:flex;border-bottom:1px solid var(--line);flex:none;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  height:30px;padding:0 9px;font-family:var(--mono);font-size:11px;color:var(--fg-3);
+  border-bottom:1px solid transparent;display:inline-flex;align-items:center;gap:5px;transition:all var(--t);white-space:nowrap;
+}
+.tab:hover{color:var(--fg-1);background:var(--bg-2)}
+.tab[aria-selected="true"]{color:var(--acc);border-bottom-color:var(--acc)}
+.tab .c{
+  font-size:9.5px;min-width:15px;height:14px;padding:0 3px;display:grid;place-items:center;
+  background:var(--bg-3);border-radius:2px;color:var(--fg-3);
+}
+.tab[aria-selected="true"] .c{background:var(--acc-bg);color:var(--acc)}
+.insp-b{flex:1;min-height:0;overflow-y:auto;padding:10px}
+.ip{display:none;flex-direction:column;gap:12px}
+.ip.on{display:flex}
+.card{border:1px solid var(--line);border-radius:var(--r2);background:var(--bg-2);overflow:hidden}
+.card.flash{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-bg)}
+.card .k{
+  display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--fg-1);background:var(--bg-3);
+}
+.card .k .r{margin-left:auto;color:var(--fg-3)}
+.card .b{padding:9px;font-size:12px;color:var(--fg-1);line-height:1.65}
+.card .b.mono{font-family:var(--mono);font-size:11px}
+.tl{display:flex;flex-direction:column}
+.tl .it{display:flex;gap:8px;padding:5px 0;position:relative}
+.tl .it::before{content:"";position:absolute;left:4px;top:17px;bottom:-5px;width:1px;background:var(--line-2)}
+.tl .it:last-child::before{display:none}
+.tl .pt{
+  width:9px;height:9px;border-radius:50%;flex:none;margin-top:4px;background:var(--ok);
+  box-shadow:0 0 0 2px var(--bg-2);
+}
+.tl .it.warn .pt{background:var(--warn)} .tl .it.err .pt{background:var(--err)} .tl .it.run .pt{background:var(--acc)}
+.tl .bd{min-width:0;flex:1}
+.tl .n{font-family:var(--mono);font-size:11.5px;color:var(--fg)}
+.tl .d{font-size:11.5px;color:var(--fg-2);word-break:break-word}
+.tl .m{font-family:var(--mono);font-size:10px;color:var(--fg-3)}
+.tr{display:flex;gap:8px;padding:4px 0;border-bottom:1px dotted var(--line);font-family:var(--mono);font-size:10.5px}
+.tr:last-child{border-bottom:0}
+.tr .a{color:var(--fg-3);width:42px;flex:none;text-align:right}
+.tr .b{color:var(--fg);width:172px;flex:none}
+.tr .c{color:var(--fg-2)}
+.prev{font-family:var(--mono);font-size:11px;line-height:1.7}
+.prev .l{display:flex;gap:10px}
+.prev .l:hover{background:var(--bg-3)}
+.prev .ln{color:var(--fg-3);width:22px;text-align:right;flex:none;user-select:none}
+.prev .tx{color:var(--fg-1);white-space:pre-wrap;word-break:break-all}
+.empty{padding:26px 10px;text-align:center;color:var(--fg-3);font-family:var(--mono);font-size:11px;display:flex;flex-direction:column;gap:6px;align-items:center}
+
+/* ===================== 状态栏 ===================== */
+.sbar{
+  display:flex;align-items:center;gap:0;padding:0 10px;background:var(--bg-1);border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:10.5px;color:var(--fg-2);overflow:hidden;
+}
+.sbar .i{display:flex;align-items:center;gap:5px;padding:0 9px;height:100%;border-right:1px solid var(--line);white-space:nowrap}
+.sbar .i:first-child{padding-left:2px}
+.sbar .i:last-child{border-right:0}
+.sbar .i b{font-weight:400;color:var(--fg-1)}
+.sbar .sp{flex:1;border:0}
+.sbar .ok{color:var(--ok)}
+.sbar .acc{color:var(--acc)}
+
+/* ===================== 浮层 ===================== */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity var(--t);z-index:60}
+.scrim.on{opacity:1;pointer-events:auto}
+.cmdk{position:fixed;inset:0;z-index:70;display:none;align-items:flex-start;justify-content:center;padding-top:12vh}
+.cmdk.on{display:flex}
+.cmdk-box{
+  width:min(560px,92vw);background:var(--bg-1);border:1px solid var(--line-2);border-radius:var(--r3);
+  box-shadow:0 16px 48px rgba(0,0,0,.5);overflow:hidden;
+}
+.cmdk-in{display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.cmdk-in span{font-family:var(--mono);color:var(--acc);font-size:13px}
+.cmdk-in input{flex:1;border:0;outline:none;background:transparent;font-size:13.5px;color:var(--fg)}
+.cmdk-list{max-height:320px;overflow-y:auto;padding:5px}
+.ci{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border-radius:var(--r);text-align:left;transition:background var(--t)}
+.ci:hover,.ci.sel{background:var(--acc-bg)}
+.ci .t{font-size:12.5px;color:var(--fg)}
+.ci .s{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);margin-left:auto}
+.ci .g{font-family:var(--mono);font-size:9.5px;color:var(--fg-3);border:1px solid var(--line);border-radius:2px;padding:0 4px}
+.toasts{position:fixed;bottom:38px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:6px;align-items:center}
+.toast{
+  display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:var(--r2);background:var(--bg-3);
+  border:1px solid var(--line-2);font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  box-shadow:0 8px 24px rgba(0,0,0,.4);animation:rs 160ms ease;
+}
+.toast .s{color:var(--ok)}
+@keyframes rs{from{opacity:0;transform:translateY(6px)}}
+
+/* ===================== 响应式 ===================== */
+@media (max-width:1180px){
+  .work,.work.no-insp{grid-template-columns:212px minmax(0,1fr) 288px}
+}
+@media (max-width:1000px){
+  .work,.work.no-insp{grid-template-columns:240px minmax(0,1fr)}
+  .insp{
+    position:fixed;top:44px;right:0;bottom:26px;width:330px;z-index:55;transform:translateX(100%);
+    transition:transform var(--t);box-shadow:-8px 0 24px rgba(0,0,0,.3);
+  }
+  .work.no-insp .insp{display:flex}
+  .insp.open{transform:translateX(0)}
+  .crumb{display:none}
+}
+@media (max-width:760px){
+  .work,.work.no-insp{grid-template-columns:minmax(0,1fr)}
+  .side{
+    position:fixed;top:44px;left:0;bottom:26px;width:250px;z-index:55;transform:translateX(-100%);
+    transition:transform var(--t);box-shadow:8px 0 24px rgba(0,0,0,.3);
+  }
+  .side.open{transform:translateX(0)}
+  .stream{padding:14px 12px 6px}
+  .composer{padding:6px 12px 10px}
+  .ub{max-width:92%}
+  .sbar .i.hide{display:none}
+  #btnMenu{display:grid!important}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ==================== 顶栏 ==================== -->
+  <header class="top">
+    <button class="ibtn" id="btnMenu" aria-label="切换侧边栏" style="display:none"></button>
+    <div class="brand" id="btnBrand" title="water-agent">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2c3.4 3.9 5.5 6.9 5.5 9.6A5.5 5.5 0 0 1 6.5 12.8c0-2.7 2.1-5.7 5.5-9.6Z"/><path d="M9.6 13.5a2.4 2.4 0 0 0 2.4 2.4"/></svg>
+      </div>
+      <div class="brand-txt"><b>water-agent</b> <span>v0.4</span></div>
+    </div>
+    <div class="vsep"></div>
+    <div class="crumb">
+      <span class="b">WS</span>
+      <span class="p">~/Desktop/给排水agent</span>
+      <span class="tag ok" id="permTag">工作区可写</span>
+    </div>
+    <div class="top-sp"></div>
+    <label class="sel-wrap" title="运行模式">
+      <select class="sel" id="selMode" aria-label="运行模式">
+        <option>标准模式</option><option>PTC 模式</option><option>极简模式</option><option>创造模式</option>
+      </select>
+    </label>
+    <label class="sel-wrap" id="permWrap" title="权限策略">
+      <select class="sel" id="selPerm" aria-label="权限策略">
+        <option>工作区可写</option><option>只读</option><option>完全访问</option>
+      </select>
+    </label>
+    <span class="chipx"><span class="dot" style="color:var(--ok)"></span>deepseek-chat</span>
+    <button class="chipx" id="btnCmdk" title="命令面板">⌘K</button>
+    <button class="ibtn" id="btnTheme" aria-label="切换主题"></button>
+    <button class="ibtn" id="btnInsp" aria-label="切换右侧面板"></button>
+    <button class="ibtn" aria-label="设置"></button>
+  </header>
+
+  <div class="work" id="work">
+    <!-- ==================== 左栏 ==================== -->
+    <aside class="side" id="side">
+      <div class="segtab" role="tablist">
+        <button role="tab" aria-selected="true" data-lp="files">files</button>
+        <button role="tab" aria-selected="false" data-lp="sess">sessions</button>
+      </div>
+      <div class="side-body">
+        <div class="pane on" id="lp-files">
+          <button class="newbtn" id="btnNew"><span>+</span> new session</button>
+          <div>
+            <div class="kicker">workspace</div>
+            <div class="tree" id="tree" style="margin-top:7px"></div>
+          </div>
+        </div>
+        <div class="pane" id="lp-sess">
+          <button class="newbtn" id="btnNew2"><span>+</span> new session</button>
+          <div>
+            <div class="kicker">今天</div>
+            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessToday"></div>
+          </div>
+          <div>
+            <div class="kicker">最近 7 天</div>
+            <div style="display:flex;flex-direction:column;gap:1px;margin-top:7px" id="sessWeek"></div>
+          </div>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="r"><span>corpus</span><b>12,483 条</b></div>
+        <div class="r"><span>specs</span><b>4 册 · 现行</b></div>
+        <div class="r"><span>index</span><b>qwen3.7 · 512</b></div>
+      </div>
+    </aside>
+
+    <!-- ==================== 中栏 ==================== -->
+    <main class="main">
+      <div class="chat-head">
+        <span class="tag acc mono" id="hIntent">calc</span>
+        <h1 id="hTitle">高层住宅给水立管水力计算</h1>
+        <span class="tag mono">thread_8f2c1</span>
+        <span class="tag mono">trace 4d1b…9ac</span>
+        <div class="top-sp"></div>
+        <button class="hbtn" id="btnTrace"></button>
+        <button class="hbtn">导出计算书</button>
+      </div>
+
+      <div class="scroll" id="scroll">
+        <div class="stream" id="stream" role="log" aria-live="polite" aria-label="对话记录"></div>
+      </div>
+
+      <div class="composer">
+        <div class="pbox" id="drop">
+          <div class="atts" id="atts" hidden></div>
+          <div class="pr">
+            <span class="ps1">❯</span>
+            <textarea id="input" rows="1" placeholder="描述工况或提问 —— 例如：DN150 立管，流量 20 L/s，求流速并校核" aria-label="输入消息"></textarea>
+          </div>
+          <div class="pbar">
+            <button class="ibtn" id="btnAtt" aria-label="附加文件"></button>
+            <button class="ibtn" id="btnAt" aria-label="引用工作区文件"></button>
+            <button class="ibtn" aria-label="填入计算参数"></button>
+            <div class="r">
+              <span class="mono" style="font-size:10.5px;color:var(--fg-3)" id="cnt">0 / 2000</span>
+              <button class="send" id="btnSend" disabled>send ↵</button>
+            </div>
+          </div>
+        </div>
+        <div class="hints">
+          <span><span class="kbd">↵</span> 发送</span>
+          <span><span class="kbd">⇧↵</span> 换行</span>
+          <span><span class="kbd">⌘K</span> 命令面板</span>
+          <span>可拖入 PDF / DWG / Excel</span>
+          <div class="top-sp"></div>
+          <span id="hintSpec">spec: GB50015-2019</span>
+        </div>
+        <div class="sugs" id="sugs"></div>
+      </div>
+    </main>
+
+    <!-- ==================== 右栏 ==================== -->
+    <aside class="insp" id="insp" aria-label="右侧面板">
+      <div class="insp-h">
+        <span class="t" id="inspTitle">inspector</span>
+        <div class="top-sp"></div>
+        <button class="ibtn" id="btnInspX" aria-label="收起面板"></button>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-ip="tools">工具<span class="c" id="cTools">7</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="refs">引用<span class="c" id="cRefs">2</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="calc">计算<span class="c" id="cCalc">2</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="trace">trace<span class="c" id="cTrace">12</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-ip="prev">预览</button>
+      </div>
+      <div class="insp-b">
+        <div class="ip on" id="ip-tools">
+          <div class="card">
+            <div class="k">本轮执行<span class="r">1.42 s</span></div>
+            <div class="b mono" style="display:flex;flex-direction:column;gap:3px">
+              <div style="display:flex"><span style="color:var(--fg-2)">工具调用</span><span style="margin-left:auto;color:var(--fg)">7 次</span></div>
+              <div style="display:flex"><span style="color:var(--fg-2)">回环</span><span style="margin-left:auto;color:var(--warn)">1 次</span></div>
+              <div style="display:flex"><span style="color:var(--fg-2)">结果</span><span style="margin-left:auto;color:var(--ok)">全部成功</span></div>
+            </div>
+          </div>
+          <div class="kicker">timeline</div>
+          <div class="tl" id="tlTools"></div>
+        </div>
+        <div class="ip" id="ip-refs">
+          <div class="note"><span style="color:var(--ok)">✓</span>引用经存在性校验，未命中语料的条款不会输出</div>
+          <div id="refsPanel" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+        <div class="ip" id="ip-calc">
+          <div class="note"><span style="color:var(--cyan)">ƒ</span>数值由程序化内核计算，模型不参与运算</div>
+          <div id="calcPanel" style="display:flex;flex-direction:column;gap:10px"></div>
+        </div>
+        <div class="ip" id="ip-trace">
+          <div class="note"><span style="color:var(--violet)">◇</span>run 事件流 · 落盘 data/traces/</div>
+          <div class="card"><div style="padding:8px 9px" id="tracePanel"></div></div>
+        </div>
+        <div class="ip" id="ip-prev">
+          <div class="empty" id="prevEmpty"><span>未选择文件</span><span style="color:var(--fg-3)">在左侧文件树点击任意文件</span></div>
+          <div id="prevBody" hidden></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ==================== 状态栏 ==================== -->
+  <footer class="sbar" id="sbar">
+    <span class="i"><span class="dot ok"></span><b id="sbState">ready</b></span>
+    <span class="i">~/Desktop/给排水agent</span>
+    <span class="i hide"><b>deepseek-chat</b></span>
+    <span class="i hide">ctx <b>12.4k</b>/128k</span>
+    <span class="sp"></span>
+    <span class="i hide">tok <b id="sbTok">1.4k</b></span>
+    <span class="i">tps <b id="sbTps">42</b></span>
+    <span class="i hide">GB50015-2019</span>
+    <span class="i hide">UTF-8</span>
+    <span class="i">LF</span>
+  </footer>
+</div>
+
+<div class="scrim" id="scrim"></div>
+
+<div class="cmdk" id="cmdk">
+  <div class="cmdk-box">
+    <div class="cmdk-in"><span>❯</span><input id="cmdkIn" placeholder="输入命令…" aria-label="命令面板输入"></div>
+    <div class="cmdk-list" id="cmdkList"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ==================== 图标 ==================== */
+var D = {
+  x:'M18 6L6 18M6 6l12 12',
+  panel:'M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm12 0v16',
+  menu:'M4 7h16M4 12h16M4 17h16',
+  clip:'M20.5 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3 3 0 0 1 4.2 4.2l-8.5 8.6a1 1 0 0 1-1.5-1.5l7.8-7.8',
+  at:'M16 12a4 4 0 1 0-8 0 4 4 0 0 0 8 0Zm4 0v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.6 7.2',
+  calc:'M6 2.5h12a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 20V4A1.5 1.5 0 0 1 6 2.5Zm3 5h6M8.5 12h1m3 0h1m3 0h1M8.5 16h1m3 0h1m3 0h1',
+  trace:'M3 12h4l3 8 4-16 3 8h4',
+  sun:'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0-13v1m0 16v1M4 12H3m18 0h-1M6.3 6.3l-.7-.7m13.8 13.8-.7-.7M6.3 17.7l-.7.7M17.7 6.3l.7-.7',
+  moon:'M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z',
+  gear:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  fold:'M12 3v18m0 0l-6-6m6 6l6-6',
+  up:'M7 11v9H4.5A1.5 1.5 0 0 1 3 18.5v-6A1.5 1.5 0 0 1 4.5 11H7Zm0 0l4.4-8.2a2 2 0 0 1 3.7 1.6L14.2 9h4.3a2 2 0 0 1 1.9 2.6l-1.8 6a2 2 0 0 1-1.9 1.4H7',
+  copy:'M9 9h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2Z',
+  copy2:'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+  refr:'M21 12a9 9 0 1 1-2.6-6.4M21 3.5V9h-5.5',
+  link:'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3'
+};
+function sv(n, cls, w){
+  return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'+(w||1.6)+'" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+D[n]+'"/></svg>';
+}
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ==================== 数据 ==================== */
+var CITES = {
+  c1:{ref:'GB50015-2019 §5.4.2', key:'GB50015-2019 5.4.2', title:'给水立管', text:'（占位示例条文，非真实规范文本）给水立管的布置、管径确定与检修条件应符合本节相关规定。', st:'ok', score:0.91},
+  c2:{ref:'GB50015-2019 §4.4.5', key:'GB50015-2019 4.4.5', title:'管道流速', text:'（占位示例条文，非真实规范文本）给水管道的设计流速宜控制在合理区间，并应兼顾噪声与冲刷影响。', st:'ok', score:0.86},
+  c3:{ref:'GB50014-2021 §4.4.2', key:'GB50014-2021 4.4.2', title:'排水管道坡度与流速', text:'（占位示例条文，非真实规范文本）排水管道的最小坡度、最小设计流速与充满度应符合本条要求。', st:'warn', score:0.78}
+};
+var FILES = [
+  {d:1,n:'knowledge',k:'221',open:1,ch:[
+    {d:1,n:'规范',k:'7',open:1,ch:[
+      {f:'GB50015-2019.md',s:'1.9 MB'},
+      {f:'GB50014-2021.md',s:'1.2 MB'},
+      {f:'GB50013-2018.md',s:'860 KB'}
+    ]},
+    {d:1,n:'标准图集',k:'3',ch:[
+      {f:'09S304 卫生设备安装.md',s:'220 KB'},
+      {f:'05S2 给水工程.md',s:'287 KB'}
+    ]}
+  ]},
+  {d:1,n:'data',k:'6',ch:[
+    {d:1,n:'indexes',k:'2',ch:[{f:'qwen3.7__512__curated.db',s:'412 MB'}]},
+    {d:1,n:'eval',k:'2',ch:[{f:'rag_p0.jsonl',s:'11 KB'},{f:'retrieval_gold.jsonl',s:'48 KB'}]}
+  ]},
+  {d:1,n:'src/water_agent',k:'14',ch:[
+    {f:'cli.py',s:'4 KB'},{f:'graphs/rag.py',s:'9 KB'},{f:'retrieval/trivium.py',s:'6 KB'}
+  ]},
+  {f:'web/index.html',s:'62 KB'}
+];
+var SESS = [
+  {t:'高层住宅给水立管水力计算',k:'calc',m:'14:02 · 3 轮',today:1,cur:1},
+  {t:'屋面雨水斗选型与汇水面积核算',k:'calc',m:'11:37 · 5 轮',today:1},
+  {t:'地下室给排水平面图审查',k:'dwg',m:'昨天 · 8 轮'},
+  {t:'消防水池有效容积复核',k:'calc',m:'8-28 · 4 轮'},
+  {t:'GB50015 生活饮用水水质条款',k:'rag',m:'8-26 · 2 轮'}
+];
+var SUGS = ['把结论整理成设计说明','改用 DN200 再算一次','排水横管最小坡度是多少？','导出计算书'];
+var TRACE = [
+  ['+0ms','run_start','mode=agentic'],
+  ['+12ms','node_enter','router'],
+  ['+12ms','node_exit','router → calc'],
+  ['+60ms','node_enter','parse_params'],
+  ['+108ms','node_exit','parse_params'],
+  ['+114ms','node_enter','compute_velocity'],
+  ['+120ms','node_exit','compute_velocity'],
+  ['+126ms','node_enter','validate_range'],
+  ['+128ms','node_exit','validate_range → ok'],
+  ['+1.31s','generate_complete','tokens=412'],
+  ['+1.40s','citation_check_complete','2/2 命中'],
+  ['+1.42s','run_end','status=ok']
+];
+var PREVIEW = {
+  'GB50015-2019.md':['# GB 50015-2019  建筑给水排水设计规范','','## 5.4  给水立管与横管','5.4.2  （占位示例条文，非真实规范文本）','       给水立管的布置、管径确定与检修条件','       应符合本节相关规定。','','## 4.4  管道水力计算','4.4.5  （占位示例条文，非真实规范文本）','       给水管道的设计流速宜控制在合理区间。'],
+  'rag_p0.jsonl':['{"id":"c01","type":"rag","query":"给水立管的最小公称直径…","gold_articles_any":["5.4.2"]}','{"id":"c02","type":"calc","query":"DN150 Q=20L/s 求流速","gold":{"v":1.13,"unit":"m/s"}}','{"id":"c03","type":"rag","query":"排水横管最小坡度","gold_articles_any":["4.4.2"]}','… 共 13 条（12 有效 + 1 非法覆盖异常路径）'],
+  'cli.py':['"""P0 CLI 入口。"""','from water_agent.graphs.rag import build_graph','','def main():','    graph = build_graph()','    state = graph.invoke({"query": QUERY})','    print(state["answer"])'],
+  'default':['（原型演示内容）','','此文件的内容预览为占位示例，','接入工作区后可在此直接查看规范条文、','评测集与源码，并支持 @ 引用到对话。']
+};
+
+/* ==================== 初始化 ==================== */
+$('btnMenu').innerHTML = sv('menu');
+$('btnTheme').innerHTML = sv('moon');
+$('btnInsp').innerHTML = sv('panel');
+$('btnInspX').innerHTML = sv('x');
+$('btnAtt').innerHTML = sv('clip');
+$('btnAt').innerHTML = sv('at');
+$('btnTrace').innerHTML = sv('trace') + ' trace';
+document.querySelector('[aria-label="设置"]').innerHTML = sv('gear');
+document.querySelector('[aria-label="填入计算参数"]').innerHTML = sv('calc');
+
+function treeHTML(list, depth){
+  return list.map(function(nd){
+    if(nd.d){
+      return '<button class="node dir" data-dir="1" data-depth="'+depth+'" style="padding-left:'+(6+depth*11)+'px">'+
+        '<span class="tw">'+(nd.open?'▾':'▸')+'</span>'+
+        sv('fold','fx',1.5)+
+        '<span class="nm">'+esc(nd.n)+'</span><span class="cnt">'+nd.k+'</span></button>'+
+        treeHTML(nd.ch, depth+1);
+    }
+    var ext = (nd.f.split('.').pop()||'').toLowerCase();
+    return '<button class="node f '+ext+'" data-file="'+esc(nd.f)+'" data-depth="'+depth+'" style="padding-left:'+(6+depth*11+11)+'px">'+
+      '<span class="tw"></span>'+sv('copy2','fx',1.5)+
+      '<span class="nm">'+esc(nd.f)+'</span><span class="sz">'+nd.s+'</span></button>';
+  }).join('');
+}
+$('tree').innerHTML = treeHTML(FILES, 0);
+
+/* 折叠：按 depth 递归，保证多层目录状态独立 */
+function kidsOf(btn){
+  var d = +btn.dataset.depth, sib = btn.nextElementSibling, out = [];
+  while(sib && sib.classList && sib.classList.contains('node') && +sib.dataset.depth > d){
+    out.push(sib); sib = sib.nextElementSibling;
+  }
+  return out;
+}
+function applyNode(btn){
+  var open = btn.querySelector('.tw').textContent === '▾';
+  var kids = kidsOf(btn);
+  kids.forEach(function(k){ k.hidden = !open; });
+  kids.forEach(function(k){ if(k.dataset.dir) applyNode(k); });
+}
+function refreshTree(){
+  var roots = [];
+  document.querySelectorAll('[data-dir]').forEach(function(b){ if(+b.dataset.depth === 0) roots.push(b); });
+  roots.forEach(applyNode);
+}
+refreshTree();
+
+function sessHTML(s){
+  return '<button class="sess" aria-current="'+(s.cur?'true':'false')+'">'+
+    '<span class="st1">'+esc(s.t)+'</span>'+
+    '<span class="st2"><span>'+s.k+'</span><span>'+s.m+'</span></span></button>';
+}
+$('sessToday').innerHTML = SESS.filter(function(s){return s.today;}).map(sessHTML).join('');
+$('sessWeek').innerHTML = SESS.filter(function(s){return !s.today;}).map(sessHTML).join('');
+$('sugs').innerHTML = SUGS.map(function(s){ return '<button class="sug" data-q="'+esc(s)+'">'+esc(s)+'</button>'; }).join('');
+
+$('tlTools').innerHTML = [
+  ['router','意图路由 → calc','12ms',''],
+  ['parse_params','{d:150mm, Q:20L/s}','48ms',''],
+  ['search_hybrid','top_k=8 · 4 命中','210ms',''],
+  ['compute_velocity','v = 4Q/(πd²)','6ms',''],
+  ['validate_range','0.60 ≤ 1.13 ≤ 1.50 · ok','2ms',''],
+  ['revise','DN150 → DN300（回环 1 次）','4ms','warn'],
+  ['generate','tokens 412 · citations 2','1.20s','']
+].map(function(s){
+  return '<div class="it '+(s[3]||'')+'"><div class="pt"></div><div class="bd">'+
+    '<div class="n">'+s[0]+'</div><div class="d">'+s[1]+'</div><div class="m">'+s[2]+'</div></div></div>';
+}).join('');
+
+$('tracePanel').innerHTML = TRACE.map(function(r){
+  return '<div class="tr"><span class="a">'+r[0]+'</span><span class="b">'+r[1]+'</span><span class="c">'+r[2]+'</span></div>';
+}).join('');
+
+/* ==================== 渲染块 ==================== */
+function refRow(c){
+  var tg = c.st==='ok' ? '<span class="tag ok">已校验</span>' : '<span class="tag warn">待确认</span>';
+  return '<button class="ref" data-jump="'+c.key+'"><span class="bar"></span><span class="bd">'+
+    '<span class="r1"><span class="rid">'+c.ref+'</span><span class="rtt">'+c.title+'</span>'+tg+
+    '<span class="sc">score '+c.score.toFixed(2)+'</span></span>'+
+    '<span class="r2">'+esc(c.text)+'</span></span></button>';
+}
+function refsBlock(ids){
+  return '<div class="refs">'+ids.map(function(i){ return refRow(CITES[i]); }).join('')+'</div>';
+}
+$('refsPanel').innerHTML = [CITES.c1, CITES.c2].map(refRow).join('');
+
+function calcBlock(c){
+  return '<div class="calc"><div class="ch">'+
+    '<span class="t">'+c.title+'</span>'+
+    '<span class="tag">程序化内核</span>'+
+    '<span class="r">v1.0</span></div>'+
+    '<div class="cb">'+
+      '<table class="kv">'+c.params.map(function(p){
+        return '<tr><td class="k">'+p[0]+'</td><td class="v">'+p[1]+'</td><td class="u">'+p[2]+'</td></tr>';
+      }).join('')+'</table>'+
+      '<div class="fm">'+c.formula+'</div>'+
+      '<div class="out'+(c.check.st==='ok'?'':' bad')+'">'+
+        '<span class="val">'+c.result.v+'</span><span class="u">'+c.result.u+'</span>'+
+        '<span class="vd"><span class="s '+(c.check.st==='ok'?'s-ok':'s-err')+'">'+(c.check.st==='ok'?'✓':'✗')+'</span>'+c.check.t+'</span>'+
+      '</div>'+
+    '</div></div>';
+}
+/* genui：流速–管径曲线 */
+function curveBlock(dn, Q, lo, hi){
+  var seq = [100,125,150,200,250,300,350,400];
+  var vs = seq.map(function(d){ return 4*(Q/1000)/(Math.PI*Math.pow(d/1000,2)); });
+  var vmax = Math.max(hi*1.5, Math.max.apply(null, vs)*1.12);
+  var W = 560, H = 190, ml = 38, mr = 12, mt = 12, mb = 26;
+  var pw = W-ml-mr, ph = H-mt-mb;
+  var X = function(i){ return ml + pw*i/(seq.length-1); };
+  var Y = function(v){ return mt + ph*(1 - Math.min(v,vmax)/vmax); };
+  var pts = vs.map(function(v,i){ return X(i).toFixed(1)+','+Y(v).toFixed(1); }).join(' ');
+  var band = '<rect x="'+ml+'" y="'+Y(hi).toFixed(1)+'" width="'+pw+'" height="'+(Y(lo)-Y(hi)).toFixed(1)+'" fill="var(--ok)" opacity=".10"/>';
+  var grid = '';
+  for(var g=0; g<=4; g++){
+    var v = vmax*g/4, y = Y(v);
+    grid += '<line x1="'+ml+'" y1="'+y.toFixed(1)+'" x2="'+(ml+pw)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)" stroke-width="1"/>'+
+      '<text x="'+(ml-6)+'" y="'+(y+3.5).toFixed(1)+'" text-anchor="end" font-family="var(--mono)" font-size="9.5" fill="var(--fg-3)">'+v.toFixed(1)+'</text>';
+  }
+  var lbl = seq.map(function(d,i){
+    return '<text x="'+X(i).toFixed(1)+'" y="'+(H-8)+'" text-anchor="middle" font-family="var(--mono)" font-size="9.5" fill="var(--fg-3)">'+d+'</text>';
+  }).join('');
+  var cur = seq.indexOf(dn);
+  var mark = '';
+  if(cur >= 0){
+    mark = '<line x1="'+X(cur).toFixed(1)+'" y1="'+mt+'" x2="'+X(cur).toFixed(1)+'" y2="'+(mt+ph)+'" stroke="var(--acc)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>'+
+      '<circle cx="'+X(cur).toFixed(1)+'" cy="'+Y(vs[cur]).toFixed(1)+'" r="4.5" fill="var(--acc)" stroke="var(--bg-1)" stroke-width="2"/>'+
+      '<text x="'+(X(cur)+9).toFixed(1)+'" y="'+(Y(vs[cur])-8).toFixed(1)+'" font-family="var(--mono)" font-size="10.5" fill="var(--acc)">DN'+dn+' · '+vs[cur].toFixed(2)+'</text>';
+  }
+  return '<div class="chart"><div class="ch">流速 – 管径关系<span class="r">genui · svg</span></div>'+
+    '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="管径与流速关系曲线，阴影为合理流速区间">'+
+    band+grid+
+    '<polyline points="'+pts+'" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-linejoin="round"/>'+
+    '<line x1="'+ml+'" y1="'+(mt+ph)+'" x2="'+(ml+pw)+'" y2="'+(mt+ph)+'" stroke="var(--line-2)" stroke-width="1"/>'+
+    lbl+mark+
+    '<text x="'+ml+'" y="'+(H-8)+'" text-anchor="start" font-family="var(--mono)" font-size="9" fill="var(--fg-3)">DN</text>'+
+    '<text x="'+ml+'" y="'+(mt-2)+'" font-family="var(--mono)" font-size="9" fill="var(--fg-3)">v (m/s)</text>'+
+    '</svg></div>';
+}
+function gateBlock(g){
+  return '<div class="gate"><div class="gh">'+
+    '<span class="s-warn">!</span><span>需要审批 · 生成正式文档</span>'+
+    '<span class="r"><span class="tag warn">ADR-04</span></span></div>'+
+    '<div class="gb">'+
+      '<div style="font-size:12.5px;color:var(--fg-1)">'+g.text+'</div>'+
+      '<ul>'+g.items.map(function(i){ return '<li><span class="s">›</span><span>'+i+'</span></li>'; }).join('')+'</ul>'+
+      '<div class="ga">'+
+        '<button class="gbtn ok" data-approve="1"><span style="font-family:var(--mono)">[y]</span> 确认生成</button>'+
+        '<button class="gbtn" data-approve="0"><span style="font-family:var(--mono)">[n]</span> 返回修改</button>'+
+      '</div>'+
+      '<div class="note"><span style="color:var(--warn)">›</span>确认记录写入 trace，可回滚</div>'+
+    '</div></div>';
+}
+function actsRow(ms, tk){
+  return '<div class="acts">'+
+    '<button class="act" data-fb="up">'+sv('up')+'有用</button>'+
+    '<button class="act" data-fb="dn" style="transform:scaleY(-1)">'+sv('up')+'无用</button>'+
+    '<button class="act" data-copy="1">'+sv('copy')+'复制</button>'+
+    '<button class="act" data-regen="1">'+sv('refr')+'重生成</button>'+
+    '<span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--fg-3);display:flex;gap:10px;align-items:center">'+
+      '<span>'+ms+'</span><span>'+tk+' tok</span>'+
+      '<button class="act" data-trace="1">'+sv('link')+'trace</button></span>'+
+  '</div>';
+}
+function tbBlock(steps, open){
+  return '<div class="tb" data-open="'+(open?'true':'false')+'">'+
+    '<button class="tb-h" data-toggle="tb"><span class="tw">▸</span>'+
+      '<span class="t">tools</span><span>'+steps.length+' steps</span>'+
+      '<span class="r"><span>1.42s</span></span></button>'+
+    '<div class="tb-b"><div class="inner" data-steps>'+steps.map(stepRow).join('')+'</div></div></div>';
+}
+function stepRow(s){
+  var m = {done:'✓', ok:'✓', run:'▸', warn:'!', err:'✗', wait:'·'};
+  var cls = {done:'s-ok', ok:'s-ok', run:'s-run', warn:'s-warn', err:'s-err', wait:'s-wait'};
+  return '<div class="row"><span class="s '+(cls[s.state]||'s-wait')+'">'+(m[s.state]||'·')+'</span>'+
+    '<span class="nm">'+s.name+'</span><span class="dt">'+s.detail+'</span><span class="ms">'+s.ms+'</span></div>';
+}
+
+/* ==================== 消息 ==================== */
+var stream = $('stream');
+function addUser(t){
+  var el = document.createElement('div');
+  el.className = 'msg msg-user';
+  el.innerHTML = '<div class="ub">'+esc(t)+'</div>';
+  stream.appendChild(el); scrollDown(); return el;
+}
+function addStatic(o){
+  var el = document.createElement('div');
+  el.className = 'msg';
+  el.innerHTML =
+    '<div class="msg-h"><span class="who agent">agent</span><span class="tag acc mono">'+o.intent+'</span>'+
+    '<span>'+o.time+'</span><span class="ln"></span></div>'+
+    '<div class="abody">'+o.body+actsRow(o.ms,o.tk)+'</div>';
+  stream.appendChild(el); return el;
+}
+function addLive(){
+  var el = document.createElement('div');
+  el.className = 'msg';
+  el.innerHTML =
+    '<div class="msg-h"><span class="who agent">agent</span><span class="tag acc mono" data-intent>routing</span>'+
+    '<span class="ln"></span></div>'+
+    '<div class="abody">'+
+      '<div class="tb" data-open="true"><button class="tb-h"><span class="tw">▸</span>'+
+        '<span class="t">tools</span><span data-cnt>0 steps</span>'+
+        '<span class="r"><span style="color:var(--acc)">running…</span></span></button>'+
+        '<div class="tb-b"><div class="inner" data-steps></div></div></div>'+
+      '<div class="sk"><i></i><i></i><i></i></div>'+
+      '<div class="ans" data-ans></div>'+
+    '</div>';
+  stream.appendChild(el); scrollDown();
+  return {
+    root: el,
+    steps: el.querySelector('[data-steps]'),
+    cnt: el.querySelector('[data-cnt]'),
+    head: el.querySelector('.tb-h'),
+    sk: el.querySelector('.sk'),
+    ans: el.querySelector('[data-ans]'),
+    intent: el.querySelector('[data-intent]')
+  };
+}
+function scrollDown(){ $('scroll').scrollTop = $('scroll').scrollHeight; }
+
+var CALC1 = {
+  title:'流速校核 · 给水立管',
+  params:[['公称直径 DN','150','mm'],['设计流量 Q','20.0','L/s'],['计算内径 d','150.0','mm']],
+  formula:'v = 4Q / (πd²) = 4 × 0.0200 / (π × 0.150²)',
+  result:{v:'1.13',u:'m/s'},
+  check:{st:'ok',t:'校验通过 · 落在 0.60 ~ 1.50 m/s'}
+};
+var CALC2 = {
+  title:'流速校核 · 提升管径后（回环 1 次）',
+  params:[['公称直径 DN','300','mm'],['设计流量 Q','60.0','L/s'],['计算内径 d','300.0','mm']],
+  formula:'v = 4Q / (πd²) = 4 × 0.0600 / (π × 0.300²)',
+  result:{v:'0.85',u:'m/s'},
+  check:{st:'ok',t:'校验通过 · 落在 0.60 ~ 1.50 m/s'}
+};
+$('calcPanel').innerHTML = [CALC1, CALC2].map(calcBlock).join('');
+
+addUser('DN150 的给水立管，设计流量 20 L/s，求流速并判断是否满足要求。');
+addStatic({intent:'calc', time:'14:02', ms:'1.42s', tk:'412',
+  body: tbBlock([
+    {name:'router', detail:'intent = calc', ms:'12ms', state:'done'},
+    {name:'parse_params', detail:'{d: 150 mm, Q: 20 L/s}', ms:'48ms', state:'done'},
+    {name:'search_hybrid', detail:'top_k=8 · 4 命中', ms:'210ms', state:'done'},
+    {name:'compute_velocity', detail:'v = 4Q / (πd²)', ms:'6ms', state:'done'},
+    {name:'validate_range', detail:'0.60 ≤ 1.13 ≤ 1.50 → ok', ms:'2ms', state:'done'}
+  ], false) +
+  '<div class="ans"><p>按连续流公式计算，设计流速为 <span class="n">1.13 m/s</span>。</p>'+
+  '<p>该值落在给水管道常用经济流速区间 <span class="n">0.60 ~ 1.50 m/s</span> 内，满足要求；DN150 可保留。数值由程序化内核计算，未使用模型口算。</p></div>'+
+  calcBlock(CALC1) + curveBlock(150, 20, 0.6, 1.5) + refsBlock(['c1','c2'])
+});
+
+addUser('如果流量提到 60 L/s 呢？');
+addStatic({intent:'calc', time:'14:04', ms:'1.86s', tk:'507',
+  body: tbBlock([
+    {name:'router', detail:'intent = calc', ms:'11ms', state:'done'},
+    {name:'parse_params', detail:'{d: 150 mm, Q: 60 L/s}', ms:'44ms', state:'done'},
+    {name:'compute_velocity', detail:'v = 3.40 m/s', ms:'5ms', state:'done'},
+    {name:'validate_range', detail:'3.40 > 1.50 → 超界', ms:'2ms', state:'err'},
+    {name:'revise', detail:'DN150 → DN300（回环 1 次）', ms:'4ms', state:'warn'},
+    {name:'compute_velocity', detail:'v = 0.85 m/s', ms:'5ms', state:'done'},
+    {name:'validate_range', detail:'0.60 ≤ 0.85 ≤ 1.50 → ok', ms:'2ms', state:'done'}
+  ], false) +
+  '<div class="ans"><p>按原管径 DN150 直接计算，流速为 <span class="n">3.40 m/s</span>，<strong>超出上限 1.50 m/s</strong>，会引起冲刷与噪声。</p>'+
+  '<p>计算环触发一次回环：按标准管径序列向上取值，DN300 时流速 <span class="n">0.85 m/s</span>，校验通过。建议调整为 DN300，或拆分为两根 DN200 分担流量。</p></div>'+
+  calcBlock(CALC2) + curveBlock(300, 60, 0.6, 1.5) + refsBlock(['c2'])
+});
+
+addUser('把这两轮结论整理成设计说明。');
+addStatic({intent:'docgen', time:'14:06', ms:'2.31s', tk:'846',
+  body: tbBlock([
+    {name:'router', detail:'intent = docgen', ms:'13ms', state:'done'},
+    {name:'gather_inputs', detail:'2 组计算结果 + 3 条引用', ms:'86ms', state:'done'},
+    {name:'draft', detail:'按设计说明模板生成草稿', ms:'1.90s', state:'done'},
+    {name:'self_check', detail:'数值一致 · 引用可追溯', ms:'24ms', state:'done'}
+  ], false) +
+  '<div class="ans"><p>已生成《给水立管设计说明》草稿，结构与数值均与上述两轮计算一致，共引用 3 条现行条款。按 ADR-04，正式文档生成前需要你确认。</p></div>'+
+  gateBlock({text:'确认后输出正式《给水立管设计说明》：', items:[
+    '结论一：DN150 / 20 L/s，流速 1.13 m/s，满足要求',
+    '结论二：60 L/s 工况下 DN150 超限，建议调整为 DN300',
+    '引用条款 3 条，全部通过存在性校验'
+  ]})
+});
+
+/* ==================== 生成流程 ==================== */
+var busy = false, abort = false;
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+function vel(d, Q){ return 4*(Q/1000)/(Math.PI*Math.pow(d/1000,2)); }
+function pickDN(d, Q, hi){
+  var seq = [15,20,25,32,40,50,65,80,100,125,150,200,250,300,350,400,450,500];
+  for(var i=0;i<seq.length;i++){ if(seq[i]>=d && vel(seq[i],Q)<=hi) return seq[i]; }
+  return 500;
+}
+function setSend(gen){
+  var b = $('btnSend');
+  if(gen){ b.textContent = 'stop ■'; b.disabled = false; b.dataset.m = 'stop'; }
+  else { b.textContent = 'send ↵'; b.dataset.m = 'send'; b.disabled = !$('input').value.trim(); }
+}
+async function runSteps(node, steps){
+  node.cnt.textContent = steps.length + ' steps';
+  for(var i=0;i<steps.length;i++){
+    if(abort) break;
+    steps.forEach(function(s, j){ s.state = j < i ? 'done' : (j === i ? 'run' : 'wait'); });
+    node.steps.innerHTML = steps.map(stepRow).join('');
+    await sleep(300 + Math.random()*240);
+    if(abort) break;
+    steps[i].state = steps[i].final || 'done';
+    node.steps.innerHTML = steps.map(stepRow).join('');
+    scrollDown();
+  }
+  steps.forEach(function(s){ if(s.state !== 'done' && s.state !== 'warn' && s.state !== 'err') s.state = s.final || 'done'; });
+  node.steps.innerHTML = steps.map(stepRow).join('');
+  node.head.querySelector('.r').innerHTML = '<span>'+(steps.length)+' steps · done</span>';
+  node.head.setAttribute('data-toggle','tb');
+  node.root.querySelector('.tb').setAttribute('data-open','true');
+}
+async function typeInto(el, txt){
+  el.innerHTML = ''; var buf = '';
+  for(var i=0;i<txt.length;i++){
+    if(abort){ el.innerHTML = buf; return; }
+    buf += txt[i];
+    el.innerHTML = buf + '<span class="caret"></span>';
+    if(i % 2 === 0){ scrollDown(); await sleep(16); }
+  }
+  el.innerHTML = buf;
+}
+function push(node, html){
+  var w = document.createElement('div');
+  w.innerHTML = html;
+  var host = node.ans.parentNode;
+  while(w.firstChild) host.appendChild(w.firstChild);
+}
+function calcCase(text){
+  var mD = /DN\s*(\d{2,4})/i.exec(text);
+  var mQ = /(\d+(?:\.\d+)?)\s*(?:L\/s|l\/s|升\/秒)/.exec(text);
+  var d = mD ? parseInt(mD[1],10) : 150;
+  var Q = mQ ? parseFloat(mQ[1]) : 20;
+  var lo = 0.60, hi = 1.50;
+  var v = vel(d, Q), over = v > hi;
+  var nd = over ? pickDN(d, Q, hi) : d;
+  var v2 = over ? vel(nd, Q) : v;
+  return {
+    d:d, Q:Q, v:v, over:over, nd:nd, v2:v2, lo:lo, hi:hi,
+    ans:'按连续流公式计算，DN'+d+' 在 '+Q.toFixed(1)+' L/s 下设计流速为 <span class="n">'+v.toFixed(2)+' m/s</span>。'+
+      (over ? '该值超出上限 '+hi.toFixed(2)+' m/s，<strong>不满足要求</strong>；计算环回环一次，建议提升至 DN'+nd+'，此时流速 <span class="n">'+v2.toFixed(2)+' m/s</span>，校验通过。'
+            : '该值落在 '+lo.toFixed(2)+' ~ '+hi.toFixed(2)+' m/s 区间内，<strong>满足要求</strong>，DN'+d+' 可保留。'),
+    card:{
+      title:'流速校核 · 给水管道',
+      params:[['公称直径 DN', String(over?nd:d), 'mm'],['设计流量 Q', Q.toFixed(1), 'L/s'],['计算内径 d', (over?nd:d).toFixed(1), 'mm']],
+      formula:'v = 4Q / (πd²) = 4 × '+(Q/1000).toFixed(4)+' / (π × '+((over?nd:d)/1000).toFixed(3)+'²)',
+      result:{v:(over?v2:v).toFixed(2), u:'m/s'},
+      check:{st:'ok', t:'校验通过 · 落在 '+lo.toFixed(2)+' ~ '+hi.toFixed(2)+' m/s'}
+    },
+    steps:[
+      {name:'router', detail:'intent = calc', ms:'12ms'},
+      {name:'parse_params', detail:'{d: '+d+' mm, Q: '+Q.toFixed(1)+' L/s}', ms:'46ms'},
+      {name:'search_hybrid', detail:'top_k=8 · 3 命中', ms:'204ms'},
+      {name:'compute_velocity', detail:'v = '+v.toFixed(2)+' m/s', ms:'6ms'},
+      {name:'validate_range', detail:(over ? v.toFixed(2)+' > '+hi.toFixed(2)+' → 超界' : lo.toFixed(2)+' ≤ '+v.toFixed(2)+' ≤ '+hi.toFixed(2)+' → ok'), ms:'2ms', final:over?'err':'done'},
+      over?{name:'revise', detail:'DN'+d+' → DN'+nd+'（回环 1 次）', ms:'4ms', final:'warn'}:null,
+      over?{name:'compute_velocity', detail:'v = '+v2.toFixed(2)+' m/s', ms:'5ms'}:null,
+      over?{name:'validate_range', detail:lo.toFixed(2)+' ≤ '+v2.toFixed(2)+' ≤ '+hi.toFixed(2)+' → ok', ms:'2ms'}:null
+    ].filter(Boolean)
+  };
+}
+function pushTools(steps){
+  var host = $('tlTools');
+  steps.forEach(function(s){
+    var cls = /revise/.test(s.name) ? 'warn' : (s.final === 'err' ? 'err' : '');
+    host.insertAdjacentHTML('beforeend', '<div class="it '+cls+'"><div class="pt"></div><div class="bd">'+
+      '<div class="n">'+s.name+'</div><div class="d">'+s.detail+'</div><div class="m">'+s.ms+'</div></div></div>');
+  });
+  $('cTools').textContent = host.children.length;
+  $('cTrace').textContent = parseInt($('cTrace').textContent, 10) + steps.length;
+}
+
+async function generate(text){
+  busy = true; abort = false; setSend(true);
+  $('sbState').textContent = 'running';
+  addUser(text);
+  var node = addLive();
+
+  var isCalc = /DN\s*\d|流速|流量|管径|水头|扬程|坡度|L\/s/i.test(text);
+  var isDwg = /图纸|dwg|审查|平面图|违规/i.test(text);
+  node.intent.textContent = isCalc ? 'calc' : (isDwg ? 'dwg' : 'rag');
+
+  if(isCalc){
+    var c = calcCase(text);
+    await runSteps(node, c.steps.map(function(s){ return Object.assign({}, s, {state:'wait'}); }));
+    if(!abort){
+      node.sk.remove();
+      await typeInto(node.ans, c.ans);
+      push(node, calcBlock(c.card));
+      push(node, curveBlock(c.over ? c.nd : c.d, c.Q, c.lo, c.hi));
+      push(node, refsBlock(['c2']));
+      $('calcPanel').insertAdjacentHTML('afterbegin', calcBlock(c.card));
+      $('cCalc').textContent = $('calcPanel').children.length;
+      pushTools(c.steps);
+    }
+  } else if(isDwg){
+    var st = [
+      {name:'router', detail:'intent = dwg_review', ms:'14ms'},
+      {name:'parse_dwg', detail:'地下室给排水平面图.dwg · 图层 18', ms:'1.62s'},
+      {name:'rule_check', detail:'12 条规则 · 命中 3', ms:'320ms'},
+      {name:'vision_assist', detail:'图元识别补充 · 2 处', ms:'860ms'}
+    ];
+    await runSteps(node, st.map(function(s){ return Object.assign({}, s, {state:'wait'}); }));
+    if(!abort){
+      node.sk.remove();
+      await typeInto(node.ans, '已完成图面解析与规则审查，共执行 12 条规则，<strong>发现 3 处疑似违规</strong>，其中 2 处经图元识别复核确认。生成正式《图纸审查意见书》前需要你确认。');
+      push(node, gateBlock({text:'待确认的审查结论：', items:[
+        'PL-3 立管距外墙 150 mm，疑似小于最小安装间距要求',
+        '排水横管坡度 i=0.015，疑似小于最小坡度 0.026',
+        '检查口间距 28 m，疑似超出清扫口最大间距'
+      ]}));
+      pushTools(st);
+    }
+  } else {
+    var rs = [
+      {name:'router', detail:'intent = rag', ms:'11ms'},
+      {name:'query_rewrite', detail:'2 个改写候选', ms:'180ms'},
+      {name:'search_hybrid', detail:'top_k=8 · 5 命中', ms:'236ms'},
+      {name:'generate', detail:'tokens 386 · citations 2', ms:'1.10s'},
+      {name:'citation_check', detail:'2/2 命中语料', ms:'22ms'}
+    ];
+    await runSteps(node, rs.map(function(s){ return Object.assign({}, s, {state:'wait'}); }));
+    if(!abort){
+      node.sk.remove();
+      await typeInto(node.ans, '已检索到相关条款并核对引用。结论：给水管道的公称直径与流速应按设计秒流量确定，并同时满足最小公称直径与流速上限两项约束；条文原文见引用行，点击可在右侧查看。');
+      push(node, refsBlock(['c1','c2']));
+      pushTools(rs);
+    }
+  }
+
+  if(node.sk && node.sk.parentNode) node.sk.remove();
+  var cr = node.ans.querySelector('.caret'); if(cr) cr.remove();
+  push(node, actsRow('1.6s', '386'));
+  busy = false; setSend(false);
+  $('sbState').textContent = 'ready';
+  $('sbTok').textContent = (parseFloat($('sbTok').textContent) + 0.4).toFixed(1) + 'k';
+  scrollDown();
+}
+
+/* ==================== 输入 ==================== */
+var input = $('input');
+input.addEventListener('input', function(){
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 170) + 'px';
+  $('cnt').textContent = input.value.length + ' / 2000';
+  if(!busy) setSend(false);
+});
+input.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); submit(); }
+});
+$('btnSend').addEventListener('click', function(){
+  if($('btnSend').dataset.m === 'stop'){ abort = true; toast('已停止生成'); }
+  else submit();
+});
+function submit(){
+  if(busy) return;
+  var v = input.value.trim(); if(!v) return;
+  input.value = ''; input.style.height = 'auto'; $('cnt').textContent = '0 / 2000';
+  if(files.length){ files = []; renderFiles(); }
+  generate(v);
+}
+
+/* ==================== 全局点击 ==================== */
+document.addEventListener('click', function(e){
+  var t = e.target.closest('button, .sug, [data-file]');
+  if(!t) return;
+
+  if(t.dataset.toggle === 'tb'){
+    var box = t.closest('.tb');
+    box.setAttribute('data-open', box.getAttribute('data-open') === 'true' ? 'false' : 'true');
+    return;
+  }
+  if(t.dataset.dir){
+    var open = t.querySelector('.tw').textContent === '▾';
+    t.querySelector('.tw').textContent = open ? '▸' : '▾';
+    var sib = t.nextElementSibling, depth = 0;
+    while(sib && depth < 40){
+      if(sib.classList.contains('node')){ sib.hidden = open; depth++; sib = sib.nextElementSibling; }
+      else break;
+    }
+    return;
+  }
+  if(t.dataset.file){
+    document.querySelectorAll('.node').forEach(function(n){ n.classList.remove('sel'); });
+    t.classList.add('sel');
+    showPreview(t.dataset.file); switchIp('prev'); openInsp(true);
+    return;
+  }
+  if(t.dataset.fb){
+    var on = t.getAttribute('aria-pressed') === 'true';
+    t.parentNode.querySelectorAll('[data-fb]').forEach(function(b){ b.removeAttribute('aria-pressed'); });
+    if(!on){
+      t.setAttribute('aria-pressed', 'true');
+      toast(t.dataset.fb === 'up' ? '已记录正反馈' : '已回流评测集 · rag_p0');
+    }
+    return;
+  }
+  if(t.dataset.copy){ toast('回答已复制'); return; }
+  if(t.dataset.regen){ toast('已重新生成（原型不调用真实模型）'); return; }
+  if(t.dataset.trace){ switchIp('trace'); openInsp(true); return; }
+  if(t.dataset.jump){
+    switchIp('refs'); openInsp(true);
+    var el = $('refsPanel').querySelector('[data-jump="' + t.dataset.jump + '"]');
+    if(el){
+      $('refsPanel').querySelectorAll('.card, .ref').forEach(function(c){ c.classList.remove('flash'); });
+      el.classList.add('flash'); el.scrollIntoView({block:'center', behavior:'smooth'});
+    }
+    return;
+  }
+  if(t.dataset.approve){
+    var ok = t.dataset.approve === '1';
+    var box = t.closest('.ga');
+    box.innerHTML = ok
+      ? '<span class="tag ok">✓ 已确认 · 正式文档生成中</span>'
+      : '<span class="tag">已返回修改</span>';
+    toast(ok ? '已确认，正式文档生成中' : '已返回修改环节');
+    return;
+  }
+  if(t.dataset.lp){
+    document.querySelectorAll('[data-lp]').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.lp === t.dataset.lp ? 'true' : 'false'); });
+    document.querySelectorAll('.pane').forEach(function(p){ p.classList.toggle('on', p.id === 'lp-' + t.dataset.lp); });
+    return;
+  }
+  if(t.dataset.ip){
+    switchIp(t.dataset.ip); return;
+  }
+  if(t.classList.contains('sug')){
+    input.value = t.dataset.q; input.dispatchEvent(new Event('input')); input.focus(); return;
+  }
+  if(t.classList.contains('sess')){
+    document.querySelectorAll('.sess').forEach(function(x){ x.setAttribute('aria-current', 'false'); });
+    t.setAttribute('aria-current', 'true');
+    $('hTitle').textContent = t.querySelector('.st1').textContent;
+    closeSide(); return;
+  }
+});
+
+/* ==================== 面板 / 侧栏 ==================== */
+function narrow(){ return window.matchMedia('(max-width:1000px)').matches; }
+function openInsp(open){
+  if(narrow()){ $('insp').classList.toggle('open', open); $('scrim').classList.toggle('on', open); }
+  else { $('work').classList.toggle('no-insp', !open); }
+}
+$('btnInsp').addEventListener('click', function(){
+  var open = narrow() ? $('insp').classList.contains('open') : !$('work').classList.contains('no-insp');
+  openInsp(!open);
+});
+$('btnInspX').addEventListener('click', function(){ openInsp(false); });
+$('btnMenu').addEventListener('click', function(){ $('side').classList.add('open'); $('scrim').classList.add('on'); });
+function closeSide(){ $('side').classList.remove('open'); $('scrim').classList.remove('on'); }
+$('scrim').addEventListener('click', function(){
+  closeSide(); $('insp').classList.remove('open'); $('scrim').classList.remove('on'); closeCmdk();
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){ closeSide(); $('insp').classList.remove('open'); $('scrim').classList.remove('on'); closeCmdk(); }
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); openCmdk(); }
+});
+function switchIp(name){
+  document.querySelectorAll('.tab').forEach(function(t){ t.setAttribute('aria-selected', t.dataset.ip === name ? 'true' : 'false'); });
+  document.querySelectorAll('.ip').forEach(function(p){ p.classList.toggle('on', p.id === 'ip-' + name); });
+  var m = {tools:'工具调用', refs:'规范引用', calc:'计算卡片', trace:'事件流', prev:'文件预览'};
+  $('inspTitle').textContent = m[name] || 'inspector';
+}
+function showPreview(name){
+  var lines = PREVIEW[name] || PREVIEW['default'];
+  $('prevEmpty').hidden = true;
+  var b = $('prevBody'); b.hidden = false;
+  b.innerHTML = '<div class="card"><div class="k">' + esc(name) + '<span class="r">' + lines.length + ' lines</span></div>' +
+    '<div class="b" style="padding:8px 0"><div class="prev">' + lines.map(function(l, i){
+      return '<div class="l"><span class="ln">' + (i+1) + '</span><span class="tx">' + esc(l) + '</span></div>';
+    }).join('') + '</div></div></div>';
+}
+
+/* ==================== 顶栏控件 ==================== */
+$('btnTheme').addEventListener('click', function(){
+  var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  this.innerHTML = sv(dark ? 'sun' : 'moon');
+  toast(dark ? '已切换到浅色主题' : '已切换到深色主题');
+});
+$('selPerm').addEventListener('change', function(){
+  var v = this.value;
+  $('permTag').textContent = v;
+  $('permTag').className = 'tag ' + (v === '只读' ? 'ok' : (v === '完全访问' ? 'err' : 'warn'));
+  $('permWrap').classList.toggle('perm-warn', v === '完全访问');
+  toast('权限策略：' + v);
+});
+$('selMode').addEventListener('change', function(){ toast('运行模式：' + this.value); });
+$('btnTrace').addEventListener('click', function(){ switchIp('trace'); openInsp(true); });
+$('btnNew').addEventListener('click', function(){ toast('原型未接后端 · new session 仅演示'); });
+$('btnNew2').addEventListener('click', function(){ toast('原型未接后端 · new session 仅演示'); });
+$('btnBrand').addEventListener('click', function(){ toast('water-agent · 本地 agent 工作台原型'); });
+
+/* ==================== 附件 ==================== */
+var files = [];
+$('btnAtt').addEventListener('click', function(){ files.push({n:'地下室给排水平面图.dwg', s:'2.4 MB'}); renderFiles(); });
+$('btnAt').addEventListener('click', function(){
+  input.value += (input.value ? ' ' : '') + '@knowledge/规范/GB50015-2019.md ';
+  input.dispatchEvent(new Event('input')); input.focus();
+});
+function renderFiles(){
+  var box = $('atts'); box.hidden = files.length === 0;
+  box.innerHTML = files.map(function(f, i){
+    return '<span class="att">'+sv('copy2')+esc(f.n)+'<span style="color:var(--fg-3)">'+f.s+'</span>'+
+      '<button data-rm="'+i+'" aria-label="移除">'+sv('x')+'</button></span>';
+  }).join('');
+  box.querySelectorAll('[data-rm]').forEach(function(b){
+    b.addEventListener('click', function(e){ e.stopPropagation(); files.splice(parseInt(b.dataset.rm, 10), 1); renderFiles(); });
+  });
+}
+var drop = $('drop');
+['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('drag'); }); });
+['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('drag'); }); });
+drop.addEventListener('drop', function(e){
+  var f = e.dataTransfer && e.dataTransfer.files[0];
+  if(f){ files.push({n:f.name, s:(f.size/1048576).toFixed(1)+' MB'}); renderFiles(); toast('已接收 ' + f.name + '（原型不做真实解析）'); }
+});
+
+/* ==================== 命令面板 ==================== */
+var CMDS = [
+  {t:'新建会话', g:'session', s:'⌘N'},
+  {t:'运行评测 rag_p0', g:'harness', s:''},
+  {t:'重建检索索引', g:'index', s:''},
+  {t:'切换主题（深/浅）', g:'ui', s:''},
+  {t:'切换右侧面板', g:'ui', s:''},
+  {t:'查看 run trace', g:'trace', s:''},
+  {t:'权限设为只读', g:'perm', s:''},
+  {t:'切换极简模式', g:'mode', s:''}
+];
+var cmdkOpen = false;
+function openCmdk(){
+  cmdkOpen = true; $('cmdk').classList.add('on'); $('cmdkIn').value = ''; renderCmds(''); $('cmdkIn').focus();
+}
+function closeCmdk(){ cmdkOpen = false; $('cmdk').classList.remove('on'); }
+$('btnCmdk').addEventListener('click', openCmdk);
+$('cmdkIn').addEventListener('input', function(){ renderCmds(this.value); });
+$('cmdkIn').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ var first = $('cmdkList').querySelector('.ci'); if(first) first.click(); }
+});
+function renderCmds(q){
+  var list = CMDS.filter(function(c){ return !q || c.t.toLowerCase().indexOf(q.toLowerCase()) >= 0; });
+  $('cmdkList').innerHTML = list.length ? list.map(function(c){
+    return '<button class="ci"><span class="g">'+c.g+'</span><span class="t">'+c.t+'</span>'+(c.s?'<span class="s">'+c.s+'</span>':'')+'</button>';
+  }).join('') : '<div class="empty"><span>无匹配命令</span></div>';
+}
+$('cmdkList').addEventListener('click', function(e){
+  var b = e.target.closest('.ci'); if(!b) return;
+  var t = b.querySelector('.t').textContent;
+  closeCmdk();
+  if(t.indexOf('主题') >= 0) $('btnTheme').click();
+  else if(t.indexOf('trace') >= 0){ switchIp('trace'); openInsp(true); }
+  else if(t.indexOf('面板') >= 0) $('btnInsp').click();
+  else if(t.indexOf('只读') >= 0){ $('selPerm').value = '只读'; $('selPerm').dispatchEvent(new Event('change')); }
+  else if(t.indexOf('极简') >= 0){ $('selMode').value = '极简模式'; $('selMode').dispatchEvent(new Event('change')); }
+  else toast(t + '（原型未接后端）');
+});
+$('cmdk').addEventListener('click', function(e){ if(e.target === this) closeCmdk(); });
+
+/* ==================== 吞吐模拟 ==================== */
+setInterval(function(){
+  var base = busy ? 68 : 42;
+  $('sbTps').textContent = Math.round(base + (Math.random() * 16 - 8));
+}, 900);
+
+function toast(msg){
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = '<span class="s">✓</span><span>' + esc(msg) + '</span>';
+  $('toasts').appendChild(el);
+  setTimeout(function(){ el.style.transition = 'opacity .18s'; el.style.opacity = 0; setTimeout(function(){ el.remove(); }, 200); }, 2200);
+}
+
+scrollDown();
+input.focus();
+</script>
+</body>
+</html>

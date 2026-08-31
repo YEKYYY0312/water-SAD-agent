@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "total_candidates": 70,
+  "by_spec": {
+    "GB50013-2018": 30,
+    "GB50014-2021": 30,
+    "GB50318-2017": 10
+  },
+  "by_category": {
+    "规定要求": 38,
+    "规划": 5,
+    "布置": 7,
+    "流量": 11,
+    "设施": 3,
+    "材料": 4,
+    "充满度": 1,
+    "流速": 1
+  },
+  "jsonl": "data/eval/retrieval_candidates_70.jsonl",
+  "markdown": "data/eval/retrieval_candidates_70.md",
+  "fatal_issues": [],
+  "message": "候选集已生成，is_gold=false，等待人工审核。"
+}

@@ -1,0 +1,137 @@
+{"spec_id": "GB5749-2022", "chapter": "13", "section": "13.060", "article": "13.060", "title": "CCS C 51 GB 中华人民共和国国家标准 GB 5749—2022 代替GB5749-2006 生活饮用水卫生标准 Standards for drinking water quality 2022-03-15发布 2023-04-01实施 国家市场监督管理总局 发布 国家标准化管理委员会", "text": "CCS C 51 GB 中华人民共和国国家标准 GB 5749—2022 代替GB5749-2006 生活饮用水卫生标准 Standards for drinking water quality 2022-03-15发布 2023-04-01实施 国家市场监督管理总局 发布 国家标准化管理委员会\nGB5749—2022 前言 本文件按照GB/T1.1一2020《标准化工作导则第1部分：标准化文件的结构和起草规则》的规定 起草。 本文件代替GB5749-2006《生活饮用水卫生标准》，与GB5749一2006相比，除结构调整和编辑性 改动外，主要技术变化如下。 a）水质指标由GB5749一2006的106项调整为97项，包括常规指标43项和扩展指标54项（见 第4章)。其中： ·、增加了4项指标，包括高氯酸盐、乙草胺、2-甲基异茨醇、土臭素； ·删除了13项指标，包括耐热大肠菌群、三氯乙醛、硫化物、氯化氰（以CN-计）、六六六（总 量）、对硫磷、甲基对硫磷、林丹、滴滴涕、甲醛、1，1，1-三氯乙烷、1，2-二氯苯、乙苯； ·更改了3项指标的名称，包括耗氧量（CODm法，以O2计)名称修改为高锰酸盐指数（以 O2计）、氨氮（以N计)名称修改为氨（以N计）、1，2-二氯乙烯名称修改为1，2-二氯乙烯 （总量）； 硼、氯乙烯、三氯乙烯、乐果； ·增加了总B放射性指标进行核素分析评价的具体要求及微囊藻毒素-LR指标的适用情况； 第4章)。 b）水质参考指标由GB5749一2006的28项调整为55项（见附录A)。其中： ·增加了29项指标，包括钒、六六六（总量)、对硫磷、甲基对硫磷、林丹、滴滴涕、敌百虫、甲基硫 菌灵、稻瘟灵、氟乐灵、甲霜灵、西草净、乙酰甲胺磷、甲醛、三氯乙醛、氯化氰（以CN计）、亚 硝基二甲胺、碘乙酸、1，1，1-三氯乙烷、乙苯、1，2-二氯苯、全氟辛酸、全氟辛烷磺酸、二甲基二 硫醚、二甲基三硫醚、碘化物、硫化物、铀、镭-226； ·删除了2项指标，包括2-甲基异茨醇、土臭素； ·更改了3项指标的名称，包括二溴乙烯名称修改为1，2-二溴乙烷、亚硝酸盐名称修改为亚 硝酸盐（以N计）、石棉(>10μm)名称修改为石棉(纤维>10μm); ·更改了1项指标的限值，为石油类(总量)。 请注意本文件的某些内容可能涉及专利。本文件的发布机构不承担识别专利的责任。 本文件由中华人民共和国国家卫生健康委员会提出并归口。 本文件及其所代替文件的历次版本发布情况为： —1985年首次发布为GB5749—1985，2006年第一次修订； 一本次为第二次修订。 I"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.1", "article": "3.1", "title": "生活饮用水drinkingwater 供人生活的饮水和用水。", "text": "生活饮用水drinkingwater 供人生活的饮水和用水。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.2", "article": "3.2", "title": "集中式供水centralizedwater supply 自水源集中取水，通过输配水管网送到用户或者公共取水点的供水方式。", "text": "集中式供水centralizedwater supply 自水源集中取水，通过输配水管网送到用户或者公共取水点的供水方式。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.3", "article": "3.3", "title": "小型集中式供水small centralizedwater supply 设计日供水量在1000m”以下或供水人口在1万人以下的集中式供水。", "text": "小型集中式供水small centralizedwater supply 设计日供水量在1000m”以下或供水人口在1万人以下的集中式供水。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.4", "article": "3.4", "title": "分散式供水decentralizedwater supply 用户直接从水源取水，未经任何处理或仅有简易设施处理的供水方式。", "text": "分散式供水decentralizedwater supply 用户直接从水源取水，未经任何处理或仅有简易设施处理的供水方式。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.5", "article": "3.5", "title": "出厂水finishedwater 集中式供水单位完成处理工艺流程后即将进人输配水管网的水。", "text": "出厂水finishedwater 集中式供水单位完成处理工艺流程后即将进人输配水管网的水。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.6", "article": "3.6", "title": "末梢水tapwater 出厂水经输配水管网输送至用户水龙头的水。", "text": "末梢水tapwater 出厂水经输配水管网输送至用户水龙头的水。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.7", "article": "3.7", "title": "常规指标regularindices 反映生活饮用水水质基本状况的指标。", "text": "常规指标regularindices 反映生活饮用水水质基本状况的指标。"}
+{"spec_id": "GB5749-2022", "chapter": "3", "section": "3.8", "article": "3.8", "title": "扩展指标expandedindices 反映地区生活饮用水水质特征及在一定时间内或特殊情况下水质状况的指标。 4 生活饮用水水质要求 4.1生活饮用水水质应符合下列基本要求，保证用户饮用安全 a) 生活饮用水中不应含有病原微生物； b) 生活饮用水中化学物质不应危害人体健康； c) 生活饮用水中放射性物质不应危害人体健康； d) 生活饮用水的感官性状良好； e) 生活饮用水应经消毒处理。 4.2生活饮用水水质应符合表1和表3要求，出厂水和末梢水中消毒剂限值、消毒剂余量均应符合 表2要求 注：当生活饮用水中含有附录A所列指标时，可参考表1中该指标的限值评价。 表1生活饮用水水质常规指标及限值 序号 指标 限值 一、微生物指标 1 总大肠菌群/（MPN/100mL或CFU/100mL） 不应检出 2 大肠埃希氏菌/（MPN/100mL或CFU/100mL） 不应检出 3 菌落总数（MPN/mL或CFU/mL） 100 二、 毒理指标 4 砷/(mg/L)", "text": "扩展指标expandedindices 反映地区生活饮用水水质特征及在一定时间内或特殊情况下水质状况的指标。 4 生活饮用水水质要求 4.1生活饮用水水质应符合下列基本要求，保证用户饮用安全 a) 生活饮用水中不应含有病原微生物； b) 生活饮用水中化学物质不应危害人体健康； c) 生活饮用水中放射性物质不应危害人体健康； d) 生活饮用水的感官性状良好； e) 生活饮用水应经消毒处理。 4.2生活饮用水水质应符合表1和表3要求，出厂水和末梢水中消毒剂限值、消毒剂余量均应符合 表2要求 注：当生活饮用水中含有附录A所列指标时，可参考表1中该指标的限值评价。 表1生活饮用水水质常规指标及限值 序号 指标 限值 一、微生物指标 1 总大肠菌群/（MPN/100mL或CFU/100mL） 不应检出 2 大肠埃希氏菌/（MPN/100mL或CFU/100mL） 不应检出 3 菌落总数（MPN/mL或CFU/mL） 100 二、 毒理指标 4 砷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "5 镉/(mg/L)", "text": "5 镉/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.005", "article": "0.005", "title": "6 铬（六价）/（mg/L）", "text": "6 铬（六价）/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "7 铅/(mg/L)", "text": "7 铅/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "8 汞/(mg/L)", "text": "8 汞/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "9 氰化物/（mg/L）", "text": "9 氰化物/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "10 氟化物/（mg/L）", "text": "10 氟化物/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "1", "section": "1.0", "article": "1.0", "title": "11 硝酸盐（以N计）/（mg/L） 10 12 氯甲烷/（mg/L）", "text": "11 硝酸盐（以N计）/（mg/L） 10 12 氯甲烷/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.06", "article": "0.06", "title": "13 氯二溴甲烷/（mg/L）°", "text": "13 氯二溴甲烷/（mg/L）°"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.06", "article": "0.06", "title": "15 三溴甲烷/(mg/L)e", "text": "15 三溴甲烷/(mg/L)e"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "该类化合物中各种化合物 三卤甲烷(三氯甲烷、一氯二溴甲烷、二氯一溴甲烷、三溴甲烷的总 16 的实测浓度与其各自限值的 和) 比值之和不超过1 17 二氯乙酸/(mg/L)c", "text": "该类化合物中各种化合物 三卤甲烷(三氯甲烷、一氯二溴甲烷、二氯一溴甲烷、三溴甲烷的总 16 的实测浓度与其各自限值的 和) 比值之和不超过1 17 二氯乙酸/(mg/L)c"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "18 三氯乙酸/(mg/L)c", "text": "18 三氯乙酸/(mg/L)c"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "19 溴酸盐/(mg/L)c", "text": "19 溴酸盐/(mg/L)c"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "20 亚氯酸盐/(mg/L)", "text": "20 亚氯酸盐/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.7", "article": "0.7", "title": "21 氯酸盐/(mg/L)c", "text": "21 氯酸盐/(mg/L)c"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.7", "article": "0.7", "title": "三、感官性状和一般化学指标d 22 色度(铂钴色度单位)/度 15 23 浑浊度（散射浑浊度单位)/NTUb 1 24 臭和味 无异臭、异味 25 肉眼可见物 无 26 pH 不小于6.5且不大于", "text": "三、感官性状和一般化学指标d 22 色度(铂钴色度单位)/度 15 23 浑浊度（散射浑浊度单位)/NTUb 1 24 臭和味 无异臭、异味 25 肉眼可见物 无 26 pH 不小于6.5且不大于"}
+{"spec_id": "GB5749-2022", "chapter": "8", "section": "8.5", "article": "8.5", "title": "27 铝/(mg/L)", "text": "27 铝/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.2", "article": "0.2", "title": "28 铁/(mg/L)", "text": "28 铁/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "29 锰/(mg/L)", "text": "29 锰/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "30 铜/(mg/L)", "text": "30 铜/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "1", "section": "1.0", "article": "1.0", "title": "31 锌/(mg/L)", "text": "31 锌/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "1", "section": "1.0", "article": "1.0", "title": "32 氯化物/(mg/L) 250 33 硫酸盐/(mg/L) 250 34 溶解性总固体/(mg/L) 1000 35 总硬度(以 CaCOg计)/(mg/L) 450 36 高锰酸盐指数(以O2计)/(mg/L) 3 37 氨N计)/(mg/L)", "text": "32 氯化物/(mg/L) 250 33 硫酸盐/(mg/L) 250 34 溶解性总固体/(mg/L) 1000 35 总硬度(以 CaCOg计)/(mg/L) 450 36 高锰酸盐指数(以O2计)/(mg/L) 3 37 氨N计)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.5", "article": "0.5", "title": "四、放射性指标\" 38 总α放射性/(Bq/L) 0.5(指导值) 3", "text": "四、放射性指标\" 38 总α放射性/(Bq/L) 0.5(指导值) 3"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "≥", "text": "≥"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "41 总氯 ≥120 ≥", "text": "41 总氯 ≥120 ≥"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.5", "article": "0.5", "title": "≥", "text": "≥"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": ">", "text": ">"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "如采用其他协同消毒方 42 臭氧 ≥12 0 式，消毒剂限值及余量 应满足相应要求 43 二氧化氯d 30 ≤", "text": "如采用其他协同消毒方 42 臭氧 ≥12 0 式，消毒剂限值及余量 应满足相应要求 43 二氧化氯d 30 ≤"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.8", "article": "0.8", "title": "≥", "text": "≥"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "≥", "text": "≥"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "采用液氯、次氯酸钠、次氯酸钙消毒方式时，应测定游离氯。 采用氯胺消毒方式时，应测定总氯。 采用臭氧消毒方式时，应测定臭氧。 采用二氧化氯消毒方式时，应测定二氧化氯；采用二氧化氯与氯混合消毒剂发生器消毒方式时，应测定二氧化 氯和游离氯。两项指标均应满足限值要求，至少一项指标应满足余量要求。", "text": "采用液氯、次氯酸钠、次氯酸钙消毒方式时，应测定游离氯。 采用氯胺消毒方式时，应测定总氯。 采用臭氧消毒方式时，应测定臭氧。 采用二氧化氯消毒方式时，应测定二氧化氯；采用二氧化氯与氯混合消毒剂发生器消毒方式时，应测定二氧化 氯和游离氯。两项指标均应满足限值要求，至少一项指标应满足余量要求。"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.005", "article": "0.005", "title": "47 钡/(mg/L)", "text": "47 钡/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.7", "article": "0.7", "title": "48 铍/（mg/L)", "text": "48 铍/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "49 硼/(mg/L)", "text": "49 硼/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "1", "section": "1.0", "article": "1.0", "title": "50 钼/(mg/L)", "text": "50 钼/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.07", "article": "0.07", "title": "51 镍/（mg/", "text": "51 镍/（mg/"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "52 银/(mg/L)", "text": "52 银/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "53 铊/(mg/L> .000 54 硒 (mg/ 01 55 高氯酸盐/（mg/L）", "text": "53 铊/(mg/L> .000 54 硒 (mg/ 01 55 高氯酸盐/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.07", "article": "0.07", "title": "56 二氯甲烷/（mg/L）", "text": "56 二氯甲烷/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "57 1.2-二氯乙烷/（mg/L", "text": "57 1.2-二氯乙烷/（mg/L"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "58 四氯化碳/(mg/L)", "text": "58 四氯化碳/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "69 氯乙烯/（mg/L）", "text": "69 氯乙烯/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "60 1,1-二氯乙烯/（mg/L", "text": "60 1,1-二氯乙烯/（mg/L"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "61 1,2-二氯乙烯（总量）/（mg/L）", "text": "61 1,2-二氯乙烯（总量）/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "62 三氯乙烯/（mg） L) 0. 02 63 四氯乙烯/（mg/L)", "text": "62 三氯乙烯/（mg） L) 0. 02 63 四氯乙烯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.04", "article": "0.04", "title": "64 六氯丁二烯/（mg/L)", "text": "64 六氯丁二烯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.0006", "article": "0.0006", "title": "65 苯/（mg/L)", "text": "65 苯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "66 甲苯/（mg/L)", "text": "66 甲苯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.7", "article": "0.7", "title": "67 二甲苯（总量)/(mg/L)", "text": "67 二甲苯（总量)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.5", "article": "0.5", "title": "68 苯乙烯/（mg/L）", "text": "68 苯乙烯/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "69 氯苯/（mg/L)", "text": "69 氯苯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "70 1,4-二氯苯/（mg/L)", "text": "70 1,4-二氯苯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "71 三氯苯（总量）/（mg/L）", "text": "71 三氯苯（总量）/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "72 六氯苯/（mg/L）", "text": "72 六氯苯/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "73 七氯/（mg/L)", "text": "73 七氯/（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "4 74 马拉硫磷/（mg/L）", "text": "4 74 马拉硫磷/（mg/L）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.25", "article": "0.25", "title": "76 乐果/(mg/L)", "text": "76 乐果/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "77 百菌清/(mg/L)", "text": "77 百菌清/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "78 呋喃丹/(mg/L)", "text": "78 呋喃丹/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.007", "article": "0.007", "title": "79 毒死蜱/(mg/L)", "text": "79 毒死蜱/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "80 草甘麟/(mg/L)", "text": "80 草甘麟/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.7", "article": "0.7", "title": "81 敌敌畏/(mg/L)", "text": "81 敌敌畏/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "82 去津/(mg/L)", "text": "82 去津/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "83 溴氰菊酯/(mg/L)", "text": "83 溴氰菊酯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "84 2,4-滴/(mg/L)", "text": "84 2,4-滴/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "85 乙草胺/(mg/L)", "text": "85 乙草胺/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "86 五氯酚/(mg/L)", "text": "86 五氯酚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.009", "article": "0.009", "title": "87 2,4,6-三氯酚/(mg/L)", "text": "87 2,4,6-三氯酚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.2", "article": "0.2", "title": "88 苯并(a)芘/(mg/L)", "text": "88 苯并(a)芘/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "01 89 邻苯二甲酸二(2-乙基已基)酯/(mg/L)", "text": "01 89 邻苯二甲酸二(2-乙基已基)酯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.008", "article": "0.008", "title": "90 丙烯酰胺/(mg/L)", "text": "90 丙烯酰胺/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.0005", "article": "0.0005", "title": "91 环氧氯丙烷/(mg/L)", "text": "91 环氧氯丙烷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "4 92 微囊藻毒素-LR（藻类暴发情况发生时)/(mg/L)", "text": "4 92 微囊藻毒素-LR（藻类暴发情况发生时)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "三、感官性状和一般化学指标。 93 钠/(mg/L) 200 94 挥发酚类(以苯酚计)/(mg/L)", "text": "三、感官性状和一般化学指标。 93 钠/(mg/L) 200 94 挥发酚类(以苯酚计)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "95 阴离子合成洗涤剂/(mg/L)", "text": "95 阴离子合成洗涤剂/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "96 2-甲基异茨醇/(mg/L)", "text": "96 2-甲基异茨醇/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "01 97 土臭素/(mg/L)", "text": "01 97 土臭素/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "01 ”当发生影响水质的突发公共事件时，经风险评估，感官性状和一般化学指标可暂时适当放宽。 5 生活饮用水水源水质要求", "text": "01 ”当发生影响水质的突发公共事件时，经风险评估，感官性状和一般化学指标可暂时适当放宽。 5 生活饮用水水源水质要求"}
+{"spec_id": "GB5749-2022", "chapter": "5", "section": "5.1", "article": "5.1", "title": "采用地表水为生活饮用水水源时，水源水质应符合GB3838要求。", "text": "采用地表水为生活饮用水水源时，水源水质应符合GB3838要求。"}
+{"spec_id": "GB5749-2022", "chapter": "5", "section": "5.2", "article": "5.2", "title": "采用地下水为生活饮用水水源时，水源水质应符合GB/T14848一2017中第4章的要求。", "text": "采用地下水为生活饮用水水源时，水源水质应符合GB/T14848一2017中第4章的要求。"}
+{"spec_id": "GB5749-2022", "chapter": "5", "section": "5.3", "article": "5.3", "title": "水源水质不能满足5.1或5.2要求，不宜作为生活饮用水水源。但限于条件限制需加以利用时，应 采用相应的净水工艺进行处理，处理后的水质应满足本文件要求。 集中式供水单位卫生要求 集中式供水单位卫生要求应符合《生活饮用水集中式供水单位卫生规范》规定。 6", "text": "水源水质不能满足5.1或5.2要求，不宜作为生活饮用水水源。但限于条件限制需加以利用时，应 采用相应的净水工艺进行处理，处理后的水质应满足本文件要求。 集中式供水单位卫生要求 集中式供水单位卫生要求应符合《生活饮用水集中式供水单位卫生规范》规定。 6"}
+{"spec_id": "GB5749-2022", "chapter": "5750", "section": "5750.2", "article": "5750.2", "title": "执行，水质分析质量控制按照GB/T5750.3执行对应的检验方法按照GB/T5750.4~GB/T", "text": "执行，水质分析质量控制按照GB/T5750.3执行对应的检验方法按照GB/T5750.4~GB/T"}
+{"spec_id": "GB5749-2022", "chapter": "5750", "section": "5750.13", "article": "5750.13", "title": "执行。", "text": "执行。"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.01", "article": "0.01", "title": "4 氯化乙基汞/(mg/L)", "text": "4 氯化乙基汞/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "1 5 四乙基铅/(mg/L)", "text": "1 5 四乙基铅/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "1 6 六六六(总量)/(mg/L)", "text": "1 6 六六六(总量)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.005", "article": "0.005", "title": "7 对硫磷/(mg/L)", "text": "7 对硫磷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.003", "article": "0.003", "title": "8 甲基对硫磷/(mg/L)", "text": "8 甲基对硫磷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.009", "article": "0.009", "title": "9 林丹/(mg/L)", "text": "9 林丹/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "10 滴滴涕/(mg/L)", "text": "10 滴滴涕/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "11 敌百虫/(mg/L)", "text": "11 敌百虫/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "12 甲基硫菌灵/(mg/L)", "text": "12 甲基硫菌灵/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "13 稻瘟灵/(mg/L)", "text": "13 稻瘟灵/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "14 氟乐灵/(mg/L)", "text": "14 氟乐灵/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "15 甲霜灵/(mg/L)", "text": "15 甲霜灵/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "16 西草净/(mg/L)", "text": "16 西草净/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "17 乙酰甲胺磷/(mg/L)", "text": "17 乙酰甲胺磷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.08", "article": "0.08", "title": "18 甲醛/(mg/L)", "text": "18 甲醛/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.9", "article": "0.9", "title": "19 三氯乙醛/(mg/L)", "text": "19 三氯乙醛/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "20 氯化氰(以CN-计)/(mg/L)", "text": "20 氯化氰(以CN-计)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.07", "article": "0.07", "title": "21 亚硝基二甲胺/(mg/L)", "text": "21 亚硝基二甲胺/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "1 22 碘乙酸/(mg/L)", "text": "1 22 碘乙酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "23 1,1,1-三氯乙烷/(mg/L) 2 24 1,2-二溴乙烷/(mg/L)", "text": "23 1,1,1-三氯乙烷/(mg/L) 2 24 1,2-二溴乙烷/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "05 25 五氯丙烷（mg/L)", "text": "05 25 五氯丙烷（mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "26 乙苯mg/L)", "text": "26 乙苯mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "27 1,2二氯苯/(mg/L) 1 28 硝基苯/(mg/L)", "text": "27 1,2二氯苯/(mg/L) 1 28 硝基苯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.017", "article": "0.017", "title": "29 双酚A/(mg/L)", "text": "29 双酚A/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "31 丙烯醛/(mg/L)", "text": "31 丙烯醛/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "32 戊二醛/(mg/L)", "text": "32 戊二醛/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.07", "article": "0.07", "title": "33 二(2-乙基己基）己二酸酯/(mg/L)", "text": "33 二(2-乙基己基）己二酸酯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.4", "article": "0.4", "title": "34 邻苯二甲酸二乙酯/(mg/L)", "text": "34 邻苯二甲酸二乙酯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.3", "article": "0.3", "title": "35 邻苯二甲酸二丁酯/(mg/L)", "text": "35 邻苯二甲酸二丁酯/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.003", "article": "0.003", "title": "36 多环芳烃(总量)/(mg/L)", "text": "36 多环芳烃(总量)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.002", "article": "0.002", "title": "37 多氯联苯(总量)/(mg/L)", "text": "37 多氯联苯(总量)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "5 38 二英(2,3,7,8-四氯二苯并对二英)/(mg/L)", "text": "5 38 二英(2,3,7,8-四氯二苯并对二英)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "000 03 39 全氟辛酸/(mg/L)", "text": "000 03 39 全氟辛酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "08 40 全氟辛烷磺酸/(mg/L)", "text": "08 40 全氟辛烷磺酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "04 41 丙烯酸/(mg/L)", "text": "04 41 丙烯酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.5", "article": "0.5", "title": "42 环烷酸/(mg/L)", "text": "42 环烷酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "1", "section": "1.0", "article": "1.0", "title": "43 丁基黄原酸/(mg/L)", "text": "43 丁基黄原酸/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.001", "article": "0.001", "title": "44 β-萘酚/(mg/L)", "text": "44 β-萘酚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.4", "article": "0.4", "title": "45 二甲基二硫醚/(mg/L)", "text": "45 二甲基二硫醚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "03 46 二甲基三硫醚/(mg/L)", "text": "03 46 二甲基三硫醚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.000", "article": "0.000", "title": "03 47 苯甲醚/(mg/L)", "text": "03 47 苯甲醚/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "48 石油类(总量)/(mg/L)", "text": "48 石油类(总量)/(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.05", "article": "0.05", "title": "49 总有机碳/(mg/L) 5 50 碘化物/(mg/L)=", "text": "49 总有机碳/(mg/L) 5 50 碘化物/(mg/L)="}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.1", "article": "0.1", "title": "51 硫化物/g）", "text": "51 硫化物/g）"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.02", "article": "0.02", "title": "52 亚硝酸盐(以N计)/(mg/L) 1 石棉（纤维>10μm)/(万个/L) 700 /(mg/L)", "text": "52 亚硝酸盐(以N计)/(mg/L) 1 石棉（纤维>10μm)/(万个/L) 700 /(mg/L)"}
+{"spec_id": "GB5749-2022", "chapter": "0", "section": "0.03", "article": "0.03", "title": "55 镭-226/(Bq/L) 1 6", "text": "55 镭-226/(Bq/L) 1 6\nGB5749--2022 参考文献 [1]生活饮用水集中式供水单位卫生规范(卫法监发[2001]161号) [2]生活饮用水消毒剂和消毒设备卫生安全评价规范（试行）（卫监督发[2005]336号) 10\n5749—2022 GB 中华人民共和国 国家标准 生活饮用水卫生标准 GB5749-2022 ￥ 中国标准出版社出版发行 北京市朝阳区和平里西街甲2号(100029) 北京市西城区三里河北街16号（100045) 网址www.spc.net.cn 总编室：（010)68533533发行中心：（010)51780238 读者服务部：（010)68523946 中国标准出版社秦皇岛印刷厂印刷 各地新华书店经销 ￥ 开本880X12301/16印张1字数23千字 2022年3月第一版2022年3月第一次印刷 ￥ 书号：155066·1-70299定价22.00元 如有印装差错由本社发行中心调换 版权专有侵权必究 GB 5749-2022 举报电话：（010)68510107 码上扫一扫正版服务到"}
