@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import time
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -123,8 +124,31 @@ class HarnessRunner:
         )
         return scored
 
+    def _error_result(self, case, *, line_no: int | None, exc: BaseException) -> EvalResult:
+        """单用例崩溃兜底（P1）：标记 failed + actual_status=error，堆栈进 report 与 trace 文件。"""
+        traceback_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        try:
+            (self.trace_dir / f"{case.id}_error.trace").write_text(traceback_text, encoding="utf-8")
+        except OSError:  # 追踪落盘失败不阻断评测
+            pass
+        return EvalResult(
+            case_id=case.id,
+            passed=False,
+            expected_status=getattr(case, "expected_status", ""),
+            actual_status="error",
+            failure_reason=f"{type(exc).__name__}: {exc}",
+            exception_trace=traceback_text,
+            line_no=line_no,
+        )
+
     def run_bundle(self, bundle: EvalLoadBundle):
-        results = [self._run_case(case) for case in bundle.cases]
+        results: list[EvalResult] = []
+        for index, case in enumerate(bundle.cases):
+            line_no = bundle.line_nos[index] if index < len(bundle.line_nos) else None
+            try:
+                results.append(self._run_case(case, line_no=line_no))
+            except Exception as exc:  # noqa: BLE001 — P1 单用例隔离：单例崩溃不拖垮整份报告
+                results.append(self._error_result(case, line_no=line_no, exc=exc))
         load_issues = [
             {
                 "line_no": issue.line_no,

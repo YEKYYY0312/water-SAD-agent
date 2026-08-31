@@ -74,22 +74,57 @@ def _require(inputs: dict[str, Any], required: list[str]) -> CalcResult | None:
     return None
 
 
+def _to_float(value: Any) -> float | None:
+    """安全取数（P1）：数值/数值字符串 → float；其余 → None。
+
+    None / 空串 / 非数值 / NaN / ±inf / bool 一律返回 None，
+    避免字符串等非法类型穿透 ``float()`` 导致调用方（CLI/图）裸崩。
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
 def _positive_numbers(inputs: dict[str, Any], names: list[str]) -> list[str]:
-    """返回非正（非法）的数值参数名。"""
+    """返回非正（非法）的数值参数名：非数值、NaN/inf、≤0 均非法。"""
     invalid: list[str] = []
     for name in names:
         value = inputs.get(name)
-        if value is not None:
-            try:
-                if float(value) <= 0:
-                    invalid.append(name)
-            except (TypeError, ValueError):
-                invalid.append(name)
+        if value is None:
+            continue
+        number = _to_float(value)
+        if number is None or number <= 0:
+            invalid.append(name)
+    return invalid
+
+
+def _non_negative_numbers(inputs: dict[str, Any], names: list[str]) -> list[str]:
+    """返回负值/非数值的参数名；0 显式允许（口径表 §5：分量可为 0）。"""
+    invalid: list[str] = []
+    for name in names:
+        value = inputs.get(name)
+        if value is None:
+            continue
+        number = _to_float(value)
+        if number is None or number < 0:
+            invalid.append(name)
     return invalid
 
 
 def _numeric(inputs: dict[str, Any], name: str) -> float:
-    return float(inputs[name])
+    """校验通过后的安全取数；校验遗漏时抛出（内部契约错误，不应发生）。"""
+    number = _to_float(inputs.get(name))
+    if number is None:
+        raise ValueError(f"{name} 不是有效数值（内部校验遗漏）")
+    return number
 
 
 def calc_velocity(inputs: dict[str, Any]) -> CalcResult:
@@ -130,25 +165,23 @@ def calc_head_loss_darcy_weisbach(inputs: dict[str, Any]) -> CalcResult:
     bad = _require(inputs, ["length_m", "diameter_mm", "velocity_mps", "friction_factor"])
     if bad is not None:
         return bad
-    invalid = _positive_numbers(inputs, ["length_m", "diameter_mm", "velocity_mps"])
-    friction = inputs.get("friction_factor")
-    friction_errors: list[str] = []
-    if friction is None:
-        friction_errors.append("friction_factor 必须为正数")
+    invalid = _positive_numbers(inputs, ["length_m", "diameter_mm", "velocity_mps", "friction_factor"])
+    if invalid:
+        return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid])
+
+    gravity_raw = inputs.get("gravity_mps2")
+    if gravity_raw is None or (isinstance(gravity_raw, str) and not gravity_raw.strip()):
+        gravity = GRAVITY_DEFAULT  # 口径表 §2.1 显式允许的默认值
     else:
-        try:
-            if float(friction) <= 0:
-                friction_errors.append("friction_factor 必须为正数")
-        except (TypeError, ValueError):
-            friction_errors.append("friction_factor 必须为正数")
-    if invalid or friction_errors:
-        return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid] + friction_errors)
+        gravity = _to_float(gravity_raw)
+        if gravity is None or gravity <= 0:
+            return CalcResult(ok=False, errors=["gravity_mps2 必须为正数"])
 
     length_m = _numeric(inputs, "length_m")
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
     velocity = _numeric(inputs, "velocity_mps")
-    gravity = float(inputs.get("gravity_mps2") or GRAVITY_DEFAULT)
-    head_loss = float(friction) * (length_m / diameter_m) * (velocity**2 / (2.0 * gravity))
+    friction = _numeric(inputs, "friction_factor")
+    head_loss = friction * (length_m / diameter_m) * (velocity**2 / (2.0 * gravity))
     return CalcResult(ok=True, values={"head_loss_m": head_loss})
 
 
@@ -213,8 +246,8 @@ def calc_slope_manning(inputs: dict[str, Any]) -> CalcResult:
     if invalid:
         return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid])
 
-    fill_ratio = _numeric(inputs, "fill_ratio")
-    if not (0 < fill_ratio < 1):
+    fill_ratio = _to_float(inputs.get("fill_ratio"))
+    if fill_ratio is None or not (0 < fill_ratio < 1):
         return CalcResult(ok=False, errors=["fill_ratio 必须在 (0, 1) 开区间内"])
 
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
@@ -235,9 +268,9 @@ def calc_pump_head(inputs: dict[str, Any]) -> CalcResult:
     bad = _require(inputs, ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
     if bad is not None:
         return bad
-    invalid = _positive_numbers(inputs, ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
+    invalid = _non_negative_numbers(inputs, ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
     if invalid:
-        return CalcResult(ok=False, errors=[f"{name} 不允许为负数" for name in invalid])
+        return CalcResult(ok=False, errors=[f"{name} 必须为非负数" for name in invalid])
 
     total = sum(_numeric(inputs, name) for name in ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
     return CalcResult(ok=True, values={"pump_head_m": total})
