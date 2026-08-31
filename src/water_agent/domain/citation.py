@@ -63,13 +63,11 @@ def validate_citations(
     cited_ids: Iterable[str],
     context_ids: Iterable[str],
     *,
-    allowed_beyond_context: bool = False,
     version_registry: Any | None = None,
 ) -> CitationCheckResult:
     """确定性校验：被引用条款是否都在本次检索结果中。
 
     - ``cited_ids`` / ``context_ids``：source_id 字符串集合（本步只做主键比较）；
-    - ``allowed_beyond_context=True`` 时跳过"不在检索结果"拦截（当前仅测试语义）；
     - ``version_registry``：Step 8 的版本注册表；本步传入时仅将无法确认现行有效的
       引用标记进 ``missing_version``，不判失败、不判废止。
     """
@@ -78,20 +76,19 @@ def validate_citations(
 
     invalid: list[str] = []
     errors: list[str] = []
-    if not allowed_beyond_context:
-        candidates = _sorted_suggestions(cited, context_set)
-        for cid in cited:
-            if cid not in context_set:
-                invalid.append(cid)
-                suggestions = _suggestions(cid, context_set)
-                if suggestions:
-                    errors.append(
-                        f"引用 {cid!r} 不在本次检索结果中；did-you-mean 建议：{suggestions}。"
-                    )
-                else:
-                    errors.append(
-                        f"引用 {cid!r} 不在本次检索结果中；本次可用 source_id：{candidates}。"
-                    )
+    candidates = _sorted_suggestions(cited, context_set)
+    for cid in cited:
+        if cid not in context_set:
+            invalid.append(cid)
+            suggestions = _suggestions(cid, context_set)
+            if suggestions:
+                errors.append(
+                    f"引用 {cid!r} 不在本次检索结果中；did-you-mean 建议：{suggestions}。"
+                )
+            else:
+                errors.append(
+                    f"引用 {cid!r} 不在本次检索结果中；本次可用 source_id：{candidates}。"
+                )
 
     missing_version: list[str] = []
     if version_registry is not None:

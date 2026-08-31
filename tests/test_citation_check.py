@@ -1,7 +1,7 @@
 """Step 5 测试：引用声明工具 cite_clauses + 确定性引用校验器 validate_citations。
 
 覆盖：引用 ∈ context 通过 / ∉ context 拦截（含可行动建议文本）/ 版本未知仅标记 /
-allowed_beyond_context 语义 / cite_clauses 工具声明与注册 / RAG 图 observation 回流。
+cite_clauses 工具声明与注册 / RAG 图 observation 回流。
 """
 from __future__ import annotations
 
@@ -73,11 +73,6 @@ class TestValidateCitations:
         assert result.ok is True  # 引用本身在 context 内，不因版本未知失败
         assert result.invalid == []
         assert result.missing_version == ["FIX 1.1.1"]
-
-    def test_allowed_beyond_context_skips_invalid(self) -> None:
-        result = validate_citations(["FIX 9.9.9"], ["FIX 1.1.1"], allowed_beyond_context=True)
-        assert result.ok is True
-        assert result.invalid == []
 
     def test_normalize_whitespace_and_dedupe(self) -> None:
         result = validate_citations([" FIX 1.1.1 ", "FIX 1.1.1", "FIX 1.1.2"], ["FIX 1.1.1"])
