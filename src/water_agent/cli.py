@@ -12,13 +12,16 @@ from contextlib import ExitStack
 from pathlib import Path
 from uuid import uuid4
 
-from langchain_core.messages import HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.state import default_state
 from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
 from water_agent.generation.llm import build_llm_generator
 from water_agent.generation.mock import MockGenerator
+from water_agent.graphs.agent_rag import build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.chat import build_chat_app
 from water_agent.graphs.rag import build_rag_graph
@@ -32,6 +35,11 @@ from water_agent.session import (
     save_session_meta,
     session_db_path,
 )
+from water_agent.tools.calc_velocity import calc_velocity_spec
+from water_agent.tools.cite import build_cite_clauses_tool
+from water_agent.tools.ds_adapters import tool_spec_to_base_tool
+from water_agent.tools.registry import ToolRegistry
+from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
@@ -63,10 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--mode",
-        choices=["auto", "calc", "legacy"],
+        choices=["auto", "calc", "legacy", "agentic"],
         default="auto",
         help="意图路由：auto 自动识别（计算意图走 calc 子图，其余走 legacy RAG）；"
-        "calc 强制走计算子图；legacy 强制走旧 RAG 路径（默认 auto，legacy 行为不变）",
+        "calc 强制走计算子图；legacy 强制走旧 RAG 路径（默认 auto，legacy 行为不变）；"
+        "agentic 走模型驱动的 Agentic RAG 外层循环（Step 6 特性开关，默认关闭）",
     )
     p.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR), help="Trace 输出目录")
     p.add_argument("--json", action="store_true", help="以 JSON 输出（单次模式）")
@@ -206,8 +215,102 @@ def run_calc_once(query: str) -> dict:
     }
 
 
+class _ScriptedAgenticModel(BaseChatModel):
+    """Step 6 占位模型：第一轮发 retrieve_clauses，第二轮根据检索结果给最终回答。
+
+    未接真实 DeepSeek function calling 前用此 fake 顶替（Step 7 接真实）。
+    """
+
+    query: str
+
+    @property
+    def _llm_type(self) -> str:
+        return "scripted-agentic"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        # 第一轮：发起检索
+        if not any(isinstance(m, ToolMessage) for m in messages):
+            return ChatResult(
+                generations=[
+                    ChatGeneration(
+                        message=AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "retrieve_clauses",
+                                    "args": {"query": self.query, "top_k": 5},
+                                    "id": "c-retrieve",
+                                }
+                            ],
+                        )
+                    )
+                ]
+            )
+        # 后续轮：从最近一次 retrieve_clauses 结果组织回答
+        hits: list[dict] = []
+        for m in reversed(messages):
+            if isinstance(m, ToolMessage) and m.name == "retrieve_clauses":
+                payload = json.loads(m.content) if isinstance(m.content, str) else {}
+                hits = payload.get("hits", []) or []
+                break
+        if hits:
+            top = hits[0]
+            answer = (
+                f"根据规范检索结果：{top.get('title', '')}"
+                f"（{top.get('source_id', '')}）——{top.get('text', '')}"
+            )
+        else:
+            answer = "未能在规范条款库中检索到相关内容。"
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
+
+
+def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
+    """走模型驱动的 Agentic RAG 外层循环。
+
+    模型由 CLI 注入：Step 6 未接真实模型前用脚本化 fake 顶替（第一轮 retrieve、
+    第二轮按检索结果作答），真实 DeepSeek function calling 在 Step 7 接入。
+    """
+    _, retriever_obj, db_path = build_app(args=args)
+    assert hasattr(retriever_obj, "retrieve"), "build_app 未返回检索器"
+    registry = ToolRegistry()
+    registry.register(build_retrieve_clauses_tool(retriever_obj))
+    registry.register(build_cite_clauses_tool())
+    registry.register(calc_velocity_spec)
+    tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+
+    with ExitStack() as stack:
+        saver = _build_chat_checkpointer(args.session_dir, stack)
+        app = build_agentic_app(
+            model=_ScriptedAgenticModel(query=query),
+            tools=tools,
+            checkpointer=saver,
+        )
+        result = app.invoke(
+            {"messages": [HumanMessage(content=query)], "query": query},
+            config={"configurable": {"thread_id": uuid4().hex}},
+        )
+
+    citations = [
+        {"source_id": c.source_id, "spec_version": c.spec_version, "declared_by": c.declared_by}
+        for c in result.get("citations", [])
+    ]
+    return {
+        "query": query,
+        "answer": result.get("answer", ""),
+        "status": result.get("status", ""),
+        "citations": citations,
+        "errors": result.get("errors", []),
+        "retry_count": result.get("retry_count", 0),
+        "intent": "agentic",
+        "retriever_fallback": True,
+        "db_path": db_path,
+    }
+
+
 def run_once(query: str, *, args: argparse.Namespace) -> dict:
     mode = getattr(args, "mode", "auto")
+    if mode == "agentic":
+        return run_agentic_once(query, args=args)
     if mode == "calc" or (mode == "auto" and detect_intent(query) == "calc"):
         return run_calc_once(query)
     recorder = JsonTraceRecorder(Path(args.trace_dir))

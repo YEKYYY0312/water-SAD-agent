@@ -46,6 +46,10 @@ class ToolRegistry:
         """导出 OpenAI 风格工具定义列表，供模型（DeepSeek/OpenAI）消费。"""
         return [spec.to_openai_tool() for spec in self._tools.values()]
 
+    def list_all_names(self) -> list[str]:
+        """返回已注册工具名列表（供 LangChain 适配层批量转换）。"""
+        return sorted(self._tools)
+
     def invoke(self, name: str, **args: Any) -> dict:
         """执行工具：先校验 schema，再执行并捕获异常。
 
