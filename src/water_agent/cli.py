@@ -26,6 +26,7 @@ from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.chat import build_chat_app
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.retrieval.rerank import BailianReranker, LocalReranker, build_bailian_reranker
 from water_agent.retrieval.trivium import TriviumRetrievalError, TriviumRetriever
@@ -100,7 +101,7 @@ def _embedding_for(db_path: Path) -> tuple[object, int]:
     return provider, dim
 
 
-def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = None) -> tuple[object, object, str]:
+def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = None) -> tuple[object, Retriever, str]:
     """装配 检索(含 rerank) + 生成 + RAG 图。返回 (app, retriever, db_path_or_empty).
 
     ``trace`` 传入图内 recorder，使检索/生成/引用校验等事件可被记录。
@@ -269,8 +270,12 @@ def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
 
     模型由 CLI 注入：Step 6 未接真实模型前用脚本化 fake 顶替（第一轮 retrieve、
     第二轮按检索结果作答），真实 DeepSeek function calling 在 Step 7 接入。
+    Step 6 全程离线：检索器按 mock 嵌入装配（fixture 回落），不要求任何 API Key。
     """
-    _, retriever_obj, db_path = build_app(args=args)
+    # 强制 mock 装配路径：真实 embedding/LLM provider 需要 Key，Step 6 占位模型用不到
+    offline_overrides = dict(vars(args))
+    offline_overrides["mock_generator"] = True
+    _, retriever_obj, db_path = build_app(args=argparse.Namespace(**offline_overrides))
     assert hasattr(retriever_obj, "retrieve"), "build_app 未返回检索器"
     registry = ToolRegistry()
     registry.register(build_retrieve_clauses_tool(retriever_obj))
@@ -302,7 +307,7 @@ def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
         "errors": result.get("errors", []),
         "retry_count": result.get("retry_count", 0),
         "intent": "agentic",
-        "retriever_fallback": True,
+        "retriever_fallback": bool(getattr(retriever_obj, "is_fallback", True)),
         "db_path": db_path,
     }
 
