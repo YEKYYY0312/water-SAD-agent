@@ -28,7 +28,7 @@
 | 3 | 多轮会话记忆（checkpointer + thread_id） | ✅ | test_chat_memory 9 用例；SqliteSaver 可用 |
 | 4 | 工具抽象层（ToolSpec + ToolRegistry + 首批工具） | ✅ | test_tools 16 用例 |
 | 5 | 引用声明工具与确定性校验器 | ✅ | test_citation_check；validate_citations 纯函数 |
-| 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 16 用例；run_agentic_smoke.py |
+| 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 12 用例（Step 6 交付 9 + 评审 1 + Step 7 增 2）；run_agentic_smoke.py |
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
 
 统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
