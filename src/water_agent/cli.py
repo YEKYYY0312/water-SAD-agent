@@ -315,7 +315,13 @@ def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
                 f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
                 "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
             ) from exc
-        _, retriever_obj, db_path = build_app(args=args)
+        try:
+            _, retriever_obj, db_path = build_app(args=args)
+        except ValueError as exc:
+            raise ValueError(
+                f"{exc}。真实检索装配失败：需配置 DASHSCOPE_API_KEY（embedding）且索引可用；"
+                "或用 --mock-generator 走离线占位链路（fixture 回落，不要求 Key）"
+            ) from exc
 
     registry = ToolRegistry()
     registry.register(build_retrieve_clauses_tool(retriever_obj))
