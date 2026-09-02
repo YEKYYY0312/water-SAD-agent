@@ -25,13 +25,23 @@ END
 """
 from __future__ import annotations
 
+import itertools
 import json
-from typing import Annotated, Any, NotRequired, TypedDict
+from collections.abc import Callable
+from typing import Annotated, Any, NotRequired, TypedDict, cast
 from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    BaseMessageChunk,
+    HumanMessage,
+    ToolCallChunk,
+    ToolMessage,
+)
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableBinding
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -47,9 +57,51 @@ RECURSION_LIMIT = 20
 # 校验器注入回流消息时使用的合成 tool_call_id（不与任何真实工具调用冲突）
 _VALIDATOR_CALL_ID = "citation-validator"
 
+# Step 7 起 agentic 循环带默认真实系统提示（Step 8 升级为可调用装配器）。
+# 落到三条铁律：引用可追溯（只引检索结果内条款）／计算程序化（工具返回数值）／不猜测。
+DEFAULT_AGENTIC_PROMPT = (
+    "你是给排水专业标准问答助手，处于工具调用型 Agent 环境（可用工具："
+    "retrieve_clauses 检索规范条款、cite_clauses 声明引用、calc_* 水力计算）。\n"
+    "执行规则：\n"
+    "1. 引用可追溯：回答只能依据 retrieve_clauses 检索结果中真实存在的条款，并调用 "
+    "cite_clauses 用条款 id（如 GB50015-2019 5.4.2）声明引用；禁止编造规范号或条文。\n"
+    "2. 计算程序化：涉及数值计算一律调用计算工具（如 calc_velocity），使用工具返回的"
+    "数值，不得自行口算。\n"
+    "3. 检索结果不足以回答时，明确说明未检索到相关内容；参数缺失时说明缺什么，不猜测"
+    "补默认值。\n"
+    "4. 回答专业、简洁、可追溯。"
+)
+
 
 class ToolBudgetExceeded(RuntimeError):
     """agent_loop 内模型工具调用轮数超预算。"""
+
+
+def _to_generation_chunk(message: BaseMessage) -> ChatGenerationChunk:
+    """把完整 ``AIMessage`` 转为 ``ChatGenerationChunk``（流式回退路径用）。
+
+    ``ChatGenerationChunk.message`` 要求 ``BaseMessageChunk`` 子类；完整消息需手工
+    转 ``AIMessageChunk``（tool_calls → tool_call_chunks 才能正确聚合回 tool_calls）。
+    """
+    if isinstance(message, AIMessage):
+        chunk: BaseMessageChunk = AIMessageChunk(
+            content=message.content,
+            additional_kwargs=message.additional_kwargs,
+            response_metadata=message.response_metadata,
+            id=message.id,
+            tool_call_chunks=[
+                ToolCallChunk(
+                    name=tc["name"],
+                    args=json.dumps(tc["args"], ensure_ascii=False),
+                    id=tc["id"],
+                    index=i,
+                )
+                for i, tc in enumerate(message.tool_calls or [])
+            ],
+        )
+    else:
+        chunk = cast(BaseMessageChunk, message)
+    return ChatGenerationChunk(message=chunk)
 
 
 class AgenticRAGState(TypedDict):
@@ -92,6 +144,35 @@ class _BudgetChatModel(BaseChatModel):
             message = message.model_copy(update={"id": uuid4().hex})
             result = ChatResult(generations=[ChatGeneration(message=message)])
         return result
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        """流式路径同样执行轮数预算（每个新 tool-call 起始计一轮），并透传 token。
+
+        不支持的底层流式的模型（如 ``FakeMessagesListChatModel._stream`` 抛
+        ``NotImplementedError``）回退到 ``_generate`` 单块，保证离线 fake 路径可用。
+        """
+        try:
+            inner = self.inner._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+            first_chunk = next(inner)
+        except StopIteration:
+            return
+        except NotImplementedError:
+            result = self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            yield _to_generation_chunk(result.generations[0].message)
+            return
+        seen: set[int] = set()
+        for chunk in itertools.chain((first_chunk,), inner):
+            if isinstance(chunk, AIMessageChunk):
+                for tool_chunk in chunk.tool_call_chunks or []:
+                    idx = getattr(tool_chunk, "index", None)
+                    if idx is not None and idx not in seen:
+                        seen.add(idx)
+                        self.holder["turns"] += 1
+                        if self.holder["turns"] > self.max_tool_turns:
+                            raise ToolBudgetExceeded(
+                                f"工具调用轮数超过预算（{self.max_tool_turns}）"
+                            )
+            yield chunk
 
     def bind_tools(self, tools, **kwargs):
         tool_defs = [
@@ -221,7 +302,7 @@ def build_agentic_app(
     tools,
     *,
     checkpointer: BaseCheckpointSaver | None = None,
-    prompt=None,
+    prompt: str | None = None,
     max_tool_turns: int = 10,
 ):
     """构建 agentic RAG 外层图。
@@ -229,7 +310,8 @@ def build_agentic_app(
     - ``model``：任意 chat model（真实或 fake）；内部自动套轮数预算；
     - ``tools``：``BaseTool`` 列表（经 ``tool_spec_to_base_tool`` 转换）；
     - ``checkpointer``：必配（thread_id 会话隔离，护住会话纪律）；
-    - ``prompt``：可选 system prompt（Step 8 升级为装配器）；
+    - ``prompt``：系统提示；缺省用 ``DEFAULT_AGENTIC_PROMPT``（Step 7 起
+      真实链路带默认真实提示，Step 8 升级为可调用装配器）；
     - ``max_tool_turns``：agent_loop 内模型工具调用轮数独立预算。
     """
     if checkpointer is None:
@@ -242,7 +324,7 @@ def build_agentic_app(
         tools=tools,
         state_schema=AgenticRAGState,
         checkpointer=None,
-        prompt=prompt,
+        prompt=prompt if prompt is not None else DEFAULT_AGENTIC_PROMPT,
     )
 
     graph = StateGraph(AgenticRAGState)
@@ -275,3 +357,37 @@ def build_agentic_app(
 
     app = graph.compile(checkpointer=checkpointer)
     return app.with_config({"recursion_limit": RECURSION_LIMIT})
+
+
+async def astream_agentic(
+    app,
+    query: str,
+    config: dict,
+    *,
+    on_token: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
+
+    - ``stream_mode=["messages", "values"]`` 的事件形态为 ``(mode, payload)``：
+      ``("values", dict)`` 为每步完整状态（最后一个为 finalize 后的终态）；
+      ``("messages", (message_chunk, metadata))`` 为模型输出（含 tool call 与文本）；
+    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。tool-call 轮经由
+      ``_BudgetChatModel._stream`` 同步计数，超预算抛 ``ToolBudgetExceeded``。
+    """
+    final_state: dict[str, Any] = {}
+    async for event in app.astream(
+        {"messages": [HumanMessage(content=query)], "query": query},
+        config=config,
+        stream_mode=["messages", "values"],
+    ):
+        if not isinstance(event, tuple) or len(event) != 2:
+            continue
+        mode, payload = event
+        if mode == "values" and isinstance(payload, dict):
+            final_state = payload
+        elif mode == "messages" and isinstance(payload, tuple) and payload:
+            chunk = payload[0]
+            content = getattr(chunk, "content", "")
+            if isinstance(content, str) and content and on_token is not None:
+                on_token(content)
+    return final_state

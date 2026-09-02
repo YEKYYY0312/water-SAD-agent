@@ -2,10 +2,13 @@
 
 生产链路：TriviumDB 混合检索召回 → LocalReranker 重排 → top_k=5 → LLM 生成。
 默认真实 LLM（DeepSeek 官方 Claude 兼容）；--mock-generator 可用确定性生成器自测链路。
+--mode agentic：Step 6 起模型驱动的 Agentic RAG 外层循环；Step 7 接真实 DeepSeek
+function calling（无 Key 属结构化错误而非静默降级），--stream 可流式打印 token。
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from contextlib import ExitStack
@@ -19,9 +22,10 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from water_agent.domain.state import default_state
 from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
+from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
 from water_agent.generation.llm import build_llm_generator
 from water_agent.generation.mock import MockGenerator
-from water_agent.graphs.agent_rag import build_agentic_app
+from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.chat import build_chat_app
 from water_agent.graphs.rag import build_rag_graph
@@ -62,6 +66,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hybrid-alpha", type=float, default=0.7)
     p.add_argument("--model", default="deepseek-chat", help="LLM 模型名")
     p.add_argument("--base-url", default="https://api.deepseek.com", help="LLM OpenAI 兼容 base_url")
+    p.add_argument(
+        "--api-key-env",
+        default=DEFAULT_API_KEY_ENV,
+        help="真实模型 API Key 所在环境变量名（--mode agentic 用，默认 DEEPSEEK_API_KEY）",
+    )
+    p.add_argument(
+        "--stream",
+        action="store_true",
+        help="--mode agentic 真实模型时流式打印 token（stream_mode=messages；配合 --json 时结构信息进 stderr）",
+    )
     p.add_argument("--mock-generator", action="store_true", help="用确定性 MockGenerator 代替真实 LLM（自测链路用）")
     p.add_argument("--interactive", action="store_true", help="进入交互式多轮会话（输入 exit 退出）")
     p.add_argument("--resume", default=None, help="用现有 thread_id 恢复历史会话")
@@ -265,48 +279,86 @@ class _ScriptedAgenticModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
 
 
-def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
-    """走模型驱动的 Agentic RAG 外层循环。
-
-    模型由 CLI 注入：Step 6 未接真实模型前用脚本化 fake 顶替（第一轮 retrieve、
-    第二轮按检索结果作答），真实 DeepSeek function calling 在 Step 7 接入。
-    Step 6 全程离线：检索器按 mock 嵌入装配（fixture 回落），不要求任何 API Key。
-    """
-    # 强制 mock 装配路径：真实 embedding/LLM provider 需要 Key，Step 6 占位模型用不到
+def _build_agentic_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
+    """构建 agentic 循环用的检索器：mock 时强制 fixture 回落（与 Step 6 一致）。"""
     offline_overrides = dict(vars(args))
     offline_overrides["mock_generator"] = True
     _, retriever_obj, db_path = build_app(args=argparse.Namespace(**offline_overrides))
     assert hasattr(retriever_obj, "retrieve"), "build_app 未返回检索器"
+    return retriever_obj, db_path
+
+
+def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
+    """走模型驱动的 Agentic RAG 外层循环（Step 6→7 双路径）。
+
+    - ``--mock-generator``：全程离线——脚本化占位模型（第一轮 retrieve、第二轮按
+      检索结果作答）+ mock 检索装配（fixture 回落），不要求任何 API Key；
+    - 默认：真实 DeepSeek function calling（``build_chat_model`` + 真实检索装配）。
+      无 Key 抛带指引的结构化错误（复用全局错误风格），绝不静默降级为假模型；
+    - ``--stream``（仅真实链路）：messages+values 双模式流式，token 实时打印到
+      stdout，payload 带 ``streamed=True`` 供 main 决定输出格式。
+    """
+    api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
+    model: BaseChatModel
+    if args.mock_generator:
+        retriever_obj, db_path = _build_agentic_retriever(args)
+        model = _ScriptedAgenticModel(query=query)
+    else:
+        try:
+            model = build_chat_model(
+                model=args.model,
+                base_url=args.base_url,
+                api_key_env=api_key_env,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
+                "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
+            ) from exc
+        _, retriever_obj, db_path = build_app(args=args)
+
     registry = ToolRegistry()
     registry.register(build_retrieve_clauses_tool(retriever_obj))
     registry.register(build_cite_clauses_tool())
     registry.register(calc_velocity_spec)
     tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
+    stream = bool(getattr(args, "stream", False)) and not args.mock_generator
+    thread_id = uuid4().hex
+    config = {"configurable": {"thread_id": thread_id}}
     with ExitStack() as stack:
         saver = _build_chat_checkpointer(args.session_dir, stack)
-        app = build_agentic_app(
-            model=_ScriptedAgenticModel(query=query),
-            tools=tools,
-            checkpointer=saver,
-        )
-        result = app.invoke(
-            {"messages": [HumanMessage(content=query)], "query": query},
-            config={"configurable": {"thread_id": uuid4().hex}},
-        )
+        app = build_agentic_app(model=model, tools=tools, checkpointer=saver)
+        if stream:
+            state = asyncio.run(
+                astream_agentic(
+                    app,
+                    query,
+                    config,
+                    on_token=lambda tok: print(tok, end="", flush=True),
+                )
+            )
+            print(flush=True)
+        else:
+            state = app.invoke(
+                {"messages": [HumanMessage(content=query)], "query": query},
+                config=config,
+            )
 
     citations = [
         {"source_id": c.source_id, "spec_version": c.spec_version, "declared_by": c.declared_by}
-        for c in result.get("citations", [])
+        for c in state.get("citations", [])
     ]
     return {
+        "ok": True,
         "query": query,
-        "answer": result.get("answer", ""),
-        "status": result.get("status", ""),
+        "answer": state.get("answer", ""),
+        "status": state.get("status", ""),
         "citations": citations,
-        "errors": result.get("errors", []),
-        "retry_count": result.get("retry_count", 0),
+        "errors": state.get("errors", []),
+        "retry_count": state.get("retry_count", 0),
         "intent": "agentic",
+        "streamed": stream,
         "retriever_fallback": bool(getattr(retriever_obj, "is_fallback", True)),
         "db_path": db_path,
     }
@@ -474,6 +526,13 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — CLI 顶层兜底，把任意失败转成结构化错误输出
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
+    if payload.get("streamed"):
+        # token 已随流打印到 stdout；结构化信息写 stderr，避免污染令牌流
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2), file=sys.stderr)
+        else:
+            print(f"\n状态: {payload.get('status', '')}", file=sys.stderr)
+        return 0
     _print_result(payload, json_output=args.json)
     return 0
 
