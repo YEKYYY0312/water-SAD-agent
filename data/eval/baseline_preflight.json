@@ -63,7 +63,7 @@
   },
   "git": {
     "status": "INITIALIZED",
-    "note": "git 已 init（用户真实终端完成）。Step 6 验收时共 13 次提交，HEAD=e7d5843；评审修复后 15 次提交，HEAD=fd5bec5。"
+    "note": "git 已 init（用户真实终端完成）。Step 7 验收时 18 次提交，HEAD=c4d4a0e；评审修复后 21 次提交，HEAD=908a55c。"
   },
   "step0_post_state": {
     "generated_at": "2026-08-31T18:35:00Z",
@@ -116,7 +116,7 @@
     "ruff": "0 errors（All checks passed）",
     "mypy": "32 errors in 13 files（checked 51 source files；存量告警，Step 10 清零。较 step0 的 29 增 3，来自 Step 2–4 新代码，仅记录）"
   },
-  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（332）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–6（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环）已全部完成并各有 post_state 验收佐证。git 已 init，共 15 次提交（HEAD=fd5bec5）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（SKIP）。",
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（338）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–7（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入）已全部完成并各有 post_state 验收佐证。git 已 init，共 21 次提交（HEAD=908a55c）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（按 SKIP 语义处理，scripts/smoke_agentic.sh 无 Key exit 0）。",
   "step5_post_state": {
     "generated_at": "2026-08-31T14:55:40Z",
     "note": "本 post_state 补录于 2026-08-31T14:55:40Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
@@ -142,5 +142,19 @@
     "calc_p0": "28/28",
     "smoke": "scripts/run_agentic_smoke.py exit 0（消息轨迹含工具调用 AIMessage + ToolMessage + 最终回答，status=succeeded）",
     "agentic_cli": "--mode agentic 在无 DEEPSEEK/DASHSCOPE API Key 环境下离线跑通（fixture 回落），评审修复后验证"
+  },
+  "step7_post_state": {
+    "generated_at": "2026-09-02T16:23:39Z",
+    "note": "本 post_state 补录于 2026-09-02T16:23:39Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "c4d4a0e feat: 真实模型接入（DeepSeek function calling + 流式）（Step 7 交付；评审修复见 908a55c）",
+    "modules": "generation/chat_model.py（build_chat_model：langchain-openai ChatOpenAI + DeepSeek base_url，无 Key 抛 ValueError，temperature 默认 0）+ cli.py（--api-key-env/--stream；--mode agentic 默认真实模型、--mock-generator 离线占位；无 Key 与真实检索装配失败均输出带指引的结构化错误，绝不静默降级）+ graphs/agent_rag.py（DEFAULT_AGENTIC_PROMPT 默认真实系统提示；astream_agentic messages+values 双模式流式；_BudgetChatModel._stream 预算护栏，fake 回退 _generate）+ scripts/smoke_agentic.sh（无 Key SKIP exit 0，有 Key 连跑 3 问）",
+    "tests": "test_chat_model 4 passed（无 Key 抛错/自定义 env/构造参数透传含 SecretStr/温度默认 0）+ test_agent_rag 12 passed（新增 astream 离线接线、无 Key 错误指引；既有 10 用例适配新契约）",
+    "pytest_full": "338 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）",
+    "mypy": "31 errors in 12 files（checked 56 source files；与 Step 6 评审后持平，本步无新增告警，Step 10 清零）",
+    "rag_p0": "11/12（评测契约未变）",
+    "calc_p0": "28/28",
+    "smoke": "scripts/smoke_agentic.sh 无 Key 打印 SKIP exit 0（本机无 DEEPSEEK_API_KEY，真实链路按 SKIP 语义处理，不伪造结果）",
+    "agentic_cli": "--mode agentic 无 Key exit 2 结构化错误带指引；--mock-generator 离线跑通；--mode legacy 回归通过"
   }
 }
