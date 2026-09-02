@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,6 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from water_agent.domain.citation import CitationClaim
 from water_agent.graphs.agent_rag import build_agentic_app
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -190,3 +188,40 @@ class TestAgenticApp:
             )
         assert out["status"] == "failed"
         assert any("预算" in e or "轮数" in e for e in out["errors"]), f"errors: {out['errors']}"
+
+
+class TestCliAgenticOffline:
+    def test_run_agentic_once_works_without_api_keys(self, tmp_path, monkeypatch) -> None:
+        """Step 6 占位链路全程离线：无 DEEPSEEK/DASHSCOPE Key 也应跑通（fixture 回落）。"""
+        import argparse
+
+        from water_agent.cli import run_agentic_once
+
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        args = argparse.Namespace(
+            query="",
+            db_path=None,
+            dimensions=None,
+            rerank="local",
+            rerank_model=None,
+            rerank_base_url=None,
+            rerank_api_key=None,
+            top_k=5,
+            recall_top_k=20,
+            hybrid_alpha=0.7,
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com",
+            mock_generator=False,
+            interactive=False,
+            resume=None,
+            session_dir=str(tmp_path / "sessions"),
+            mode="agentic",
+            trace_dir=str(tmp_path / "traces"),
+            json=False,
+        )
+        payload = run_agentic_once("给水管道的设计秒流量如何确定", args=args)
+        assert payload["intent"] == "agentic"
+        assert payload["status"] == "succeeded"
+        assert payload["answer"]
+        assert payload["errors"] == []
