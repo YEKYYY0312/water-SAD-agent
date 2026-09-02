@@ -2,6 +2,8 @@
 
 > 更新时间：2026-08-31（晚）。基于 git 提交历史（HEAD=e2fca9d，共 10 次提交）、`scripts/verify.sh` 新鲜输出与代码实况校准，不是转述 README。
 
+> **2026-09-02 增量更新（Step 5–7 已完成）**：引用声明工具+确定性校验器（`tools/cite.py`、`domain/citation.py`，commit 2300dc3）→ agentic RAG 外层循环（`graphs/agent_rag.py` + `--mode agentic`，commit e7d5843）→ 真实模型接入（`generation/chat_model.py` build_chat_model + `--api-key-env/--stream` + `scripts/smoke_agentic.sh`，commit c4d4a0e）。门禁最新输出：pytest 338 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。`--mode agentic` 无 DEEPSEEK_API_KEY 时输出结构化错误并指引 `--mock-generator`（不静默降级）；有 Key 时走真实 DeepSeek function calling，`--stream` 流式打印 token。
+
 ## 一、这个项目在做什么
 
 面向给排水设计院的 AI Agent，最终要覆盖五件事：**规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计**。
@@ -14,9 +16,9 @@
 
 技术栈：LangGraph 编排 + TriviumDB（向量×文本混合检索 `search_hybrid`）+ 自建 harness 评测 + 本地 JSON trace。
 
-## 二、当前进度（P0 完成，P1 约 90%）
+## 二、当前进度（P0 完成，P1 约 95%，Step 0–7 已完成）
 
-任务书 Step 0–4 已全部完成，下一步 Step 5：
+任务书 Step 0–7 已全部完成，下一步 Step 8（系统提示装配 + 运行时上下文投影 + 规范版本注册表）：
 
 | Step | 内容 | 状态 | 验收证据 |
 |---|---|---|---|
@@ -25,7 +27,9 @@
 | 2 | 计算确定性子图（parse→compute→validate→finish）+ 意图路由 | ✅ | test_calc_graph 21 用例；calc_p0 28/28 |
 | 3 | 多轮会话记忆（checkpointer + thread_id） | ✅ | test_chat_memory 9 用例；SqliteSaver 可用 |
 | 4 | 工具抽象层（ToolSpec + ToolRegistry + 首批工具） | ✅ | test_tools 16 用例 |
-| 5 | 引用声明工具与确定性校验器 | ⬜ 下一步 | — |
+| 5 | 引用声明工具与确定性校验器 | ✅ | test_citation_check；validate_citations 纯函数 |
+| 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 16 用例；run_agentic_smoke.py |
+| 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
 
 统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
 
@@ -76,9 +80,9 @@
 
 顺带验证：质检报告的 458 组待人工复核重复条款（GB50013 占 336 组、GB50014 占 211 组）是否真的拉低 top5 有效覆盖率——等可信基线出来后用数据说话。
 
-### R2 真实 LLM 问答链路（需 DEEPSEEK_API_KEY）
+### R2 真实 LLM 问答链路证据（需 DEEPSEEK_API_KEY）
 
-`LLMGenerator` 已接 DeepSeek，但 `DEEPSEEK_API_KEY` 未配置（`DASHSCOPE_API_KEY` 已配置），从「检索到条款」到「LLM 生成带引用回答」这最后一环没有任何一次真实运行记录。Key 配好后：人工核验 3–5 个问题的引用是否指回正确条款、有无编造条号。
+Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`build_chat_model` → DeepSeek function calling，`--mode agentic`）均已具备，`--stream` 可流式打印 token；无 Key 时全程离线可跑（`--mock-generator`/fake），有 Key 时跑 `scripts/smoke_agentic.sh` 连跑 3 问。**但 `DEEPSEEK_API_KEY` 仍未配置（`DASHSCOPE_API_KEY` 已配置），从「检索到条款」到「真实模型生成带引用回答」尚未有任何一次真实运行记录。** Key 配好后：人工核验 3–5 个问题的引用是否指回正确条款、有无编造条号。
 
 ### R3 自研 MCP server（路线图 P1 清单项）
 
@@ -87,7 +91,8 @@
 ## 五、后续展望（P1 收口后再动）
 
 - **语料扩容**：`knowledge/` 下 221 个 md（40MB，标准图集 + 教材）完全未入库；GB50015-2019.jsonl 仅 4.7KB 需单独补语料。这些是「怎么设计 / 怎么选型」类问题的答案来源，纯规范条款只回答「规定是什么」。
-- **Step 5–7**：引用声明工具与确定性校验器 → agentic 外层循环与 ToolNode → 真实模型接入（DeepSeek function calling + 流式），按任务书推进。
+- **Step 5–7 已完成**：引用声明工具与确定性校验器 → agentic 外层循环与 ToolNode → 真实模型接入（DeepSeek function calling + 流式）均按任务书推进完毕（见顶部 2026-09-02 增量更新）。
+- **下一步 Step 8–10**：系统提示装配 + 运行时上下文投影 + 规范版本注册表 → Human-in-the-Loop interrupt → 双轨评测 + CI 门禁 + 文档收口。
 - 不建议现在碰 P2（文档生成）/ P3（DWG 图纸审查）——P3 被设计文档标为「最难」。
 
 ## 六、需要拍板的事
