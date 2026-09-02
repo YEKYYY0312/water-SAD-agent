@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import argparse
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -59,6 +61,35 @@ def _build_tools(retriever) -> list:
     registry.register(build_cite_clauses_tool())
     registry.register(calc_velocity_spec)
     return [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+
+
+def _agentic_args(tmp_path, **overrides) -> argparse.Namespace:
+    """构造 run_agentic_once 所需的最小 Namespace（默认走离线 mock 路径）。"""
+    base = {
+        "query": "",
+        "db_path": None,
+        "dimensions": None,
+        "rerank": "local",
+        "rerank_model": None,
+        "rerank_base_url": None,
+        "rerank_api_key": None,
+        "top_k": 5,
+        "recall_top_k": 20,
+        "hybrid_alpha": 0.7,
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com",
+        "mock_generator": True,
+        "interactive": False,
+        "resume": None,
+        "session_dir": str(tmp_path / "sessions"),
+        "mode": "agentic",
+        "trace_dir": str(tmp_path / "traces"),
+        "json": False,
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "stream": False,
+    }
+    base.update(overrides)
+    return argparse.Namespace(**base)
 
 
 class TestToolSpecToBaseTool:
@@ -189,39 +220,53 @@ class TestAgenticApp:
         assert out["status"] == "failed"
         assert any("预算" in e or "轮数" in e for e in out["errors"]), f"errors: {out['errors']}"
 
+    def test_astream_agentic_offline_yields_tokens_and_final_state(self, retriever) -> None:
+        """流式接线离线验证（Step 7）：messages+values 双模式，token 回调可见、最终 state 完整。"""
+        from water_agent.graphs.agent_rag import astream_agentic
+
+        responses = [
+            _retrieve_call(retriever),
+            _assistant("根据检索结果，设计秒流量按规范条文确定。"),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        tokens: list[str] = []
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            state = asyncio.run(
+                astream_agentic(
+                    app,
+                    "设计秒流量如何确定",
+                    {"configurable": {"thread_id": "stream-t1"}},
+                    on_token=tokens.append,
+                )
+            )
+        assert "".join(tokens), "流式模式下应产出模型文本 token"
+        assert state.get("status") == "succeeded"
+        assert state.get("answer")
+
 
 class TestCliAgenticOffline:
     def test_run_agentic_once_works_without_api_keys(self, tmp_path, monkeypatch) -> None:
-        """Step 6 占位链路全程离线：无 DEEPSEEK/DASHSCOPE Key 也应跑通（fixture 回落）。"""
-        import argparse
-
+        """离线闭环：--mode agentic + --mock-generator 时无 DEEPSEEK/DASHSCOPE Key 也跑通（fixture 回落）。"""
         from water_agent.cli import run_agentic_once
 
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        args = argparse.Namespace(
-            query="",
-            db_path=None,
-            dimensions=None,
-            rerank="local",
-            rerank_model=None,
-            rerank_base_url=None,
-            rerank_api_key=None,
-            top_k=5,
-            recall_top_k=20,
-            hybrid_alpha=0.7,
-            model="deepseek-chat",
-            base_url="https://api.deepseek.com",
-            mock_generator=False,
-            interactive=False,
-            resume=None,
-            session_dir=str(tmp_path / "sessions"),
-            mode="agentic",
-            trace_dir=str(tmp_path / "traces"),
-            json=False,
-        )
+        args = _agentic_args(tmp_path)
         payload = run_agentic_once("给水管道的设计秒流量如何确定", args=args)
         assert payload["intent"] == "agentic"
         assert payload["status"] == "succeeded"
         assert payload["answer"]
         assert payload["errors"] == []
+        assert payload["streamed"] is False
+
+    def test_run_agentic_once_without_key_errors_with_guidance(self, tmp_path, monkeypatch) -> None:
+        """Step 7 契约：--mode agentic 无 Key 且未开 --mock-generator → 结构化错误 + 指引，不得静默降级。"""
+        from water_agent.cli import run_agentic_once
+
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        args = _agentic_args(tmp_path, mock_generator=False)
+        with pytest.raises(ValueError, match="DEEPSEEK_API_KEY must not be empty") as excinfo:
+            run_agentic_once("给水管道的设计秒流量如何确定", args=args)
+        assert "--mock-generator" in str(excinfo.value), "错误必须带可行动的离线验证指引"
