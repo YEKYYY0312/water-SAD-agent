@@ -173,9 +173,10 @@ def calc_head_loss_darcy_weisbach(inputs: dict[str, Any]) -> CalcResult:
     if gravity_raw is None or (isinstance(gravity_raw, str) and not gravity_raw.strip()):
         gravity = GRAVITY_DEFAULT  # 口径表 §2.1 显式允许的默认值
     else:
-        gravity = _to_float(gravity_raw)
-        if gravity is None or gravity <= 0:
+        parsed_gravity = _to_float(gravity_raw)
+        if parsed_gravity is None or parsed_gravity <= 0:
             return CalcResult(ok=False, errors=["gravity_mps2 必须为正数"])
+        gravity = parsed_gravity
 
     length_m = _numeric(inputs, "length_m")
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
