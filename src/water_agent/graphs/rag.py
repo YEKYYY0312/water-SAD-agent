@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
-from water_agent.domain.citation import CitationClaim, validate_citations
+from water_agent.domain.citation import CitationClaim, enrich_claims, validate_citations
 from water_agent.domain.state import (
     MAX_CITATION_RETRIES,
     MAX_TOTAL_STEPS,
@@ -18,6 +18,7 @@ from water_agent.domain.state import (
     WaterAgentState,
 )
 from water_agent.generation.base import Generator
+from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.retrieval.base import Retriever
 
@@ -30,7 +31,12 @@ def build_rag_graph(
     reranker=None,
     top_k: int = 5,
     recall_top_k: int = 20,
+    version_registry=None,
 ):
+    """legacy 单次 RAG 图。``version_registry`` 缺省用 data/versions.json 单例（Step 8）。"""
+    if version_registry is None:
+        version_registry = get_version_registry()
+
     def _trace_start(state: WaterAgentState) -> None:
         if trace is not None:
             run_id = state.get("run_id") or uuid4().hex
@@ -126,17 +132,20 @@ def build_rag_graph(
         ``errors``，供 Step 6 回流给模型自纠。
         """
         _enter("citation_check", state)
-        cited_ids = [claim.source_id for claim in state.get("citations", [])]
+        claims = list(state.get("citations", []))
+        cited_ids = [claim.source_id for claim in claims]
         context_ids = [clause.source_id for clause in state.get("context", [])]
-        check = validate_citations(cited_ids, context_ids)
+        check = validate_citations(cited_ids, context_ids, version_registry=version_registry)
         bad = check.invalid
         errors = list(state.get("errors", []))
         if check.errors:
             errors.extend(check.errors)
+        # Step 8：版本状态写回 claims（未知只标记，不影响 citation_ok）
+        enriched = enrich_claims(claims, check)
         if bad:
-            result = {"citation_ok": False, "retry_count": state.get("retry_count", 0) + 1, "errors": errors, "query": state.get("query", "").strip()}
+            result = {"citation_ok": False, "retry_count": state.get("retry_count", 0) + 1, "errors": errors, "query": state.get("query", "").strip(), "citations": enriched}
         else:
-            result = {"citation_ok": True, "errors": errors}
+            result = {"citation_ok": True, "errors": errors, "citations": enriched}
         if trace is not None:
             trace.record(
                 node="citation_check",

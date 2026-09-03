@@ -80,6 +80,57 @@ class TestValidateCitations:
         assert result.invalid == ["FIX 1.1.2"]
 
 
+class TestVersionRegistryWiring:
+    """Step 8：validate_citations 接真实 VersionRegistry；版本状态写回 CitationClaim。"""
+
+    @pytest.fixture
+    def registry(self, tmp_path):
+        import json
+
+        from water_agent.ingestion.version_registry import VersionRegistry
+
+        path = tmp_path / "versions.json"
+        path.write_text(
+            json.dumps(
+                [{"spec_id": "GB50015", "version": "2019", "status": "current", "source": "人工确认", "verified_at": "2026-09-03"}]
+            ),
+            encoding="utf-8",
+        )
+        return VersionRegistry(path)
+
+    def test_known_version_resolved_and_unknown_marked(self, registry) -> None:
+        ctx = ["GB50015-2019 5.4.2", "GB99999-2099 1.1.1"]
+        result = validate_citations(ctx, ctx, version_registry=registry)
+        assert result.ok is True
+        assert result.errors == [], "版本未知不进 errors（不是模型能重试纠正的事）"
+        assert result.version_status == {"GB50015-2019 5.4.2": "current", "GB99999-2099 1.1.1": "unknown"}
+        assert result.missing_version == ["GB99999-2099 1.1.1"]
+        assert len(result.warnings) == 1 and "GB99999-2099 1.1.1" in result.warnings[0]
+
+    def test_version_mismatch_is_unknown_not_inferred(self, registry) -> None:
+        """注册表只录了 2019 版：引用 2003 版 → unknown（不因同一规范号推断为现行）。"""
+        result = validate_citations(["GB50015-2003 1.1.1"], ["GB50015-2003 1.1.1"], version_registry=registry)
+        assert result.version_status["GB50015-2003 1.1.1"] == "unknown"
+
+    def test_enrich_claims_writes_version_fields(self, registry) -> None:
+        from water_agent.domain.citation import enrich_claims
+
+        ctx = ["GB50015-2019 5.4.2", "FIX 1.1.1"]
+        check = validate_citations(ctx, ctx, version_registry=registry)
+        claims = enrich_claims([CitationClaim(source_id=c) for c in ctx], check)
+        assert claims[0].spec_version == "2019" and claims[0].version_status == "current"
+        assert claims[1].spec_version is None and claims[1].version_status == "unknown"
+
+    def test_registry_exception_degrades_to_unknown(self) -> None:
+        class Broken:
+            def get_spec_status(self, spec_id):
+                raise RuntimeError("boom")
+
+        result = validate_citations(["FIX 1.1.1"], ["FIX 1.1.1"], version_registry=Broken())
+        assert result.ok is True
+        assert result.version_status["FIX 1.1.1"] == "unknown"
+
+
 class TestCiteClausesTool:
     def test_declares_and_registers_claims(self) -> None:
         sink: list[CitationClaim] = []
@@ -156,3 +207,6 @@ class TestRagGraphCitationObservation:
         assert result["citations"]
         assert all(isinstance(c, CitationClaim) for c in result["citations"])
         assert all(c.source_id for c in result["citations"])
+        # Step 8：legacy 图默认接 data/versions.json；fixture 的 FIX 未录入 → 只标记 unknown，不影响成功
+        assert all(c.version_status == "unknown" for c in result["citations"])
+        assert not any("版本" in e for e in result["errors"]), "版本未知不得进 errors"
