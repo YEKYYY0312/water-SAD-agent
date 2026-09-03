@@ -50,6 +50,10 @@ _CALC_KEYWORDS = [
     "海曾", "达西", "曼宁", "充满度", "摩阻", "粗糙系数",
     "Darcy", "Hazen", "Shevelev", "Manning", "WILLIAMS",
 ]
+# 显式求解动词：与计算名词同现时才算计算意图。裸名词（"给水管道最小管径"、
+# "水泵扬程如何确定"、"污水管道充满度"）多是规范问答，必须走 RAG——
+# 否则会把规定值问题错路由成缺参计算（rag_p0 0002/0003/0005/0008 即为反例）。
+# 注意"求"必须排除"要求"（"最小设计流速要求是什么"是规范问答）。
 
 
 class CalcState(TypedDict):
@@ -177,16 +181,16 @@ def parse_calc_query(query: str) -> ParseOutcome:
     hazen_c = _first_float(q, r"C\s*=\s*(\d+(?:\.\d+)?)")
     if hazen_c is not None:
         params["hazen_williams_c"] = hazen_c
-    static = _first_float(q, r"几何扬程\s*(\d+(?:\.\d+)?)\s*米?")
+    static = _first_float(q, r"几何(?:扬程)?\s*(\d+(?:\.\d+)?)\s*[米m]?")
     if static is not None:
         params["static_head_m"] = static
-    friction_head = _first_float(q, r"沿程\s*(\d+(?:\.\d+)?)\s*米?")
+    friction_head = _first_float(q, r"沿程\s*(\d+(?:\.\d+)?)\s*[米m]?")
     if friction_head is not None:
         params["friction_head_m"] = friction_head
-    local = _first_float(q, r"局部\s*(\d+(?:\.\d+)?)\s*米?")
+    local = _first_float(q, r"局部\s*(\d+(?:\.\d+)?)\s*[米m]?")
     if local is not None:
         params["local_head_m"] = local
-    residual = _first_float(q, r"剩余\s*(\d+(?:\.\d+)?)\s*米?")
+    residual = _first_float(q, r"剩余\s*(\d+(?:\.\d+)?)\s*[米m]?")
     if residual is not None:
         params["residual_head_m"] = residual
 
@@ -204,15 +208,31 @@ def parse_calc_query(query: str) -> ParseOutcome:
     return ParseOutcome(formula=formula, params=params, missing_inputs=missing)
 
 
+def _has_calc_verb(query: str) -> bool:
+    """显式求解动词；"求"须排除"要求"（"最小设计流速要求是什么"是规范问答）。"""
+    if "计算" in query or "校核" in query:
+        return True
+    if "求" in query.replace("要求", ""):
+        return True
+    return "算" in query
+
+
 def detect_intent(query: str) -> str:
-    """计算意图 vs RAG 意图的确定性路由。命中单位/管径模式或强计算名词 → calc，否则 rag。"""
+    """计算意图 vs RAG 意图的确定性路由。
+
+    calc 需满足其一：① 出现单位/管径数值模式（DN150、20L/s、h/d=0.5…）；
+    ② 显式求解动词（求/计算/算/校核，排除"要求"）与计算名词同现。裸计算名词
+    （"最小管径"、"扬程如何确定"、"充满度"）是规范问答，走 RAG——避免把规定值
+    问题错路由成缺参计算。
+    """
     q = query.strip()
     if not q:
         return "rag"
     if any(re.search(pattern, q, re.IGNORECASE) for pattern in _CALC_PATTERNS):
         return "calc"
     lowered = q.lower()
-    if any(keyword.lower() in lowered for keyword in _CALC_KEYWORDS):
+    has_keyword = any(keyword.lower() in lowered for keyword in _CALC_KEYWORDS)
+    if has_keyword and _has_calc_verb(q):
         return "calc"
     return "rag"
 
