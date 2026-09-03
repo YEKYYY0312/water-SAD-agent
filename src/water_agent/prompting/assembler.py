@@ -6,7 +6,8 @@
 3. 公式口径（静态，ADR-01）
 4. 工具使用指南（随 ToolRegistry 动态生成）
 
-每段带 token 预算（估算函数），超预算的动态段按预算截断，保证总提示可控。
+每段带 token 预算（估算函数）：动态段超预算按行截断并标注省略行数；静态段超预算
+视为编程错误直接抛错（规则文案不可静默截断）。
 """
 from __future__ import annotations
 
@@ -47,19 +48,40 @@ def _estimate_tokens(text: str) -> int:
     return len(text)
 
 
+# 截断标记模板（预留字符数计入预算，保证最终长度 ≤ budget）
+_OMITTED_TEMPLATE = "\n…（受预算限制省略 {n} 行）"
+_OMITTED_RESERVE = len(_OMITTED_TEMPLATE.format(n=9999))
+
+
 def _truncate_to_budget(text: str, budget: int) -> str:
-    """按预算截断文本（按行聚合，超预算即停，保证截断边界干净）。"""
+    """按预算截断文本（按行聚合，超预算即停），并**显式标注省略行数**。
+
+    动态段（版本快照/工具指南）被截断意味着模型看到的是残缺清单；不加标记会让模型
+    把"没列出"误当"不存在"，与"引用可追溯"铁律冲突，所以截断必须可见。
+    """
     if _estimate_tokens(text) <= budget:
         return text
-    lines: list[str] = []
+    all_lines = text.splitlines(keepends=True)
+    kept: list[str] = []
     used = 0
-    for line in text.splitlines(keepends=True):
+    limit = max(budget - _OMITTED_RESERVE, 0)
+    for line in all_lines:
         line_len = _estimate_tokens(line)
-        if used + line_len > budget:
+        if used + line_len > limit:
             break
-        lines.append(line)
+        kept.append(line)
         used += line_len
-    return "".join(lines).rstrip()
+    omitted = len(all_lines) - len(kept)
+    return "".join(kept).rstrip() + _OMITTED_TEMPLATE.format(n=omitted)
+
+
+def _check_static_budget(name: str, text: str) -> str:
+    """静态段不截断（截了规则就失真），超预算视为编程错误，立即失败。"""
+    budget = SEGMENT_BUDGETS[name]
+    used = _estimate_tokens(text)
+    if used > budget:
+        raise ValueError(f"静态提示段 {name!r} 超预算：{used} > {budget}，请精简文案或调高 SEGMENT_BUDGETS")
+    return text
 
 
 class PromptAssembler:
@@ -93,9 +115,9 @@ class PromptAssembler:
     def assemble_prompt(self, state: dict[str, Any] | None = None) -> SystemMessage:
         """装配完整系统提示：静态段在前（缓存友好），动态段在后。"""
         segments = [
-            ROLE_AND_PRINCIPLES,
+            _check_static_budget("role_and_principles", ROLE_AND_PRINCIPLES),
             _truncate_to_budget(self._build_version_snapshot(), SEGMENT_BUDGETS["version_snapshot"]),
-            FORMULA_SPECS,
+            _check_static_budget("formula_specs", FORMULA_SPECS),
             _truncate_to_budget(self._build_tool_guide(), SEGMENT_BUDGETS["tool_guide"]),
         ]
         content = "\n\n".join(seg for seg in segments if seg)
