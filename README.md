@@ -26,7 +26,9 @@ _venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl          #
 _venv/bin/python -m water_agent.harness.runner data/eval/calc_p0.jsonl          # 28/28
 
 # 3) 质量层 Harness 评测（需 DEEPSEEK_API_KEY + DASHSCOPE_API_KEY，无 Key 则 SKIP）
-_venv/bin/python -m water_agent.harness.runner data/eval/rag_p1.jsonl --variant real
+#    默认走 agentic 图（模型经 cite_clauses 声明引用、校验器真判）；--real-graph legacy 仅供改造前后对比
+#    退出码：0 通过/全 SKIP，1 用例失败，2 评测集加载问题，3 有 Key 但真实组件建不起来
+_venv/bin/python -m water_agent.harness.runner data/eval/rag_p1.jsonl --variant real [--judge]
 
 # 4) CLI 无 Key 离线自测（--mock-generator）
 _venv/bin/python -m water_agent.cli --mock-generator "给水管道的设计秒流量如何确定？"
@@ -37,6 +39,10 @@ _venv/bin/python -m water_agent.cli --mode agentic "给水管道的设计秒流�
 
 # 6) 模型冒烟测试
 bash scripts/smoke_agentic.sh
+
+# 7) 交互式多轮（agentic 同一会话跨轮记忆，--resume 恢复）/ 计算书生成（人审 y/n，EOF 挂起后 --resume）
+_venv/bin/python -m water_agent.cli --interactive --mode agentic --mock-generator
+_venv/bin/python -m water_agent.cli --flow docgen --mock-generator "生成 DN150 给水管道计算书"
 ```
 
 ## 目录结构
@@ -51,7 +57,7 @@ src/water_agent/
   ingestion/      # chunker / pipeline / version_registry / quality / gold_set
   harness/        # loader / scorer / runner / doubles / retrieval_metrics / llm_judge
   observability/  # json_trace / otel (guarded OTel GenAI)
-  cli.py          # 生产问答 CLI (--mode legacy|agentic, --variant, --mock-generator, --stream)
+  cli.py          # 生产问答 CLI (--mode auto|calc|legacy|agentic, --flow qa|docgen, --interactive/--resume, --mock-generator, --stream)
   embedding.py    # 阿里云百炼 Embedding Provider
   session.py      # 多轮会话记忆 (checkpointer + sqlite)
   tools/          # hydraulics (水力计算工具族) / calc_velocity 等工具规格
@@ -123,11 +129,11 @@ pytest → ruff → mypy → rag_p0 机制层 → calc_p0 ≥95% → 基线对�
 | calc_p0 | 28 | 28/28 (100%) | 容差 rel=1e-4，4 条带越界断言 |
 | rag_p1 | 58 | — | 真实规范问答 gold，质量层专用（需 Key） |
 
-输出：`pytest 375 全绿` / `ruff 0` / `mypy 0`（Step 10 清零）。
+输出：`pytest 432 全绿` / `ruff 0` / `mypy 0`（Step 10 清零）。
 
 ## 已知约束
 
 - GB50015-2019 语料仅 9 条摘要条目（非正式规范条文），正式问答建议以标准成果为准
 - 百炼 rerank（gte-rerank）暂不可达，默认 LocalReranker
-- 无 DEEPSEEK_API_KEY 时离线闭环（`--mock-generator` / `--variant mock`）完全可用
+- 无 DEEPSEEK_API_KEY 时离线闭环（CLI `--mock-generator`；harness 默认机制层 variant）完全可用
 - 语料扩容：`knowledge/` 下 221 个 md（40MB）尚未入库
