@@ -196,5 +196,21 @@
     "ci_gate": "bash scripts/ci_gate.sh exit 0（pytest + ruff + mypy + rag_p0 + calc_p0 + 基线对比全过）",
     "real_variant": "rag_p1 --variant real 无 Key → skipped_all=true exit 0（SKIP 语义合法）；本机无持久 Key，真实运行证据见对话记录（2026-09-03 一次闭环：4 引用全部 ∈ 检索结果、0 重试）",
     "unfinished": "prompt 打磨轮询、生产清单对照、检索矩阵重跑、agentic 空引用强制、versions.json 人工核实、检索 gold 泄漏——均如实记录于 AGENTS.md 尚未完成一节，评审未伪造任何结果"
+  },
+  "step10_p1_review_fix_2026_09_03": {
+    "generated_at": "2026-09-03T13:40:00Z",
+    "note": "P1/Step 10 代码评审修复记录（工作树，未提交）。全部结论来自本机新鲜命令输出；真实服务不可达时只记录阻塞，不伪造。",
+    "prompt_rules": "ROLE_AND_PRINCIPLES 恢复【三条铁律】；引用精准移入【执行规则】；删除'照常引用、标注不构成禁止引用'；新增非正式语料披露策略（只能作检索线索/标注非正式性质/需核对正式出版标准）；DEFAULT_AGENTIC_PROMPT 复用同一公共静态提示定义",
+    "forbidden_no_leak": "删除 runner._FilteringRetriever/_filter_forbidden 及调用；forbidden 条款按真实召回进入上下文，scorer 回答后才判分；Recall@k/MRR/context_articles 无 gold 后处理（TestNoGoldLeakInRealAgenticRun 4 用例）",
+    "zero_citation_closure": "agent_rag 引用闭环：有检索+有回答+零引用 → 注入含 cite_clauses 要求的 ToolMessage 回流 1 次；再次空引用结构化失败；无检索且明确说明未检索到依据可无引用收口（TestAgenticApp 新增 5 用例）",
+    "citation_ok_rate": "零引用对存在 expected_articles 的用例计 citation failure；compare_baseline 兜底同语义",
+    "quality_layer": "harness/quality.py 单一阈值位置（阻断维度 faithfulness/citation_coverage/no_fabrication ≥4/5）；EvalResult.quality_pass+quality_fail_reasons；EvalReport judge 平均值/低分计数/quality_pass_rate；judge 低分不改写机制判分",
+    "pytest": "全量 pytest 通过（462 collected），含四文件新增回归",
+    "ruff": "0 errors（src）",
+    "mypy": "0（Success: no issues found in 65 source files）",
+    "verify": "bash scripts/verify.sh exit 0",
+    "ci_gate": "bash scripts/ci_gate.sh exit 0",
+    "real_variant": "rag_p1 --variant real --judge 当前 shell 网络不可达（代理 403/连接失败）→ 报告 data/eval/reports/rag_p1_20260903T133322Z.json 全部 per-case error；真实质量层结论 blocked",
+    "rag_p1_0049": "GB50015-2019 4.7.1 语料为'要点综述/非正式规范条文'，只能作检索线索；不修改 gold，属数据质量阻塞（详见 docs/evals/step10-prompt-tuning-2026-09-03.md）"
   }
 }

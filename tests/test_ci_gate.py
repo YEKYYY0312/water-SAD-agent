@@ -244,6 +244,28 @@ class TestCompareBaseline:
         )
         assert result["passed"] is True, "全部 SKIP 不应触发基线失败"
 
+    def test_compare_fallback_citation_ok_uses_zero_cite_semantics(self) -> None:
+        """兜底计算与 runner 语义一致：有 expected_articles 的零引用计 citation failure。"""
+        from scripts.compare_baseline import _compute_new_metrics
+
+        report = {
+            "total": 3,
+            "passed": 2,
+            "failed": 1,
+            "skipped": 1,  # 含 skipped 才会触发 cases 兜底计算
+            "pass_rate": 1.0,
+            "citation_ok_rate": 1.0,
+            "cases": [
+                # 零引用但有 gold 引用要求 → citation failure
+                {"case_id": "a", "passed": False, "skipped": False, "expected_articles": ["FIX 1.1.1"], "actual_citations": [], "context_articles": ["FIX 1.1.1"]},
+                # 零引用但不需要引用 → 不误伤
+                {"case_id": "b", "passed": True, "skipped": False, "expected_articles": [], "actual_citations": [], "context_articles": []},
+                {"case_id": "s", "passed": False, "skipped": True, "actual_status": "skipped"},
+            ],
+        }
+        _, citation_ok = _compute_new_metrics(report)
+        assert citation_ok == 0.5, f"兜底 citation_ok 应排除零引用失败用例: {citation_ok}"
+
 
 class TestRunnerReportAggregates:
     """报告聚合字段正确性。"""
@@ -373,3 +395,94 @@ class TestRealVariantAgentic:
     def test_invalid_real_graph_rejected(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="real_graph"):
             HarnessRunner(eval_path=EVAL_PATH, report_dir=tmp_path, trace_dir=tmp_path, fixture_path=FIXTURE_PATH, real_graph="nope")
+
+
+class TestRealQualityJudgement:
+    """质量层 judge 真实反映到 quality_pass；低分不篡改机制判分（P1/Step 10 评审）。"""
+
+    @pytest.fixture
+    def quality_offline(self, monkeypatch: pytest.MonkeyPatch):
+        from water_agent.harness import runner as runner_mod
+        from water_agent.retrieval.in_memory import InMemoryRetriever
+        from water_agent.retrieval.loader import load_clauses_jsonl
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-dummy")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-dummy")
+        monkeypatch.setattr(runner_mod.HarnessRunner, "_probe_real_skip", lambda self: None)
+        monkeypatch.setattr(
+            runner_mod.HarnessRunner,
+            "_build_real_retriever",
+            lambda self: InMemoryRetriever(load_clauses_jsonl(FIXTURE_PATH)),
+        )
+        return runner_mod
+
+    def _run_with_judge(self, tmp_path: Path, quality_offline, monkeypatch: pytest.MonkeyPatch, dim_scores: dict[str, int]):
+        from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+        from langchain_core.messages import AIMessage
+
+        from water_agent.harness import llm_judge as judge_mod
+        from water_agent.harness.llm_judge import JudgeResult, JudgeScore
+
+        responses = [
+            AIMessage(content="", tool_calls=[{"name": "retrieve_clauses", "args": {"query": "给水管道的设计秒流量", "top_k": 5}, "id": "c1"}]),
+            AIMessage(content="", tool_calls=[{"name": "cite_clauses", "args": {"article_ids": ["FIX 1.1.1"]}, "id": "c2"}]),
+            AIMessage(content="设计秒流量按用水定额与用水人数计算。"),
+        ]
+        monkeypatch.setattr(
+            quality_offline.HarnessRunner,
+            "_build_real_chat_model",
+            lambda self: FakeMessagesListChatModel(responses=responses),
+        )
+        monkeypatch.setattr(
+            judge_mod.LLMJudge,
+            "evaluate",
+            lambda self, query, answer, *, context=None, criteria=None, skip_on_missing_key=True: JudgeResult(
+                scores={c: JudgeScore(score=dim_scores[c], reasoning="fixed") for c in dim_scores},
+                overall_score=1.0,
+            ),
+        )
+        path = tmp_path / "q.jsonl"
+        path.write_text(
+            json.dumps({"id": "q1", "type": "rag", "variant": "real", "query": "给水管道的设计秒流量", "gold_articles_any": ["FIX 1.1.1"]}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+        runner = HarnessRunner(
+            eval_path=path,
+            report_dir=tmp_path / "r",
+            trace_dir=tmp_path / "t",
+            fixture_path=FIXTURE_PATH,
+            variant="real",
+            judge=True,
+        )
+        report, _, _ = runner.run()
+        return report.cases[0], report
+
+    def test_judge_1of5_case_is_not_quality_pass(self, tmp_path: Path, quality_offline, monkeypatch: pytest.MonkeyPatch) -> None:
+        """阻断维度 judge=1/5 → quality_pass=False、低分计数 1、quality_pass_rate=0。"""
+        case, report = self._run_with_judge(
+            tmp_path, quality_offline, monkeypatch,
+            {"faithfulness": 1, "citation_coverage": 5, "completeness": 5, "clarity": 5, "no_fabrication": 4},
+        )
+        assert case.passed is True, "机制层判分（确定性 citation 校验）不被 judge 篡改"
+        assert case.quality_pass is False, "judge 阻断维度 1/5 不得显示为质量通过"
+        assert any("faithfulness=1" in r for r in case.quality_fail_reasons), case.quality_fail_reasons
+        assert report.quality_judged_count == 1
+        assert report.quality_low_score_count == 1
+        assert report.quality_pass_rate == 0.0
+        assert report.judge_dimension_averages["faithfulness"] == 1.0
+        assert report.judge_dimension_averages["no_fabrication"] == 4.0
+
+    def test_judge_high_scores_quality_pass_but_keeps_mechanism_separate(self, tmp_path: Path, quality_offline, monkeypatch: pytest.MonkeyPatch) -> None:
+        """阻断维度全 5/5 → quality_pass=True；mechanism passed 仍独立成立。"""
+        case, report = self._run_with_judge(
+            tmp_path, quality_offline, monkeypatch,
+            {"faithfulness": 5, "citation_coverage": 5, "completeness": 4, "clarity": 4, "no_fabrication": 5},
+        )
+        assert case.passed is True
+        assert case.quality_pass is True
+        assert case.quality_fail_reasons == []
+        assert report.quality_pass_rate == 1.0
+        assert report.quality_low_score_count == 0
+        assert report.judge_dimension_averages["faithfulness"] == 5.0
+        assert report.judge_dimension_averages["completeness"] == 4.0

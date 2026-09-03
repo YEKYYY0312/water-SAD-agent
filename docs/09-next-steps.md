@@ -100,16 +100,20 @@
 - ruff 0 error；mypy **0 告警（Step 10 已清零）**；uv.lock 已锁定
 - PR 门禁：`bash scripts/ci_gate.sh`（pytest → ruff → mypy → rag_p0 → calc_p0 ≥95% → 基线对比，任一失败 exit 1）
 
-## 四、P1 剩余项（Step 10 已完成后的状态）
+## 四、P1 剩余项（Step 10 收口后的状态）
 
-### R1（部分完成）构造独立 gold 并重跑检索矩阵
+### R1（仍阻塞）构造独立 gold 并重跑检索矩阵
 
 现有 70 条 gold 的 query 由源条款自动派生，query≈条文原文，必然命中源条款——既有矩阵报告（Recall@1/5/10 与 MRR 全 1.0）已自判无效。**检索质量至今没有可信数字**。
-Step 10 交付了 `data/eval/rag_p1.jsonl`（58 条人工措辞的自然问题 + 真实 source_id），但**纯检索矩阵的可信基线**（`evaluate_retrieval_matrix.py` 重跑 + 负例）仍未落地，留待 P2 前处理。百炼 rerank 需先开通 gte-rerank 权限（当前 403），不可达时按 SKIP 语义记录。
+Step 10 已补上 `data/eval/rag_p1.jsonl`（58 条人工措辞的自然问题 + 真实 source_id），但**纯检索矩阵的可信基线**（`evaluate_retrieval_matrix.py` 重跑 + 负例）仍未落地，留待网络+Key 可达时处理。百炼 rerank 需先开通 gte-rerank 权限（当前 403），不可达时按 SKIP 语义记录。
 
-### R2（需 DEEPSEEK_API_KEY）真实 LLM 问答链路证据
+### R2（仍阻塞）真实 LLM 问答链路证据
 
-Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`build_chat_model` → DeepSeek function calling，`--mode agentic`）均已具备，`--stream` 可流式打印 token；无 Key 时全程离线可跑（`--mock-generator`/fake），有 Key 时跑 `scripts/smoke_agentic.sh` 连跑 3 问。**但 `DEEPSEEK_API_KEY` 仍未配置（`DASHSCOPE_API_KEY` 已配置），质量层评测（`--variant real` + `--judge`）的真实运行记录仍待补。** Key 配好后：跑 `rag_p1 --variant real --judge`，人工核验引用是否指回正确条款、judge 分数是否合理。
+Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`build_chat_model` → DeepSeek function calling，`--mode agentic`）均已具备，`--stream` 可流式打印 token；无 Key 时全程离线可跑（`--mock-generator`/fake），有 Key 时跑 `scripts/smoke_agentic.sh` 连跑 3 问。**但当前 shell 通过代理访问真实服务返回 `OpenAIConnectionError: Connection error.`，质量层评测（`--variant real` + `--judge`）尚无可复用的真实运行证据。** 真实链路恢复后再跑 `rag_p1 --variant real --judge`，人工核验引用是否指回正确条款、judge 分数是否合理。
+
+### R3（仍阻塞）数据质量修复
+
+`rag_p1` 中 `GB50015-2019 4.7.1` 仍来自“联网整理的设计要点综述，非正式规范条文”，只能作为检索线索，不得当正式规范原文引用。若现有语料不足以满足正式引用要求，应让用例如实失败，并在报告中记录为数据质量阻塞。
 
 ### R3 自研 MCP server（路线图 P1 清单项）
 

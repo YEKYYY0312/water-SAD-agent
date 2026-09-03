@@ -15,6 +15,10 @@ SKIP 语义：新报告全部用例 SKIP（真实变体无 Key）→ 不参与�
     # 对比最新报告与基线（PR 门禁 / 定时任务）
     python scripts/compare_baseline.py data/eval/baseline.json
     python scripts/compare_baseline.py data/eval/baseline.json --report-path <report.json>
+
+    # 真实质量层独立基线（rag_p1，--variant real --judge 产物；需 Key，不入 PR CI）
+    python scripts/compare_baseline.py --init data/eval/rag_p1_baseline.json --suite rag_p1
+    python scripts/compare_baseline.py data/eval/rag_p1_baseline.json --suite rag_p1
 """
 from __future__ import annotations
 
@@ -29,9 +33,12 @@ DEFAULT_BASELINE = REPO_ROOT / "data" / "eval" / "baseline.json"
 DEFAULT_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
 
 # 单一权威阈值集（单位：pt=百分点）
+# quality_pass_rate_decline_pt 只作用于真实质量层 suite（rag_p1，独立基线文件），
+# 机制层 suite（rag_p0/calc_p0）不含 quality_pass_rate 字段，不受该阈值影响。
 THRESHOLDS: dict[str, float] = {
     "pass_rate_decline_pt": 2.0,      # 通过率相对基线下降 ≤2pt
     "citation_ok_decline_pt": 3.0,    # 引用正确率相对基线下降 ≤3pt
+    "quality_pass_rate_decline_pt": 5.0,  # 质量通过率相对基线下降 ≤5pt（真实质量层用）
 }
 
 
@@ -60,9 +67,16 @@ def _compute_new_metrics(new_report: dict) -> tuple[float, float]:
     # 报告缺少汇总字段时按 cases 兜底计算
     passed = sum(1 for c in non_skipped if c.get("passed", False))
     pass_rate = (passed / len(non_skipped)) if non_skipped else 0.0
+
     def _cit_ok(c: dict) -> bool:
+        # 与 runner.citation_ok_for_result 同语义（P1/Step 10 评审）：零引用对存在
+        # expected_articles 的 RAG 用例计 citation failure；无需引用的用例不误伤。
         ctx = set(c.get("context_articles", []) or [])
-        return all(x in ctx for x in c.get("actual_citations", []) or []) if c.get("actual_citations") else True
+        citations = c.get("actual_citations", []) or []
+        if not citations:
+            return not bool(c.get("expected_articles") or [])
+        return all(x in ctx for x in citations)
+
     citation_ok = (sum(1 for c in non_skipped if _cit_ok(c)) / len(non_skipped)) if non_skipped else 0.0
     return pass_rate, citation_ok
 
@@ -126,6 +140,19 @@ def compare_suite(
     if new_core_failures:
         violations.append(f"PASS_TO_PASS 违规：基线通过用例新失败 {new_core_failures}")
 
+    # 真实质量层（rag_p1 等）：基线含 quality_pass_rate 且新报告真实判定过（judged>0）
+    # 才比较质量通过率；无 Key 的全 SKIP 报告在更早分支已返回，不会到这里。
+    new_judged = int(new_report.get("quality_judged_count", 0) or 0)
+    base_quality = baseline_suite.get("quality_pass_rate")
+    new_quality = new_report.get("quality_pass_rate")
+    if base_quality is not None and new_quality is not None and new_judged > 0:
+        quality_delta_pt = (float(base_quality) - float(new_quality)) * 100
+        if quality_delta_pt > thresholds.get("quality_pass_rate_decline_pt", 5.0):
+            violations.append(
+                f"quality_pass_rate 下降 {quality_delta_pt:.2f}pt"
+                f"（>{thresholds.get('quality_pass_rate_decline_pt', 5.0)}pt）"
+            )
+
     return {
         "passed": not violations,
         "reason": "; ".join(violations),
@@ -151,7 +178,7 @@ def build_baseline(report_dir: Path, suite_keys: list[str]) -> dict:
             continue
         report = _load_json(latest)
         pass_rate, citation_ok = _compute_new_metrics(report)
-        suites[key] = {
+        entry: dict = {
             "input_path": report.get("input_path", key),
             "variant": report.get("variant", "mock"),
             "total": report.get("total", 0),
@@ -169,6 +196,12 @@ def build_baseline(report_dir: Path, suite_keys: list[str]) -> dict:
             ],
             "source_report": latest.name,
         }
+        # 真实质量层 suite（rag_p1 --judge）：把质量判定指标带进独立基线（版本化，
+        # 不覆盖 rag_p0/calc_p0 基线文件）。机制层报告无这些字段，跳过。
+        for quality_key in ("quality_pass_rate", "quality_low_score_count", "quality_judged_count", "judge_dimension_averages"):
+            if quality_key in report:
+                entry[quality_key] = report.get(quality_key)
+        suites[key] = entry
     return {
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
