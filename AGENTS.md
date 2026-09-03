@@ -45,6 +45,8 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 - observation：工具结果/错误回填给模型，失败文本必须可见。
 
 ## 尚未完成（已知阻塞）
+- **真实检索矩阵需重跑**：2026-09-03 发现 triviumdb 文本索引不落盘、此前所有真实检索实际是纯向量（hybrid_alpha 无效）；`TriviumRetriever` 已改为打开库时重建文本索引（commit cdd6f46），`data/eval/reports/retrieval_matrix_*` 旧数据作废，需有 Key 时重跑 `scripts/evaluate_retrieval_matrix.py`。
+- `--interactive` 仍是 Step 3 占位（只回"已收到第 N 条消息"），未接 legacy/agentic 回答；agentic 路径模型不调 cite_clauses 也会 succeeded（引用可追溯未强制）——待 Step 10 后修（见评审记录）。
 - 检索 gold 存在泄漏（retrieval_gold.jsonl 的 70 条 query 由源条款自动派生，query≈条文原文，必然命中源条款），需构造独立可人工验证的 gold（不同措辞/引用式/跨条款 + 负例）后重跑真实检索矩阵。
 - DEEPSEEK_API_KEY 非持久配置：R2 真实链路已有一次闭环证据（2026-09-03，4 条引用全部 ∈ 检索结果、0 重试，见对话记录），但本 shell 无 Key 时仍按 SKIP 语义处理（`scripts/smoke_agentic.sh` 无 Key 打印 SKIP 且 exit 0；`--mode agentic` 无 Key 报结构化错误并指引 `--mock-generator`）。
 - `cli.py --flow docgen` 尚未接线（Step 9 交付的是 docgen 图 + test_docgen_hitl 9 用例；CLI 交互入口与审批记录写 trace 待 Step 10 后接线，见 docs/09-next-steps.md）。
