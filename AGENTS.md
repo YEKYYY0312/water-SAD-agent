@@ -3,7 +3,7 @@
 给排水领域 AI Agent 的构建约定。任何会话开工前先读本文件与 `docs/给排水agent改造任务书.md`。
 
 ## 项目是什么
-面向给排水设计院的 Agent，覆盖五类能力：规范问答、水力计算、计算书生成、图纸审查、材料统计。Step 0–10 已完成（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入：DeepSeek function calling + 流式 / 系统提示装配+运行时上下文投影+规范版本注册表 / Human-in-the-Loop 审批图 / 双轨评测+CI 门禁+观测），任务书全部步骤已交付，后续为质量层真实运行与 P2。git 已 init，共 37 次提交，HEAD=61138ff。
+面向给排水设计院的 Agent，覆盖五类能力：规范问答、水力计算、计算书生成、图纸审查、材料统计。Step 0–10 已完成（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入：DeepSeek function calling + 流式 / 系统提示装配+运行时上下文投影+规范版本注册表 / Human-in-the-Loop 审批图 / 双轨评测+CI 门禁+观测），任务书全部步骤已交付，后续为质量层真实运行与 P2。git 已 init，共 41 次提交，HEAD=56f3ce0。
 
 ## 三条铁律（不得违反）
 1. 计算类永远程序化校验，LLM 不参与数值运算。
@@ -13,7 +13,7 @@
 ## 验证命令（改动完成前必须执行）
 ```bash
 bash scripts/verify.sh   # 统一门禁：pytest + ruff + rag_p0(11/12) + calc_p0(28/28)
-_venv/bin/mypy src/water_agent   # 仅记录告警，Step 10 清零
+_venv/bin/mypy src/water_agent   # 必须清零（Step 10 已达成，ci_gate 强制）
 _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（需网络+百炼 Key）
 ```
 真实模型/真实检索无 Key 或网络不可达时：输出结构化 SKIP，禁止伪造结果。
@@ -38,7 +38,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 - 重建索引：`scripts/build_index.py`（源自 `data/curated/`）。
 
 ## 工程基线入口
-- `data/eval/baseline_preflight.json`：基线记录（含 Step -1 与 Step 0–9 post_state），改动前先对照。
+- `data/eval/baseline_preflight.json`：基线记录（含 Step -1 与 Step 0–10 post_state），改动前先对照。
 - `docs/design/10-sdd-harness.md`：SDD+Harness 工程规范（规格模板/错误状态语义/完成定义）。
 
 ## 术语
@@ -52,3 +52,4 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 - 检索 gold 存在泄漏（retrieval_gold.jsonl 的 70 条 query 由源条款自动派生，query≈条文原文，必然命中源条款），需构造独立可人工验证的 gold（不同措辞/引用式/跨条款 + 负例）后重跑真实检索矩阵。
 - DEEPSEEK_API_KEY 非持久配置：R2 真实链路已有一次闭环证据（2026-09-03，4 条引用全部 ∈ 检索结果、0 重试，见对话记录），但本 shell 无 Key 时仍按 SKIP 语义处理（`scripts/smoke_agentic.sh` 无 Key 打印 SKIP 且 exit 0；`--mode agentic` 无 Key 报结构化错误并指引 `--mock-generator`）。
 - `data/versions.json` 四条规范（GB50015-2019/GB50013-2018/GB50014-2021/GB50318-2017）现行状态待人工核实（公告号/生效日期）；核实后改 `status: current` 并填 `source`，同步改 `tests/test_version_registry.py::test_status_from_prod_json` 断言。核实前所有引用的 `version_status` 都是 unknown（只标记）。
+- `ingestion/semantic_audit.py` 质检报告中存在编码事故遗留的 `[??]` 占位字符（代码内 TODO 需人工确认原字符集后替换），相关质检报告需在人工确认后重跑。
