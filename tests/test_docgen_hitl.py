@@ -20,10 +20,13 @@ from langgraph.types import Command
 from water_agent.domain.citation import CitationClaim
 from water_agent.graphs.docgen import (
     MAX_DRAFT_ROUNDS,
+    STATUS_APPROVED,
     STATUS_FAILED,
+    STATUS_REJECTED,
     STATUS_SUCCEEDED,
     STATUS_WAITING,
     build_docgen_graph,
+    route_after_approval,
 )
 
 
@@ -33,6 +36,23 @@ def _initial_state(query: str = "生成 DN150 给水管道计算书", **extra) -
 
 def _thread(thread_id: str = "t1") -> dict:
     return {"configurable": {"thread_id": thread_id}}
+
+
+class TestResumeContract:
+    def test_non_dict_non_bool_resume_raises_clear_error(self) -> None:
+        """审批 resume 只接受严格 bool 或 {'approved': bool}；字符串 false 必须被拒绝。"""
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_initial_state(), config=_thread("strict-bool"))
+            with pytest.raises(TypeError, match="approved 必须是严格 bool"):
+                app.invoke(Command(resume={"approved": "false"}), config=_thread("strict-bool"))
+
+    def test_route_after_approval_failed_never_finalize(self) -> None:
+        """failed 状态在 approval 之后直接终止，不得进入 finalize。"""
+        assert route_after_approval({"status": STATUS_FAILED}) == "__end__"
+        assert route_after_approval({"status": STATUS_REJECTED}) == "draft"
+        assert route_after_approval({"status": STATUS_APPROVED}) == "finalize"
+        assert route_after_approval({"status": STATUS_WAITING}) == "finalize"
 
 
 class TestInterruptBasics:
