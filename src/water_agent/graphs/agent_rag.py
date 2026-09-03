@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import itertools
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Annotated, Any, NotRequired, TypedDict, cast
 from uuid import uuid4
 
@@ -302,7 +302,7 @@ def build_agentic_app(
     tools,
     *,
     checkpointer: BaseCheckpointSaver | None = None,
-    prompt: str | None = None,
+    prompt: str | Callable[[dict], Any] | None = None,
     max_tool_turns: int = 10,
 ):
     """构建 agentic RAG 外层图。
@@ -310,8 +310,8 @@ def build_agentic_app(
     - ``model``：任意 chat model（真实或 fake）；内部自动套轮数预算；
     - ``tools``：``BaseTool`` 列表（经 ``tool_spec_to_base_tool`` 转换）；
     - ``checkpointer``：必配（thread_id 会话隔离，护住会话纪律）；
-    - ``prompt``：系统提示；缺省用 ``DEFAULT_AGENTIC_PROMPT``（Step 7 起
-      真实链路带默认真实提示，Step 8 升级为可调用装配器）；
+    - ``prompt``：系统提示；可以是字符串，或 ``(state) -> SystemMessage``
+      可调用对象（Step 8 动态装配器）。缺省用 ``DEFAULT_AGENTIC_PROMPT``；
     - ``max_tool_turns``：agent_loop 内模型工具调用轮数独立预算。
     """
     if checkpointer is None:
@@ -319,12 +319,16 @@ def build_agentic_app(
 
     holder: dict[str, int] = {"turns": 0}
     budget_model = _BudgetChatModel(inner=model, max_tool_turns=max_tool_turns, holder=holder)
+    if prompt is None:
+        system_prompt: str | Callable[[dict], Any] = DEFAULT_AGENTIC_PROMPT
+    else:
+        system_prompt = prompt
     react_agent = create_react_agent(
         model=budget_model,
         tools=tools,
         state_schema=AgenticRAGState,
         checkpointer=None,
-        prompt=prompt if prompt is not None else DEFAULT_AGENTIC_PROMPT,
+        prompt=system_prompt,
     )
 
     graph = StateGraph(AgenticRAGState)
@@ -365,18 +369,18 @@ async def astream_agentic(
     config: dict,
     *,
     on_token: Callable[[str], None] | None = None,
+    messages: Sequence[BaseMessage] | None = None,
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
-    - ``stream_mode=["messages", "values"]`` 的事件形态为 ``(mode, payload)``：
-      ``("values", dict)`` 为每步完整状态（最后一个为 finalize 后的终态）；
-      ``("messages", (message_chunk, metadata))`` 为模型输出（含 tool call 与文本）；
-    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。tool-call 轮经由
-      ``_BudgetChatModel._stream`` 同步计数，超预算抛 ``ToolBudgetExceeded``。
+    - ``messages``：可选的初始消息列表（用于注入运行时上下文等）；默认 ``[HumanMessage(content=query)]``
+    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。
     """
     final_state: dict[str, Any] = {}
+    if messages is None:
+        messages = [HumanMessage(content=query)]
     async for event in app.astream(
-        {"messages": [HumanMessage(content=query)], "query": query},
+        {"messages": messages, "query": query},
         config=config,
         stream_mode=["messages", "values"],
     ):

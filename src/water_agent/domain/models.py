@@ -62,12 +62,13 @@ class RetrievedClause(BaseModel):
 
 
 class Citation(BaseModel):
-    """可追溯引用：规范号 + 条款号。"""
+    """可追溯引用：规范号 + 条款号 + 版本。"""
 
     spec_id: str
     article: str
     title: str = ""
     text_snippet: str = ""
+    spec_version: str | None = None  # Step 8：规范版本（如 2019），用于版本校验
 
     @property
     def source_id(self) -> str:
