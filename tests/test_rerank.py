@@ -91,3 +91,18 @@ def test_bailian_sends_native_payload_and_applies_results():
     assert len(out) == 1
     assert out[0].article == "2"
     assert out[0].score == 0.95
+
+
+def test_local_reranker_does_not_mutate_candidates_across_queries():
+    """重排返回副本：入参对象的 score 不被改写，第二条无关 query 不受上一问污染。"""
+    rr = LocalReranker()
+    shared = [
+        _clause("A", "1", "给水管道设计秒流量按用水定额计算"),
+        _clause("A", "2", "排水管道最小坡度与充满度规定"),
+    ]
+    first = rr.rerank("设计秒流量", shared, top_k=2)
+    assert first[0].article == "1"
+    assert [c.score for c in shared] == [0.0, 0.0], "入参对象不得被改写"
+    assert first[0] is not shared[0]
+    second = rr.rerank("排水管道最小坡度", shared, top_k=2)
+    assert second[0].article == "2", [c.article for c in second]

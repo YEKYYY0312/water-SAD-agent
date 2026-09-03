@@ -61,6 +61,11 @@ class LocalReranker(Reranker):
         self.alpha = alpha
 
     def rerank(self, query: str, candidates: list[RetrievedClause], top_k: int) -> list[RetrievedClause]:
+        """重排并返回**副本**：不改写入参对象的 score。
+
+        InMemoryRetriever / fixture 回落每次返回同一批对象，若原地改 score，下一条
+        无关 query 会把上一问的重排分当"原始混合分"用（跨查询污染）。
+        """
         scores = [c.score for c in candidates]
         max_score = max((s for s in scores if s is not None), default=0.0)
         scored = []
@@ -70,9 +75,7 @@ class LocalReranker(Reranker):
             final = self.alpha * normalized + (1.0 - self.alpha) * overlap
             scored.append((final, clause))
         scored.sort(key=lambda t: t[0], reverse=True)
-        for final, clause in scored[:top_k]:
-            clause.score = final
-        return [clause for _, clause in scored[:top_k]]
+        return [clause.model_copy(update={"score": final}) for final, clause in scored[:top_k]]
 
 
 class BailianReranker(Reranker):
@@ -174,8 +177,8 @@ class BailianReranker(Reranker):
             idx = int(rank_item.get("index", -1))
             if idx < 0 or idx >= len(candidates):
                 continue
-            candidates[idx].score = float(rank_item.get("relevance_score", 0.0))
-            out.append(candidates[idx])
+            # 同 LocalReranker：返回副本，不改写入参对象
+            out.append(candidates[idx].model_copy(update={"score": float(rank_item.get("relevance_score", 0.0))}))
         return out
 
 
