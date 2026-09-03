@@ -86,6 +86,48 @@ class JsonTraceRecorder:
             event_data["data"] = self._serialize(data)
         self._document["events"].append(event_data)
 
+    def record_llm_call(
+        self,
+        *,
+        node: str = "llm",
+        model: str = "",
+        provider: str = "",
+        prompt_preview: str = "",
+        response_preview: str = "",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        total_tokens: int = 0,
+        cost_usd: float = 0.0,
+        latency_ms: float = 0.0,
+        status: str = "running",
+        error: str | None = None,
+        query: str | None = None,
+    ) -> None:
+        """记录一次 LLM 调用事件（Step 10：观测与成本）。
+
+        ``prompt_preview`` / ``response_preview`` 只存摘要（默认截断到 200 字符），
+        避免把完整 prompt/响应写入 trace（PII/密钥泄漏风险，见 OTel GenAI 约定）。
+        """
+        self.record(
+            node=node,
+            event="llm_call",
+            query=query,
+            retry_count=0,
+            error=error,
+            status=status,
+            duration_ms=latency_ms,
+            data={
+                "model": model,
+                "provider": provider,
+                "prompt_preview": (prompt_preview or "")[:200],
+                "response_preview": (response_preview or "")[:200],
+                "input_tokens": int(input_tokens),
+                "output_tokens": int(output_tokens),
+                "total_tokens": int(total_tokens),
+                "cost_usd": round(float(cost_usd), 8),
+            },
+        )
+
     def node_enter(self, node: str, **kwargs: Any) -> None:
         self._node_starts[node] = time.perf_counter()
         self.record(node=node, event="node_enter", **kwargs)

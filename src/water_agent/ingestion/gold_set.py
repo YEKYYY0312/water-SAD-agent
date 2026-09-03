@@ -9,7 +9,7 @@ from water_agent.domain.models import utc_now
 
 
 def _candidate_index(candidates: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {c.get("id"): c for c in candidates}
+    return {str(c.get("id", "")): c for c in candidates}
 
 
 def finalize_gold_set(

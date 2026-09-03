@@ -109,6 +109,7 @@ class EvalCase(BaseModel):
     eval: str = "citation_exists"
     variant: str = "mock"
     top_k: int = 5
+    spec_version: str | None = None  # Step 10：规范版本号（如 2019），用于质量层 trace
 
 
 class CalcTolerances(BaseModel):
@@ -138,6 +139,15 @@ class CalcCase(BaseModel):
     spec_ref: str = ""
 
 
+class TokenUsage(BaseModel):
+    """单次 LLM 调用的 token 用量与成本。"""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+
+
 class EvalResult(BaseModel):
     """单条评测结果。"""
 
@@ -158,6 +168,13 @@ class EvalResult(BaseModel):
     exception_trace: str = ""
     line_no: int | None = None
     context_articles: list[str] = Field(default_factory=list)
+    # Step 10：双轨评测扩展字段
+    variant: str = "mock"
+    skipped: bool = False
+    token_usage: TokenUsage | None = None
+    retrieval_metrics: dict[str, float] = Field(default_factory=dict)
+    judge_scores: dict[str, int] = Field(default_factory=dict)
+    judge_reasoning: str = ""
 
 
 class EvalReport(BaseModel):
@@ -166,11 +183,21 @@ class EvalReport(BaseModel):
     total: int
     passed: int
     failed: int
+    skipped: int = 0
     pass_rate: float
     cases: list[EvalResult] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
     input_path: str = ""
     output_path: str = ""
+    variant: str = "mock"
+    # 汇总维度
+    citation_ok_rate: float = 0.0
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+    avg_latency_ms: float = 0.0
+    p50_latency_ms: float = 0.0
+    p95_latency_ms: float = 0.0
+    retrieval_metrics: dict[str, float] = Field(default_factory=dict)
 
 
 class ChunkType(str, Enum):

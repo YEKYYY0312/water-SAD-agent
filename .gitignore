@@ -20,6 +20,7 @@ build/
 data/traces/
 data/eval/reports/
 data/eval/traces/
+data/eval/judge_cache/
 data/quality/reports/
 data/sessions/
 :memory:.lock

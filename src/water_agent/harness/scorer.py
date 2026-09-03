@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from water_agent.domain.models import CalcCase, CalcTolerances, EvalCase, EvalResult
+from water_agent.harness.retrieval_metrics import case_retrieval_metrics
 from water_agent.tools.hydraulics import CalcResult, run_calc
 
 
@@ -69,6 +70,10 @@ def score_eval_case(
         reasons.append(f"forbidden_articles hit: {forbidden_hit}")
 
     passed = not reasons
+    retrieval_metrics = case_retrieval_metrics(
+        context_article_list,
+        [*case.gold_articles_any, *case.gold_articles_all],
+    )
     return EvalResult(
         case_id=case.id,
         passed=passed,
@@ -85,6 +90,8 @@ def score_eval_case(
         forbidden_articles_hit=forbidden_hit,
         line_no=line_no,
         context_articles=context_article_list,
+        variant=case.variant,
+        retrieval_metrics=retrieval_metrics,
     )
 
 
