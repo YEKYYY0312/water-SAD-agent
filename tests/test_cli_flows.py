@@ -94,3 +94,14 @@ class TestDocgenFlow:
         code = main([*args, "--resume", session_id, "--json"])
         payload = json.loads(capsys.readouterr().out)
         assert code == 0 and payload["status"] == "succeeded" and payload["session_id"] == session_id
+
+    def test_docgen_gather_calc_reports_missing_inputs(self) -> None:
+        """计算意图缺参：缺参信号必须透出到人审草稿（S9-03），审批人才能判断为何无数值。"""
+        import argparse
+
+        from water_agent.cli import _gather_docgen_inputs
+
+        args = argparse.Namespace(mode="auto")
+        gathered = _gather_docgen_inputs("DN150 求流速", args)
+        assert gathered["citations"] == []
+        assert gathered["calc_result"]["missing_inputs"] == "flow_lps"

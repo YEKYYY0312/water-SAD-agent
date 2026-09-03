@@ -107,6 +107,36 @@ class TestVersionRegistryWiring:
         assert result.missing_version == ["GB99999-2099 1.1.1"]
         assert len(result.warnings) == 1 and "GB99999-2099 1.1.1" in result.warnings[0]
 
+    def test_superseded_version_warns_but_not_fails(self, tmp_path) -> None:
+        """已知非现行（superseded/deprecated）：不判失败，但必须产生可见警示（S8-02）。"""
+        import json
+
+        from water_agent.ingestion.version_registry import VersionRegistry
+
+        path = tmp_path / "versions.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {
+                        "spec_id": "GB50015",
+                        "version": "2003",
+                        "status": "superseded",
+                        "successor": "GB50015-2019",
+                        "source": "人工确认",
+                        "verified_at": "2026-09-03",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        registry = VersionRegistry(path)
+        cited = ["GB50015-2003 5.4.2"]
+        result = validate_citations(cited, cited, version_registry=registry)
+        assert result.ok is True
+        assert result.missing_version == []
+        assert result.version_status == {cited[0]: "superseded"}
+        assert any("superseded" in warning for warning in result.warnings)
+
     def test_version_mismatch_is_unknown_not_inferred(self, registry) -> None:
         """注册表只录了 2019 版：引用 2003 版 → unknown（不因同一规范号推断为现行）。"""
         result = validate_citations(["GB50015-2003 1.1.1"], ["GB50015-2003 1.1.1"], version_registry=registry)

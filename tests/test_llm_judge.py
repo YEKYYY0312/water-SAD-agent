@@ -128,6 +128,15 @@ class TestTransportParsing:
 
 
 class TestCache:
+    def test_cache_key_includes_context(self) -> None:
+        """缓存键必须含 context：相同 query/answer 但检索上下文不同不得复用评分（S10-01）。"""
+        from water_agent.harness.llm_judge import JudgeInput, _judge_cache_key
+
+        base = JudgeInput(query="q", answer="a", criteria=["faithfulness"])
+        key_a = _judge_cache_key(base.model_copy(update={"context": ["FIX 1.1.1"]}), "judge-model")
+        key_b = _judge_cache_key(base.model_copy(update={"context": ["FIX 2.2.2"]}), "judge-model")
+        assert key_a != key_b
+
     def test_cache_hit_avoids_repeat_call(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """相同 query/answer/model 第二次命中缓存，不重复调用 judge。"""
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")

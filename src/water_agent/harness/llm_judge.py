@@ -117,11 +117,16 @@ class JudgeResult(BaseModel):
 
 
 def _judge_cache_key(input_data: JudgeInput, judge_model: str) -> str:
-    """稳定缓存键：sha256(query + answer + model + criteria)。"""
+    """稳定缓存键：sha256(query + answer + context + model + criteria)。
+
+    context 必须入键：相同 query+answer 但检索上下文不同（换 rerank/召回）时，
+    faithfulness/citation_coverage 判据不同，不得复用同一条缓存评分。
+    """
     raw = json.dumps(
         {
             "query": input_data.query,
             "answer": input_data.answer,
+            "context": list(input_data.context),
             "criteria": list(input_data.criteria),
             "model": judge_model,
         },
