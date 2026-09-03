@@ -274,3 +274,27 @@ class TestRunnerReportAggregates:
         report, _, _ = runner.run()
         # rag_p0: 11/12 pass, bad_citation trap → citation_ok ≈ 11/12
         assert report.failed == 1  # bad_citation 陷阱
+
+class TestRealComponentsFailureIsNotSkip:
+    """有 Key 但真实组件构建失败：退出码 3（≠ SKIP 的 0，≠ 用例失败的 1），stderr 结构化。"""
+
+    def test_main_returns_3_when_real_components_fail(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        from water_agent.harness import runner as runner_mod
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-dummy")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-dummy")
+        monkeypatch.setattr(runner_mod.HarnessRunner, "_probe_real_skip", lambda self: None)
+
+        def _boom(self):
+            raise RuntimeError("embedding dimension mismatch")
+
+        monkeypatch.setattr(runner_mod.HarnessRunner, "_build_real_retriever", _boom)
+        clean_eval = tmp_path / "clean.jsonl"
+        clean_eval.write_text(
+            json.dumps({"id": "r-1", "type": "rag", "variant": "real", "query": "给水管道的设计秒流量", "gold_articles_any": ["FIX 1.1.1"]}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        code = main([str(clean_eval), "--variant", "real", "--report-dir", str(tmp_path / "r"), "--trace-dir", str(tmp_path / "t"), "--fixture-path", str(FIXTURE_PATH)])
+        err = capsys.readouterr().err
+        assert code == runner_mod.EXIT_REAL_COMPONENTS_FAILED == 3
+        assert "real_components_failed" in err and "embedding dimension mismatch" in err

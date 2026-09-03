@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -298,3 +299,28 @@ class TestCliAgenticOffline:
         with pytest.raises(ValueError, match="DEEPSEEK_API_KEY must not be empty") as excinfo:
             run_agentic_once("给水管道的设计秒流量如何确定", args=args)
         assert "--mock-generator" in str(excinfo.value), "错误必须带可行动的离线验证指引"
+
+class TestAgenticTrace:
+    def test_agentic_trace_records_llm_calls_and_finishes(self, retriever, tmp_path) -> None:
+        """Step 10 观测：agentic 每次模型响应一条 llm_call，finalize 时 trace 落盘（run_end）。"""
+        from water_agent.observability.json_trace import JsonTraceRecorder
+
+        responses = [_retrieve_call(retriever), _cite_call(["FIX 1.1.1"]), _assistant("最终回答。")]
+        model = FakeMessagesListChatModel(responses=responses)
+        recorder = JsonTraceRecorder(tmp_path)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver, trace=recorder)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")], "query": "设计秒流量如何确定"},
+                config={"configurable": {"thread_id": "trace-t1"}},
+            )
+        assert out["status"] == "succeeded"
+        files = list(tmp_path.glob("*.json"))
+        assert len(files) == 1, "finalize 必须把 trace 落盘"
+        document = json.loads(files[0].read_text(encoding="utf-8"))
+        llm_calls = [e for e in document["events"] if e["event_type"] == "llm_call"]
+        assert len(llm_calls) == 3, [e["event_type"] for e in document["events"]]
+        assert llm_calls[0]["data"]["response_preview"].startswith("tool_calls: retrieve_clauses")
+        assert llm_calls[-1]["data"]["response_preview"] == "最终回答。"
+        assert document["status"] == "succeeded"
+        assert any(e["event_type"] == "run_end" for e in document["events"])

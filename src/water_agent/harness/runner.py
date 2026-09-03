@@ -52,6 +52,14 @@ DEFAULT_JUDGE_MODEL = "deepseek-chat"
 DEFAULT_JUDGE_BASE_URL = "https://api.deepseek.com"
 DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
 
+# 退出码语义（与 SKIP 明确区分）：
+#   0 全部通过或全部 SKIP；1 有用例失败；2 评测集加载问题；3 有 Key 但真实组件构建失败
+EXIT_REAL_COMPONENTS_FAILED = 3
+
+
+class RealComponentsError(RuntimeError):
+    """有 Key 但真实组件（索引/embedding/模型/judge）构建失败——是失败，不是 SKIP。"""
+
 
 def _pct(values: list[float], percent: float) -> float:
     """计算百分位数（无 numpy 依赖）。"""
@@ -205,8 +213,8 @@ class HarnessRunner:
                     judge_base_url=self.judge_base_url,
                     judge_api_key_env=self.judge_api_key_env,
                 )
-        except Exception as exc:  # noqa: BLE001 — 真实组件构建失败统一转为 SKIP
-            self._real_skip_reason = f"SKIP: 真实组件构建失败 - {exc}"
+        except Exception as exc:
+            raise RealComponentsError(f"真实组件构建失败（有 Key，非 SKIP）：{exc}") from exc
 
     # ── 检索器与生成器工厂 ──────────────────────────────────────────
 
@@ -420,6 +428,8 @@ class HarnessRunner:
             line_no = bundle.line_nos[index] if index < len(bundle.line_nos) else None
             try:
                 results.append(self._run_case(case, line_no=line_no))
+            except RealComponentsError:
+                raise  # 整批都跑不了，直接上抛让 main 用独立退出码表达
             except Exception as exc:  # noqa: BLE001 — 单用例隔离
                 results.append(self._error_result(case, line_no=line_no, exc=exc))
 
@@ -552,6 +562,12 @@ def main(argv: list[str] | None = None) -> int:
             judge_api_key_env=args.judge_api_key_env,
         )
         report, report_path, load_issues = runner.run()
+    except RealComponentsError as exc:
+        print(
+            json.dumps({"ok": False, "kind": "real_components_failed", "error": str(exc)}, ensure_ascii=False),
+            file=sys.stderr,
+        )
+        return EXIT_REAL_COMPONENTS_FAILED
     except (FileNotFoundError, EvalLoadError, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
