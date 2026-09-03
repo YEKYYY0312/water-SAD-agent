@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
@@ -18,6 +19,7 @@ from water_agent.domain.state import (
     WaterAgentState,
 )
 from water_agent.generation.base import Generator
+from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.retrieval.base import Retriever
@@ -103,7 +105,9 @@ def build_rag_graph(
 
     def generate_node(state: WaterAgentState) -> dict:
         _enter("generate", state)
+        started = time.perf_counter()
         generated = generator.generate(state.get("query", ""), state.get("context", []))
+        gen_latency_ms = (time.perf_counter() - started) * 1000
         # state 层统一为 CitationClaim：legacy 生成器的 Citation 转换为 system 声明；
         # agentic 路径由 cite_clauses 写入 model 声明，Step 6 消费同一结构。
         claims = [
@@ -112,6 +116,24 @@ def build_rag_graph(
         ]
         result = {"answer": generated.answer, "citations": claims, "step_count": state.get("step_count", 0) + 1}
         if trace is not None:
+            # Step 10 观测：每次生成一条 llm_call（token/cost/延迟/摘要）；mock 生成器记 0 token
+            usage = dict(getattr(generator, "last_usage", None) or {})
+            gen_config = getattr(generator, "config", None)
+            in_tok = int(usage.get("prompt_tokens", 0) or 0)
+            out_tok = int(usage.get("completion_tokens", 0) or 0)
+            trace.record_llm_call(
+                node="generate",
+                model=str(getattr(gen_config, "model", "") or type(generator).__name__),
+                provider="deepseek" if usage else "mock",
+                prompt_preview=state.get("query", ""),
+                response_preview=generated.answer,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                total_tokens=int(usage.get("total_tokens", in_tok + out_tok) or 0),
+                cost_usd=estimate_deepseek_cost(in_tok, out_tok) if usage else 0.0,
+                latency_ms=gen_latency_ms,
+                query=state.get("query", ""),
+            )
             trace.record(
                 node="generate",
                 event="generate_complete",
