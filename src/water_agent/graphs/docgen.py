@@ -13,17 +13,23 @@
 
 interrupt 放置原则（skill-stategraph-designer）：审批放在**副作用（finalize 产出正式文档）之前**，
 不是之后。``finalize`` 只在 ``status == "approved"`` 时产出 ``final_doc``；拒绝回流不产出、
-失败不产出。
+失败不产出；**failed 在 approval 处直接终止（条件路由到 END），不进入 finalize**。
+
+resume 值契约（P2 收口，严格布尔）：
+- 允许 ``{"approved": True/False}``（拒绝可带 ``reason``）；
+- 允许裸严格 ``bool``（``Command(resume=True)``，兼容早期用法）；
+- 其余形态（``"false"``/``1``/缺 ``approved`` 键等）一律 ValueError 明确拒绝——
+  ``bool("false") == True`` 这类静默误判是 P2 评审点，禁止。
 
 状态机：
   START → gather_inputs → draft → self_check → approval
     self_check 通过 → waiting（approval 复位 None）
     self_check 不通过且预算内 → 回 draft（attempts+1）
-    self_check 不通过且超限       → failed（errors 可见，不产出）
+    self_check 不通过且超限       → failed（errors 可见，不产出，终止）
     approval 内 ``interrupt({draft_preview, approval_required})`` 挂起
     resume({"approved": True})                  → approved → finalize → succeeded
     resume({"approved": False, "reason": ...})  → rejected → draft（draft_rounds+1，approval 复位 None）
-    resume 拒绝且已是第 MAX_DRAFT_ROUNDS 稿      → failed（errors 可见，不产出）
+    resume 拒绝且已是第 MAX_DRAFT_ROUNDS 稿      → failed（errors 可见，终止，不进 finalize）
 
 审批记录：每次恢复的决定追加进 ``approval_log``（由 checkpointer 持久化），CLI/trace
 接线后可直接落盘，不依赖进程内对象。
@@ -129,6 +135,53 @@ def _render_final(state: DocGenState) -> str:
     return rendered.text
 
 
+def _normalize_approval_decision(decision: Any) -> tuple[bool, str]:
+    """审批 resume 值归一：只接受**严格 bool**（P2 收口，防 bool() 静默误判）。
+
+    - dict：必须含严格 bool 键 ``approved``（拒绝可带 ``reason`` 文本）；
+    - 非 dict：只接受裸严格 bool（``Command(resume=True)``，早期用法兼容）；
+    - 其余形态（``"false"`` / ``1`` / ``None`` / 缺 ``approved`` 键 …）→ ValueError。
+      ``bool("false") == True`` 会把"字符串 false"误判为批准，属于必须显式拒绝的静默错误。
+    """
+    if isinstance(decision, dict):
+        approved = decision.get("approved")
+        if not isinstance(approved, bool):
+            raise TypeError(
+                f"审批 resume 的 approved 必须是严格 bool（True/False），得到 {approved!r}；"
+                "禁止把字符串/数字（如 \"false\"、1）当作布尔值传入"
+            )
+        reason = str(decision.get("reason", "") or "")
+        return approved, reason
+    if isinstance(decision, bool):
+        return decision, ""
+    raise TypeError(
+        f"审批 resume 必须是 {{'approved': True/False}} 或裸 bool，"
+        f"得到 {type(decision).__name__}（{decision!r}）"
+    )
+
+
+def route_after_self_check(state: DocGenState) -> str:
+    """自检路由：通过 → approval；不通过且预算内 → draft（有界重试）；不通过且超限 → 终止。"""
+    if state.get("status") == STATUS_SELF_CHECK_FAILED:
+        return "draft"
+    if state.get("status") == STATUS_FAILED:
+        return END
+    return "approval"
+
+
+def route_after_approval(state: DocGenState) -> str:
+    """审批路由：rejected（还有稿数预算）→ draft 重拟；failed（达上限/异常）→ 终止。
+
+    **只有 approved 才进入 finalize**——failed 直接收口 END，不经过 finalize 节点
+    （finalize 守卫保留为第二道保险，路由是主约束）。
+    """
+    if state.get("status") == STATUS_REJECTED:
+        return "draft"
+    if state.get("status") == STATUS_FAILED:
+        return END
+    return "finalize"
+
+
 def build_docgen_graph(*, checkpointer=None):
     """构建 Human-in-the-Loop 审批图。
 
@@ -178,6 +231,7 @@ def build_docgen_graph(*, checkpointer=None):
                     "self_check_attempts": attempts,
                     "errors": errors,
                     "status": STATUS_FAILED,
+                    "final_doc": None,
                 }
             return {
                 "self_check_errors": problems,
@@ -194,7 +248,11 @@ def build_docgen_graph(*, checkpointer=None):
         }
 
     def approval_node(state: DocGenState) -> Command | dict:
-        """人工审批：interrupt 挂起展示草稿；恢复时按 decision 路由，并把决定追加进 approval_log。"""
+        """人工审批：interrupt 挂起展示草稿；恢复时按 decision 路由，并把决定追加进 approval_log。
+
+        resume 值契约（严格布尔，见 ``_normalize_approval_decision``）：非法形态抛
+        ValueError，绝不把 ``"false"`` 等静默 bool() 成批准。
+        """
         decision = interrupt(
             {
                 "draft_preview": state.get("doc_draft", ""),
@@ -202,11 +260,7 @@ def build_docgen_graph(*, checkpointer=None):
                 "draft_rounds": state.get("draft_rounds", 0),
             }
         )
-        # resume 值只认 dict；bool/None 等按"未批准、无理由"处理（不抛裸异常）
-        if not isinstance(decision, dict):
-            decision = {"approved": bool(decision)}
-        approved = bool(decision.get("approved"))
-        reason = str(decision.get("reason", "") or "")
+        approved, reason = _normalize_approval_decision(decision)
         draft_rounds = state.get("draft_rounds", 0)
         log = list(state.get("approval_log") or [])
         log.append({"decision": "approved" if approved else "rejected", "reason": reason, "draft_rounds": draft_rounds})
@@ -225,7 +279,7 @@ def build_docgen_graph(*, checkpointer=None):
                 "self_check_errors": [],
                 "status": STATUS_REJECTED,
             }
-        # 最后一稿仍被拒：收口 failed（不产出正式文档）
+        # 最后一稿仍被拒：收口 failed（不产出正式文档；路由到 END，不进 finalize）
         errors = list(state.get("errors", []))
         errors.append(f"用户拒绝（已达 {MAX_DRAFT_ROUNDS} 稿上限）：{reason or '未提供原因'}")
         return {
@@ -234,20 +288,8 @@ def build_docgen_graph(*, checkpointer=None):
             "approval_log": log,
             "status": STATUS_FAILED,
             "errors": errors,
+            "final_doc": None,
         }
-
-    def route_after_self_check(state: DocGenState) -> str:
-        """自检路由：通过 → approval；不通过且预算内 → draft（有界重试）；不通过且超限 → 终止。"""
-        if state.get("status") == STATUS_SELF_CHECK_FAILED:
-            return "draft"
-        if state.get("status") == STATUS_FAILED:
-            return "end"
-        return "approval"
-
-    def route_after_approval(state: DocGenState) -> str:
-        if state.get("status") == STATUS_REJECTED:
-            return "draft"
-        return "finalize"
 
     def finalize_node(state: DocGenState) -> dict:
         """副作用节点：只有已批准才产出正式文档；失败不产出（路由保证不会以其他状态进入）。
@@ -275,12 +317,12 @@ def build_docgen_graph(*, checkpointer=None):
     graph.add_conditional_edges(
         "self_check",
         route_after_self_check,
-        {"draft": "draft", "approval": "approval", "end": END},
+        {"draft": "draft", "approval": "approval", END: END},
     )
     graph.add_conditional_edges(
         "approval",
         route_after_approval,
-        {"draft": "draft", "finalize": "finalize"},
+        {"draft": "draft", "finalize": "finalize", END: END},
     )
     graph.add_edge("finalize", END)
 
