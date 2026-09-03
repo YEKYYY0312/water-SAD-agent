@@ -63,7 +63,7 @@
   },
   "git": {
     "status": "INITIALIZED",
-    "note": "git 已 init（用户真实终端完成）。Step 7 验收时 18 次提交，HEAD=c4d4a0e；评审修复后 21 次提交，HEAD=908a55c。"
+    "note": "git 已 init（用户真实终端完成）。Step 8 验收时 23 次提交，HEAD=19e1d04；Step 9 交付后 24 次提交，HEAD=4333e7d；mypy 告警收口后 25 次提交，HEAD=4fc2dd1。"
   },
   "step0_post_state": {
     "generated_at": "2026-08-31T18:35:00Z",
@@ -116,7 +116,7 @@
     "ruff": "0 errors（All checks passed）",
     "mypy": "32 errors in 13 files（checked 51 source files；存量告警，Step 10 清零。较 step0 的 29 增 3，来自 Step 2–4 新代码，仅记录）"
   },
-  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（338）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–7（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入）已全部完成并各有 post_state 验收佐证。git 已 init，共 21 次提交（HEAD=908a55c）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 未配置，真实 LLM 问答链路无运行证据（按 SKIP 语义处理，scripts/smoke_agentic.sh 无 Key exit 0）。",
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（375）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–9（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入 / 系统提示装配+运行时上下文投影+规范版本注册表 / Human-in-the-Loop 审批图）已全部完成并各有 post_state 验收佐证。git 已 init，共 25 次提交（HEAD=4fc2dd1）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 非持久配置，真实链路已有一次闭环证据（2026-09-03），无 Key 时按 SKIP 语义处理（scripts/smoke_agentic.sh 无 Key exit 0）；cli.py --flow docgen 未接线。",
   "step5_post_state": {
     "generated_at": "2026-08-31T14:55:40Z",
     "note": "本 post_state 补录于 2026-08-31T14:55:40Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
@@ -156,5 +156,31 @@
     "calc_p0": "28/28",
     "smoke": "scripts/smoke_agentic.sh 无 Key 打印 SKIP exit 0（本机无 DEEPSEEK_API_KEY，真实链路按 SKIP 语义处理，不伪造结果）",
     "agentic_cli": "--mode agentic 无 Key exit 2 结构化错误带指引；--mock-generator 离线跑通；--mode legacy 回归通过"
+  },
+  "step8_post_state": {
+    "generated_at": "2026-09-03T18:00:00Z",
+    "note": "本 post_state 补录于 2026-09-03，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "19e1d04 feat: 动态提示装配 + 运行时上下文投影 + 规范版本注册表",
+    "modules": "prompting/assembler.py（分段系统提示 + 段级预算 + create_react_agent callable 签名）+ prompting/runtime_context.py（RuntimeContextProjection 变化才注入，同一 projection 未变化返回 None）+ ingestion/version_registry.py + data/versions.json（只录有来源事实，未知显式 unknown）+ domain/models.py（Citation.spec_version）+ domain/citation.py（_resolve_version 优先带版本规范 ID）+ generation/llm.py（system_prompt 参数）+ graphs/agent_rag.py（prompt 支持 callable、astream_agentic messages 参数）+ cli.py（legacy 与 agentic 真实路径系统提示同源装配 + _initial_messages_with_runtime_context 按需注入）",
+    "tests": "test_assembler（分段/预算/缺段）+ test_runtime_context（变化才注入/未变化 None）+ test_version_registry（只录有来源/未知显式 unknown）：共 31 passed",
+    "pytest_full": "375 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）",
+    "mypy": "31 errors in 12 files（checked 61 source files；与 Step 7 基线持平，Step 10 清零）",
+    "rag_p0": "11/12（评测契约未变）",
+    "calc_p0": "28/28",
+    "smoke": "scripts/run_agentic_smoke.py exit 0（上下文段两轮消息轨迹仅注入 1 次，status=succeeded）",
+    "agentic_cli": "--mode agentic --mock-generator 离线跑通；--mode legacy 回归通过"
+  },
+  "step9_post_state": {
+    "generated_at": "2026-09-03T18:05:00Z",
+    "note": "本 post_state 补录于 2026-09-03，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "4333e7d feat: Human-in-the-Loop 审批图（interrupt + Command resume，拒绝回流 ≤2 轮）",
+    "modules": "graphs/docgen.py（gather_inputs→draft→approval(interrupt)→finalize 状态机；审批语义 approval None=待审批/True=已批/False=已拒；拒绝→带 approval_reason 回流 draft ≤MAX_DRAFT_ROUNDS=2 轮，超上限 failed 不产出；无 checkpointer 拒绝构建）+ domain/state.py（approval 语义注释）+ web/index.html（审批卡 + docgen 演示）",
+    "tests": "test_docgen_hitl 6 passed（首次 suspend 含 draft_preview / approve 完成 / 拒绝+反馈回流 + 再批准 / 超上限 failed / 反馈体现新草稿 / 无 checkpointer 报错）",
+    "pytest_full": "375 passed，退出码 0，无回退",
+    "ruff": "0 errors（All checks passed）",
+    "mypy": "31 errors in 12 files（checked 61 source files；与 Step 7 基线持平，Step 10 清零）",
+    "rag_p0": "11/12（评测契约未变）",
+    "calc_p0": "28/28"
   }
 }
