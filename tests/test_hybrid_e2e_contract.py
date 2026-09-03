@@ -71,3 +71,38 @@ def test_hybrid_returns_from_real_db_256():
     assert retriever.db_error is None, f"db_error={retriever.db_error}"
     assert len(hits) >= 1
     assert hits[0].source_id in _VALID, hits[0].source_id
+
+
+class _ZeroVectorProvider(StubProvider):
+    """query 向量恒为 0：search_hybrid 的向量分量失效，命中只能来自文本索引。"""
+
+    def embed(self, text: str) -> list[float]:
+        return [0.0] * self.dim
+
+
+def test_text_index_rebuilt_on_reopen_so_hybrid_is_not_pure_vector():
+    """triviumdb 文本索引不落盘：重开库后必须由 TriviumRetriever 重建，否则 hybrid 退化为纯向量。
+
+    用零向量 + hybrid_alpha=0.0 强制只看文本分量：能按 query 关键词命中对应条款才算文本索引有效。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        clause = root / "clauses"
+        clause.mkdir()
+        (clause / "mini.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in MINI), encoding="utf-8"
+        )
+        db = root / "index.db"
+        ingest_to_trivium(clause / "mini.jsonl", db, embedding_provider=StubProvider(256), curated=True)
+
+        # 模拟新进程：重新打开，且 query 向量恒为 0
+        zero = _ZeroVectorProvider(256)
+        retriever = TriviumRetriever(db_path=db, embedding_fn=zero.embed, dim=256, hybrid_alpha=0.0)
+        assert retriever.text_index_ready is True
+        assert retriever.db_error is None
+
+        hits = retriever.retrieve("排水体制 分流制 合流制", top_k=1)
+        assert hits and hits[0].source_id == "GB50014-2021 9.0.2", [h.source_id for h in hits]
+        hits = retriever.retrieve("城市排水工程规划期限", top_k=1)
+        assert hits and hits[0].source_id == "GB50318-2017 9.0.3", [h.source_id for h in hits]
+        retriever.close()

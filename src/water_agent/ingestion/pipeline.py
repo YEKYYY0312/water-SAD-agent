@@ -275,7 +275,6 @@ def ingest_to_trivium(
                     db.upsert_with_id(node_id, vector, payload=payload)
                 else:
                     db.insert_with_id(node_id, vector, payload=payload)
-                    existing_ids.add(node_id)
             except Exception as exc:  # noqa: BLE001 — 写入失败记录为 IngestIssue 后继续
                 issues.append(IngestIssue(source_file, chunk_id, operation, str(exc)))
                 stats.failed += 1
@@ -286,6 +285,8 @@ def ingest_to_trivium(
                 issues.append(IngestIssue(source_file, chunk_id, "index_text", str(exc)))
                 stats.failed += 1
                 continue
+            # 只有写入 + 文本索引都成功才进 manifest；否则下次重跑会被当成"已入库"永不重试
+            existing_ids.add(node_id)
             if was_existing_manifest:
                 stats.skipped_existing += 1
             elif was_existing_db:
@@ -293,6 +294,9 @@ def ingest_to_trivium(
             else:
                 stats.inserted += 1
         try:
+            # 文本索引只存在于进程内（TriviumRetriever 打开时会重建）；这里 build 一次
+            # 让同进程内紧接着的检索也能用到文本分量。
+            db.build_text_index()
             db.flush()
         except Exception as exc:  # noqa: BLE001 — flush 失败记录为 IngestIssue
             issues.append(IngestIssue(source_file, "*", "flush", str(exc)))
