@@ -4,6 +4,10 @@ P0 阶段不要求真实向量库已就绪：当 ``db_path`` 不存在或打不�
 fixture 检索，保证无真实数据也能完整跑通 RAG / Harness / CLI。
 真实库就绪后会走 ``TriviumDB.search_hybrid`` 路径；一旦真实库检索链路失败，
 不得静默退回 fixture，而应抛出结构化错误，由上层图/CLI 记录失败。
+真实库 0 命中是合法结果（返回空列表，不回落、不抛错）。
+
+文本索引：triviumdb 的文本索引不落盘，打开库时由 ``_rebuild_text_index`` 用 payload
+重灌并 ``build_text_index``，否则 ``search_hybrid`` 退化为纯向量（见该方法说明）。
 
 P1 父子块语义
 --------------
@@ -123,6 +127,39 @@ class TriviumRetriever(Retriever):
                 self._db_error = str(exc)
                 self._db = None
                 self._used_fallback = True
+        self._text_index_ready = False
+        self._text_indexed_nodes = 0
+        if self._db is not None:
+            self._rebuild_text_index()
+
+    def _rebuild_text_index(self) -> None:
+        """打开库后重建文本索引（triviumdb 0.8.2 的文本索引只存在于进程内）。
+
+        实测：``index_text`` + ``build_text_index`` 的结果不随 ``flush``/``close`` 持久化，
+        重开后 ``search_hybrid`` 的文本分量恒为空——``hybrid_alpha`` 形同虚设、退化为纯向量。
+        因此每次打开都用 payload 里的 ``text`` 重灌一遍（3k 节点 <0.1s）。失败不静默：
+        记入 ``db_error`` 并让 ``retrieve`` 抛 ``TriviumRetrievalError``。
+        """
+        assert self._db is not None
+        try:
+            count = 0
+            for node_id in self._db.all_node_ids():
+                payload = self._db.get_payload(int(node_id)) or {}
+                text = payload.get("text") or ""
+                if text:
+                    self._db.index_text(int(node_id), text)
+                    count += 1
+            self._db.build_text_index()
+            self._text_index_ready = True
+            self._text_indexed_nodes = count
+        except Exception as exc:  # noqa: BLE001 — 文本索引失败必须可观测，不能退化为纯向量
+            self._db_error = f"text index rebuild failed: {exc}"
+            self._text_index_ready = False
+
+    @property
+    def text_index_ready(self) -> bool:
+        """真实库的文本索引是否已在本进程重建（False 时 retrieve 会拒绝服务）。"""
+        return self._text_index_ready
 
     @property
     def parent_store(self) -> dict[str, Chunk]:
@@ -178,6 +215,10 @@ class TriviumRetriever(Retriever):
             return []
         if self._db is None:
             return self._fallback.retrieve(query, top_k=top_k)
+        if not self._text_index_ready:
+            raise TriviumRetrievalError(
+                f"text index not ready for db={self.db_path}: {self._db_error or 'unknown'}"
+            )
         try:
             qvec = self._embedding_fn(query)
         except Exception as exc:
@@ -213,8 +254,8 @@ class TriviumRetriever(Retriever):
             clause.score = float(getattr(hit, "score", 0.0) or 0.0)
             clause = self._enrich_with_parent(clause, payload)
             out.append(clause)
-        if not out:
-            raise TriviumRetrievalError(f"search_hybrid returned no hits for query={query!r}")
+        # 0 命中是合法结果（语料里没有相关条款），交给上层报"检索无结果"；
+        # 这里绝不回落 fixture（is_fallback 保持 False），也不当成链路故障抛错。
         return out
 
     def close(self) -> None:
