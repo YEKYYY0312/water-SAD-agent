@@ -112,6 +112,11 @@ def validate_citations(
                 warnings.append(
                     f"引用 {cid!r} 的规范版本无法确认当前现行有效（注册表未录入），请核对版本或说明依据。"
                 )
+            elif status in ("superseded", "deprecated"):
+                # 已知非现行状态：不判失败（模型无法重试纠正），但必须警示可见
+                warnings.append(
+                    f"引用 {cid!r} 的规范版本状态为 {status}（非现行），请优先引用现行版本。"
+                )
 
     return CitationCheckResult(
         ok=not invalid,

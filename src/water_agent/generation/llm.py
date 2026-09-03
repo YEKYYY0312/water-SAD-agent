@@ -105,6 +105,8 @@ class LLMGenerator(Generator):
 
     def generate(self, query: str, context: list[RetrievedClause]) -> GeneratedAnswer:
         if not context:
+            # 未实际调用 LLM：清空 last_usage，避免 0 命中用例继承上一条用例的 token/cost
+            self.last_usage = {}
             return GeneratedAnswer(
                 answer="未检索到相关条款，无法回答。请补充或调整提问。",
                 citations=[],

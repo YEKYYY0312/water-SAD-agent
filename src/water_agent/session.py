@@ -25,6 +25,20 @@ def session_db_path(session_dir: str | Path = DEFAULT_SESSION_DIR) -> Path:
     return Path(session_dir) / "sessions.sqlite"
 
 
+def default_checkpoint_serde():
+    """checkpoint 序列化器：注册自定义类型 ``CitationClaim``。
+
+    未注册时 LangGraph 阻止反序列化（当前告警、未来版本直接报错），会导致
+    docgen/agentic 的 ``--resume`` 恢复丢失引用状态。任何要持久化引用状态的
+    SqliteSaver/MemorySaver 都应使用本函数构造 serde。
+    """
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    return JsonPlusSerializer(
+        allowed_msgpack_modules=[("water_agent.domain.citation", "CitationClaim")]
+    )
+
+
 def save_session_meta(
     session_id: str,
     *,

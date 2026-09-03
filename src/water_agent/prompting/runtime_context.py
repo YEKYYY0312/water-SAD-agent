@@ -95,8 +95,11 @@ def default_context_builder(
     if registry is not None and hasattr(registry, "list_all"):
         for record in registry.list_all():
             spec_id = record.get("spec_id", "")
+            version = record.get("version", "")
             if spec_id:
-                version_status[spec_id] = record.get("status", "unknown")
+                # 键带版本号：同一规范多版本（现行+被取代）各自成行，避免后写覆盖先写
+                key = f"{spec_id}-{version}" if version else spec_id
+                version_status[key] = record.get("status", "unknown")
     context: dict[str, Any] = {
         "cwd": str(Path.cwd()),
         "version_status": version_status,
