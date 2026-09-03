@@ -528,9 +528,12 @@ def _build_chat_checkpointer(session_dir: str | Path, stack: ExitStack):
 
         from langgraph.checkpoint.sqlite import SqliteSaver
 
+        from water_agent.session import default_checkpoint_serde
+
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         stack.callback(conn.close)
-        return SqliteSaver(conn)
+        # 注册 CitationClaim：否则 checkpoint 反序列化被阻止（未来版本报错），--resume 恢复坏引用状态
+        return SqliteSaver(conn, serde=default_checkpoint_serde())
     except Exception as exc:  # noqa: BLE001 — 持久化不可用不阻塞本步，但必须记录缺口
         print(
             json.dumps(
@@ -596,6 +599,11 @@ def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
     if detect_intent(query) == "calc":
         calc = run_calc_once(query)
         calc_result = dict(calc.get("result_values") or {})
+        # 缺参/非法信号透出给人审：审批人需要知道为何没有数值、缺的是什么
+        if calc.get("missing_inputs"):
+            calc_result["missing_inputs"] = "；".join(calc["missing_inputs"])
+        if calc.get("errors"):
+            calc_result["errors"] = "；".join(calc["errors"])
         if calc.get("assumptions"):
             calc_result["assumptions"] = "；".join(calc["assumptions"])
         return {"citations": [], "calc_result": calc_result or None}
@@ -631,6 +639,18 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
     ui = sys.stderr if args.json else sys.stdout
     with ExitStack() as stack:
         saver = _build_chat_checkpointer(session_dir, stack)
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        if not isinstance(saver, SqliteSaver):
+            # 审批挂起依赖持久化：内存态下 --resume 无法跨进程恢复，拒绝静默降级
+            print(
+                json.dumps(
+                    {"ok": False, "error": "docgen 需要持久化会话（sqlite 不可用），拒绝在内存态构建（--resume 无保证）"},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 2
         app = build_docgen_graph(checkpointer=saver)
         snapshot = app.get_state(config) if args.resume else None
         if snapshot is not None and snapshot.next:

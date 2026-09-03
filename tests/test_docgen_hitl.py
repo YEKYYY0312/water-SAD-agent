@@ -150,16 +150,24 @@ class TestRejectBranch:
 
 
 class TestPersistence:
-    def test_sqlite_checkpoint_survives_reopen(self, tmp_path) -> None:
-        """验收：中断后可恢复——SqliteSaver 落盘，关闭连接、重建图与连接后 resume 走完。"""
+    def test_sqlite_checkpoint_survives_reopen(self, tmp_path, capsys) -> None:
+        """验收：中断后可恢复——SqliteSaver 落盘，关闭连接、重建图与连接后 resume 走完。
+
+        引用状态（CitationClaim）必须完整跨进程恢复且无反序列化告警（S9-01 回归）。
+        """
         from langgraph.checkpoint.sqlite import SqliteSaver
+
+        from water_agent.session import default_checkpoint_serde
 
         db = tmp_path / "docgen.sqlite"
 
         conn1 = sqlite3.connect(str(db), check_same_thread=False)
         try:
-            app1 = build_docgen_graph(checkpointer=SqliteSaver(conn1))
-            suspended = app1.invoke(_initial_state(), config=_thread("persist-1"))
+            app1 = build_docgen_graph(checkpointer=SqliteSaver(conn1, serde=default_checkpoint_serde()))
+            suspended = app1.invoke(
+                _initial_state(citations=[CitationClaim(source_id="FIX 1.1.1", declared_by="system")]),
+                config=_thread("persist-1"),
+            )
             assert "__interrupt__" in suspended
         finally:
             conn1.close()
@@ -167,10 +175,15 @@ class TestPersistence:
         # 模拟进程重启：新连接 + 新图实例，只凭 thread_id 恢复
         conn2 = sqlite3.connect(str(db), check_same_thread=False)
         try:
-            app2 = build_docgen_graph(checkpointer=SqliteSaver(conn2))
+            app2 = build_docgen_graph(checkpointer=SqliteSaver(conn2, serde=default_checkpoint_serde()))
             state = app2.invoke(Command(resume={"approved": True}), config=_thread("persist-1"))
         finally:
             conn2.close()
         assert state["status"] == STATUS_SUCCEEDED
         assert state["final_doc"]
         assert state["approval_log"][-1]["decision"] == "approved"
+        # 非空引用跨进程恢复，且 CitationClaim 未被 msgpack 阻止反序列化
+        assert state.get("citations") and state["citations"][0].source_id == "FIX 1.1.1"
+        captured = capsys.readouterr()
+        assert "Blocked deserialization" not in captured.err
+        assert "Blocked deserialization" not in captured.out

@@ -65,9 +65,12 @@ def test_citations_only_from_context():
 def test_empty_context_graceful():
     transport, _ = _fake_transport()
     gen = LLMGenerator(LLMConfig(api_key="sk-test"), transport=transport)
+    gen.last_usage = {"input_tokens": 10, "output_tokens": 5}  # 上一条用例的用量
     ans = gen.generate("不存在的东西", [])
     assert ans.citations == []
     assert "无法" in ans.answer
+    # S10-02：未实际调用 LLM 时清空用量，避免 0 命中用例继承上一条用例的 token/cost
+    assert gen.last_usage == {}
 
 
 def test_dimensionful_endpoint_uses_base_url():
