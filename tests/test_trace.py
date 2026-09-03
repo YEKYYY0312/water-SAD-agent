@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from water_agent.domain.models import TraceEvent
+from water_agent.domain.state import STATUS_FAILED, STATUS_SUCCEEDED, default_state
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
-from water_agent.domain.state import STATUS_FAILED, STATUS_SUCCEEDED, default_state
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
@@ -126,3 +126,22 @@ class TestGraphTrace:
             "duration_ms", "query", "retrieved_context", "citations", "retry_count", "error", "status",
         }
         assert all(event_fields <= event.keys() for event in document["events"])
+
+
+def test_legacy_trace_records_llm_call_event(tmp_path: Path, clauses) -> None:
+    """Step 10 观测：generate 节点每次生成写一条 llm_call（mock 生成器记 0 token、provider=mock）。"""
+    from water_agent.domain.state import default_state
+    from water_agent.generation.mock import MockGenerator
+    from water_agent.graphs.rag import build_rag_graph
+    from water_agent.retrieval.in_memory import InMemoryRetriever
+
+    recorder = JsonTraceRecorder(tmp_path)
+    app = build_rag_graph(InMemoryRetriever(clauses), MockGenerator(), trace=recorder)
+    result = app.invoke(default_state(query="给水管道的设计秒流量", run_id="r", trace_id="t"))
+    document = json.loads((tmp_path / f"{result['trace_id']}.json").read_text(encoding="utf-8"))
+    llm_calls = [e for e in document["events"] if e["event_type"] == "llm_call"]
+    assert len(llm_calls) == 1
+    data = llm_calls[0]["data"]
+    assert data["provider"] == "mock" and data["model"] == "MockGenerator"
+    assert data["input_tokens"] == 0 and data["cost_usd"] == 0.0
+    assert data["response_preview"] and llm_calls[0]["duration_ms"] >= 0

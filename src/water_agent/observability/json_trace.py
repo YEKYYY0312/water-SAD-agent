@@ -22,6 +22,11 @@ class JsonTraceRecorder:
         self._started_monotonic = 0.0
         self._node_starts: dict[str, float] = {}
 
+    @property
+    def started(self) -> bool:
+        """是否已 ``start``（agentic 图用它决定是否在首个节点开启 trace）。"""
+        return self._document is not None
+
     @staticmethod
     def _now() -> str:
         return datetime.now(UTC).isoformat()
