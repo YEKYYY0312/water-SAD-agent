@@ -216,7 +216,8 @@ class TestRealDbFailureNoSilentFallback:
                 retriever.retrieve("给水管道设计秒流量")
             retriever.close()
 
-    def test_empty_hits_raises_not_fixture(self):
+    def test_empty_hits_returns_empty_not_fixture(self):
+        """真实库 0 命中是合法结果：返回空列表，不回落 fixture、也不当链路故障抛错。"""
         with TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "empty.db"
             ingest_to_trivium(FIXTURE, db_path)
@@ -230,8 +231,21 @@ class TestRealDbFailureNoSilentFallback:
                     pass
 
             retriever._db = EmptyDB()  # type: ignore[assignment]
-            with pytest.raises(TriviumRetrievalError):
-                retriever.retrieve("不存在的内容")
+            assert retriever.retrieve("不存在的内容") == []
+            assert retriever.is_fallback is False
+            retriever.close()
+
+    def test_text_index_not_ready_raises(self):
+        """文本索引重建失败必须可观测：retrieve 拒绝服务而不是退化成纯向量。"""
+        with TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "noidx.db"
+            ingest_to_trivium(FIXTURE, db_path)
+            retriever = TriviumRetriever(db_path=db_path)
+            assert retriever.text_index_ready is True
+            retriever._text_index_ready = False  # type: ignore[attr-defined]
+            retriever._db_error = "simulated"  # type: ignore[attr-defined]
+            with pytest.raises(TriviumRetrievalError, match="text index not ready"):
+                retriever.retrieve("给水管道设计秒流量")
             retriever.close()
 
 
