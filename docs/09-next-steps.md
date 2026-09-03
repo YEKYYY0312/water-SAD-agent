@@ -2,13 +2,13 @@
 
 > 更新时间：2026-08-31（晚）。基于 git 提交历史（HEAD=e2fca9d，共 10 次提交）、`scripts/verify.sh` 新鲜输出与代码实况校准，不是转述 README。
 
-> **2026-09-02 增量更新（Step 5–7 已完成）**：引用声明工具+确定性校验器（`tools/cite.py`、`domain/citation.py`，commit 2300dc3）→ agentic RAG 外层循环（`graphs/agent_rag.py` + `--mode agentic`，commit e7d5843）→ 真实模型接入（`generation/chat_model.py` build_chat_model + `--api-key-env/--stream` + `scripts/smoke_agentic.sh`，commit c4d4a0e）。门禁最新输出：pytest 338 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。`--mode agentic` 无 DEEPSEEK_API_KEY 时输出结构化错误并指引 `--mock-generator`（不静默降级）；有 Key 时走真实 DeepSeek function calling，`--stream` 流式打印 token。
+> **2026-09-02 增量更新（Step 5–7 已完成）**：引用声明工具+确定性校验器（`tools/cite.py`、`domain/citation.py`，commit 2300dc3）→ agentic RAG 外层循环（`graphs/agent_rag.py` + `--mode agentic`，commit e7d5843）→ 真实模型接入（`generation/chat_model.py` build_chat_model + `--api-key-env/--stream` + `scripts/smoke_agentic.sh`，commit c4d4a0e）。门禁最新输出：pytest 432 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。`--mode agentic` 无 DEEPSEEK_API_KEY 时输出结构化错误并指引 `--mock-generator`（不静默降级）；有 Key 时走真实 DeepSeek function calling，`--stream` 流式打印 token。
 
 > **2026-09-03 增量更新（Step 8–9 已完成 + 真实链路闭环）**：
 > - **Step 8 动态提示装配**：`prompting/assembler.py`（分段系统提示 + 段级预算 + create_react_agent callable 签名）、`prompting/runtime_context.py`（RuntimeContextProjection 变化才注入）、`ingestion/version_registry.py` + `data/versions.json`（只录有来源事实，未知显式 unknown；四本入库规范现行状态待人工核实，当前全部 unknown）；`validate_citations(version_registry=)` 已接进 legacy/agentic 两条图，版本状态写回 `CitationClaim.spec_version/version_status`（未知只标记不进 errors）；`--mode agentic` 走 `prompt=PromptAssembler(tool_registry=registry)`。
 > - **Step 9 Human-in-the-Loop**：`graphs/docgen.py`（gather→draft→approval(interrupt)→finalize，拒绝→带反馈回 draft 重拟，草稿总稿数上限 2（初稿+1 次重拟），最后一稿被拒收口 failed；approval_log 记录审批；SqliteSaver 落盘恢复已测）+ `tests/test_docgen_hitl.py` 6 用例。审批语义与代码一致：`approval` 字段 None=待审批 / True=已批 / False=已拒。CLI 交互入口（`--flow docgen`）尚未接线，待补。
 > - **R2 真实模型链路闭环**：DEEPSEEK_API_KEY 配置后 `--mode agentic` 真实回答 4 条引用全部 ∈ 检索结果、0 重试 0 错误（见对话记录）。`scripts/smoke_agentic.sh` 有 Key 时连跑 3 问。
-> - 门禁最新输出：pytest 375 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。
+> - 门禁最新输出：pytest 432 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。
 
 > **2026-09-03 增量更新（Step 10 已完成 + P1 收口）**：
 > - **Step 10 双轨评测**：`harness/runner.py` 支持 `--variant mock|trivium|real`（机制层 InMemory+Mock 离线确定性；质量层真实 TriviumDB+真实 LLM+可选 rerank/LLM-as-judge，无 Key 结构化 SKIP 且退出码 0、有 Key 调用出错退出码 ≠ 0）；`EvalResult` 增加 `variant/skipped/token_usage(cost)/retrieval_metrics/judge_scores`，`EvalReport` 增加 `citation_ok_rate/cost/tokens/latency 分位/retrieval_metrics 聚合`。
@@ -17,7 +17,7 @@
 > - **评测集扩充**：`data/eval/rag_p1.jsonl`（58 条真实规范问答 gold，source_id 与 `data/curated/clauses/` 对齐、含 `spec_version`，变体 real，无 Key 时全部 SKIP）。
 > - **基线 + CI 门禁**：`data/eval/baseline.json` + `scripts/compare_baseline.py`（单一显式阈值集 `THRESHOLDS`：pass_rate 下降 ≤2pt、citation_ok 下降 ≤3pt、无新增核心失败 = PASS_TO_PASS）+ `scripts/ci_gate.sh`（PR 门禁只跑离线机制层：pytest→ruff→mypy→rag_p0→calc_p0≥95%→基线对比，任一失败 exit 1）。
 > - **观测**：`observability/json_trace.py` 增加 `record_llm_call` 事件（prompt/response 摘要、token、cost、latency）；新增 `observability/otel.py`（OTel GenAI 语义约定，guarded import，SDK 未装全 no-op）。
-> - **门禁最新输出**：pytest 420 全绿 / ruff 0 / mypy **0**（Step 10 清零）/ rag_p0 11/12 / calc_p0 28/28 / `bash scripts/ci_gate.sh` 全通过（含基线对比）。
+> - **门禁最新输出**：pytest 432 全绿 / ruff 0 / mypy **0**（Step 10 清零）/ rag_p0 11/12 / calc_p0 28/28 / `bash scripts/ci_gate.sh` 全通过（含基线对比）。
 
 ## 一、这个项目在做什么
 
@@ -46,10 +46,10 @@
 | 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 12 用例（Step 6 交付 9 + 评审 1 + Step 7 增 2）；run_agentic_smoke.py |
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
 | 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 35 用例；run_agentic_smoke.py 上下文段仅注入一次 |
-| 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 9 用例；拒绝回流重拟（总稿数上限 2）+ 最后一稿被拒收口 failed + approval_log + SqliteSaver 落盘恢复（图级已交付；`cli.py --flow docgen` 交互入口未接线） |
-| 10 | 双轨评测 + 观测 + CI 门禁 + 文档收口 | ✅ | 见顶部增量更新；pytest 420 全绿 / ruff 0 / mypy 0（清零）/ ci_gate.sh 通过 |
+| 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 9 用例；拒绝回流重拟（总稿数上限 2）+ 最后一稿被拒收口 failed + approval_log + SqliteSaver 落盘恢复+ `cli.py --flow docgen` 人审闭环（y/n+原因、EOF 挂起、--resume 恢复、审批记录进 trace，test_cli_flows） |
+| 10 | 双轨评测 + 观测 + CI 门禁 + 文档收口 | ✅（两项未做见下） | 评审修复：real 变体默认 agentic 图（引用由模型声明）、真实组件失败 exit 3（≠SKIP）、llm_call 观测真正接线、`--interactive` 真正作答；**未做**：prompt 打磨轮询、生产清单对照；pytest 432 全绿 / ruff 0 / mypy 0（清零）/ ci_gate.sh 通过 |
 
-统一门禁新鲜输出（`bash scripts/ci_gate.sh`，2026-09-03）：**pytest 420 全绿 + ruff 0 error + mypy 0 error + rag_p0 11/12 + calc_p0 28/28 + 基线对比通过**。
+统一门禁新鲜输出（`bash scripts/ci_gate.sh`，2026-09-03）：**pytest 432 全绿 + ruff 0 error + mypy 0 error + rag_p0 11/12 + calc_p0 28/28 + 基线对比通过**。
 
 ## 三、已完成的资产（真金白银，别丢）
 
