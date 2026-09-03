@@ -139,6 +139,49 @@ class CalcCase(BaseModel):
     spec_ref: str = ""
 
 
+class DocgenCase(BaseModel):
+    """文档生成（计算书/设计说明）机制层评测用例（type == "docgen"，P2）。
+
+    ``input`` 模拟 docgen gather 产物：calc_result（数值/备注）与已声明的 citations；
+    判分走模板引擎确定性渲染（不依赖 LLM/网络）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "docgen"
+    query: str = ""
+    doc_type: str = "calculation_book"
+    calc_result: dict[str, Any] | None = None
+    citations: list[str] = Field(default_factory=list)
+    required_sections: list[str] = Field(default_factory=list)
+    required_values: dict[str, float] = Field(default_factory=dict)
+    citations_required: list[str] = Field(default_factory=list)
+    citations_forbidden: list[str] = Field(default_factory=list)
+    tolerances: CalcTolerances = Field(default_factory=CalcTolerances)
+    expected_status: str = "succeeded"
+    variant: str = "programmatic"
+
+
+class MaterialCase(BaseModel):
+    """材料统计机制层评测用例（type == "material"，P2）。
+
+    ``segments`` = 管段表（PipeRun 同构 dict）；``gold_rows`` = 期望材料行
+    （material/spec/unit/quantity）；数值判分程序化（与材料引擎同源）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "material"
+    query: str = ""
+    segments: list[dict[str, Any]] = Field(default_factory=list)
+    gold_rows: list[dict[str, Any]] = Field(default_factory=list)
+    tolerances: CalcTolerances = Field(default_factory=CalcTolerances)
+    expected_status: str = "succeeded"
+    variant: str = "programmatic"
+
+
 class TokenUsage(BaseModel):
     """单次 LLM 调用的 token 用量与成本。"""
 
@@ -175,6 +218,10 @@ class EvalResult(BaseModel):
     retrieval_metrics: dict[str, float] = Field(default_factory=dict)
     judge_scores: dict[str, int] = Field(default_factory=dict)
     judge_reasoning: str = ""
+    # 质量层（真实 LLM-as-judge）独立判定：与机制层 passed 分离，不互相改写。
+    # 判定规则与阈值见 harness/quality.py（单一配置位置）。
+    quality_pass: bool | None = None  # None = judge 未运行/未给出评分，不做质量结论
+    quality_fail_reasons: list[str] = Field(default_factory=list)
 
 
 class EvalReport(BaseModel):
@@ -198,6 +245,11 @@ class EvalReport(BaseModel):
     p50_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
     retrieval_metrics: dict[str, float] = Field(default_factory=dict)
+    # 质量层汇总（--variant real --judge 时才有意义；无 Key 的 PR CI 不产生这些字段）
+    judge_dimension_averages: dict[str, float] = Field(default_factory=dict)
+    quality_low_score_count: int = 0  # 阻断维度未达标（quality_pass=False）的用例数
+    quality_judged_count: int = 0  # 参与质量判定的用例数（quality_pass 非 None）
+    quality_pass_rate: float = 0.0  # quality_judged_count 中 quality_pass=True 的占比
 
 
 class ChunkType(str, Enum):

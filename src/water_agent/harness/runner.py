@@ -19,10 +19,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from water_agent.docgen import render_docgen_doc
 from water_agent.domain.models import (
     CalcCase,
+    DocgenCase,
     EvalReport,
     EvalResult,
+    MaterialCase,
     TokenUsage,
 )
 from water_agent.domain.state import default_state
@@ -37,7 +40,13 @@ from water_agent.harness.doubles import BadCitationGenerator
 from water_agent.harness.llm_judge import LLMJudge
 from water_agent.harness.loader import EvalLoadBundle, EvalLoadError, load_eval_bundle
 from water_agent.harness.retrieval_metrics import aggregate_retrieval_metrics
-from water_agent.harness.scorer import score_calc_case, score_eval_case
+from water_agent.harness.scorer import (
+    score_calc_case,
+    score_docgen_case,
+    score_eval_case,
+    score_material_case,
+)
+from water_agent.materials import aggregate_materials
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.in_memory import InMemoryRetriever
@@ -48,6 +57,7 @@ from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
+from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
@@ -80,6 +90,20 @@ def _pct(values: list[float], percent: float) -> float:
     sorted_vals = sorted(values)
     k = max(0, min(len(sorted_vals) - 1, int(len(sorted_vals) * percent / 100)))
     return sorted_vals[k]
+
+
+def citation_ok_for_result(r: EvalResult) -> bool:
+    """单条结果的引用正确语义（P1/Step 10 评审收口）。
+
+    - 引用全部 ∈ 本次检索上下文 → ok；
+    - 零引用：对存在 ``expected_articles``（gold 要求引用）的 RAG 用例必须计为
+      citation failure（与 agentic 零引用强制收口同语义）；不需要引用的用例
+      （无 gold 引用要求）零引用不误伤。
+    """
+    if not r.actual_citations:
+        return not bool(r.expected_articles)
+    ctx = set(r.context_articles)
+    return all(c in ctx for c in r.actual_citations)
 
 
 def _pick_index(db_path: str | Path | None = None) -> Path | None:
@@ -338,9 +362,53 @@ class HarnessRunner:
         result.variant = self._effective_variant(case)
         return result
 
+    def _run_docgen_case(self, case: DocgenCase, *, line_no: int | None = None) -> EvalResult:
+        """docgen 机制层：模板引擎确定性渲染（与 docgen 图 draft/finalize 同一数据源）。
+
+        未知文档类型/渲染异常 → actual_status=invalid_input 的结果（不抛批级异常）。
+        """
+        started = time.perf_counter()
+        try:
+            rendered = render_docgen_doc(
+                query=case.query,
+                doc_type=case.doc_type,
+                calc_result=case.calc_result,
+                citations=case.citations,
+            )
+        except ValueError as exc:
+            latency_ms = (time.perf_counter() - started) * 1000
+            result = EvalResult(
+                case_id=case.id,
+                passed=False,
+                expected_status=case.expected_status,
+                actual_status="invalid_input",
+                failure_reason=str(exc),
+                latency_ms=round(latency_ms, 3),
+                line_no=line_no,
+                variant="programmatic",
+            )
+            return result
+        latency_ms = (time.perf_counter() - started) * 1000
+        result = score_docgen_case(case, rendered=rendered, latency_ms=latency_ms, line_no=line_no)
+        result.variant = "programmatic"
+        return result
+
+    def _run_material_case(self, case: MaterialCase, *, line_no: int | None = None) -> EvalResult:
+        """material 机制层：管段表程序化聚合（与 material_stats 工具同源），判分全确定。"""
+        started = time.perf_counter()
+        table = aggregate_materials(case.segments)
+        latency_ms = (time.perf_counter() - started) * 1000
+        result = score_material_case(case, table=table, latency_ms=latency_ms, line_no=line_no)
+        result.variant = "programmatic"
+        return result
+
     def _run_case(self, case, *, line_no: int | None = None):
         if isinstance(case, CalcCase):
             return self._run_calc_case(case, line_no=line_no)
+        if isinstance(case, DocgenCase):
+            return self._run_docgen_case(case, line_no=line_no)
+        if isinstance(case, MaterialCase):
+            return self._run_material_case(case, line_no=line_no)
 
         _variant = self._effective_variant(case)
 
@@ -414,6 +482,11 @@ class HarnessRunner:
 
         context_articles 取自消息历史里 retrieve_clauses 的命中（按召回顺序，供 recall@k）；
         token 用量汇总自各 AIMessage.usage_metadata；trace 由 build_agentic_app(trace=) 落盘。
+
+        评测标签纪律（P1/Step 10 评审）：runner 执行期间**不读取** gold/forbidden 字段来
+        调整检索或上下文——forbidden 条款若被召回就原样进入模型上下文，判分完全交给
+        scorer（模型完成回答之后）。Recall@k/MRR 与 context_articles 因此都是真实
+        Trivium/Rerank 返回结果的原始口径，legacy 与 agentic 对比使用相同检索输入。
         """
         from langchain_core.messages import AIMessage, HumanMessage
         from langgraph.checkpoint.memory import MemorySaver
@@ -429,6 +502,7 @@ class HarnessRunner:
         registry.register(build_retrieve_clauses_tool(retriever))
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
+        registry.register(material_stats_spec)
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
         recorder = JsonTraceRecorder(self.trace_dir)
 
@@ -497,13 +571,23 @@ class HarnessRunner:
         return texts
 
     def _apply_judge(self, scored: EvalResult, query: str, answer: str, *, context_texts: list[str] | None) -> None:
-        """--judge 时给用例打 rubric 分并合并 judge token 用量（real 变体专用）。"""
+        """--judge 时给用例打 rubric 分并合并 judge token 用量（real 变体专用）。
+
+        质量判定（quality_pass）独立于机制层 passed：judge 低分只影响质量结论与报告，
+        绝不回写/篡改确定性 citation 判分（scorer 保持程序化）。
+        """
+        from water_agent.harness.quality import judge_quality_verdict
+
         if not self.judge or self._real_judge is None:
             return
         judge_result = self._real_judge.evaluate(query, answer, context=context_texts or None)
         if judge_result.scores:
             scored.judge_scores = {k: v.score for k, v in judge_result.scores.items()}
             scored.judge_reasoning = json.dumps({k: v.reasoning for k, v in judge_result.scores.items()}, ensure_ascii=False)
+        scored.quality_pass, scored.quality_fail_reasons = judge_quality_verdict(scored.judge_scores)
+        if judge_result.error and not judge_result.scores:
+            # judge 有 Key 但调用失败/无评分：无法下质量结论（保持 None），原因进报告
+            scored.quality_fail_reasons = [judge_result.error]
         if judge_result.token_usage:
             jt = judge_result.token_usage
             if scored.token_usage is None:
@@ -556,11 +640,8 @@ class HarnessRunner:
         failed = total - passed - skipped
         pass_rate = (passed / len(non_skipped)) if non_skipped else 0.0
 
-        # 引用正确率（非 skipped 用例中，引用全部在上下文中）
-        def _citation_ok(r: EvalResult) -> bool:
-            ctx = set(r.context_articles)
-            return all(c in ctx for c in r.actual_citations) if r.actual_citations else True
-        citation_ok_count = sum(1 for r in non_skipped if _citation_ok(r))
+        # 引用正确率（非 skipped 用例；零引用对存在 expected_articles 的用例计失败）
+        citation_ok_count = sum(1 for r in non_skipped if citation_ok_for_result(r))
         citation_ok_rate = (citation_ok_count / len(non_skipped)) if non_skipped else 0.0
 
         # 延迟百分位
@@ -582,6 +663,25 @@ class HarnessRunner:
             (r.token_usage.total_tokens if r.token_usage else 0) for r in non_skipped
         )
 
+        # 质量层汇总（judge 判定过才参与；quality_pass=None 的用例不计入分母）
+        judged = [r for r in non_skipped if r.quality_pass is not None]
+        quality_judged_count = len(judged)
+        quality_pass_count = sum(1 for r in judged if r.quality_pass)
+        quality_low_score_count = quality_judged_count - quality_pass_count
+        quality_pass_rate = (quality_pass_count / quality_judged_count) if judged else 0.0
+        dims: list[str] = []
+        for r in judged:
+            for dim in r.judge_scores:
+                if dim not in dims:
+                    dims.append(dim)
+        judge_dimension_averages: dict[str, float] = {}
+        for dim in dims:
+            with_score = [r for r in judged if dim in r.judge_scores]
+            if with_score:
+                judge_dimension_averages[dim] = round(
+                    sum(r.judge_scores[dim] for r in with_score) / len(with_score), 4
+                )
+
         _variant = self.variant or "per-case"
         report = EvalReport(
             total=total,
@@ -600,6 +700,10 @@ class HarnessRunner:
             p50_latency_ms=p50,
             p95_latency_ms=p95,
             retrieval_metrics=retrieval_metrics,
+            judge_dimension_averages=judge_dimension_averages,
+            quality_low_score_count=quality_low_score_count,
+            quality_judged_count=quality_judged_count,
+            quality_pass_rate=round(quality_pass_rate, 4),
         )
         report_path = self._write_report(report, load_issues=load_issues)
         report.output_path = str(report_path)
@@ -700,6 +804,10 @@ def main(argv: list[str] | None = None) -> int:
         "total_cost_usd": report.total_cost_usd,
         "total_tokens": report.total_tokens,
         "avg_latency_ms": report.avg_latency_ms,
+        "quality_pass_rate": report.quality_pass_rate,
+        "quality_low_score_count": report.quality_low_score_count,
+        "quality_judged_count": report.quality_judged_count,
+        "judge_dimension_averages": report.judge_dimension_averages,
         "report_path": str(report_path),
         "load_issues": load_issues,
     }
