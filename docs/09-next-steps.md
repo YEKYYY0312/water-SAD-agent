@@ -6,7 +6,7 @@
 
 > **2026-09-03 增量更新（Step 8–9 已完成 + 真实链路闭环）**：
 > - **Step 8 动态提示装配**：`prompting/assembler.py`（分段系统提示 + 段级预算 + create_react_agent callable 签名）、`prompting/runtime_context.py`（RuntimeContextProjection 变化才注入）、`ingestion/version_registry.py` + `data/versions.json`（只录有来源事实，未知显式 unknown）；`Citation.spec_version` 已加；`--mode agentic` 走 `prompt=PromptAssembler(tool_registry=registry)`。
-> - **Step 9 Human-in-the-Loop**：`graphs/docgen.py`（gather→draft→approval(interrupt)→finalize，拒绝→带反馈回 draft ≤2 轮，超上限收口 failed）+ `cli.py --flow docgen` + `--resume` 恢复中断会话 + `tests/test_docgen_hitl.py` 6 用例。审批语义与代码一致：`approval` 字段 None=待审批 / True=已批 / False=已拒。
+> - **Step 9 Human-in-the-Loop**：`graphs/docgen.py`（gather→draft→approval(interrupt)→finalize，拒绝→带反馈回 draft ≤2 轮，超上限收口 failed）+ `tests/test_docgen_hitl.py` 6 用例。审批语义与代码一致：`approval` 字段 None=待审批 / True=已批 / False=已拒。CLI 交互入口（`--flow docgen`）尚未接线，待补。
 > - **R2 真实模型链路闭环**：DEEPSEEK_API_KEY 配置后 `--mode agentic` 真实回答 4 条引用全部 ∈ 检索结果、0 重试 0 错误（见对话记录）。`scripts/smoke_agentic.sh` 有 Key 时连跑 3 问。
 > - 门禁最新输出：pytest 375 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。
 
@@ -36,8 +36,8 @@
 | 5 | 引用声明工具与确定性校验器 | ✅ | test_citation_check；validate_citations 纯函数 |
 | 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 12 用例（Step 6 交付 9 + 评审 1 + Step 7 增 2）；run_agentic_smoke.py |
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
-| 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 30 用例；run_agentic_smoke.py 上下文段仅注入一次 |
-| 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 6 用例；`--flow docgen` y/n 交互 + 拒绝回流 ≤2 轮 + `--resume` 恢复 |
+| 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 31 用例；run_agentic_smoke.py 上下文段仅注入一次 |
+| 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 6 用例；拒绝回流 ≤2 轮 + 超上限收口 failed（图级已交付；`cli.py --flow docgen` 交互入口未接线） |
 
 统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
 
