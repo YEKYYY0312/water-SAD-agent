@@ -40,6 +40,9 @@ class WaterAgentState(TypedDict):
     assumptions: list[str]
     # P0 RAG 图内部字段
     citation_ok: bool
+    # approval 语义（Step 9 Human-in-the-Loop 消费）：
+    #   None = 待审批（docgen approval 节点 interrupt 前/后）｜True = 已批准（放行 finalize 副作用）
+    #   False = 已拒绝（带 approval_reason 回流 draft 或收口 failed，见 graphs/docgen.py）
 
 
 def default_state(**overrides: Any) -> WaterAgentState:

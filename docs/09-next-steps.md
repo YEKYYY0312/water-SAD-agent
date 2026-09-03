@@ -4,6 +4,12 @@
 
 > **2026-09-02 增量更新（Step 5–7 已完成）**：引用声明工具+确定性校验器（`tools/cite.py`、`domain/citation.py`，commit 2300dc3）→ agentic RAG 外层循环（`graphs/agent_rag.py` + `--mode agentic`，commit e7d5843）→ 真实模型接入（`generation/chat_model.py` build_chat_model + `--api-key-env/--stream` + `scripts/smoke_agentic.sh`，commit c4d4a0e）。门禁最新输出：pytest 338 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。`--mode agentic` 无 DEEPSEEK_API_KEY 时输出结构化错误并指引 `--mock-generator`（不静默降级）；有 Key 时走真实 DeepSeek function calling，`--stream` 流式打印 token。
 
+> **2026-09-03 增量更新（Step 8–9 已完成 + 真实链路闭环）**：
+> - **Step 8 动态提示装配**：`prompting/assembler.py`（分段系统提示 + 段级预算 + create_react_agent callable 签名）、`prompting/runtime_context.py`（RuntimeContextProjection 变化才注入）、`ingestion/version_registry.py` + `data/versions.json`（只录有来源事实，未知显式 unknown）；`Citation.spec_version` 已加；`--mode agentic` 走 `prompt=PromptAssembler(tool_registry=registry)`。
+> - **Step 9 Human-in-the-Loop**：`graphs/docgen.py`（gather→draft→approval(interrupt)→finalize，拒绝→带反馈回 draft ≤2 轮，超上限收口 failed）+ `cli.py --flow docgen` + `--resume` 恢复中断会话 + `tests/test_docgen_hitl.py` 6 用例。审批语义与代码一致：`approval` 字段 None=待审批 / True=已批 / False=已拒。
+> - **R2 真实模型链路闭环**：DEEPSEEK_API_KEY 配置后 `--mode agentic` 真实回答 4 条引用全部 ∈ 检索结果、0 重试 0 错误（见对话记录）。`scripts/smoke_agentic.sh` 有 Key 时连跑 3 问。
+> - 门禁最新输出：pytest 375 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。
+
 ## 一、这个项目在做什么
 
 面向给排水设计院的 AI Agent，最终要覆盖五件事：**规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计**。
@@ -18,7 +24,7 @@
 
 ## 二、当前进度（P0 完成，P1 约 95%，Step 0–7 已完成）
 
-任务书 Step 0–7 已全部完成，下一步 Step 8（系统提示装配 + 运行时上下文投影 + 规范版本注册表）：
+任务书 Step 0–9 已全部完成，下一步 Step 10（双轨评测 + CI 门禁 + 文档收口）：
 
 | Step | 内容 | 状态 | 验收证据 |
 |---|---|---|---|
@@ -30,6 +36,8 @@
 | 5 | 引用声明工具与确定性校验器 | ✅ | test_citation_check；validate_citations 纯函数 |
 | 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 12 用例（Step 6 交付 9 + 评审 1 + Step 7 增 2）；run_agentic_smoke.py |
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
+| 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 30 用例；run_agentic_smoke.py 上下文段仅注入一次 |
+| 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 6 用例；`--flow docgen` y/n 交互 + 拒绝回流 ≤2 轮 + `--resume` 恢复 |
 
 统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
 
