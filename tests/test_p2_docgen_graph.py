@@ -11,7 +11,8 @@ from langgraph.types import Command
 
 from water_agent.cli import main
 from water_agent.domain.citation import CitationClaim
-from water_agent.graphs.docgen import STATUS_SUCCEEDED, build_docgen_graph
+from water_agent.domain.state import STATUS_FAILED, STATUS_SUCCEEDED, STATUS_WAITING
+from water_agent.graphs.docgen import MAX_SELF_CHECK_ATTEMPTS, build_docgen_graph
 from water_agent.session import default_checkpoint_serde
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -125,3 +126,92 @@ class TestCliDocType:
         assert final.startswith("# 设计说明\n")
         assert "设计参数与计算结果" in final
         assert "velocity_mps = 1.13177 m/s" in final
+
+
+def _docgen_initial_state(**extra) -> dict:
+    return {
+        "query": "生成 DN150 给水管道计算书",
+        "status": "running",
+        "draft_rounds": 0,
+        "doc_type": "calculation_book",
+        "calc_result": {"diameter_mm": 150, "flow_lps": 20, "velocity_mps": 1.131768},
+        "citations": [CitationClaim(source_id="FIX 1.1.1", declared_by="system")],
+        **extra,
+    }
+
+
+class TestSelfCheckNode:
+    """P2 收口：draft → self_check → approval。草稿必须通过自检才能到达审批。"""
+
+    def test_normal_draft_passes_self_check_before_approval(self) -> None:
+        """正常草稿：自检 1 次通过（attempts=1，无问题），才进入 approval 挂起。"""
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            state = app.invoke(_docgen_initial_state(), config=_thread("sc-ok"))
+        assert state.get("self_check_attempts") == 1
+        assert state.get("self_check_errors") == []
+        assert state.get("status") == STATUS_WAITING
+        assert "__interrupt__" in state, "自检通过后才到达审批挂起"
+
+    def test_self_check_failure_retries_then_passes(self, monkeypatch) -> None:
+        """自检失败 1 次 → 有界重试回 draft → 第 2 次通过 → 到达审批；批准后走完。"""
+        state = {"failures_left": 1}
+
+        def flaky_check(rendered, *, calc_result=None):
+            if state["failures_left"] > 0:
+                state["failures_left"] -= 1
+                return ["模拟自检失败：缺少必需章节：结论"]
+            return []
+
+        monkeypatch.setattr("water_agent.graphs.docgen.check_docgen_self_check", flaky_check)
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            suspended = app.invoke(_docgen_initial_state(), config=_thread("sc-retry"))
+            assert "__interrupt__" in suspended, "重试通过后必须到达审批"
+            assert suspended.get("self_check_attempts") == 2
+            assert suspended.get("self_check_errors") == []
+            assert suspended.get("status") == STATUS_WAITING
+            resumed = app.invoke(Command(resume={"approved": True}), config=_thread("sc-retry"))
+        assert resumed.get("status") == STATUS_SUCCEEDED
+        assert resumed.get("final_doc")
+
+    def test_self_check_failure_exhausted_fails_without_approval(self, monkeypatch) -> None:
+        """自检连续失败达上限 → failed，无 interrupt、无 final_doc，errors 可见。"""
+        monkeypatch.setattr(
+            "water_agent.graphs.docgen.check_docgen_self_check",
+            lambda rendered, *, calc_result=None: ["模拟自检失败：缺少必需章节：结论"],
+        )
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            state = app.invoke(_docgen_initial_state(), config=_thread("sc-fail"))
+        assert "__interrupt__" not in state, "自检失败的草稿不得到达审批"
+        assert state.get("status") == STATUS_FAILED
+        assert state.get("final_doc") is None
+        assert state.get("self_check_attempts") == MAX_SELF_CHECK_ATTEMPTS
+        assert any("自检" in error for error in state.get("errors", [])), state.get("errors")
+        assert any("上限" in error for error in state.get("errors", [])), state.get("errors")
+
+    def test_rejected_draft_gets_fresh_self_check_budget(self, monkeypatch) -> None:
+        """人审拒绝 → 新稿 reset self_check_attempts=0，自检预算按新稿重新计数。"""
+        fail_first_draft = {"round": 0}
+
+        def flaky_check(rendered, *, calc_result=None):
+            # 仅第 1 稿第 1 次自检失败；重检与第 2 稿都通过
+            if fail_first_draft["round"] == 0 and fail_first_draft.get("hit", False) is False:
+                fail_first_draft["hit"] = True
+                return ["模拟自检失败：缺少必需章节：结论"]
+            return []
+
+        monkeypatch.setattr("water_agent.graphs.docgen.check_docgen_self_check", flaky_check)
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            suspended = app.invoke(_docgen_initial_state(), config=_thread("sc-budget"))
+            # 重试后到达审批；此时拒绝
+            assert "__interrupt__" in suspended
+            rejected = app.invoke(
+                Command(resume={"approved": False, "reason": "补充管径表格"}),
+                config=_thread("sc-budget"),
+            )
+        assert "__interrupt__" in rejected, "第 2 稿应再次挂起等待审批"
+        assert rejected.get("self_check_attempts") == 1, "新稿自检预算已复位（新稿只自检 1 次）"
+        assert rejected.get("draft_rounds") == 1

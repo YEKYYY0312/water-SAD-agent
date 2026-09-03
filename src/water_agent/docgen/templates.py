@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -263,6 +264,47 @@ def check_structure(rendered: RenderedDoc) -> tuple[bool, list[str]]:
     required = set(REQUIRED_SECTIONS.get(rendered.doc_type, []))
     missing = sorted(required - present)
     return (not missing, missing)
+
+
+def _numeric_integrity_problems(
+    rendered: RenderedDoc,
+    *,
+    calc_result: dict[str, Any] | None = None,
+) -> list[str]:
+    """数值完整性：calc_values 必须全部有限；输入非空时不能既无数值也无备注。
+
+    - 有限性：NaN/inf 永不进入 calc_values（渲染层已挡，此处双保险）；
+    - 可见性：calc_result 有输入但渲染后既无数值也无备注 = 输入被静默丢弃
+      （如某键值是空串/None），按结构化问题报出而非静默吞掉。
+    """
+    problems: list[str] = []
+    for key, value in rendered.calc_values.items():
+        if not math.isfinite(value):
+            problems.append(f"数值 {key}={value!r} 非有限（NaN/inf），不得进入数值渲染")
+    if calc_result and not rendered.calc_values and not rendered.notes:
+        problems.append("calc_result 有输入但渲染后既无数值也无备注：输入被静默丢弃")
+    return problems
+
+
+def check_docgen_self_check(
+    rendered: RenderedDoc,
+    *,
+    calc_result: dict[str, Any] | None = None,
+) -> list[str]:
+    """草稿自检（draft → format_template → self_check → approval 的 self_check）。
+
+    组合三项确定性检查，返回问题清单（空 = 通过）：
+    1. 结构合规：canonical 必需章节齐全（check_structure）；
+    2. 引用策略：正文不得出现输入之外的条款（validate_citation_policy，防编造）；
+    3. 数值完整性：calc_values 全有限；输入非空时必须可见为数值或备注。
+    """
+    problems: list[str] = []
+    ok, missing = check_structure(rendered)
+    if not ok:
+        problems.append(f"缺少必需章节：{'、'.join(missing)}")
+    problems.extend(validate_citation_policy(rendered))
+    problems.extend(_numeric_integrity_problems(rendered, calc_result=calc_result))
+    return problems
 
 
 # 规范/引用编号的规范号形态（首 token）：GB*/FIX*/CJ*/JGJ*/CECS*/DBJ*
