@@ -1,0 +1,38 @@
+[
+  {
+    "spec_id": "GB50015",
+    "version": "2019",
+    "status": "current",
+    "effective_date": null,
+    "successor": null,
+    "source": "项目语料实际入库（data/curated/clauses/GB50015-2019.jsonl），生效日期未人工核实，按现行处理",
+    "verified_at": "2026-09-03"
+  },
+  {
+    "spec_id": "GB50013",
+    "version": "2018",
+    "status": "current",
+    "effective_date": null,
+    "successor": null,
+    "source": "项目语料实际入库（data/curated/clauses/GB50013-2018.jsonl），生效日期未人工核实，按现行处理",
+    "verified_at": "2026-09-03"
+  },
+  {
+    "spec_id": "GB50014",
+    "version": "2021",
+    "status": "current",
+    "effective_date": null,
+    "successor": null,
+    "source": "项目语料实际入库（data/curated/clauses/GB50014-2021.jsonl），生效日期未人工核实，按现行处理",
+    "verified_at": "2026-09-03"
+  },
+  {
+    "spec_id": "GB50318",
+    "version": "2017",
+    "status": "current",
+    "effective_date": null,
+    "successor": null,
+    "source": "项目语料实际入库（data/curated/clauses/GB50318-2017.jsonl），生效日期未人工核实，按现行处理",
+    "verified_at": "2026-09-03"
+  }
+]
