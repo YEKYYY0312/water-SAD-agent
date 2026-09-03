@@ -4,8 +4,17 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from water_agent.domain.models import CalcCase, CalcTolerances, EvalCase, EvalResult
+from water_agent.docgen import RenderedDoc, validate_citation_policy
+from water_agent.domain.models import (
+    CalcCase,
+    CalcTolerances,
+    DocgenCase,
+    EvalCase,
+    EvalResult,
+    MaterialCase,
+)
 from water_agent.harness.retrieval_metrics import case_retrieval_metrics
+from water_agent.materials import MaterialTable
 from water_agent.tools.hydraulics import CalcResult, run_calc
 
 
@@ -152,10 +161,136 @@ def score_calc_case(
     )
 
 
+def score_docgen_case(
+    case: DocgenCase,
+    *,
+    rendered: RenderedDoc,
+    latency_ms: float = 0.0,
+    line_no: int | None = None,
+) -> EvalResult:
+    """文档生成机制层判分（P2）：结构合规 + 数值一致 + 引用可追溯。
+
+    - 必需章节齐全（工程概况/设计依据/…，按 doc_type 口径表）；
+    - ``required_values`` 每个键都能在渲染的 calc_values 中找到（双阈值比对，与 calc 同构）；
+    - ``citations_required`` 必须全部出现在文档；``citations_forbidden`` 不得出现；
+    - 引用策略校验：正文不得出现输入之外的 source_id（模板禁止编造条款）。
+    """
+    reasons: list[str] = []
+    actual_status = "succeeded"
+    if case.expected_status != "succeeded":
+        reasons.append(f"expected status {case.expected_status}, got {actual_status}")
+
+    if case.required_sections:
+        present = set(rendered.section_keys())
+        still_missing = [name for name in case.required_sections if name not in present]
+        if still_missing:
+            reasons.append(f"required sections missing: {still_missing}")
+
+    values = rendered.calc_values
+    for key, gold_value in case.required_values.items():
+        actual_value = values.get(key)
+        if actual_value is None:
+            reasons.append(f"required value key {key!r} missing from rendered calc_values {sorted(values)}")
+        elif not _within_tolerance(actual_value, gold_value, case.tolerances):
+            reasons.append(
+                f"{key}: actual={actual_value:.6f}, gold={gold_value}, "
+                f"tol(rel={case.tolerances.relative}, abs={case.tolerances.absolute})"
+            )
+
+    actual_ids = rendered.citation_ids
+    for required in case.citations_required:
+        if required not in actual_ids:
+            reasons.append(f"required citation not rendered: {required}")
+    for forbidden in case.citations_forbidden:
+        if forbidden in actual_ids:
+            reasons.append(f"forbidden citation rendered: {forbidden}")
+
+    for problem in validate_citation_policy(rendered):
+        reasons.append(f"citation policy: {problem}")
+
+    return EvalResult(
+        case_id=case.id,
+        passed=not reasons,
+        expected_status=case.expected_status,
+        actual_status=actual_status,
+        expected_articles=list(case.citations_required),
+        actual_citations=list(actual_ids),
+        failure_reason="; ".join(reasons),
+        latency_ms=round(latency_ms, 3),
+        line_no=line_no,
+    )
+
+
+def score_material_case(
+    case: MaterialCase,
+    *,
+    table: MaterialTable,
+    latency_ms: float = 0.0,
+    line_no: int | None = None,
+) -> EvalResult:
+    """材料统计机制层判分（P2）：行集合精确一致 + 数量双阈值 + 全段溯源覆盖。
+
+    - 行集合：每个 (material, spec, unit) 都是 gold 里声明的行，且无额外行（材料行
+      由管段表确定性推出，出现 gold 之外的行 = 漏/多计）；
+    - 数量：逐 gold 行比对（relative/absolute 双阈值）；
+    - 溯源：每条输入管段的 segment_id 必须出现在某行的 segments（保证无静默丢弃）。
+    """
+    reasons: list[str] = []
+    if not table.ok and case.expected_status == "succeeded":
+        reasons.append(f"material engine errors: {table.errors}")
+
+    actual_status = "succeeded" if table.ok else "invalid_input"
+    if case.expected_status != actual_status:
+        reasons.append(f"expected status {case.expected_status}, got {actual_status}")
+
+    if case.expected_status == "succeeded" and table.ok:
+        actual_by_key = {(row.material, row.spec, row.unit): row for row in table.rows}
+        gold_by_key: dict[tuple[str, str, str], float] = {}
+        for gold in case.gold_rows:
+            key = (str(gold.get("material", "")), str(gold.get("spec", "")), str(gold.get("unit", "m")))
+            gold_by_key[key] = float(gold.get("quantity", 0.0))
+
+        if len(actual_by_key) != len(gold_by_key):
+            extra = sorted(set(actual_by_key) - set(gold_by_key))
+            missing = sorted(set(gold_by_key) - set(actual_by_key))
+            reasons.append(f"row set mismatch: extra={extra}, missing={missing}")
+        for key, gold_qty in gold_by_key.items():
+            actual_row = actual_by_key.get(key)
+            if actual_row is None:
+                continue
+            if not _within_tolerance(actual_row.quantity, gold_qty, case.tolerances):
+                reasons.append(
+                    f"{key[0]} {key[1]}: actual={actual_row.quantity}, gold={gold_qty}, "
+                    f"tol(rel={case.tolerances.relative}, abs={case.tolerances.absolute})"
+                )
+
+        segment_ids = {
+            str(seg.get("segment_id", "")).strip()
+            for seg in case.segments
+            if str(seg.get("segment_id", "")).strip()
+        }
+        covered = {sid for row in table.rows for sid in row.segments}
+        uncovered = sorted(segment_ids - covered)
+        if uncovered:
+            reasons.append(f"segments not covered by any material row (silent drop): {uncovered}")
+
+    return EvalResult(
+        case_id=case.id,
+        passed=not reasons,
+        expected_status=case.expected_status,
+        actual_status=actual_status,
+        failure_reason="; ".join(reasons),
+        latency_ms=round(latency_ms, 3),
+        line_no=line_no,
+    )
+
+
 def score_case(
-    case: EvalCase | CalcCase,
+    case: EvalCase | CalcCase | DocgenCase | MaterialCase,
     *,
     calc_result: CalcResult | None = None,
+    rendered: RenderedDoc | None = None,
+    table: MaterialTable | None = None,
     actual_status: str = "",
     actual_citations: Iterable[str] | None = None,
     context_articles: Iterable[str] | None = None,
@@ -168,6 +303,14 @@ def score_case(
         if calc_result is None:
             calc_result = run_calc(case.formula, case.input)
         return score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+    if isinstance(case, DocgenCase):
+        if rendered is None:
+            raise ValueError(f"docgen case {case.id} 需要 rendered 才能判分")
+        return score_docgen_case(case, rendered=rendered, latency_ms=latency_ms, line_no=line_no)
+    if isinstance(case, MaterialCase):
+        if table is None:
+            raise ValueError(f"material case {case.id} 需要 table 才能判分")
+        return score_material_case(case, table=table, latency_ms=latency_ms, line_no=line_no)
     return score_eval_case(
         case,
         actual_status=actual_status,

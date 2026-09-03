@@ -26,6 +26,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+from water_agent.docgen import render_docgen_doc
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import (
     STATUS_FAILED,
@@ -46,6 +47,7 @@ class DocGenState(TypedDict):
 
     query: str
     intent: str
+    doc_type: str                # P2：calculation_book 计算书 / design_note 设计说明（渲染前确定）
     citations: list[CitationClaim]    # gather_inputs 汇集的引用（Step 10 接真实数据前可为空）
     calc_result: dict[str, Any] | None  # gather_inputs 汇集的计算结果（同上）
     doc_draft: str | None          # 草稿预览（approval 时展示给人）
@@ -63,6 +65,7 @@ def default_docgen_state(**overrides: Any) -> DocGenState:
     state: DocGenState = {
         "query": "",
         "intent": "docgen",
+        "doc_type": "calculation_book",
         "citations": [],
         "calc_result": None,
         "doc_draft": None,
@@ -78,30 +81,31 @@ def default_docgen_state(**overrides: Any) -> DocGenState:
     return state
 
 
+def _docgen_inputs(state: DocGenState) -> dict[str, Any]:
+    """模板引擎入参（结构化渲染共用：草稿/终稿同一数据源，数值与引用不因稿次变化）。"""
+    return {
+        "query": state.get("query", ""),
+        "doc_type": state.get("doc_type") or "calculation_book",
+        "calc_result": state.get("calc_result"),
+        "citations": list(state.get("citations") or []),
+        "feedback": state.get("approval_reason", ""),
+    }
+
+
 def _render_draft(state: DocGenState) -> str:
-    """模板化草稿（DocumentTemplate 占位）：query + 引用/计算结果 + 反馈回显，确定性、离线可测。"""
-    lines = [
-        f"# 计算书草稿（第 {state.get('draft_rounds', 0) + 1} 稿）",
-        "",
-        f"项目/查询：{state.get('query', '')}",
-        "",
-        "## 依据条款",
-    ]
-    citations = state.get("citations") or []
-    if citations:
-        lines += [f"- {c.source_id}" for c in citations]
-    else:
-        lines.append("- （无：gather_inputs 未汇集到 citations）")
-    lines += ["", "## 计算参数"]
-    calc = state.get("calc_result")
-    if calc:
-        lines += [f"- {k}：{v}" for k, v in calc.items()]
-    else:
-        lines.append("- （无：gather_inputs 未汇集到 calc_result）")
-    reason = state.get("approval_reason", "")
-    if reason:
-        lines += ["", "## 用户反馈（已吸收）", f"- {reason}"]
-    return "\n".join(lines)
+    """模板化草稿（P2 docgen 引擎）：计算书/设计说明结构化渲染 + 引用/数值 + 反馈回显。
+
+    确定性、离线可测；数值与引用只来自 gather 汇集的 calc_result/citations（模板不运算、不编造）。
+    """
+    draft_no = state.get("draft_rounds", 0) + 1
+    rendered = render_docgen_doc(**_docgen_inputs(state), draft_no=draft_no)
+    return rendered.text
+
+
+def _render_final(state: DocGenState) -> str:
+    """正式文档：批准后基于同一数据源渲染（不带"草稿/稿次"标题，反馈痕迹保留可追溯）。"""
+    rendered = render_docgen_doc(**_docgen_inputs(state))
+    return rendered.text
 
 
 def build_docgen_graph(*, checkpointer=None):
@@ -125,7 +129,7 @@ def build_docgen_graph(*, checkpointer=None):
         }
 
     def draft_node(state: DocGenState) -> dict:
-        """模板化生成草稿；若上一轮被拒，反馈体现在新草稿（可行动闭环）。
+        """模板化生成草稿（P2 引擎：结构化章节 + 稿次标题）；若上一轮被拒，反馈体现在新草稿。
 
         草稿就绪即进入等待审批（waiting），``approval`` 复位为 None（待审批）；
         拒绝回流时 draft_rounds/approval_reason 由 approval 节点写入 state，这里基于新值渲染第 N 稿。
@@ -178,10 +182,13 @@ def build_docgen_graph(*, checkpointer=None):
         return "finalize"
 
     def finalize_node(state: DocGenState) -> dict:
-        """副作用节点：只有已批准才产出正式文档；失败不产出（路由保证不会以其他状态进入）。"""
+        """副作用节点：只有已批准才产出正式文档；失败不产出（路由保证不会以其他状态进入）。
+
+        正式文档 = 基于同一数据源的正式渲染（标题不带"草稿/稿次"，章节内容与已批准草稿一致）。
+        """
         if state.get("status") == STATUS_APPROVED:
             return {
-                "final_doc": state.get("doc_draft"),
+                "final_doc": _render_final(state),
                 "status": STATUS_SUCCEEDED,
                 "errors": state.get("errors") or [],
             }

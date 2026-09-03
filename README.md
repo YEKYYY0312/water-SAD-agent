@@ -1,7 +1,7 @@
 # 给排水 Agent
 
 面向给排水设计院的 AI Agent，覆盖 **规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计** 共五类能力。
-当前已完成 **P1 MVP（规范问答 + 水力计算 + 核心生产化能力）**，正在推进 P2 文档生成。
+当前已完成 **P1 MVP（规范问答 + 水力计算 + 核心生产化能力）** 与 **P2 机制层（文档模板引擎 + 材料统计 + Excel 导出）**，P3（DWG）待启动。
 
 ## 三条铁律
 
@@ -12,7 +12,7 @@
 ## 环境
 
 - Python 3.12+（`requires-python >=3.11,<3.13`）
-- `langgraph>=1.2.0` / `triviumdb>=0.8.2` / `pydantic>=2.7`
+- `langgraph>=1.2.0` / `triviumdb>=0.8.2` / `pydantic>=2.7` / `openpyxl>=3.1,<4`（P2 材料 Excel 导出）
 - 安装：`uv sync` 或 `pip install -e .[dev]`
 
 ## 快速验证
@@ -24,6 +24,8 @@ bash scripts/ci_gate.sh
 # 2) 机制层 Harness 评测（离线、确定性，PR 门禁）
 _venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl          # 11/12
 _venv/bin/python -m water_agent.harness.runner data/eval/calc_p0.jsonl          # 28/28
+_venv/bin/python -m water_agent.harness.runner data/eval/docgen_p0.jsonl        # 10/10（P2 文档生成）
+_venv/bin/python -m water_agent.harness.runner data/eval/material_p0.jsonl      # 10/10（P2 材料统计）
 
 # 3) 质量层 Harness 评测（需 DEEPSEEK_API_KEY + DASHSCOPE_API_KEY，无 Key 则 SKIP）
 #    默认走 agentic 图（模型经 cite_clauses 声明引用、校验器真判）；--real-graph legacy 仅供改造前后对比
@@ -42,7 +44,9 @@ bash scripts/smoke_agentic.sh
 
 # 7) 交互式多轮（agentic 同一会话跨轮记忆，--resume 恢复）/ 计算书生成（人审 y/n，EOF 挂起后 --resume）
 _venv/bin/python -m water_agent.cli --interactive --mode agentic --mock-generator
-_venv/bin/python -m water_agent.cli --flow docgen --mock-generator "生成 DN150 给水管道计算书"
+_venv/bin/python -m water_agent.cli --flow docgen --mock-generator "生成 DN150 给水管道计算书"          # 计算书
+_venv/bin/python -m water_agent.cli --flow docgen --doc-type design_note --mock-generator "某小区给水改造设计说明"  # 设计说明
+# 材料统计（Excel 导出见 water_agent.materials.export；agentic 会话内置 material_stats 工具）
 ```
 
 ## 目录结构
@@ -56,15 +60,19 @@ src/water_agent/
   prompting/      # assembler / runtime_context
   ingestion/      # chunker / pipeline / version_registry / quality / gold_set
   harness/        # loader / scorer / runner / doubles / retrieval_metrics / llm_judge
+  docgen/         # P2 文档模板引擎：计算书/设计说明 结构化渲染（数值/引用纪律 + 结构校验）
+  materials/      # P2 材料统计：管段聚合（可追溯）+ .xlsx/CSV 导出
   observability/  # json_trace / otel (guarded OTel GenAI)
-  cli.py          # 生产问答 CLI (--mode auto|calc|legacy|agentic, --flow qa|docgen, --interactive/--resume, --mock-generator, --stream)
+  cli.py          # 生产问答 CLI (--mode auto|calc|legacy|agentic, --flow qa|docgen, --doc-type, --interactive/--resume, --mock-generator, --stream)
   embedding.py    # 阿里云百炼 Embedding Provider
   session.py      # 多轮会话记忆 (checkpointer + sqlite)
-  tools/          # hydraulics (水力计算工具族) / calc_velocity 等工具规格
+  tools/          # hydraulics (水力计算工具族) / calc_velocity / material_stats 等工具规格
 data/
   eval/           # 评测集 & 报告 & 基线
     rag_p0.jsonl          # P0 RAG 评测集（12 条有效 + 1 条非法）
     calc_p0.jsonl         # P0 计算评测集（28 条）
+    docgen_p0.jsonl       # P2 文档生成评测集（10 条：结构/数值/引用）
+    material_p0.jsonl     # P2 材料统计评测集（10 条：聚合一致/溯源，含 1 条非法输入）
     rag_p1.jsonl          # P1 真实规范问答评测集（58 条，变体 real）
     baseline.json         # 门禁基线（compare_baseline.py 消费）
     reports/              # Harness 评测报告（JSON，被 .gitignore 忽略）
@@ -116,6 +124,9 @@ pytest → ruff → mypy → rag_p0 机制层 → calc_p0 ≥95% → 基线对�
 - **规范问答 RAG**：TriviumDB 混合检索 + 父子块回填 + LocalReranker/BailianReranker + 引用校验 + 重试回流
 - **Agentic RAG**：`--mode agentic` 由 `create_react_agent` 驱动的工具调用型多轮循环，引用声明工具 + 确定性校验
 - **水力计算**：流速 / 沿程损失 / 管径 / 泵扬程 / 排水坡度等，全部程序化
+- **文档生成（P2）**：计算书/设计说明结构化模板引擎（必需章节 + 数值/引用纪律，
+  `validate_citation_policy` 防编造），docgen 图草稿/终稿同源渲染
+- **材料统计（P2）**：管段表 → 材质×规格聚合（数量程序化、逐行来源可追溯）+ Excel(.xlsx)/CSV 导出
 - **Human-in-the-Loop**：`--flow docgen` 文档生成审批节点（interrupt + Command resume，拒绝回流 ≤2 轮）
 - **动态提示装配**：系统提示分段 + 运行时上下文投影 + 规范版本注册表
 - **LLM-as-judge**：5 准则锚定刻度评分（忠实度/引用覆盖/完整性/清晰度/不编造），结果缓存防重复扣费
@@ -127,9 +138,11 @@ pytest → ruff → mypy → rag_p0 机制层 → calc_p0 ≥95% → 基线对�
 |--------|------|--------|------|
 | rag_p0 | 12 | 11/12 (91.7%) | 含 1 条设计的 bad_citation 陷阱 |
 | calc_p0 | 28 | 28/28 (100%) | 容差 rel=1e-4，4 条带越界断言 |
+| docgen_p0 | 10 | 10/10 (100%) | P2：结构合规/数值一致/引用不编造（机制层） |
+| material_p0 | 10 | 10/10 (100%) | P2：聚合一致/全段溯源，含 1 条非法输入 |
 | rag_p1 | 58 | — | 真实规范问答 gold，质量层专用（需 Key） |
 
-输出：`pytest 432 全绿` / `ruff 0` / `mypy 0`（Step 10 清零）。
+输出：`pytest 516 全绿` / `ruff 0` / `mypy 0`（ci_gate 全部通过）。
 
 ## 已知约束
 
