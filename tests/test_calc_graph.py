@@ -49,6 +49,33 @@ class TestDetectIntent:
     def test_empty_query_falls_back_to_rag(self) -> None:
         assert detect_intent("") == "rag"
 
+    def test_normative_questions_with_calc_vocabulary_go_rag(self) -> None:
+        """裸计算名词的规范问答必须走 RAG（rag_p0 0002/0003/0005/0008 反例回归）。"""
+        for q in (
+            "给水管道最小管径",
+            "排水管道最小管径",
+            "水泵扬程如何确定",
+            "污水管道充满度",
+            "排水管道的最小设计流速要求是什么",
+        ):
+            assert detect_intent(q) == "rag", q
+
+    def test_explicit_verb_with_keyword_is_calc(self) -> None:
+        for q in ("求管道流速", "计算扬程", "DN150 管径怎么算"):
+            assert detect_intent(q) == "calc", q
+
+    def test_rag_p0_queries_not_misrouted(self) -> None:
+        """rag_p0 全部 query 不得被意图路由成 calc（评测契约回归防线）。"""
+        import json
+
+        with open("data/eval/rag_p0.jsonl", encoding="utf-8") as handle:
+            for line in handle:
+                case = json.loads(line)
+                query = case.get("query", "")
+                if not query:
+                    continue
+                assert detect_intent(query) == "rag", f"{case['id']}: {query!r} 不得路由到 calc"
+
 
 class TestParseCalcQuery:
     """话术 → 结构化参数解析（LLM 参数理解的离线确定性替身）。"""
