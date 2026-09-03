@@ -94,7 +94,7 @@ _TARGET_PATTERNS: list[tuple[str, str]] = [
     ("velocity", r"求(管内|管道)?流速|流速(是|为|等于)?(多少|几|\?|？)|(计算|确定|校核)流速|流速如何"),
     ("diameter", r"求管径|管径(是|为|应取|应为|取)?(多少|几|\?|？)|(计算|确定|选择|选定|选)管径|管径如何"),
     ("slope_manning", r"求坡度|坡度(是|为|应取)?(多少|\?|？)|(计算|确定)坡度|坡度如何"),
-    ("pump_head", r"求扬程|扬程(是|为)?(多少|\?|？)|(计算|确定)扬程|扬程如何"),
+    ("pump_head", r"求(泵)?扬程|扬程(是|为)?(多少|\?|？)|(计算|确定|校核)(泵)?扬程|扬程如何"),
 ]
 
 # 无显式目标短语时的名词兜底：损失类先于流速/管径，管径最后（最易误伤）
@@ -108,28 +108,36 @@ _KEYWORD_FALLBACK: list[tuple[str, tuple[str, ...]]] = [
     ("diameter", ("管径",)),
 ]
 
+# 损失/坡度/扬程类信号词：出现时不做"缺哪个参数就求哪个"的反推——
+# "泵扬程…沿程2米"里的"沿程"是分量词不是舍维列夫；"达西公式求沿程"应走达西。
+_LOSS_LIKE_SIGNALS = (
+    "沿程", "水头损失", "舍维列夫", "Shevelev", "达西", "Darcy",
+    "海曾", "Hazen", "WILLIAMS", "坡度", "曼宁", "Manning", "扬程",
+)
+
 
 def _infer_formula(query: str, params: dict[str, Any] | None = None) -> str | None:
     """推断公式口径：显式目标短语 > 已给参数反推 > 名词兜底。
 
     - 目标短语："求流速 / 流速多少 / 求管径 / 选管径 …"；
     - 参数反推：既提"管径"又提"流速"时，缺哪个参数就是求哪个（有 d、Q 无 v → velocity；
-      有 Q、v 无 d → diameter）；
+      有 Q、v 无 d → diameter）；仅当话术无损失/坡度/扬程类信号时启用；
     - 兜底：损失/坡度/扬程类名词优先，"管径"放最后（它几乎出现在所有计算话术里）。
     """
     for formula, pattern in _TARGET_PATTERNS:
         if re.search(pattern, query, re.IGNORECASE):
             return formula
     params = params or {}
-    has_d, has_q, has_v = ("diameter_mm" in params), ("flow_lps" in params), ("velocity_mps" in params)
-    if "沿程" in query or "水头损失" in query or "舍维列夫" in query or "Shevelev" in query.lower():
-        return "head_loss_shevelev"
-    if has_d and has_q and not has_v and ("流速" in query or "管径" in query):
-        return "velocity"
-    if has_q and has_v and not has_d and ("管径" in query or "流速" in query):
-        return "diameter"
+    lowered = query.lower()
+    has_loss_signal = any(signal.lower() in lowered for signal in _LOSS_LIKE_SIGNALS)
+    if not has_loss_signal:
+        has_d, has_q, has_v = ("diameter_mm" in params), ("flow_lps" in params), ("velocity_mps" in params)
+        if has_d and has_q and not has_v and ("流速" in query or "管径" in query):
+            return "velocity"
+        if has_q and has_v and not has_d and ("管径" in query or "流速" in query):
+            return "diameter"
     for formula, keywords in _KEYWORD_FALLBACK:
-        if any(k.lower() in query.lower() for k in keywords):
+        if any(keyword.lower() in lowered for keyword in keywords):
             return formula
     return None
 
