@@ -20,6 +20,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
+from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import default_state
 from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
@@ -600,17 +601,43 @@ def _run_chat_session(args: argparse.Namespace, query: str = "") -> int:
     return 0
 
 
+def _docgen_rag_args(args: argparse.Namespace) -> argparse.Namespace:
+    """docgen 设计依据检索的图选择：auto/calc → legacy（不回路由 calc 子图）；
+    agentic → agentic（模型 cite_clauses 声明引用，校验器真判）；legacy → legacy。"""
+    mode = args.mode if args.mode in {"agentic", "legacy"} else "legacy"
+    return argparse.Namespace(**{**vars(args), "mode": mode})
+
+
+def _citation_claims_from_rag(rag: dict[str, Any]) -> list[CitationClaim]:
+    """把 RAG 问答输出的 citations 归一为 state 层 CitationClaim 列表。"""
+    return [
+        CitationClaim(
+            source_id=c["source_id"],
+            spec_version=c.get("spec_version"),
+            version_status=c.get("version_status"),
+            declared_by=c.get("declared_by", "system"),
+        )
+        for c in rag.get("citations", [])
+    ]
+
+
 def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
     """docgen 的 gather：计算意图 → 计算子图结果；否则 → 一次 RAG 问答取引用。
 
-    计算结果富化（P2）：数值 + 公式口径/备注文本一并进 calc_result，模板按数值/备注
-    分流渲染（数值程序化展示、公式口径等作为备注行可追溯）。
+    P2 收口（见 docs/design/11-docgen-materials.md §2.1）：
+    - 计算结果富化：**数值入参与结果同表**（params 数值键并进 calc_result，模板只渲染
+      数值/备注两路，不运算）；公式口径/spec_record/缺参/错误/假设按备注行透出；
+    - 设计依据：calc 分支不再无条件返回空引用——对原查询跑一次 legacy/agentic RAG（按 args.mode
+      选择图，auto/calc 走 legacy，agentic 保持 agentic），命中的 source_id 汇成 citations；
+      0 命中时为空，模板显式写「未声明规范依据」（不编造）。
     """
-    from water_agent.domain.citation import CitationClaim
-
     if detect_intent(query) == "calc":
         calc = run_calc_once(query)
         calc_result = dict(calc.get("result_values") or {})
+        # 数值入参（DN150→150、Q=20L/s→20…）与输出同表：计算书必须能看见输入口径
+        for key, value in (calc.get("params") or {}).items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                calc_result.setdefault(key, value)
         # 缺参/非法信号透出给人审：审批人需要知道为何没有数值、缺的是什么
         if calc.get("missing_inputs"):
             calc_result["missing_inputs"] = "；".join(calc["missing_inputs"])
@@ -622,19 +649,28 @@ def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
             calc_result["formula"] = calc["formula"]
         if calc.get("spec_record"):
             calc_result["spec_record"] = calc["spec_record"]
-        return {"citations": [], "calc_result": calc_result or None}
-    rag_args = argparse.Namespace(**{**vars(args), "mode": "legacy" if args.mode in {"auto", "calc"} else args.mode})
-    rag = run_once(query, args=rag_args)
-    claims = [
-        CitationClaim(
-            source_id=c["source_id"],
-            spec_version=c.get("spec_version"),
-            version_status=c.get("version_status"),
-            declared_by=c.get("declared_by", "system"),
-        )
-        for c in rag.get("citations", [])
-    ]
-    return {"citations": claims, "calc_result": None}
+        return {"citations": _design_basis_claims(query, args), "calc_result": calc_result or None}
+
+    return {"citations": _citation_claims_from_rag(run_once(query, args=_docgen_rag_args(args))), "calc_result": None}
+
+
+def _design_basis_claims(query: str, args: argparse.Namespace) -> list[CitationClaim]:
+    """设计依据检索（计算书/设计说明共用）：对原查询跑一次 RAG 收集引用。
+
+    引用校验由 RAG 图内的 citation_check 完成（source_id ⊆ 本次检索上下文），
+    gather 只透传校验通过的声明；0 命中 = 空列表 → 模板显式说明未声明依据。
+    """
+    rag = run_once(query, args=_docgen_rag_args(args))
+    return _citation_claims_from_rag(rag)
+
+
+def _read_cli_input(prompt: str, ui) -> str:
+    """读一行人工输入：提示文本输出到 ``ui``（--json 时 = stderr），stdin 只读值。
+
+    不能依赖 ``input(prompt)``——它的提示会写到 stdout，污染 ``--json`` 的纯 JSON 输出。
+    """
+    print(prompt, end="", file=ui, flush=True)
+    return input()
 
 
 def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
@@ -697,7 +733,7 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             print(preview.get("draft_preview", ""), file=ui)
             print("=============================", file=ui)
             try:
-                answer = input("批准生成正式文档？[y/n]: ").strip().lower()
+                answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 print(f"\n审批挂起，稍后用 --resume {session_id} 恢复。", file=ui)
                 recorder.finish("waiting", data={"session_id": session_id})
@@ -707,7 +743,7 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
                 decision = {"approved": True}
             else:
                 try:
-                    reason = input("拒绝原因（将带回草稿重拟）: ").strip()
+                    reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
                 except (EOFError, KeyboardInterrupt):
                     reason = ""
                 decision = {"approved": False, "reason": reason}
