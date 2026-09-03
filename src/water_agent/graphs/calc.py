@@ -88,21 +88,49 @@ def _first_float(query: str, pattern: str) -> float | None:
     return None
 
 
-def _infer_formula(query: str) -> str | None:
-    if "管径" in query:
-        return "diameter"
-    if "坡度" in query or "曼宁" in query or "Manning" in query:
-        return "slope_manning"
-    if "扬程" in query:
-        return "pump_head"
-    if "海曾" in query or "Hazen" in query or "WILLIAMS" in query:
-        return "head_loss_hazen_williams"
-    if "达西" in query or "Darcy" in query:
-        return "head_loss_darcy_weisbach"
-    if "沿程" in query or "水头损失" in query or "舍维列夫" in query or "Shevelev" in query:
+# "求什么"的显式目标短语（优先级最高）：话术里同时出现"管径""流速"很常见
+# （"管径DN150…求流速"），不能靠名词出现与否判公式，要看用户要的是哪个量。
+_TARGET_PATTERNS: list[tuple[str, str]] = [
+    ("velocity", r"求(管内|管道)?流速|流速(是|为|等于)?(多少|几|\?|？)|(计算|确定|校核)流速|流速如何"),
+    ("diameter", r"求管径|管径(是|为|应取|应为|取)?(多少|几|\?|？)|(计算|确定|选择|选定|选)管径|管径如何"),
+    ("slope_manning", r"求坡度|坡度(是|为|应取)?(多少|\?|？)|(计算|确定)坡度|坡度如何"),
+    ("pump_head", r"求扬程|扬程(是|为)?(多少|\?|？)|(计算|确定)扬程|扬程如何"),
+]
+
+# 无显式目标短语时的名词兜底：损失类先于流速/管径，管径最后（最易误伤）
+_KEYWORD_FALLBACK: list[tuple[str, tuple[str, ...]]] = [
+    ("slope_manning", ("坡度", "曼宁", "Manning")),
+    ("pump_head", ("扬程",)),
+    ("head_loss_hazen_williams", ("海曾", "Hazen", "WILLIAMS")),
+    ("head_loss_darcy_weisbach", ("达西", "Darcy")),
+    ("head_loss_shevelev", ("沿程", "水头损失", "舍维列夫", "Shevelev")),
+    ("velocity", ("流速", "Flow")),
+    ("diameter", ("管径",)),
+]
+
+
+def _infer_formula(query: str, params: dict[str, Any] | None = None) -> str | None:
+    """推断公式口径：显式目标短语 > 已给参数反推 > 名词兜底。
+
+    - 目标短语："求流速 / 流速多少 / 求管径 / 选管径 …"；
+    - 参数反推：既提"管径"又提"流速"时，缺哪个参数就是求哪个（有 d、Q 无 v → velocity；
+      有 Q、v 无 d → diameter）；
+    - 兜底：损失/坡度/扬程类名词优先，"管径"放最后（它几乎出现在所有计算话术里）。
+    """
+    for formula, pattern in _TARGET_PATTERNS:
+        if re.search(pattern, query, re.IGNORECASE):
+            return formula
+    params = params or {}
+    has_d, has_q, has_v = ("diameter_mm" in params), ("flow_lps" in params), ("velocity_mps" in params)
+    if "沿程" in query or "水头损失" in query or "舍维列夫" in query or "Shevelev" in query.lower():
         return "head_loss_shevelev"
-    if "流速" in query or "Flow" in query:
+    if has_d and has_q and not has_v and ("流速" in query or "管径" in query):
         return "velocity"
+    if has_q and has_v and not has_d and ("管径" in query or "流速" in query):
+        return "diameter"
+    for formula, keywords in _KEYWORD_FALLBACK:
+        if any(k.lower() in query.lower() for k in keywords):
+            return formula
     return None
 
 
@@ -159,7 +187,7 @@ def parse_calc_query(query: str) -> ParseOutcome:
     elif "给水" in q:
         params.setdefault("scenario", "water_supply")
 
-    formula = _infer_formula(q)
+    formula = _infer_formula(q, params)
     missing: list[str] = []
     if formula in _REQUIRED_PARAMS:
         missing = [
@@ -234,11 +262,21 @@ def build_calc_graph(parser=parse_calc_query):
         else:
             missing = []
 
-        status = "missing_inputs" if missing else "running"
+        errors = list(state.get("errors", []))
+        if not formula:
+            # 识别不出公式口径 → 明确收口为 invalid_input，绝不带着空公式"成功"
+            errors.append(
+                "无法识别公式口径：请明确要计算的量（流速 / 管径 / 沿程水头损失 / 排水坡度 / 泵扬程），"
+                f"口径表允许：{sorted(_REQUIRED_PARAMS)}"
+            )
+            status = "invalid_input"
+        else:
+            status = "missing_inputs" if missing else "running"
         return {
             "formula": formula,
             "params": params,
             "missing_inputs": missing,
+            "errors": errors,
             "status": status,
             "step_count": state.get("step_count", 0) + 1,
         }
@@ -247,7 +285,7 @@ def build_calc_graph(parser=parse_calc_query):
         if state.get("missing_inputs"):
             return "finish"
         if not state.get("formula"):
-            # 无法确定公式（口径外），直接收口为非法输入
+            # 无法确定公式（口径外）：parse 已置 invalid_input，直接收口
             return "finish"
         return "compute"
 
