@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -107,8 +106,3 @@ def default_context_builder(
     if extra:
         context["extra"] = extra
     return context
-
-
-def make_context_provider(builder: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
-    """包一层缓存，供图节点按需取上下文（保留扩展点）。"""
-    return builder
