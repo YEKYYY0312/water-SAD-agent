@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from water_agent.domain.models import utc_now
 from water_agent.ingestion.data_root import resolve_data_root
@@ -60,18 +61,18 @@ def main(argv: list[str] | None = None) -> int:
 
     resolved = resolve_data_root(args.data_root)
     if resolved.status != "OK":
-        payload = {
+        config_payload = {
             "ok": False,
             "status": resolved.status,
             "data_root": resolved.data_root,
             "message": resolved.message,
             "next_step": None,
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(config_payload, ensure_ascii=False, indent=2))
         return EXIT_CONFIG_ERROR
 
     files = resolved.clause_files
-    report = scan_clause_files(files)
+    report = scan_clause_files(list(files))
     report.generated_at = utc_now().isoformat()
     report.data_root = resolved.data_root or ""
     report.mode = "strict" if args.strict else "report-only"
@@ -79,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path = _write_report(report, args.output)
 
     if args.strict and report_has_strict_blockers(report):
-        payload = {
+        strict_payload: dict[str, Any] = {
             "ok": False,
             "status": "strict_failed",
             "data_root": resolved.data_root,
@@ -87,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             "summary": report.summary,
             "next_step": None,
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(strict_payload, ensure_ascii=False, indent=2))
         return EXIT_STRICT_FAILED
 
     next_step = (
@@ -95,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         + " ".join(f'"{p}"' for p in files)
         + " --db-path data/real.db"
     )
-    payload = {
+    ok_payload: dict[str, Any] = {
         "ok": True,
         "status": "ok",
         "data_root": resolved.data_root,
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         "summary": report.summary,
         "next_step": next_step,
     }
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(json.dumps(ok_payload, ensure_ascii=False, indent=2))
     return EXIT_OK
 
 

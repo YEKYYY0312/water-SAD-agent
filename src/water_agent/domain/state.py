@@ -68,5 +68,5 @@ def default_state(**overrides: Any) -> WaterAgentState:
         "assumptions": [],
         "citation_ok": True,
     }
-    state.update(overrides)
+    state.update(overrides)  # type: ignore[typeddict-item]
     return state

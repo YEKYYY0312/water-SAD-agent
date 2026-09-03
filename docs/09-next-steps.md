@@ -10,6 +10,15 @@
 > - **R2 真实模型链路闭环**：DEEPSEEK_API_KEY 配置后 `--mode agentic` 真实回答 4 条引用全部 ∈ 检索结果、0 重试 0 错误（见对话记录）。`scripts/smoke_agentic.sh` 有 Key 时连跑 3 问。
 > - 门禁最新输出：pytest 375 全绿 / ruff 0 / rag_p0 11/12 / calc_p0 28/28 / mypy 31（=基线存量）。
 
+> **2026-09-03 增量更新（Step 10 已完成 + P1 收口）**：
+> - **Step 10 双轨评测**：`harness/runner.py` 支持 `--variant mock|trivium|real`（机制层 InMemory+Mock 离线确定性；质量层真实 TriviumDB+真实 LLM+可选 rerank/LLM-as-judge，无 Key 结构化 SKIP 且退出码 0、有 Key 调用出错退出码 ≠ 0）；`EvalResult` 增加 `variant/skipped/token_usage(cost)/retrieval_metrics/judge_scores`，`EvalReport` 增加 `citation_ok_rate/cost/tokens/latency 分位/retrieval_metrics 聚合`。
+> - **检索指标接入**：`harness/retrieval_metrics.py` 新增 `case_retrieval_metrics/aggregate_retrieval_metrics`（recall@1/3/5 + mrr），scorer 对 rag 用例计算并写入 `EvalResult.retrieval_metrics`，引用判分保持确定性。
+> - **LLM-as-judge**：`harness/llm_judge.py`（5 准则锚定刻度：忠实度/引用覆盖/完整性/清晰度/不编造；judge 模型可配置；逐条 1-5 分+理由；结果缓存 `data/eval/judge_cache/` 防重复扣费；`FakeJudge` 供离线测试）。
+> - **评测集扩充**：`data/eval/rag_p1.jsonl`（58 条真实规范问答 gold，source_id 与 `data/curated/clauses/` 对齐、含 `spec_version`，变体 real，无 Key 时全部 SKIP）。
+> - **基线 + CI 门禁**：`data/eval/baseline.json` + `scripts/compare_baseline.py`（单一显式阈值集 `THRESHOLDS`：pass_rate 下降 ≤2pt、citation_ok 下降 ≤3pt、无新增核心失败 = PASS_TO_PASS）+ `scripts/ci_gate.sh`（PR 门禁只跑离线机制层：pytest→ruff→mypy→rag_p0→calc_p0≥95%→基线对比，任一失败 exit 1）。
+> - **观测**：`observability/json_trace.py` 增加 `record_llm_call` 事件（prompt/response 摘要、token、cost、latency）；新增 `observability/otel.py`（OTel GenAI 语义约定，guarded import，SDK 未装全 no-op）。
+> - **门禁最新输出**：pytest 420 全绿 / ruff 0 / mypy **0**（Step 10 清零）/ rag_p0 11/12 / calc_p0 28/28 / `bash scripts/ci_gate.sh` 全通过（含基线对比）。
+
 ## 一、这个项目在做什么
 
 面向给排水设计院的 AI Agent，最终要覆盖五件事：**规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计**。
@@ -22,9 +31,9 @@
 
 技术栈：LangGraph 编排 + TriviumDB（向量×文本混合检索 `search_hybrid`）+ 自建 harness 评测 + 本地 JSON trace。
 
-## 二、当前进度（P0 完成，P1 约 95%，Step 0–7 已完成）
+## 二、当前进度（P0 完成，P1 100%，Step 0–10 全部完成）
 
-任务书 Step 0–9 已全部完成，下一步 Step 10（双轨评测 + CI 门禁 + 文档收口）：
+任务书 Step 0–10 已全部完成，P1 收口。下一步进入 P2 文档生成（计算书/设计说明 + HITL，`graphs/docgen.py` 已就位，CLI `--flow docgen` 待接线）。
 
 | Step | 内容 | 状态 | 验收证据 |
 |---|---|---|---|
@@ -38,8 +47,9 @@
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
 | 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 35 用例；run_agentic_smoke.py 上下文段仅注入一次 |
 | 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 9 用例；拒绝回流重拟（总稿数上限 2）+ 最后一稿被拒收口 failed + approval_log + SqliteSaver 落盘恢复（图级已交付；`cli.py --flow docgen` 交互入口未接线） |
+| 10 | 双轨评测 + 观测 + CI 门禁 + 文档收口 | ✅ | 见顶部增量更新；pytest 420 全绿 / ruff 0 / mypy 0（清零）/ ci_gate.sh 通过 |
 
-统一门禁新鲜输出（`bash scripts/verify.sh`，2026-08-31）：**pytest 308 全绿 + ruff 0 error + rag_p0 11/12 + calc_p0 28/28**。各步详细佐证见 `data/eval/baseline_preflight.json` 的 step2/3/4 post_state。
+统一门禁新鲜输出（`bash scripts/ci_gate.sh`，2026-09-03）：**pytest 420 全绿 + ruff 0 error + mypy 0 error + rag_p0 11/12 + calc_p0 28/28 + 基线对比通过**。
 
 ## 三、已完成的资产（真金白银，别丢）
 
@@ -64,33 +74,42 @@
 - `graphs/calc.py` —— 计算确定性子图 + 规则式话术解析 + `detect_intent` 意图路由（LLM 解析 Step 7 接入）
 - `graphs/chat.py` + `session.py` —— 多轮会话记忆（add_messages 累积 / thread_id 隔离 / SqliteSaver 持久化）
 - `tools/` —— hydraulics 7 公式工具族（公式显式指定、缺参→missing_inputs、越界→assumptions）+ `base.py`/`registry.py` 工具抽象层 + 首批工具（calc_velocity、retrieve_clauses）
-- `harness/` —— 评测加载 / 判分 / 报告 / CI 退出码
-- 测试 **308 个全部通过**（`_venv/bin/pytest -q` 退出码 0）
+- `harness/` —— 评测加载 / 判分 / 报告 / CI 退出码 / 检索指标 / LLM-as-judge（5 准则锚定刻度，可配置 judge 模型，结果缓存）
+- `graphs/rag.py` —— 完整 legacy RAG 图（router → retrieve → generate → citation_check → finalize，双上限重试守卫）
+- `graphs/calc.py` —— 计算确定性子图 + 规则式话术解析 + `detect_intent` 意图路由（LLM 解析 Step 7 接入）
+- `graphs/chat.py` + `session.py` —— 多轮会话记忆（add_messages 累积 / thread_id 隔离 / SqliteSaver 持久化）
+- `graphs/agent_rag.py` —— agentic 循环（create_react_agent + ToolNode + 引用校验回流，`--mode agentic`）
+- `graphs/docgen.py` —— Human-in-the-Loop 文档生成审批图（interrupt + Command resume，拒绝回流 ≤2 轮）
+- `prompting/` —— 分段系统提示装配（PromptAssembler + RuntimeContextProjection）
+- `ingestion/` —— 语料入库管线（chunker / pipeline / version_registry / quality / gold_set）
+- `observability/` —— JSON Trace + OTel GenAI 观测（guarded import）
+- `tools/` —— hydraulics 7 公式工具族（公式显式指定、缺参→missing_inputs、越界→assumptions）+ `base.py`/`registry.py` 工具抽象层 + 首批工具（calc_velocity、retrieve_clauses）
+- 测试 **420 个全部通过**（`bash scripts/ci_gate.sh` 退出码 0）
 
 ### 评测集
 
-- `retrieval_gold.jsonl` —— 70 条检索金标准（人工审过；**但存在 gold 泄漏，见 R1，暂不能作为基线**）
+- `retrieval_gold.jsonl` / `retrieval_gold_50.jsonl` —— 检索金标准（人工审过；**存在 gold 泄漏，见 R1，暂不能作为基线**）
 - `rag_p0.jsonl` —— 13 条（12 有效 + 1 条设计非法用于异常覆盖），通过率 11/12
 - `calc_p0.jsonl` —— 28 条（gold 独立复算提精度、容差 rel=1e-4、4 条带 expected_assumptions 越界断言），28/28
+- `rag_p1.jsonl` —— 58 条真实规范问答 gold（source_id 与 `data/curated/clauses/` 对齐、含 `spec_version`），质量层专用
+- `baseline.json` —— Step 10 基线（`scripts/compare_baseline.py --init` 生成，含 `passed_case_ids` 供 PTP 门禁）
 
 ### 工程基线
 
-- git 已 init，10 次提交，一步一 commit 与任务书纪律一致；`.gitignore` 覆盖可重建产物（索引/报告/trace/根目录杂物）
-- ruff 0 error；mypy 32 存量告警（Step 10 清零）；uv.lock 已锁定
+- git 已 init，25 次提交，一步一 commit 与任务书纪律一致；`.gitignore` 覆盖可重建产物（索引/报告/trace/根目录杂物）
+- ruff 0 error；mypy **0 告警（Step 10 已清零）**；uv.lock 已锁定
+- PR 门禁：`bash scripts/ci_gate.sh`（pytest → ruff → mypy → rag_p0 → calc_p0 ≥95% → 基线对比，任一失败 exit 1）
 
-## 四、P1 真正剩余项（收尾计划，按优先级）
+## 四、P1 剩余项（Step 10 已完成后的状态）
 
-### R1（关键阻塞）构造独立 gold 并重跑检索矩阵
+### R1（部分完成）构造独立 gold 并重跑检索矩阵
 
-现有 70 条 gold 的 query 由源条款自动派生，query≈条文原文，必然命中源条款——既有矩阵报告（Recall@1/5/10 与 MRR 全 1.0）已自判无效，**检索质量至今没有可信数字**，直接违反「评测先行」。这是 P1 收尾的第一优先级。
+现有 70 条 gold 的 query 由源条款自动派生，query≈条文原文，必然命中源条款——既有矩阵报告（Recall@1/5/10 与 MRR 全 1.0）已自判无效。**检索质量至今没有可信数字**。
+Step 10 交付了 `data/eval/rag_p1.jsonl`（58 条人工措辞的自然问题 + 真实 source_id），但**纯检索矩阵的可信基线**（`evaluate_retrieval_matrix.py` 重跑 + 负例）仍未落地，留待 P2 前处理。百炼 rerank 需先开通 gte-rerank 权限（当前 403），不可达时按 SKIP 语义记录。
 
-做法：构造独立可人工验证的 gold（不同措辞 / 引用式 / 跨条款 + 负例），用 `scripts/evaluate_retrieval_matrix.py` 重跑（2 套维度 × {无 rerank / local / 百炼} 组合），产出第一份可比对的可信基线。百炼 rerank 需先开通 gte-rerank 权限（当前 403），不可达时按 SKIP 语义记录。
+### R2（需 DEEPSEEK_API_KEY）真实 LLM 问答链路证据
 
-顺带验证：质检报告的 458 组待人工复核重复条款（GB50013 占 336 组、GB50014 占 211 组）是否真的拉低 top5 有效覆盖率——等可信基线出来后用数据说话。
-
-### R2 真实 LLM 问答链路证据（需 DEEPSEEK_API_KEY）
-
-Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`build_chat_model` → DeepSeek function calling，`--mode agentic`）均已具备，`--stream` 可流式打印 token；无 Key 时全程离线可跑（`--mock-generator`/fake），有 Key 时跑 `scripts/smoke_agentic.sh` 连跑 3 问。**但 `DEEPSEEK_API_KEY` 仍未配置（`DASHSCOPE_API_KEY` 已配置），从「检索到条款」到「真实模型生成带引用回答」尚未有任何一次真实运行记录。** Key 配好后：人工核验 3–5 个问题的引用是否指回正确条款、有无编造条号。
+Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`build_chat_model` → DeepSeek function calling，`--mode agentic`）均已具备，`--stream` 可流式打印 token；无 Key 时全程离线可跑（`--mock-generator`/fake），有 Key 时跑 `scripts/smoke_agentic.sh` 连跑 3 问。**但 `DEEPSEEK_API_KEY` 仍未配置（`DASHSCOPE_API_KEY` 已配置），质量层评测（`--variant real` + `--judge`）的真实运行记录仍待补。** Key 配好后：跑 `rag_p1 --variant real --judge`，人工核验引用是否指回正确条款、judge 分数是否合理。
 
 ### R3 自研 MCP server（路线图 P1 清单项）
 
@@ -99,12 +118,6 @@ Step 7 已完成接线：legacy 路径（`LLMGenerator`）与 agentic 路径（`
 ## 五、后续展望（P1 收口后再动）
 
 - **语料扩容**：`knowledge/` 下 221 个 md（40MB，标准图集 + 教材）完全未入库；GB50015-2019.jsonl 仅 4.7KB 需单独补语料。这些是「怎么设计 / 怎么选型」类问题的答案来源，纯规范条款只回答「规定是什么」。
-- **Step 5–7 已完成**：引用声明工具与确定性校验器 → agentic 外层循环与 ToolNode → 真实模型接入（DeepSeek function calling + 流式）均按任务书推进完毕（见顶部 2026-09-02 增量更新）。
-- **下一步 Step 8–10**：系统提示装配 + 运行时上下文投影 + 规范版本注册表 → Human-in-the-Loop interrupt → 双轨评测 + CI 门禁 + 文档收口。
-- 不建议现在碰 P2（文档生成）/ P3（DWG 图纸审查）——P3 被设计文档标为「最难」。
-
-## 六、需要拍板的事
-
-1. **R1 的 gold 构造方案**：人工出题的规模与负例比例（建议与现有 70 条对齐、按规范分布取样，并加入负例）。
-2. **DEEPSEEK_API_KEY 是否提供**：没有它 R2 无法闭环。
-3. **MCP server 范围**：只暴露检索 + 计算，还是包含会话记忆。
+- **P2 文档生成**：`graphs/docgen.py`（Human-in-the-Loop 审批图）已就位，下一步接 CLI `--flow docgen` 交互入口 + 计算书模板渲染。
+- **真实质量层评测轮询**：`rag_p1 --variant real --judge` + `compare_baseline.py` 做成定时/人工触发，作为真实模型链路的质量哨兵。
+- 不建议现在碰 P3（DWG 图纸审查）——P3 被设计文档标为「最难」。

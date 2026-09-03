@@ -120,7 +120,7 @@ class BailianReranker(Reranker):
 
     def _call(self, payload: dict) -> dict:
         if self._transport is not None:
-            return self._transport(payload)
+            return self._transport(payload)  # type: ignore[no-any-return]
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = request.Request(
             self._endpoint(),
@@ -133,7 +133,7 @@ class BailianReranker(Reranker):
         )
         try:
             with request.urlopen(req, timeout=self.timeout_seconds) as raw:
-                return json.loads(raw.read().decode("utf-8"))
+                return json.loads(raw.read().decode("utf-8"))  # type: ignore[no-any-return]
         except HTTPError as exc:
             detail = ""
             try:
@@ -148,11 +148,11 @@ class BailianReranker(Reranker):
     def _extract_results(response: dict) -> list[dict]:
         results = response.get("results")
         if isinstance(results, list):
-            return results
+            return results  # type: ignore[no-any-return]
         output = response.get("output") or {}
         results = output.get("results")
         if isinstance(results, list):
-            return results
+            return results  # type: ignore[no-any-return]
         raise ValueError("Bailian rerank response contains no results")
 
     def rerank(self, query: str, candidates: list[RetrievedClause], top_k: int) -> list[RetrievedClause]:

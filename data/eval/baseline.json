@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-09-03T06:22:36.833066+00:00",
+  "thresholds": {
+    "pass_rate_decline_pt": 2.0,
+    "citation_ok_decline_pt": 3.0
+  },
+  "suites": {
+    "rag_p0": {
+      "input_path": "data/eval/rag_p0.jsonl",
+      "variant": "per-case",
+      "total": 12,
+      "passed": 11,
+      "failed": 1,
+      "skipped": 0,
+      "pass_rate": 0.9166666666666666,
+      "citation_ok_rate": 0.9166666666666666,
+      "avg_latency_ms": 1.79,
+      "retrieval_metrics": {
+        "queries": 12.0,
+        "recall_at_1": 0.75,
+        "recall_at_3": 0.75,
+        "recall_at_5": 0.75,
+        "mrr": 0.75
+      },
+      "passed_case_ids": [
+        "rag-p0-0001",
+        "rag-p0-0002",
+        "rag-p0-0003",
+        "rag-p0-0004",
+        "rag-p0-0005",
+        "rag-p0-0006",
+        "rag-p0-0007",
+        "rag-p0-0008",
+        "rag-p0-0009",
+        "rag-p0-0010",
+        "rag-p0-0012"
+      ],
+      "source_report": "rag_p0_20260903T062236Z.json"
+    },
+    "calc_p0": {
+      "input_path": "data/eval/calc_p0.jsonl",
+      "variant": "per-case",
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 1.0,
+      "citation_ok_rate": 1.0,
+      "avg_latency_ms": 0.53,
+      "retrieval_metrics": {
+        "queries": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0
+      },
+      "passed_case_ids": [
+        "calc-0001",
+        "calc-0002",
+        "calc-0003",
+        "calc-0004",
+        "calc-0005",
+        "calc-0006",
+        "calc-0007",
+        "calc-0008",
+        "calc-0009",
+        "calc-0010",
+        "calc-0011",
+        "calc-0012",
+        "calc-0013",
+        "calc-0014",
+        "calc-0015",
+        "calc-0016",
+        "calc-0017",
+        "calc-0018",
+        "calc-0019",
+        "calc-0020",
+        "calc-0021",
+        "calc-0022",
+        "calc-0023",
+        "calc-0024",
+        "calc-0025",
+        "calc-0026",
+        "calc-0027",
+        "calc-0028"
+      ],
+      "source_report": "calc_p0_20260903T062236Z.json"
+    }
+  }
+}

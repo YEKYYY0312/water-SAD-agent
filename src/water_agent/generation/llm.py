@@ -55,8 +55,10 @@ class LLMGenerator(Generator):
     ) -> None:
         self.config = config
         self._transport = transport
+        # Step 10：记录最近一次调用的 usage 元数据（token 用量），供质量层评测统计成本
+        self.last_usage: dict[str, Any] = {}
 
-    def _chat_request(self, query: str, context: list[RetrievedClause]) -> dict[str, Any]:
+    def _chat_request(self, query: str, context: list[RetrievedClause]) -> dict[str, Any] | None:
         if not context:
             return None  # 空上下文不发请求
         context_block = "\n\n".join(
@@ -96,7 +98,10 @@ class LLMGenerator(Generator):
         choices = response.get("choices") or []
         if not choices:
             raise ValueError("LLM response contains no choices")
-        return (choices[0].get("message") or {}).get("content", "")
+        usage = response.get("usage")
+        if isinstance(usage, dict):
+            self.last_usage = dict(usage)
+        return (choices[0].get("message") or {}).get("content", "")  # type: ignore[no-any-return]
 
     def generate(self, query: str, context: list[RetrievedClause]) -> GeneratedAnswer:
         if not context:
@@ -106,6 +111,7 @@ class LLMGenerator(Generator):
                 intent="rag",
             )
         payload = self._chat_request(query, context)
+        assert payload is not None  # context 非空时必有请求体
         answer = self._completion(payload)
         citations = [_clause_to_citation(c) for c in context[: self.config.max_citations]]
         return GeneratedAnswer(answer=answer, citations=citations, intent="rag")
