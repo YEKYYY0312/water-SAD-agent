@@ -222,3 +222,36 @@ class TestCalcGraphEndToEnd:
         assert report.total == 2
         assert report.passed == 2
         assert report.failed == 0
+
+
+class TestFormulaInference:
+    """公式推断：看"求什么"而不是名词出现与否；识别不出公式必须收口 invalid_input。"""
+
+    def test_diameter_word_does_not_hijack_velocity_question(self) -> None:
+        outcome = parse_calc_query("管径DN150，流量Q=20L/s，求流速")
+        assert outcome.formula == "velocity"
+        assert outcome.missing_inputs == []
+
+    def test_velocity_question_phrase_variants(self) -> None:
+        for q in ("DN200 Q=30L/s 流速是多少", "DN200、Q=30L/s，管内流速？", "管径 DN200，流量 30L/s，计算流速"):
+            assert parse_calc_query(q).formula == "velocity", q
+
+    def test_diameter_target_with_flow_and_velocity(self) -> None:
+        outcome = parse_calc_query("流量Q=20L/s，流速v=1.0m/s，求管径")
+        assert outcome.formula == "diameter"
+        assert outcome.missing_inputs == []
+
+    def test_params_infer_diameter_when_velocity_given_and_diameter_absent(self) -> None:
+        outcome = parse_calc_query("给水管流速v=1.0m/s、Q=20L/s，管径应取多少")
+        assert outcome.formula == "diameter"
+
+    def test_head_loss_wins_over_diameter_and_velocity_words(self) -> None:
+        outcome = parse_calc_query("管径DN150，流速v=1.2m/s，L=100m，求沿程水头损失")
+        assert outcome.formula == "head_loss_shevelev"
+
+    def test_unrecognized_formula_is_invalid_input_not_success(self) -> None:
+        result = _invoke("DN150 管道的摩阻系数取多少")
+        assert result["status"] == "invalid_input"
+        assert result["formula"] is None
+        assert any("无法识别公式口径" in e for e in result["errors"])
+        assert "无法识别" in result["answer"] or "输入非法" in result["answer"]
