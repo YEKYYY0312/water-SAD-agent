@@ -8,7 +8,7 @@ START → agent_loop(create_react_agent 子图)
              ↓
         citation_validator
           ├─ 通过 → finalize（成功）
-          ├─ 失败且有预算 → 注入带错误文本的 ToolMessage → 回 agent_loop
+          ├─ 失败且有预算 → 注入合成 tool_call + 带错误文本的 ToolMessage → 回 agent_loop
           └─ 失败且无预算 → finalize（失败，errors 可见）
 END
 ```
@@ -56,25 +56,22 @@ from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
 
 # 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
 RECURSION_LIMIT = 20
-# 校验器注入回流消息时使用的合成 tool_call_id（不与任何真实工具调用冲突）
+# 校验器注入回流消息时使用的合成 tool_call_id 前缀（每次注入追加唯一后缀，避免
+# OpenAI 兼容 API 对历史重复 tool_call id 的歧义）
 _VALIDATOR_CALL_ID = "citation-validator"
+# 空引用（有检索/有回答但没调用 cite_clauses）最多回流一次，再次空引用即结构化失败
+EMPTY_CITATION_MAX_REFLOWS = 1
 
-# Step 7 起 agentic 循环带默认真实系统提示（Step 8 升级为可调用装配器）。
-# 落到三条铁律：引用可追溯（只引检索结果内条款）／计算程序化（工具返回数值）／不猜测。
-DEFAULT_AGENTIC_PROMPT = (
-    "你是给排水专业标准问答助手，处于工具调用型 Agent 环境（可用工具："
-    "retrieve_clauses 检索规范条款、cite_clauses 声明引用、calc_* 水力计算）。\n"
-    "执行规则：\n"
-    "1. 引用可追溯：回答只能依据 retrieve_clauses 检索结果中真实存在的条款，并调用 "
-    "cite_clauses 用条款 id（如 GB50015-2019 5.4.2）声明引用；禁止编造规范号或条文。\n"
-    "2. 计算程序化：涉及数值计算一律调用计算工具（如 calc_velocity），使用工具返回的"
-    "数值，不得自行口算。\n"
-    "3. 检索结果不足以回答时，明确说明未检索到相关内容；参数缺失时说明缺什么，不猜测"
-    "补默认值。\n"
-    "4. 回答专业、简洁、可追溯。"
+# 默认系统提示（prompt=None 时使用）。规则正文与 PromptAssembler 的
+# ROLE_AND_PRINCIPLES 同源（P1/Step 10 评审：消除两条提示路径的重复规则来源，
+# 避免漂移），此处只追加工具环境的差异说明。
+DEFAULT_AGENTIC_PROMPT = ROLE_AND_PRINCIPLES + (
+    "\n\n当前环境可用工具：retrieve_clauses（检索规范条款）、cite_clauses（声明引用）、"
+    "calc_*（水力计算工具族）。"
 )
 
 
@@ -124,6 +121,7 @@ class AgenticRAGState(TypedDict):
     retry_count: NotRequired[int]
     errors: NotRequired[list[str]]
     remaining_steps: NotRequired[int]
+    empty_citation_reflows: NotRequired[int]  # 空引用回流计数（与 invalid 引用 retry 分开）
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -342,39 +340,145 @@ def _first_human_text(state: AgenticRAGState) -> str:
     return ""
 
 
+def _last_ai_answer_text(messages: Sequence[BaseMessage]) -> str:
+    """取最近一条带文本的 AIMessage 内容（供引用闭环判断"模型已作答"）。"""
+    for m in reversed(messages):
+        if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
+            return m.content
+    return ""
+
+
+# 明确"未检索到依据"的拒答表述（程序化关键词匹配，LLM 不参与判断）。
+# 只匹配"未检索到/未找到…"类的显式否定表述，避免把一般性"未找到参数"等误判为拒答。
+_NO_BASIS_PHRASES = (
+    "未检索到",
+    "没有检索到",
+    "未能检索到",
+    "检索不到",
+    "未找到相关",
+    "没有找到相关",
+    "未获得相关",
+    "未找到依据",
+    "没有找到依据",
+    "无法提供条款依据",
+)
+
+
+def _declares_no_basis(answer: str) -> bool:
+    """模型是否明确说明未检索到依据（无检索结果时的零引用收口条件之一）。"""
+    return any(phrase in answer for phrase in _NO_BASIS_PHRASES)
+
+
+def _new_validator_call_id() -> str:
+    """每次回流注入使用唯一 tool_call_id，避免 OpenAI 兼容 API 对重复 id 的歧义。"""
+    return f"{_VALIDATOR_CALL_ID}-{uuid4().hex[:8]}"
+
+
+def _validator_feedback_messages(feedback: str) -> list[BaseMessage]:
+    """构造校验器回流消息对：合成 assistant tool_call + 带错误文本的 ToolMessage。
+
+    OpenAI 兼容 API（DeepSeek 实测）要求 role='tool' 消息必须紧跟在带 tool_calls 的
+    assistant 消息后，裸注入 ToolMessage 会被 400 拒绝（真实链路评测 rag-p1 暴露）。
+    """
+    call_id = _new_validator_call_id()
+    return [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "citation_validator",
+                    "args": {},
+                    "id": call_id,
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(content=feedback, name="citation_validator", tool_call_id=call_id),
+    ]
+
+
 def make_citation_validator(version_registry: Any | None = None):
-    """citation_validator 节点：引用校验 → 通过收口 / 失败回流（≤2 次）/ 失败收口。
+    """citation_validator 节点：引用校验 → 通过收口 / 失败回流 / 失败收口。
 
     ``version_registry``（Step 8）：为每条引用解析版本状态写回 ``CitationClaim.version_status``；
     未知只标记（``warnings``），不回流、不判失败。
+
+    零引用闭环（P1/Step 10 评审强制"引用可追溯"落地）：
+    - 已检索到非空结果 + 模型已回答 + 无 cite_clauses 声明 → 注入要求声明引用的
+      ToolMessage 回流一次（``EMPTY_CITATION_MAX_REFLOWS``）；
+    - 回流后再空引用 → 结构化失败（错误文本进 ``errors``，对报告/用户可见）；
+    - 无任何检索结果且模型明确说明"未检索到依据" → 允许无引用收口，不伪造引用；
+    - 空引用回流与无效引用重试（≤``MAX_CITATION_RETRIES`` 次）分开计数互不挤占。
     """
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
+        messages = state.get("messages", [])
         context_ids, cited_ids = _extract_validation_signal(state)
         check = validate_citations(cited_ids, context_ids, version_registry=version_registry)
-        errors = list(state.get("errors", [])) + list(check.errors)
-        citations = enrich_claims(
-            [CitationClaim(source_id=cid, declared_by="model") for cid in cited_ids],
-            check,
-        )
-        if check.ok:
-            return {"status": STATUS_SUCCEEDED, "citations": citations, "errors": errors}
+        errors = list(state.get("errors", []))
+        retry_count = int(state.get("retry_count", 0) or 0)
 
-        retry_count = state.get("retry_count", 0)
-        if retry_count < MAX_CITATION_RETRIES:
-            feedback = "\n".join(check.errors) or "引用校验未通过"
+        if cited_ids:
+            citations = enrich_claims(
+                [CitationClaim(source_id=cid, declared_by="model") for cid in cited_ids],
+                check,
+            )
+            if check.ok:
+                # 保留历史 errors（例如先前无效引用轮次的 did-you-mean 文本），与旧行为一致
+                return {"status": STATUS_SUCCEEDED, "citations": citations, "errors": errors}
+
+            # 无效引用：保持既有"最多重试 2 次"规则不变；did-you-mean 错误文本累积进 errors
+            errors = errors + list(check.errors)
+            if retry_count < MAX_CITATION_RETRIES:
+                feedback = "\n".join(check.errors) or "引用校验未通过"
+                return {
+                    "messages": _validator_feedback_messages(feedback),
+                    "retry_count": retry_count + 1,
+                    "errors": errors,
+                }
+            errors.append(f"达到引用校验重试上限（{MAX_CITATION_RETRIES}），仍有无效引用")
+            return {"status": STATUS_FAILED, "errors": errors}
+
+        # ── 零引用路径 ──────────────────────────────────────────────
+        answer_text = _last_ai_answer_text(messages)
+        empty_reflows = int(state.get("empty_citation_reflows", 0) or 0)
+
+        if not context_ids and answer_text and _declares_no_basis(answer_text):
+            # 无检索结果且模型明确说明"未检索到依据"：允许无引用收口，不伪造引用
+            return {"status": STATUS_SUCCEEDED, "citations": [], "errors": errors}
+
+        if not answer_text:
+            errors.append(
+                "模型未产出文本回答且未调用 cite_clauses 声明引用；"
+                "空回答/零引用不得收口为成功"
+            )
+            return {"status": STATUS_FAILED, "errors": errors}
+
+        if empty_reflows < EMPTY_CITATION_MAX_REFLOWS:
+            if context_ids:
+                feedback = (
+                    "本轮 retrieve_clauses 已返回相关条款，但你的回答没有调用 cite_clauses "
+                    "声明引用。请基于检索结果调用 cite_clauses 声明回答依据的条款 id"
+                    "（必须取自本次检索结果），随后给出引用后的完整回答。若你认为检索结果"
+                    "不足以支撑正式引用，请在回答中明确说明依据不足，不得编造引用。"
+                )
+            else:
+                feedback = (
+                    "你的回答没有调用 cite_clauses 声明引用，且本轮没有可用的检索结果。"
+                    "请先调用 retrieve_clauses 检索规范条款；若确认无相关依据，请在回答中"
+                    "明确说明未检索到相关内容，不得编造引用。"
+                )
             return {
-                "messages": [
-                    ToolMessage(
-                        content=feedback,
-                        name="citation_validator",
-                        tool_call_id=_VALIDATOR_CALL_ID,
-                    )
-                ],
+                "messages": _validator_feedback_messages(feedback),
                 "retry_count": retry_count + 1,
+                "empty_citation_reflows": empty_reflows + 1,
                 "errors": errors,
             }
-        errors.append(f"达到引用校验重试上限（{MAX_CITATION_RETRIES}），仍有无效引用")
+
+        errors.append(
+            "空引用收口失败：存在检索结果/模型已回答，但两次校验均未调用 cite_clauses "
+            "声明引用（空引用已回流一次）。零引用回答不得计为成功。"
+        )
         return {"status": STATUS_FAILED, "errors": errors}
 
     return citation_validator
