@@ -43,9 +43,39 @@ class TestInteractive:
         assert "已收到第" not in out
 
 
-class TestDocgenFlow:
+class TestDocgenCalcBookEndToEnd:
+    """B3 收口 e2e：calc 意图 docgen → 计算书含入参+结果+设计依据（不再无条件空引用）。"""
+
+    def test_calc_book_contains_inputs_results_and_design_basis(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        _feed(monkeypatch, ["y"])
+        code = main([
+            "--flow", "docgen", "--mock-generator", "--json",
+            "--session-dir", str(tmp_path / "s"), "--trace-dir", str(tmp_path / "t"),
+            "DN150、Q=20L/s，求流速，生成给水管道计算书",
+        ])
+        captured = capsys.readouterr()
+        assert code == 0, captured.out
+        payload = json.loads(captured.out)  # B4：stdout 只含最终 JSON，可直接 json.loads
+        assert payload["status"] == "succeeded"
+        final = payload["final_doc"]
+        assert final.startswith("# 计算书\n")
+        # 数值入参（输入口径）与结果同表
+        assert "diameter_mm = 150 mm" in final
+        assert "flow_lps = 20 L/s" in final
+        assert "velocity_mps = 1.13177 m/s" in final
+        # 设计依据反映 gather 实际检到的引用（mock RAG 命中 fixture），非"未声明"
+        assert "FIX " in final, "calc 计算书设计依据必须来自检索（design basis）"
+        assert "未声明规范依据" not in final
+        # 公式口径备注可追溯
+        assert "公式口径" in final
     def test_docgen_reject_then_approve_writes_doc_and_trace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        """n（带原因）→ 重拟第 2 稿体现反馈 → y → 正式文档；审批记录进 trace。"""
+        """n（带原因）→ 重拟第 2 稿体现反馈 → y → 正式文档；审批记录进 trace。
+
+        P2 收口：calc 意图的 docgen 会额外跑一次设计依据检索（另一个 trace 文件），
+        本测试只挑 docgen 人审 trace（含 approval_decision 事件）断言。
+        """
         _feed(monkeypatch, ["n", "补充管径表格", "y"])
         code = main([
             "--flow", "docgen", "--mock-generator",
@@ -58,8 +88,14 @@ class TestDocgenFlow:
         assert "用户反馈（已吸收）" in out and "补充管径表格" in out
         assert "===== 正式文档 =====" in out and "状态: succeeded" in out
         traces = list((tmp_path / "t").glob("*.json"))
-        assert len(traces) == 1
-        doc = json.loads(traces[0].read_text(encoding="utf-8"))
+        assert traces
+        flow_traces = [
+            json.loads(t.read_text(encoding="utf-8"))
+            for t in traces
+            if any(e.get("event_type") == "approval_decision" for e in json.loads(t.read_text(encoding="utf-8"))["events"])
+        ]
+        assert len(flow_traces) == 1, "docgen 人审 trace 必须恰好一条"
+        doc = flow_traces[0]
         decisions = [e for e in doc["events"] if e["event_type"] == "approval_decision"]
         assert [d["data"]["approved"] for d in decisions] == [False, True]
         assert decisions[0]["data"]["reason"] == "补充管径表格"
@@ -95,13 +131,34 @@ class TestDocgenFlow:
         payload = json.loads(capsys.readouterr().out)
         assert code == 0 and payload["status"] == "succeeded" and payload["session_id"] == session_id
 
-    def test_docgen_gather_calc_reports_missing_inputs(self) -> None:
+    def test_docgen_gather_calc_reports_missing_inputs(self, tmp_path: Path) -> None:
         """计算意图缺参：缺参信号必须透出到人审草稿（S9-03），审批人才能判断为何无数值。"""
-        import argparse
+        from water_agent.cli import _gather_docgen_inputs, build_parser
 
-        from water_agent.cli import _gather_docgen_inputs
-
-        args = argparse.Namespace(mode="auto")
+        args = build_parser().parse_args(
+            [
+                "--flow", "docgen", "--mock-generator",
+                "--session-dir", str(tmp_path / "s"), "--trace-dir", str(tmp_path / "t"),
+                "DN150 求流速",
+            ]
+        )
         gathered = _gather_docgen_inputs("DN150 求流速", args)
-        assert gathered["citations"] == []
+        assert gathered["citations"], "设计依据不再空跑：calc 意图也会检索设计依据引用"
         assert gathered["calc_result"]["missing_inputs"] == "flow_lps"
+        # P2 收口：数值入参与结果同表（计算书需要展示输入口径 DN150）
+        assert gathered["calc_result"]["diameter_mm"] == 150
+
+    def test_docgen_json_output_remains_pure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        """--json 模式下不应把交互提示污染到 stdout。"""
+        _feed(monkeypatch, ["n", "补充设计依据", "y"])
+        code = main([
+            "--flow", "docgen", "--mock-generator", "--json",
+            "--session-dir", str(tmp_path / "s"), "--trace-dir", str(tmp_path / "t"),
+            "生成 DN150 给水管道计算书",
+        ])
+        captured = capsys.readouterr()
+        assert code == 0
+        assert "批准生成正式文档？" not in captured.out
+        assert "拒绝原因" not in captured.out
+        payload = json.loads(captured.out)
+        assert payload["ok"] is True or payload["status"] == "succeeded"
