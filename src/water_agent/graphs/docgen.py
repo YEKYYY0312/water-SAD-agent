@@ -62,7 +62,7 @@ def default_docgen_state(**overrides: Any) -> DocGenState:
         "errors": [],
         "status": STATUS_RUNNING,
     }
-    state.update(overrides)
+    state.update(overrides)  # type: ignore[typeddict-item]  # 与 state.py:71 同模式，基线型告警，Step 10 清零
     return state
 
 
