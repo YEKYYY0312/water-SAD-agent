@@ -200,7 +200,7 @@ def ingest_to_trivium(
     if curated and embedding_provider is None and embedding_fn is None:
         raise ValueError("curated ingest requires an explicit embedding provider")
     if embedding_provider is not None:
-        embed = embedding_provider.embed
+        embed = embedding_provider.embed  # type: ignore[attr-defined]
     else:
         embed = embedding_fn or mock_embed
     chunks, parents = ingest_jsonl_to_chunks(jsonl_path, config=config)

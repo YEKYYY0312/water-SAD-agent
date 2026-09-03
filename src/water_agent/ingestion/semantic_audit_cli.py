@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     if resolved.status != "OK":
         print(json.dumps({"ok": False, "status": resolved.status, "message": resolved.message, "report_path": None}, ensure_ascii=False, indent=2))
         return EXIT_CONFIG_ERROR
-    report = audit_clause_files(resolved.clause_files, resolved.data_root or "")
+    report = audit_clause_files(list(resolved.clause_files), resolved.data_root or "")
     json_path, markdown_path = _write_outputs(report, args.output_dir or DEFAULT_OUTPUT_DIR)
     print(json.dumps({"ok": True, "status": "ok", "report_json": str(json_path), "report_markdown": str(markdown_path), "summary": report.summary}, ensure_ascii=False, indent=2))
     return EXIT_OK
