@@ -21,8 +21,8 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 ## 架构现状
 - `graphs/rag.py`：legacy 单次 RAG 图（router→retrieve→generate→citation_check→finalize），保留不删；citation_check 已接 Step 5 确定性校验器 `validate_citations`（state 层 `citations` 统一为 `list[CitationClaim]`）。
 - 已完成：工具注册表（Step 4：`ToolSpec`/`ToolRegistry`，执行唯一入口 `ToolRegistry.invoke`）、会话记忆（Step 3：checkpointer + thread_id）、agentic RAG 外层循环（Step 6：`graphs/agent_rag.py` = agent_loop(create_react_agent 子图)→citation_validator→finalize；引用校验失败以带错误文本 ToolMessage 回流 ≤2 次；agent_loop 轮数预算默认 10）、真实模型接入（Step 7：`generation/chat_model.py` 的 `build_chat_model`（DeepSeek OpenAI 兼容，无 Key 抛错）；CLI `--mode agentic` 默认走真实模型、`--mock-generator` 走脚本化占位模型（离线）、`--stream` 流式打印 token；无 Key/无真实检索装配时输出结构化错误并指引，绝不静默降级）。
-- 动态提示装配（Step 8）：`prompting/assembler.py`（分段系统提示 + 段级预算 + create_react_agent callable 签名）、`prompting/runtime_context.py`（RuntimeContextProjection 变化才注入，省 token）、`ingestion/version_registry.py` + `data/versions.json`（只录有来源事实，未知显式 unknown）；`Citation.spec_version` 贯通检索/声明/校验；`--mode agentic` 走 `prompt=PromptAssembler(tool_registry=registry)`。
-- Human-in-the-Loop（Step 9）：`graphs/docgen.py` = gather→draft→approval(interrupt)→finalize；拒绝→带反馈回流 draft ≤2 轮，超上限收口 failed；approval 字段 None=待审批 / True=已批 / False=已拒；无 checkpointer 拒绝构建。
+- 动态提示装配（Step 8）：`prompting/assembler.py`（分段系统提示 + 段级预算 + create_react_agent callable 签名）、`prompting/runtime_context.py`（RuntimeContextProjection 变化才注入，省 token）、`ingestion/version_registry.py` + `data/versions.json`（只录有来源事实：非 unknown 条目缺 source/verified_at 加载时降级 unknown；未录入显式返回 status=unknown；四本入库规范现行状态尚未人工核实，当前全部 unknown）；校验器 `validate_citations(version_registry=)` 已接进 legacy/agentic 两条图，版本状态写回 `CitationClaim.spec_version/version_status`，未知只标记进 `warnings` 不进 `errors`（不是模型能重试纠正的事）；`--mode agentic` 走 `prompt=PromptAssembler(tool_registry=registry)`。
+- Human-in-the-Loop（Step 9）：`graphs/docgen.py` = gather→draft→approval(interrupt)→finalize；拒绝→带反馈回流 draft 重拟，草稿总稿数上限 MAX_DRAFT_ROUNDS=2（初稿 + 1 次重拟），最后一稿仍被拒收口 failed；approval 字段 None=待审批（重拟时复位）/ True=已批 / False=已拒；每次 resume 追加 `approval_log`（checkpointer 持久化）；DocGenState 预留 citations/calc_result；无 checkpointer 拒绝构建；SqliteSaver 落盘→重开连接→resume 已测。
 - 改造目标：Step 10（双轨评测 + CI 门禁 + 文档收口），`--mode legacy|agentic` 双轨共存。
 - 计算永远走程序化工具，缺参→`missing_inputs`，越界→`assumptions`。
 
@@ -47,4 +47,5 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 ## 尚未完成（已知阻塞）
 - 检索 gold 存在泄漏（retrieval_gold.jsonl 的 70 条 query 由源条款自动派生，query≈条文原文，必然命中源条款），需构造独立可人工验证的 gold（不同措辞/引用式/跨条款 + 负例）后重跑真实检索矩阵。
 - DEEPSEEK_API_KEY 非持久配置：R2 真实链路已有一次闭环证据（2026-09-03，4 条引用全部 ∈ 检索结果、0 重试，见对话记录），但本 shell 无 Key 时仍按 SKIP 语义处理（`scripts/smoke_agentic.sh` 无 Key 打印 SKIP 且 exit 0；`--mode agentic` 无 Key 报结构化错误并指引 `--mock-generator`）。
-- `cli.py --flow docgen` 尚未接线（Step 9 交付的是 docgen 图 + test_docgen_hitl 6 用例；CLI 交互入口待补，见 docs/09-next-steps.md）。
+- `cli.py --flow docgen` 尚未接线（Step 9 交付的是 docgen 图 + test_docgen_hitl 9 用例；CLI 交互入口与审批记录写 trace 待 Step 10 后接线，见 docs/09-next-steps.md）。
+- `data/versions.json` 四条规范（GB50015-2019/GB50013-2018/GB50014-2021/GB50318-2017）现行状态待人工核实（公告号/生效日期）；核实后改 `status: current` 并填 `source`，同步改 `tests/test_version_registry.py::test_status_from_prod_json` 断言。核实前所有引用的 `version_status` 都是 unknown（只标记）。
