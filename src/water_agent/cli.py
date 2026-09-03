@@ -53,6 +53,7 @@ from water_agent.session import (
 from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
+from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
@@ -107,6 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["qa", "docgen"],
         default="qa",
         help="qa 问答（默认）；docgen 计算书生成：gather→draft→人审(interrupt)→finalize，--resume 恢复挂起审批",
+    )
+    p.add_argument(
+        "--doc-type",
+        choices=["auto", "calculation_book", "design_note"],
+        default="auto",
+        help="docgen 文档类型：auto（默认，计算意图→计算书，其余→设计说明）/ calculation_book 计算书 / design_note 设计说明",
     )
     p.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR), help="Trace 输出目录")
     p.add_argument("--json", action="store_true", help="以 JSON 输出（单次模式）")
@@ -380,6 +387,7 @@ class AgenticSession:
         registry.register(build_retrieve_clauses_tool(tool_retriever))
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
+        registry.register(material_stats_spec)
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
         # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
@@ -593,7 +601,11 @@ def _run_chat_session(args: argparse.Namespace, query: str = "") -> int:
 
 
 def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
-    """docgen 的 gather：计算意图 → 计算子图结果；否则 → 一次 RAG 问答取引用。"""
+    """docgen 的 gather：计算意图 → 计算子图结果；否则 → 一次 RAG 问答取引用。
+
+    计算结果富化（P2）：数值 + 公式口径/备注文本一并进 calc_result，模板按数值/备注
+    分流渲染（数值程序化展示、公式口径等作为备注行可追溯）。
+    """
     from water_agent.domain.citation import CitationClaim
 
     if detect_intent(query) == "calc":
@@ -606,6 +618,10 @@ def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
             calc_result["errors"] = "；".join(calc["errors"])
         if calc.get("assumptions"):
             calc_result["assumptions"] = "；".join(calc["assumptions"])
+        if calc.get("formula"):
+            calc_result["formula"] = calc["formula"]
+        if calc.get("spec_record"):
+            calc_result["spec_record"] = calc["spec_record"]
         return {"citations": [], "calc_result": calc_result or None}
     rag_args = argparse.Namespace(**{**vars(args), "mode": "legacy" if args.mode in {"auto", "calc"} else args.mode})
     rag = run_once(query, args=rag_args)
@@ -665,7 +681,15 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
                 return 2
             save_session_meta(session_id, session_dir=session_dir, query=query, flow="docgen")
             gathered = _gather_docgen_inputs(query, args)
-            result = app.invoke({"query": query, "status": "running", "draft_rounds": 0, **gathered}, config=config)
+            doc_type = getattr(args, "doc_type", "auto")
+            if doc_type == "auto":
+                # P2：计算意图 → 计算书；规范问答/设计意图 → 设计说明
+                doc_type = "calculation_book" if detect_intent(query) == "calc" else "design_note"
+            print(f"文档类型：{doc_type}（人工审批通过后产出正式文档）", file=ui)
+            result = app.invoke(
+                {"query": query, "status": "running", "draft_rounds": 0, "doc_type": doc_type, **gathered},
+                config=config,
+            )
 
         while result.get("__interrupt__"):
             preview = result["__interrupt__"][0].value
