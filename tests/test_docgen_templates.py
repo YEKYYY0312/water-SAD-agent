@@ -149,3 +149,24 @@ class TestMaterialSection:
         assert "材料统计" in doc.section_keys()
         assert "球墨铸铁 DN150" in doc.text
         assert "S1(120.5m)、S2(80m)" in doc.text
+
+    def test_material_row_format_consistent_across_sections(self) -> None:
+        """材料行单一格式化点：参数章节内嵌行与材料统计章节行的正文完全一致。"""
+        rows = [
+            {"material": "球墨铸铁", "spec": "DN150", "unit": "m", "quantity": 200.5, "detail": "S1(120.5m)、S2(80m)"},
+            {"material": "HDPE", "spec": "DN200", "unit": "m", "quantity": 66.667, "detail": "H1(66.667m)"},
+        ]
+        doc = _render(material_rows=rows)
+        sections = {section.key: section for section in doc.sections}
+        embedded = [
+            line.lstrip()
+            for line in sections["计算参数与结果"].lines
+            if line.startswith("  ")
+        ]
+        listed = [line[2:] for line in sections["材料统计"].lines]
+        assert embedded, "参数章节必须内嵌材料行"
+        assert embedded == listed, "两处材料行文本必须一致（同一格式化函数）"
+        assert embedded == [
+            "1. 球墨铸铁 DN150：200.5 m（来源：S1(120.5m)、S2(80m)）",
+            "2. HDPE DN200：66.667 m（来源：H1(66.667m)）",
+        ]

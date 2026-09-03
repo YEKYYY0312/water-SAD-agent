@@ -141,6 +141,20 @@ def _citation_id(item: Any) -> str:
     return str(item).strip()
 
 
+def _format_material_row(index: int, row: dict[str, Any]) -> str:
+    """材料行文本（单一格式化点）：材料统计章节与参数章节内嵌行共用同一形态。
+
+    ``index`` 为行号（1 起）；行文本 = "{n}. {材料} {规格}：{数量} {单位}（来源：{明细}）"。
+    materials/material 行字段语义对齐：material/spec/quantity/unit/detail。
+    """
+    material = row.get("material", "")
+    spec = row.get("spec", "")
+    quantity = row.get("quantity", "")
+    unit = row.get("unit", "")
+    detail = row.get("detail", "")
+    return f"{index}. {material} {spec}：{quantity} {unit}（来源：{detail}）".strip()
+
+
 def render_docgen_doc(
     *,
     query: str,
@@ -201,11 +215,7 @@ def render_docgen_doc(
     if material_rows:
         params.lines.append("- 材料统计：")
         for index, row in enumerate(material_rows, start=1):
-            params.lines.append(
-                f"  {index}. {row.get('material', '')} {row.get('spec', '')}："
-                f"{row.get('quantity', '')} {row.get('unit', '')}"
-                f"（{row.get('detail', '')}）"
-            )
+            params.lines.append(f"  {_format_material_row(index, row)}")
     sections.append(params)
 
     # 4 结论
@@ -222,10 +232,7 @@ def render_docgen_doc(
     if material_rows:
         materials = DocSection(key="材料统计", heading=_heading(5, "材料统计"))
         for index, row in enumerate(material_rows, start=1):
-            materials.lines.append(
-                f"- {index}. {row.get('material', '')} {row.get('spec', '')}："
-                f"{row.get('quantity', '')} {row.get('unit', '')}（来源：{row.get('detail', '')}）"
-            )
+            materials.lines.append(f"- {_format_material_row(index, row)}")
         sections.append(materials)
 
     # 反馈（HITL 回流痕迹：拒绝后重拟时随草稿/终稿保留，可追溯）
