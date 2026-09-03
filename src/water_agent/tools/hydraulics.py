@@ -213,14 +213,22 @@ def calc_head_loss_shevelev(inputs: dict[str, Any]) -> CalcResult:
         return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid])
 
     length_m = _numeric(inputs, "length_m")
-    diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
+    diameter_mm = _numeric(inputs, "diameter_mm")
+    diameter_m = diameter_mm / 1000.0
     velocity = _numeric(inputs, "velocity_mps")
+
+    # 口径表 §2.3 适用范围 DN50–DN1000：范围外照常计算，但 assumptions 标注越界
+    assumptions: list[str] = []
+    if diameter_mm < 50 or diameter_mm > 1000:
+        assumptions.append(
+            f"管径 {diameter_mm:.0f} mm 超出舍维列夫公式经验适用范围 DN50–DN1000，结果仅供参考"
+        )
 
     if velocity >= SHEVELEV_SPEED_BREAKPOINT:
         slope = 0.00107 * velocity**2 / diameter_m**1.3
     else:
         slope = 0.000912 * velocity**2 * (1 + 0.867 / velocity) ** 0.3 / diameter_m**1.3
-    return CalcResult(ok=True, values={"head_loss_m": slope * length_m})
+    return CalcResult(ok=True, values={"head_loss_m": slope * length_m}, assumptions=assumptions)
 
 
 def calc_diameter(inputs: dict[str, Any]) -> CalcResult:
