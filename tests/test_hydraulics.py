@@ -116,6 +116,17 @@ class TestShevelev:
         # v=1.2 恰好落在高速分支：i=0.00107·1.2²/0.1^1.3≈0.030743，hf≈1.537
         assert_value(calc_head_loss_shevelev({"length_m": 50, "diameter_mm": 100, "velocity_mps": 1.2}), "head_loss_m", 1.537, rel=0.02)
 
+    def test_dn_range_annotation(self) -> None:
+        """口径表 §2.3 适用范围 DN50–DN1000：范围外照常计算 + assumptions 标注（P1 评审）。"""
+        below = calc_head_loss_shevelev({"length_m": 100, "diameter_mm": 40, "velocity_mps": 1.5})
+        assert below.ok, "越界照常计算，不拦截"
+        assert any("DN50–DN1000" in a for a in below.assumptions)
+        above = calc_head_loss_shevelev({"length_m": 100, "diameter_mm": 1200, "velocity_mps": 1.5})
+        assert above.ok
+        assert any("DN50–DN1000" in a for a in above.assumptions)
+        inside = calc_head_loss_shevelev({"length_m": 100, "diameter_mm": 150, "velocity_mps": 1.5})
+        assert inside.assumptions == [], "范围内不产生越界标注"
+
 
 class TestDiameter:
     def test_20lps_at_1p2(self) -> None:
