@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import time
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, NotRequired, TypedDict, cast
 from uuid import uuid4
@@ -51,7 +52,10 @@ from pydantic import ConfigDict
 
 from water_agent.domain.citation import CitationClaim, enrich_claims, validate_citations
 from water_agent.domain.state import MAX_CITATION_RETRIES, STATUS_FAILED, STATUS_SUCCEEDED
+from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.observability import otel
+from water_agent.observability.json_trace import JsonTraceRecorder
 
 # 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
 RECURSION_LIMIT = 20
@@ -122,8 +126,41 @@ class AgenticRAGState(TypedDict):
     remaining_steps: NotRequired[int]
 
 
+def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
+    """把一次模型响应压成 llm_call 观测记录（token 来自 usage_metadata，缺失记 0）。"""
+    meta = getattr(message, "usage_metadata", None) or {}
+    in_tok = int(meta.get("input_tokens", 0) or 0) if isinstance(meta, dict) else int(getattr(meta, "input_tokens", 0) or 0)
+    out_tok = int(meta.get("output_tokens", 0) or 0) if isinstance(meta, dict) else int(getattr(meta, "output_tokens", 0) or 0)
+    content = getattr(message, "content", "")
+    tool_calls = getattr(message, "tool_calls", None) or []
+    preview = content if isinstance(content, str) and content else (
+        "tool_calls: " + ", ".join(tc.get("name", "?") for tc in tool_calls) if tool_calls else ""
+    )
+    return {
+        "model": model_name,
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "total_tokens": in_tok + out_tok,
+        "cost_usd": estimate_deepseek_cost(in_tok, out_tok),
+        "latency_ms": latency_ms,
+        "response_preview": preview,
+    }
+
+
+def _model_name_of(model: Any) -> str:
+    for attr in ("model_name", "model"):
+        value = getattr(model, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return type(model).__name__
+
+
 class _BudgetChatModel(BaseChatModel):
-    """给任意模型套工具调用轮数预算，并防止同 id 消息被 add_messages 去重。"""
+    """给任意模型套工具调用轮数预算，并防止同 id 消息被 add_messages 去重。
+
+    同时把每次模型响应压成 llm_call 记录进 ``holder["llm_calls"]``（Step 10 观测），
+    由 agent_loop 节点统一刷进 trace / OTel。
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -136,8 +173,12 @@ class _BudgetChatModel(BaseChatModel):
         return "budget-chat-model"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        started = time.perf_counter()
         result = self.inner._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         message = result.generations[0].message
+        self.holder.setdefault("llm_calls", []).append(
+            _llm_call_record(message, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
+        )
         if isinstance(message, AIMessage) and message.tool_calls:
             self.holder["turns"] += 1
             if self.holder["turns"] > self.max_tool_turns:
@@ -162,8 +203,11 @@ class _BudgetChatModel(BaseChatModel):
             yield _to_generation_chunk(result.generations[0].message)
             return
         seen: set[int] = set()
+        started = time.perf_counter()
+        merged: Any = None
         for chunk in itertools.chain((first_chunk,), inner):
             if isinstance(chunk, AIMessageChunk):
+                merged = chunk if merged is None else merged + chunk
                 for tool_chunk in chunk.tool_call_chunks or []:
                     idx = getattr(tool_chunk, "index", None)
                     if idx is not None and idx not in seen:
@@ -174,6 +218,10 @@ class _BudgetChatModel(BaseChatModel):
                                 f"工具调用轮数超过预算（{self.max_tool_turns}）"
                             )
             yield chunk
+        if merged is not None:
+            self.holder.setdefault("llm_calls", []).append(
+                _llm_call_record(merged, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
+            )
 
     def bind_tools(self, tools, **kwargs):
         tool_defs = [
@@ -234,11 +282,45 @@ def _extract_validation_signal(state: AgenticRAGState) -> tuple[list[str], list[
     return context_ids, cited_ids
 
 
-def make_agent_loop(react_agent, holder: dict):
-    """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。"""
+def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) -> None:
+    """把 holder 里攒的 llm_call 记录写进 trace 与 OTel（无 SDK 时 OTel 为 no-op）。"""
+    calls = holder.pop("llm_calls", None) or []
+    for call in calls:
+        if trace is not None and trace.started:
+            trace.record_llm_call(
+                node="agent_loop",
+                model=call["model"],
+                provider="deepseek",
+                prompt_preview=query,
+                response_preview=call["response_preview"],
+                input_tokens=call["input_tokens"],
+                output_tokens=call["output_tokens"],
+                total_tokens=call["total_tokens"],
+                cost_usd=call["cost_usd"],
+                latency_ms=call["latency_ms"],
+                query=query,
+            )
+        otel.record_llm_call(
+            model=call["model"],
+            **{
+                "gen_ai.usage.input_tokens": call["input_tokens"],
+                "gen_ai.usage.output_tokens": call["output_tokens"],
+                "water_agent.latency_ms": call["latency_ms"],
+            },
+        )
+
+
+def make_agent_loop(react_agent, holder: dict, trace: JsonTraceRecorder | None = None):
+    """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
+
+    ``trace``：首次进入时 ``start``，每轮结束把 llm_call 记录刷进去（Step 10 观测）。
+    """
 
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
+        query = state.get("query", "") or _first_human_text(state)
+        if trace is not None and not trace.started:
+            trace.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=query)
         try:
             result = react_agent.invoke(state, config=config)
             return dict(result)
@@ -247,8 +329,17 @@ def make_agent_loop(react_agent, holder: dict):
                 "status": STATUS_FAILED,
                 "errors": list(state.get("errors", [])) + [str(exc)],
             }
+        finally:
+            _flush_llm_calls(holder, trace, query)
 
     return agent_loop
+
+
+def _first_human_text(state: AgenticRAGState) -> str:
+    for m in state.get("messages", []):
+        if isinstance(m, HumanMessage) and isinstance(m.content, str) and not m.content.startswith("[运行时上下文]"):
+            return m.content
+    return ""
 
 
 def make_citation_validator(version_registry: Any | None = None):
@@ -289,8 +380,8 @@ def make_citation_validator(version_registry: Any | None = None):
     return citation_validator
 
 
-def make_finalize():
-    """finalize 节点：从最后一条 AI 消息提取 answer，保留最终 status。"""
+def make_finalize(trace: JsonTraceRecorder | None = None):
+    """finalize 节点：从最后一条 AI 消息提取 answer，保留最终 status；有 trace 则落盘。"""
 
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
         answer: str = ""
@@ -298,7 +389,16 @@ def make_finalize():
             if isinstance(m, AIMessage) and isinstance(m.content, str):
                 answer = m.content
                 break
-        return {"answer": answer, "status": state.get("status", STATUS_FAILED)}
+        status = state.get("status", STATUS_FAILED)
+        if trace is not None and trace.started:
+            errors = list(state.get("errors", []))
+            trace.finish(
+                status=status,
+                error=errors[-1] if (status == STATUS_FAILED and errors) else None,
+                citations=list(state.get("citations", [])),
+                retry_count=int(state.get("retry_count", 0)),
+            )
+        return {"answer": answer, "status": status}
 
     return finalize
 
@@ -311,6 +411,7 @@ def build_agentic_app(
     prompt: str | Callable[[dict], Any] | None = None,
     max_tool_turns: int = 10,
     version_registry: Any | None = None,
+    trace: JsonTraceRecorder | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -321,15 +422,19 @@ def build_agentic_app(
       可调用对象（Step 8 动态装配器）。缺省用 ``DEFAULT_AGENTIC_PROMPT``；
     - ``max_tool_turns``：agent_loop 内模型工具调用轮数独立预算；
     - ``version_registry``：版本注册表（Step 8）；缺省用 ``data/versions.json`` 单例，
-      引用校验时把版本状态写回 ``CitationClaim.version_status``（未知只标记）。
+      引用校验时把版本状态写回 ``CitationClaim.version_status``（未知只标记）；
+    - ``trace``：可选 JsonTraceRecorder（Step 10 观测）：agent_loop 首次进入 ``start``，
+      每次模型响应记一条 ``llm_call``（token/cost/延迟/摘要），finalize ``finish`` 落盘。
     """
     if checkpointer is None:
         raise ValueError("agentic 循环必须配置 checkpointer（thread_id 会话隔离）")
     if version_registry is None:
         version_registry = get_version_registry()
 
-    holder: dict[str, int] = {"turns": 0}
+    holder: dict[str, Any] = {"turns": 0}
     budget_model = _BudgetChatModel(inner=model, max_tool_turns=max_tool_turns, holder=holder)
+    # pydantic 校验会拷贝 dict 字段：以模型内部持有的那份为准，外层节点才能读到计数与 llm_calls
+    holder = budget_model.holder
     if prompt is None:
         system_prompt: str | Callable[[dict], Any] = DEFAULT_AGENTIC_PROMPT
     else:
@@ -343,9 +448,9 @@ def build_agentic_app(
     )
 
     graph = StateGraph(AgenticRAGState)
-    graph.add_node("agent_loop", make_agent_loop(react_agent, holder))
+    graph.add_node("agent_loop", make_agent_loop(react_agent, holder, trace))
     graph.add_node("citation_validator", make_citation_validator(version_registry))
-    graph.add_node("finalize", make_finalize())
+    graph.add_node("finalize", make_finalize(trace))
 
     def route_after_agent(state: AgenticRAGState) -> str:
         if state.get("status") == STATUS_FAILED:
