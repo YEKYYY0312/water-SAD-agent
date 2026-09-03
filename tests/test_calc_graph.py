@@ -249,6 +249,20 @@ class TestFormulaInference:
         outcome = parse_calc_query("管径DN150，流速v=1.2m/s，L=100m，求沿程水头损失")
         assert outcome.formula == "head_loss_shevelev"
 
+    def test_pump_head_utterance_not_hijacked_by_friction_component(self) -> None:
+        # "沿程2米"是扬程分量词，不是舍维列夫损失（全项目评审发现）
+        outcome = parse_calc_query("求泵扬程：几何10米 沿程2米 局部0.5米 剩余2米")
+        assert outcome.formula == "pump_head"
+        assert outcome.params.get("friction_head_m") == 2
+
+    def test_explicit_darcy_formula_wins_over_loss_keyword(self) -> None:
+        outcome = parse_calc_query("用达西公式求沿程水头损失，DN150 L=100m v=1.2m/s f=0.02")
+        assert outcome.formula == "head_loss_darcy_weisbach"
+
+    def test_explicit_hazen_formula_wins_over_loss_keyword(self) -> None:
+        outcome = parse_calc_query("海曾公式：DN150 Q=20L/s L=1000m C=130 求水头损失")
+        assert outcome.formula == "head_loss_hazen_williams"
+
     def test_unrecognized_formula_is_invalid_input_not_success(self) -> None:
         result = _invoke("DN150 管道的摩阻系数取多少")
         assert result["status"] == "invalid_input"
