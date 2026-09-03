@@ -23,13 +23,18 @@ from water_agent.domain.state import default_state
 from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
 from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
-from water_agent.generation.llm import build_llm_generator
+from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.chat import build_chat_app
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.prompting import PromptAssembler
+from water_agent.prompting.runtime_context import (
+    RuntimeContextProjection,
+    default_context_builder,
+)
 from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.retrieval.rerank import BailianReranker, LocalReranker, build_bailian_reranker
@@ -169,7 +174,16 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
     if args.mock_generator:
         generator = MockGenerator()
     else:
-        generator = build_llm_generator(model=args.model, base_url=args.base_url)
+        # Step 8：legacy 真实模型路径的系统提示也换用装配器（行为兼容：核心规则一致，
+        # 额外注入版本注册表快照；--mock-generator 走 MockGenerator，不受影响）。
+        assembler = PromptAssembler()
+        sys_content = assembler.assemble_prompt().content
+        system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        generator = build_llm_generator(
+            model=args.model,
+            base_url=args.base_url,
+            system_prompt=system_prompt,
+        )
 
     if args.rerank == "local":
         reranker = LocalReranker()
@@ -288,6 +302,25 @@ def _build_agentic_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
     return retriever_obj, db_path
 
 
+def _initial_messages_with_runtime_context(
+    query: str,
+    projection: RuntimeContextProjection,
+    *,
+    session_refs: list[str] | None = None,
+) -> list[HumanMessage]:
+    """按需注入运行时上下文（Step 8）：上下文变化才作为一条用户消息注入。
+
+    首次调用必然注入一次（cwd + 规范版本快照 + 会话引用）；同一 projection 对象在
+    上下文未变时 ``project()`` 返回 None，不再重复注入（省 token）。
+    """
+    context = default_context_builder(session_refs=session_refs)
+    context_text = projection.project(context)
+    messages: list[HumanMessage] = [HumanMessage(content=query)]
+    if context_text:
+        messages.insert(0, HumanMessage(content=f"[运行时上下文]\n{context_text}"))
+    return messages
+
+
 def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
     """走模型驱动的 Agentic RAG 外层循环（Step 6→7 双路径）。
 
@@ -329,12 +362,26 @@ def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
     registry.register(calc_velocity_spec)
     tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
+    # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
+    assembler = PromptAssembler(tool_registry=registry)
+    projection = RuntimeContextProjection()
+
     stream = bool(getattr(args, "stream", False)) and not args.mock_generator
     thread_id = uuid4().hex
     config = {"configurable": {"thread_id": thread_id}}
     with ExitStack() as stack:
         saver = _build_chat_checkpointer(args.session_dir, stack)
-        app = build_agentic_app(model=model, tools=tools, checkpointer=saver)
+        app = build_agentic_app(
+            model=model,
+            tools=tools,
+            checkpointer=saver,
+            prompt=assembler,  # callable：装配器按 state 动态生成 SystemMessage
+        )
+        initial_messages = _initial_messages_with_runtime_context(
+            query,
+            projection,
+            session_refs=[thread_id],
+        )
         if stream:
             state = asyncio.run(
                 astream_agentic(
@@ -342,12 +389,13 @@ def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
                     query,
                     config,
                     on_token=lambda tok: print(tok, end="", flush=True),
+                    messages=initial_messages,
                 )
             )
             print(flush=True)
         else:
             state = app.invoke(
-                {"messages": [HumanMessage(content=query)], "query": query},
+                {"messages": initial_messages, "query": query},
                 config=config,
             )
 

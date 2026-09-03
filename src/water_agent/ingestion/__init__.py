@@ -1,5 +1,5 @@
-"""Ingestion：结构化父子级切块与入库。"""
+"""数据摄取与版本管理模块。"""
 
-from water_agent.ingestion.chunker import ChunkConfig, Chunker, chunk_clauses
+from water_agent.ingestion.version_registry import VersionRegistry, get_version_registry
 
-__all__ = ["ChunkConfig", "Chunker", "chunk_clauses"]
+__all__ = ["VersionRegistry", "get_version_registry"]
