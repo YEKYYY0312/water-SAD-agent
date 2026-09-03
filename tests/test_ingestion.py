@@ -1,15 +1,16 @@
 """P1 ingestion / TriviumDB 回归测试。"""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
 
-from water_agent.ingestion.pipeline import ingest_jsonl_to_chunks, ingest_to_trivium, load_parent_store
+from water_agent.ingestion.pipeline import (
+    ingest_to_trivium,
+    load_parent_store,
+)
 from water_agent.retrieval.trivium import TriviumRetriever, mock_embed
-
 
 FIXTURE = Path("data/fixtures/rag_fixture.jsonl")
 
@@ -84,3 +85,40 @@ def test_plain_fixture_mode_still_allowed_when_db_missing():
     assert retriever.is_fallback
     hits = retriever.retrieve("给水管道设计问题")
     assert hits
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_ingest_script_overwrite_removes_manifest_and_rebuilds(tmp_path):
+    """scripts/ingest.py --overwrite 必须连 manifest 一起删，否则第二次建出来是空库。"""
+    import subprocess
+    import sys
+
+    db = tmp_path / "ow.db"
+    cmd = [sys.executable, str(REPO_ROOT / "scripts" / "ingest.py"), str(REPO_ROOT / FIXTURE), "--db-path", str(db), "--overwrite"]
+    for _ in range(2):
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert "'inserted': 10" in proc.stdout, proc.stdout  # 第二次也必须真正写入 10 条，而非 skipped
+    import triviumdb
+
+    handle = triviumdb.TriviumDB(str(db))
+    assert len(list(handle.all_node_ids())) == 10, "overwrite 后重建应仍有 10 个子块"
+    handle.close()
+
+
+def test_build_index_dry_run_needs_no_api_key(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "build_index.py"), "--db-path", str(tmp_path / "x.db"), "--dry-run"],
+        capture_output=True, text=True, cwd=REPO_ROOT, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    import json as _json
+
+    out = _json.loads(proc.stdout)
+    assert out["dry_run"] is True and out["total"]["child_payloads"] > 0

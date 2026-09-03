@@ -1,7 +1,8 @@
 """从受控语料构建 TriviumDB 索引（支持 256/512 双版本隔离）。
 
-只读取 data/curated/clauses/ 中已通过审计的三规范条款，
+只读取 data/curated/clauses/ 中已通过审计的规范条款，
 禁止本地 embedding 兜底，维度与 index_version 强绑定。
+``--dry-run`` 只切块统计，不写库、不调云端，也不要求 DASHSCOPE_API_KEY。
 """
 from __future__ import annotations
 
@@ -9,8 +10,34 @@ import argparse
 import json
 from pathlib import Path
 
-from water_agent.embedding import build_embedding_provider
-from water_agent.ingestion.pipeline import ingest_to_trivium
+from water_agent.embedding import DEFAULT_MODEL, build_embedding_provider
+from water_agent.ingestion.pipeline import IngestError, ingest_to_trivium
+
+
+class _DryRunProvider:
+    """dry-run 占位：只提供元数据，绝不 embed（调用即抛错，防止误用）。"""
+
+    def __init__(self, dimensions: int) -> None:
+        self.config = type(
+            "Cfg",
+            (),
+            {
+                "model": DEFAULT_MODEL,
+                "dimensions": dimensions,
+                "index_version": f"{DEFAULT_MODEL}__{dimensions}__curated-v1",
+                "fallback_enabled": False,
+            },
+        )()
+
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("dry-run provider must not embed")
+
+
+def _stats_dict(stats: object) -> dict:
+    if isinstance(stats, dict):
+        return stats
+    as_dict = getattr(stats, "as_dict", None)
+    return as_dict() if callable(as_dict) else {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--curated-root", default="data/curated", help="受控语料根目录")
     p.add_argument("--db-path", required=True, help="输出的 TriviumDB 路径，如 data/indexes/qwen3.7_512.db")
     p.add_argument("--dimensions", type=int, default=512, choices=[256, 512, 768, 1024])
-    p.add_argument("--dry-run", action="store_true", help="只切块统计，不写库不调云端")
+    p.add_argument("--dry-run", action="store_true", help="只切块统计，不写库不调云端（不需要 Key）")
     args = p.parse_args(argv)
 
     curated = Path(args.curated_root)
@@ -27,7 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": f"clause_dir not found: {clause_dir}"}, ensure_ascii=False))
         return 2
 
-    provider = build_embedding_provider(dimensions=args.dimensions)
+    # dry-run 不构造真实 provider（build_embedding_provider 构造即校验 Key）
+    provider = _DryRunProvider(args.dimensions) if args.dry_run else build_embedding_provider(dimensions=args.dimensions)
 
     # 维度自检：库已存在且维度与请求不一致 → 报错退出，防止沿用旧维度导致写入全失败
     if not args.dry_run and Path(args.db_path).exists():
@@ -50,10 +78,6 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"ok": False, "error": f"DB 维度自检失败: {exc}"}, ensure_ascii=False))
             return 2
 
-    # 干跑时用一个假 transport，避免需要真实 Key 也能验证链路
-    if args.dry_run:
-        provider = provider  # dry_run 下 ingest_to_trivium 会提前返回，不会调 embed
-
     files = sorted(clause_dir.glob("*.jsonl"))
     if not files:
         print(json.dumps({"ok": False, "error": "no curated clause files"}, ensure_ascii=False))
@@ -68,11 +92,11 @@ def main(argv: list[str] | None = None) -> int:
         except IngestError as exc:
             # 单文件部分失败不中断整体：记录错误，继续建后续文件，
             # 脚本结尾统一报告，失败项可借助 manifest 幂等在重跑时补齐。
-            errors.append({"file": str(f), "error": exc.issues if hasattr(exc, "issues") else str(exc)})
-            stats = getattr(exc, "stats", {}) or {}
+            errors.append({"file": str(f), "issues": [issue.as_dict() for issue in exc.issues]})
+            stats = _stats_dict(exc.stats)
         per_file.append({"file": str(f), "stats": stats})
         for k in total:
-            total[k] += stats.get(k, 0) if k in stats else 0
+            total[k] += int(stats.get(k, 0) or 0)
 
     ok = not errors and total["failed"] == 0 and not args.dry_run
     out = {
