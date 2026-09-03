@@ -127,9 +127,12 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
     """
     fixture = load_clauses_jsonl(DEFAULT_FIXTURE)
     db_path = None
-    if args.db_path and Path(args.db_path).exists():
+    if args.db_path:
+        if not Path(args.db_path).exists():
+            # 用户显式指定的库不存在：响亮失败，不得静默回落 fixture
+            raise ValueError(f"--db-path 不存在：{args.db_path}（请检查路径，或去掉 --db-path 使用 data/indexes 下的默认库）")
         db_path = Path(args.db_path)
-    elif not args.db_path and not args.mock_generator:
+    elif not args.mock_generator:
         # mock 自测不自动加载真实库：mock_embed 与真实嵌入空间不匹配，直接回落 fixture
         candidates = sorted(DEFAULT_INDEX_DIR.glob("*.db")) if DEFAULT_INDEX_DIR.exists() else []
         if candidates:
