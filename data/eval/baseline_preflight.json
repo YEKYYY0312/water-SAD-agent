@@ -63,7 +63,7 @@
   },
   "git": {
     "status": "INITIALIZED",
-    "note": "git 已 init（用户真实终端完成）。Step 8 验收时 23 次提交，HEAD=19e1d04；Step 9 交付后 24 次提交，HEAD=4333e7d；mypy 告警收口后 25 次提交，HEAD=4fc2dd1。"
+    "note": "git 已 init（用户真实终端完成）。全项目评审修复后共 41 次提交，HEAD=56f3ce0（docs 提交自身未计入，沿用既有约定）。"
   },
   "step0_post_state": {
     "generated_at": "2026-08-31T18:35:00Z",
@@ -116,7 +116,7 @@
     "ruff": "0 errors（All checks passed）",
     "mypy": "32 errors in 13 files（checked 51 source files；存量告警，Step 10 清零。较 step0 的 29 增 3，来自 Step 2–4 新代码，仅记录）"
   },
-  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（375）、rag_p0 11/12、calc_p0 28/28、ruff 清零。Step 0–9（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入 / 系统提示装配+运行时上下文投影+规范版本注册表 / Human-in-the-Loop 审批图）已全部完成并各有 post_state 验收佐证。git 已 init，共 25 次提交（HEAD=4fc2dd1）。已知阻塞（只记录，不解决）：检索 gold 存在泄漏，需构造独立可人工验证 gold 后重跑真实检索矩阵；DEEPSEEK_API_KEY 非持久配置，真实链路已有一次闭环证据（2026-09-03），无 Key 时按 SKIP 语义处理（scripts/smoke_agentic.sh 无 Key exit 0）；cli.py --flow docgen 未接线。",
+  "conclusion": "legacy 链路离线机制层基线建立：pytest 全绿（444 collected）、rag_p0 11/12、calc_p0 28/28、ruff 0、mypy 0（Step 10 清零）。Step 0–10（工程基线 / 水力计算内核 / 计算子图+意图 / 多轮会话记忆 / 工具抽象层 / 引用声明工具+确定性校验器 / agentic RAG 外层循环 / 真实模型接入 / 动态提示+运行时上下文+版本注册表 / Human-in-the-Loop 审批 / 双轨评测+CI 门禁+观测）全部交付并各有 post_state 验收佐证；全项目评审（Step 8/9/10 三路并行 + 跨切面核验）发现 1 项 P1 与 7 项 P2 均已修复（8757b93/56f3ce0），剩余 P2 与已知阻塞如实记录不伪造。git 共 41 次提交（HEAD=56f3ce0）。",
   "step5_post_state": {
     "generated_at": "2026-08-31T14:55:40Z",
     "note": "本 post_state 补录于 2026-08-31T14:55:40Z，数字均为补录时点新鲜命令输出，作为该步验收佐证。",
@@ -182,5 +182,19 @@
     "mypy": "31 errors in 12 files（checked 61 source files；与 Step 7 基线持平，Step 10 清零）",
     "rag_p0": "11/12（评测契约未变）",
     "calc_p0": "28/28"
+  },
+  "step10_post_state": {
+    "generated_at": "2026-09-03T12:23:29Z",
+    "note": "本 post_state 补录于 2026-09-03T12:23:29Z（全项目评审时），数字均为补录时点新鲜命令输出，作为该步验收佐证。",
+    "commit": "faa8bb5（Step 10 交付）+ 830a502/b9ffdf2/61138ff/717085e（评审修复与收口）+ cdd6f46/c46109c/bd64f9e（P0/P1 修复）；全项目评审修复另见 56f3ce0/8757b93",
+    "modules": "harness/runner.py（--variant mock|trivium|real 默认 agentic 图、--real-graph legacy 对照；退出码 0/1/2/3、RealComponentsError 绝不包成 SKIP；EvalResult 增 variant/skipped/token_usage/retrieval_metrics/judge_scores）+ harness/llm_judge.py（结果缓存 jsonl）+ observability（llm_call 事件接 legacy 与 agentic，trace+OTel 落盘）+ scripts/ci_gate.sh + compare_baseline.py（THRESHOLDS 单一来源）+ cli.py（_build_retriever/_build_reranker 收口、--interactive 真正作答、--flow docgen 人审闭环）+ scripts/load_env.sh（.env 加载器，密钥不入库）+ retrieval/trivium.py（打开库时重建文本索引，修 cdd6f46）",
+    "tests": "pytest 444 collected 全绿（Step 10 交付 433；全项目评审新增 7 条回归：公式推断 3/版本状态键 1/superseded 警示 1/docgen 缺参透出 1/judge 缓存键 1/空上下文用量清零 1；其余为并发工作流在树测试）",
+    "ruff": "0 errors（src 全过；tests/scripts 有历史遗留告警，verify 门禁不覆盖）",
+    "mypy": "0（Success: no issues found in 64 source files；Step 10 达成清零，ci_gate 强制）",
+    "rag_p0": "11/12（评测契约未变）",
+    "calc_p0": "28/28",
+    "ci_gate": "bash scripts/ci_gate.sh exit 0（pytest + ruff + mypy + rag_p0 + calc_p0 + 基线对比全过）",
+    "real_variant": "rag_p1 --variant real 无 Key → skipped_all=true exit 0（SKIP 语义合法）；本机无持久 Key，真实运行证据见对话记录（2026-09-03 一次闭环：4 引用全部 ∈ 检索结果、0 重试）",
+    "unfinished": "prompt 打磨轮询、生产清单对照、检索矩阵重跑、agentic 空引用强制、versions.json 人工核实、检索 gold 泄漏——均如实记录于 AGENTS.md 尚未完成一节，评审未伪造任何结果"
   }
 }
