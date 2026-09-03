@@ -101,7 +101,7 @@ class BailianEmbeddingProvider:
         if not text.strip():
             raise ValueError("embedding text must not be empty")
         attempts = self.config.max_retries + 1
-        last_error: BaseException | None = None
+        last_error: BaseException = RuntimeError("embedding failed without an exception")
         for attempt in range(attempts):
             try:
                 vector = self._request_embedding(text)

@@ -76,7 +76,7 @@ def build_rag_graph(
             "status": STATUS_RUNNING,
             "step_count": state.get("step_count", 0) + 1,
         }
-        _exit("router", {**state, **result})
+        _exit("router", {**state, **result})  # type: ignore[typeddict-item]
         return result
 
     def retrieve_node(state: WaterAgentState) -> dict:
@@ -95,10 +95,10 @@ def build_rag_graph(
                 event="retrieve_complete",
                 query=state.get("query", ""),
                 context=context,
-                retry_count=state.get("retry_count", 0),
-                status=state.get("status", STATUS_RUNNING),
+                retry_count=state.get("retry_count", 0),  # type: ignore[arg-type]
+                status=state.get("status", STATUS_RUNNING),  # type: ignore[arg-type]
             )
-        _exit("retrieve", {**state, **result}, context=context)
+        _exit("retrieve", {**state, **result}, context=context)  # type: ignore[typeddict-item]
         return result
 
     def generate_node(state: WaterAgentState) -> dict:
@@ -118,10 +118,10 @@ def build_rag_graph(
                 query=state.get("query", ""),
                 context=state.get("context", []),
                 citations=generated.citations,
-                retry_count=state.get("retry_count", 0),
-                status=state.get("status", STATUS_RUNNING),
+                retry_count=state.get("retry_count", 0),  # type: ignore[arg-type]
+                status=state.get("status", STATUS_RUNNING),  # type: ignore[arg-type]
             )
-        _exit("generate", {**state, **result}, context=state.get("context", []), citations=generated.citations)
+        _exit("generate", {**state, **result}, context=state.get("context", []), citations=generated.citations)  # type: ignore[typeddict-item]
         return result
 
     def citation_check_node(state: WaterAgentState) -> dict:
@@ -153,9 +153,9 @@ def build_rag_graph(
                 query=state.get("query", ""),
                 context=state.get("context", []),
                 citations=state.get("citations", []),
-                retry_count=result.get("retry_count", state.get("retry_count", 0)),
+                retry_count=result.get("retry_count", state.get("retry_count", 0)),  # type: ignore[arg-type]
                 error=errors[-1] if check.errors else None,
-                status=state.get("status", STATUS_RUNNING),
+                status=state.get("status", STATUS_RUNNING),  # type: ignore[arg-type]
             )
             if bad:
                 trace.record(
@@ -164,11 +164,11 @@ def build_rag_graph(
                     query=state.get("query", ""),
                     context=state.get("context", []),
                     citations=state.get("citations", []),
-                    retry_count=result["retry_count"],
+                    retry_count=result["retry_count"],  # type: ignore[arg-type]
                     error=errors[-1],
-                    status=state.get("status", STATUS_RUNNING),
+                    status=state.get("status", STATUS_RUNNING),  # type: ignore[arg-type]
                 )
-        _exit("citation_check", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if check.errors else None)
+        _exit("citation_check", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if check.errors else None)  # type: ignore[typeddict-item]
         return result
 
     def finalize_node(state: WaterAgentState) -> dict:
@@ -185,8 +185,9 @@ def build_rag_graph(
         if trace is not None:
             if result["status"] == STATUS_FAILED:
                 trace.record(node="finalize", event="error", query=state.get("query", ""), context=state.get("context", []), citations=state.get("citations", []), retry_count=state.get("retry_count", 0), error=errors[-1], status=result["status"])
-            _exit("finalize", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if result["status"] == STATUS_FAILED else None)
-            trace.finish(status=result["status"], error=errors[-1] if result["status"] == STATUS_FAILED else None, context=state.get("context", []), citations=state.get("citations", []), retry_count=state.get("retry_count", 0))
+            _exit("finalize", {**state, **result}, context=state.get("context", []), citations=state.get("citations", []), error=errors[-1] if result["status"] == STATUS_FAILED else None)  # type: ignore[typeddict-item]
+            trace.finish(status=result["status"], error=errors[-1] if result["status"] == STATUS_FAILED else None, context=state.get("context", []), citations=state.get("citations", []), retry_count=state.get("retry_count", 0),  # type: ignore[arg-type]
+            )
         return result
 
     def route_after_citation(state: WaterAgentState) -> str:

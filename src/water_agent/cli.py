@@ -165,7 +165,7 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
                 dim = detected
             retriever = TriviumRetriever(
                 db_path=db_path,
-                embedding_fn=provider.embed,
+                embedding_fn=provider.embed,  # type: ignore[attr-defined]
                 hybrid_alpha=args.hybrid_alpha,
                 dim=dim,
                 fallback_clauses=fixture,
@@ -189,9 +189,9 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
         )
 
     if args.rerank == "local":
-        reranker = LocalReranker()
+        reranker: LocalReranker | None = LocalReranker()
     elif args.rerank == "bailian":
-        reranker = build_bailian_reranker(
+        reranker = build_bailian_reranker(  # type: ignore[assignment]
             api_key=args.rerank_api_key,
             model=args.rerank_model or BailianReranker.DEFAULT_MODEL,
             base_url=args.rerank_base_url or BailianReranker.DEFAULT_BASE_URL,
@@ -215,7 +215,7 @@ def run_calc_once(query: str) -> dict:
     计算意图的确定性入口；真实 LLM 参数理解在 Step 7 接入。
     """
     app = build_calc_graph()
-    state = {
+    state: dict = {
         "query": query.strip(),
         "intent": "calc",
         "formula": None,
@@ -433,7 +433,7 @@ def run_once(query: str, *, args: argparse.Namespace) -> dict:
     trace_id = uuid4().hex
     state = default_state(query=query, run_id=run_id, trace_id=trace_id)
     try:
-        result = app.invoke(state)
+        result: dict = app.invoke(state)  # type: ignore[attr-defined]
     except TriviumRetrievalError as exc:
         recorder.finish("failed", error=str(exc), query=query)
         raise RuntimeError(f"real db retrieval failed: {exc}") from exc
