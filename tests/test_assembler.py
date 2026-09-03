@@ -46,6 +46,60 @@ class TestPromptAssembler:
         assert ROLE_AND_PRINCIPLES in msg.content
         assert "引用可追溯" in msg.content
 
+    def test_contains_citation_precision_rule(self) -> None:
+        """引用精准作为普通执行规则保留（多本规范并存时口径最匹配优先）。"""
+        asm = PromptAssembler(version_registry=_FakeRegistry())
+        msg = asm.assemble_prompt()
+        assert "引用精准" in msg.content
+        assert "口径最匹配" in msg.content
+        assert "同一主张不堆砌" in msg.content
+
+    def test_three_iron_laws_restored_and_precision_outside_iron_laws(self) -> None:
+        """P1 评审：canonical 名称为【三条铁律】；引用精准只能是执行规则，不得改铁律定义。"""
+        asm = PromptAssembler(version_registry=_FakeRegistry())
+        content = asm.assemble_prompt().content
+        assert "【三条铁律】" in content
+        assert "四条铁律" not in content, "评审前把引用精准混入铁律的四条铁律定义必须移除"
+        assert content.count("【三条铁律】") == 1
+        assert "引用精准" in content
+        assert content.index("引用精准") > content.index("【执行规则】"), (
+            "引用精准必须位于铁律之外的执行规则区，不得改变项目铁律定义"
+        )
+
+    def test_informal_corpus_is_clue_only_with_explicit_disclosure(self) -> None:
+        """P1 评审：非正式语料不得"照常引用、标注不构成禁止引用"。
+
+        早期为让 rag-p1-0049 通过而加入"标注只是语料来源说明、不构成禁止引用"——
+        那等于让模型把联网整理的要点综述当正式条文引用。正确策略：带“要点综述 /
+        联网整理 / 非正式规范条文”标记的内容只能作为检索线索，必须标注其非正式性质、
+        不得表述为正式规范原文、不得据此给未核实的强制结论或精确限值，需要正式依据
+        时说明需核对正式出版标准。
+        """
+        asm = PromptAssembler(version_registry=_FakeRegistry())
+        content = asm.assemble_prompt().content
+        assert "要点综述" in content and "非正式规范条文" in content
+        assert "不构成禁止引用" not in content, "旧的'照常引用'规则必须删除"
+        assert "检索线索" in content
+        assert "正式出版标准" in content
+
+    def test_prompt_rules_single_source_no_drift(self) -> None:
+        """P1 评审：DEFAULT_AGENTIC_PROMPT 与 ROLE_AND_PRINCIPLES 不得各自维护一套规则。
+
+        两条提示路径（prompt=None 默认 / PromptAssembler 装配）必须复用一个公共静态
+        提示定义，否则规则文案会像评审前一样漂移（三条铁律 vs 四条铁律）。
+        """
+        from water_agent.graphs.agent_rag import DEFAULT_AGENTIC_PROMPT
+
+        assert ROLE_AND_PRINCIPLES in DEFAULT_AGENTIC_PROMPT, (
+            "默认 agentic 提示必须整体复用 ROLE_AND_PRINCIPLES 单一规则来源"
+        )
+        # 规则正文在任一提示成品里只出现一次（无重复段落）
+        assert DEFAULT_AGENTIC_PROMPT.count("引用可追溯") == 1
+        assert DEFAULT_AGENTIC_PROMPT.count("【三条铁律】") == 1
+        asm = PromptAssembler(version_registry=_FakeRegistry())
+        content = asm.assemble_prompt().content
+        assert content.count("【三条铁律】") == 1
+
     def test_contains_version_snapshot(self) -> None:
         asm = PromptAssembler(version_registry=_FakeRegistry())
         msg = asm.assemble_prompt()

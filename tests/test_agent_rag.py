@@ -93,6 +93,23 @@ def _agentic_args(tmp_path, **overrides) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
+def _assert_tool_message_protocol(messages: list[BaseMessage]) -> None:
+    """回归护栏（真实链路 rag-p1 暴露）：OpenAI 兼容 API 要求 role='tool' 消息必须
+    紧跟在带 tool_calls 的 assistant 消息后——逐条检查历史中 ToolMessage 的前置合法性。"""
+    for i, m in enumerate(messages):
+        if isinstance(m, ToolMessage):
+            assert i > 0, f"ToolMessage({m.name}) 前必须有 AIMessage，实际是历史首条"
+            prev = messages[i - 1]
+            assert isinstance(prev, AIMessage), (
+                f"ToolMessage({m.name}) 前一条必须是 AIMessage，实际是 {type(prev).__name__}"
+            )
+            ids = [tc.get("id") for tc in (prev.tool_calls or [])]
+            assert m.tool_call_id in ids, (
+                f"ToolMessage({m.name}) 的 tool_call_id={m.tool_call_id!r} 必须在"
+                f"前一条 AIMessage 的 tool_calls 中（{ids}）"
+            )
+
+
 class TestToolSpecToBaseTool:
     def test_adapter_proxies_registry(self, retriever) -> None:
         registry = ToolRegistry()
@@ -135,9 +152,10 @@ class TestAgenticApp:
             build_agentic_app(model=model, tools=tools, checkpointer=None)
 
     def test_tool_call_executed_and_observation_returned(self, retriever) -> None:
-        """假模型触发 ToolNode 执行，工具结果以 ToolMessage 回填。"""
+        """假模型触发 ToolNode 执行，工具结果以 ToolMessage 回填；引用闭环成立。"""
         responses = [
             _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
             _assistant("根据检索结果，设计秒流量按规范条文确定。"),
         ]
         model = FakeMessagesListChatModel(responses=responses)
@@ -152,6 +170,7 @@ class TestAgenticApp:
         tool_msgs = [m for m in messages if isinstance(m, ToolMessage)]
         assert any(m.name == "retrieve_clauses" for m in tool_msgs)
         assert out["status"] == "succeeded"
+        assert [c.source_id for c in out["citations"]] == ["FIX 1.1.1"]
         assert messages[-1].content  # 最终模型回答非空
 
     def test_invalid_citation_reinjected_and_retries(self, retriever) -> None:
@@ -177,6 +196,7 @@ class TestAgenticApp:
         assert out["retry_count"] == 1
         assert out["status"] == "succeeded"
         assert [c.source_id for c in out["citations"]] == ["FIX 1.1.1"]
+        _assert_tool_message_protocol(messages)
 
     def test_citation_claims_carry_version_status(self, retriever) -> None:
         """Step 8：校验器接版本注册表，版本状态写回 CitationClaim；未知只标记不进 errors。"""
@@ -249,12 +269,97 @@ class TestAgenticApp:
         assert out["status"] == "failed"
         assert any("预算" in e or "轮数" in e for e in out["errors"]), f"errors: {out['errors']}"
 
+    # ── P1/Step 10 评审：零引用强制闭环 ──────────────────────────────
+
+    def test_zero_citation_triggers_reflow_then_correct_cite_succeeds(self, retriever) -> None:
+        """有检索、有回答、无引用 → 注入要求 cite_clauses 的 ToolMessage 回流一次；
+        回流后正确引用 → 收口成功。"""
+        responses = [
+            _retrieve_call(retriever),
+            _assistant("第一轮给出了回答但没有声明引用。"),
+            _cite_call(["FIX 1.1.1"], call_id="c-cite-after-reflow"),
+            _assistant("根据检索结果，设计秒流量按规范条文确定。"),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": "t1"}},
+            )
+        messages: list[BaseMessage] = out["messages"]
+        reflow = [
+            m for m in messages
+            if isinstance(m, ToolMessage) and "cite_clauses" in str(m.content) and "声明引用" in str(m.content)
+        ]
+        assert reflow, "空引用必须以明确要求调用 cite_clauses 的 ToolMessage 回流一次"
+        assert out["status"] == "succeeded"
+        assert out["retry_count"] == 1
+        assert out["empty_citation_reflows"] == 1
+        assert [c.source_id for c in out["citations"]] == ["FIX 1.1.1"]
+        _assert_tool_message_protocol(messages)
+
+    def test_consecutive_zero_citations_fail_visibly(self, retriever) -> None:
+        """有检索、已回流一次后仍零引用 → 结构化失败，错误文本必须可见。"""
+        responses = [
+            _retrieve_call(retriever),
+            _assistant("第一轮：给出回答但未声明引用。"),
+            _assistant("第二轮：仍然没有调用 cite_clauses。"),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": "t1"}},
+            )
+        messages: list[BaseMessage] = out["messages"]
+        assert out["status"] == "failed"
+        assert out["empty_citation_reflows"] == 1
+        assert any("cite_clauses" in e for e in out["errors"]), f"失败错误必须可见: {out['errors']}"
+        assert any("零引用" in e or "空引用" in e for e in out["errors"])
+        _assert_tool_message_protocol(messages)
+
+    def test_zero_citation_without_retrieval_and_explicit_no_basis_succeeds(self, retriever) -> None:
+        """无检索结果且模型明确说明未检索到依据 → 允许无引用收口，不强制伪造引用。"""
+        responses = [
+            _assistant("未能在规范条款库中检索到相关内容，无法提供条款依据。"),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="某新型材料是否合规")]},
+                config={"configurable": {"thread_id": "t1"}},
+            )
+        assert out["status"] == "succeeded", f"errors: {out['errors']}"
+        assert out["citations"] == []
+        assert out.get("retry_count", 0) == 0
+        assert out["errors"] == []
+
+    def test_zero_citation_with_empty_answer_fails(self, retriever) -> None:
+        """空回答 + 零引用：无内容可收口 → 结构化失败。"""
+        responses = [
+            _retrieve_call(retriever),
+            AIMessage(content="", tool_calls=[]),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": "t1"}},
+            )
+        assert out["status"] == "failed"
+        assert out["errors"], "空回答/零引用失败原因必须可见"
+
     def test_astream_agentic_offline_yields_tokens_and_final_state(self, retriever) -> None:
         """流式接线离线验证（Step 7）：messages+values 双模式，token 回调可见、最终 state 完整。"""
         from water_agent.graphs.agent_rag import astream_agentic
 
         responses = [
             _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
             _assistant("根据检索结果，设计秒流量按规范条文确定。"),
         ]
         model = FakeMessagesListChatModel(responses=responses)

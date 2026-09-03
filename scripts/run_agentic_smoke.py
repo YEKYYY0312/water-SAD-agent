@@ -1,6 +1,7 @@
 """Step 6+8 冒烟：假模型驱动的 Agentic RAG 外层循环端到端。
 
-预置两轮：第一轮 ``tool_calls=[retrieve_clauses]``，第二轮 final answer。
+预置流程：retrieve_clauses → cite_clauses → final answer（引用闭环强制：有检索结果
+就必须 cite_clauses 声明引用，零引用会被回流一次后结构化失败）。
 Step 8 增强：
 - ``prompt=PromptAssembler(tool_registry=registry)``（可调用装配器，动态系统提示）；
 - 运行时上下文投影：上下文变化才注入一条用户消息，未变化不重复注入；
@@ -55,6 +56,16 @@ def main() -> int:
                         "name": "retrieve_clauses",
                         "args": {"query": "给水管道的设计秒流量", "top_k": 5},
                         "id": "c-retrieve",
+                    }
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "cite_clauses",
+                        "args": {"article_ids": ["FIX 1.1.1"]},
+                        "id": "c-cite",
                     }
                 ],
             ),
