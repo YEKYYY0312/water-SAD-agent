@@ -298,3 +298,78 @@ class TestRealComponentsFailureIsNotSkip:
         err = capsys.readouterr().err
         assert code == runner_mod.EXIT_REAL_COMPONENTS_FAILED == 3
         assert "real_components_failed" in err and "embedding dimension mismatch" in err
+
+
+class TestRealVariantAgentic:
+    """--variant real 默认走 agentic 图：引用由模型 cite_clauses 声明、校验器真判（离线用假模型验证机制）。"""
+
+    @pytest.fixture
+    def offline_real(self, monkeypatch: pytest.MonkeyPatch):
+        from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+        from langchain_core.messages import AIMessage
+
+        from water_agent.harness import runner as runner_mod
+        from water_agent.retrieval.in_memory import InMemoryRetriever
+        from water_agent.retrieval.loader import load_clauses_jsonl
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-dummy")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-dummy")
+        monkeypatch.setattr(runner_mod.HarnessRunner, "_probe_real_skip", lambda self: None)
+        monkeypatch.setattr(
+            runner_mod.HarnessRunner,
+            "_build_real_retriever",
+            lambda self: InMemoryRetriever(load_clauses_jsonl(FIXTURE_PATH)),
+        )
+        responses = [
+            AIMessage(content="", tool_calls=[{"name": "retrieve_clauses", "args": {"query": "给水管道的设计秒流量", "top_k": 5}, "id": "c1"}]),
+            AIMessage(content="", tool_calls=[{"name": "cite_clauses", "args": {"article_ids": ["FIX 1.1.1"]}, "id": "c2"}]),
+            AIMessage(content="设计秒流量按用水定额与用水人数计算。"),
+        ]
+        monkeypatch.setattr(
+            runner_mod.HarnessRunner,
+            "_build_real_chat_model",
+            lambda self: FakeMessagesListChatModel(responses=responses),
+        )
+        return runner_mod
+
+    def _eval_file(self, tmp_path: Path) -> Path:
+        path = tmp_path / "real.jsonl"
+        path.write_text(
+            json.dumps({"id": "r-1", "type": "rag", "variant": "real", "query": "给水管道的设计秒流量", "gold_articles_any": ["FIX 1.1.1"]}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_agentic_real_case_scores_model_declared_citations(self, tmp_path: Path, offline_real) -> None:
+        runner = HarnessRunner(
+            eval_path=self._eval_file(tmp_path), report_dir=tmp_path / "r", trace_dir=tmp_path / "t",
+            fixture_path=FIXTURE_PATH, variant="real",
+        )
+        report, _, _ = runner.run()
+        case = report.cases[0]
+        assert case.skipped is False and case.passed is True, case.failure_reason
+        assert case.variant == "real"
+        assert case.actual_citations == ["FIX 1.1.1"], "引用必须来自模型 cite_clauses 声明，而非系统代填"
+        assert "FIX 1.1.1" in case.context_articles
+        assert case.retrieval_metrics["recall_at_5"] == 1.0
+        assert report.citation_ok_rate == 1.0
+        # trace 由 agentic 图落盘，含 llm_call
+        traces = list((tmp_path / "t").glob("*.json"))
+        assert traces and case.trace_id
+        doc = json.loads(traces[0].read_text(encoding="utf-8"))
+        assert any(e["event_type"] == "llm_call" for e in doc["events"])
+
+    def test_legacy_real_graph_still_available_for_comparison(self, tmp_path: Path, offline_real, monkeypatch: pytest.MonkeyPatch) -> None:
+        from water_agent.generation.mock import MockGenerator
+
+        monkeypatch.setattr(offline_real.HarnessRunner, "_build_real_generator", lambda self: MockGenerator())
+        runner = HarnessRunner(
+            eval_path=self._eval_file(tmp_path), report_dir=tmp_path / "r", trace_dir=tmp_path / "t",
+            fixture_path=FIXTURE_PATH, variant="real", real_graph="legacy",
+        )
+        report, _, _ = runner.run()
+        assert report.cases[0].passed is True and report.cases[0].variant == "real"
+
+    def test_invalid_real_graph_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="real_graph"):
+            HarnessRunner(eval_path=EVAL_PATH, report_dir=tmp_path, trace_dir=tmp_path, fixture_path=FIXTURE_PATH, real_graph="nope")
