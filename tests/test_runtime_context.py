@@ -69,3 +69,19 @@ class TestDefaultContextBuilder:
     def test_extra_included(self) -> None:
         ctx = default_context_builder(extra={"project": "给排水改造"})
         assert ctx["extra"] == {"project": "给排水改造"}
+
+    def test_multi_version_same_spec_keeps_distinct_keys(self) -> None:
+        """同一规范多版本（现行+被取代）各自成行，不被后写覆盖（S8-01 回归）。"""
+
+        class FakeRegistry:
+            def list_all(self):
+                return [
+                    {"spec_id": "GB50015", "version": "2019", "status": "current"},
+                    {"spec_id": "GB50015", "version": "2003", "status": "superseded"},
+                ]
+
+        ctx = default_context_builder(version_registry=FakeRegistry())
+        assert ctx["version_status"] == {
+            "GB50015-2019": "current",
+            "GB50015-2003": "superseded",
+        }
