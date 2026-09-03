@@ -121,11 +121,16 @@ def _suggestions(cid: str, context_set: set[str], n: int = 3, cutoff: float = 0.
 
 
 def _resolve_version(registry: Any, cid: str) -> Any:
-    """向版本注册表查询现行状态；查不到或异常都视为 unknown（仅标记）。"""
+    """向版本注册表查询现行状态；查不到或异常都视为 unknown（仅标记）。
+
+    优先从 source_id 提取完整规范 ID（含版本），如 "GB50015-2019 5.4.2" -> "GB50015-2019"。
+    """
     if not hasattr(registry, "get_spec_status"):
         return None
     try:
-        return registry.get_spec_status(_spec_id_of(cid))
+        # 从 source_id 提取规范 ID（可能含版本后缀）
+        spec_id_with_version = _spec_id_of(cid)
+        return registry.get_spec_status(spec_id_with_version)
     except Exception:  # noqa: BLE001 — 注册表异常不抛给调用方，统一按 unknown 标记
         return None
 
@@ -140,4 +145,9 @@ def _is_unknown(status: Any) -> bool:
 
 
 def _spec_id_of(cid: str) -> str:
+    """从 source_id 提取规范主体（保留版本后缀）。
+
+    例如：
+        "GB50015-2019 5.4.2" -> "GB50015-2019"
+    """
     return cid.split(" ", 1)[0] if " " in cid else cid
