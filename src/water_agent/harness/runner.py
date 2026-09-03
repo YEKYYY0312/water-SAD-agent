@@ -2,6 +2,10 @@
 
 机制层（``variant=mock``，默认）：InMemoryRetriever + MockGenerator —— 离线、确定性、PR 门禁。
 质量层（``variant=real``，需 Key）：真实 TriviumDB 索引 + 真实 Embedding + 真实 LLM + 可选 rerank + 可选 LLM-as-judge —— 无 Key 时结构化 SKIP。
+
+真实变体默认走 **agentic 图**（``--real-graph agentic``）：模型经 ``cite_clauses`` 自己声明引用，
+校验器真判。legacy 图（``--real-graph legacy``）的引用是系统从 context 前 N 条代填的，
+citation_ok 恒真、pass_rate 实际等于检索 recall@k——保留仅供改造前后对比（workbench benchmark）。
 """
 from __future__ import annotations
 
@@ -22,9 +26,11 @@ from water_agent.domain.models import (
     TokenUsage,
 )
 from water_agent.domain.state import default_state
+from water_agent.generation.chat_model import build_chat_model
 from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
+from water_agent.graphs.agent_rag import _extract_validation_signal, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.harness.doubles import BadCitationGenerator
@@ -36,8 +42,14 @@ from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
+from water_agent.retrieval.rerank import RerankingRetriever
 from water_agent.retrieval.trivium import TriviumRetriever
+from water_agent.tools.calc_velocity import calc_velocity_spec
+from water_agent.tools.cite import build_cite_clauses_tool
+from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
+from water_agent.tools.registry import ToolRegistry
+from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVAL_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
@@ -106,7 +118,13 @@ class HarnessRunner:
         judge_model: str = DEFAULT_JUDGE_MODEL,
         judge_base_url: str = DEFAULT_JUDGE_BASE_URL,
         judge_api_key_env: str = DEFAULT_JUDGE_API_KEY_ENV,
+        real_graph: str = "agentic",
+        max_tool_turns: int = 10,
     ) -> None:
+        if real_graph not in {"agentic", "legacy"}:
+            raise ValueError(f"real_graph 必须是 agentic|legacy，得到 {real_graph!r}")
+        self.real_graph = real_graph
+        self.max_tool_turns = max_tool_turns
         self.eval_path = Path(eval_path)
         self.report_dir = Path(report_dir)
         self.trace_dir = Path(trace_dir)
@@ -137,6 +155,7 @@ class HarnessRunner:
         # 真实组件缓存（惰性构建）
         self._real_retriever: TriviumRetriever | None = None
         self._real_generator = None
+        self._real_chat_model = None
         self._real_skip_reason: str | None = None
         self._real_judge: LLMJudge | None = None
 
@@ -194,11 +213,15 @@ class HarnessRunner:
             system_prompt=system_prompt,
         )
 
+    def _build_real_chat_model(self):
+        """构建真实 chat model（ChatOpenAI/DeepSeek function calling，agentic 图用）。"""
+        return build_chat_model(model=self.model, base_url=self.base_url, api_key_env=self.api_key_env)
+
     def _ensure_real_components(self):
-        """惰性初始化真实组件。如不可用，设置 ``_real_skip_reason``。"""
+        """惰性初始化真实组件。缺 Key/索引 → ``_real_skip_reason``；建不起来 → RealComponentsError。"""
         if self._real_skip_reason is not None:
             return
-        if self._real_retriever is not None and self._real_generator is not None:
+        if self._real_retriever is not None and (self._real_generator is not None or self._real_chat_model is not None):
             return
         skip = self._probe_real_skip()
         if skip:
@@ -206,7 +229,10 @@ class HarnessRunner:
             return
         try:
             self._real_retriever = self._build_real_retriever()
-            self._real_generator = self._build_real_generator()
+            if self.real_graph == "agentic":
+                self._real_chat_model = self._build_real_chat_model()
+            else:
+                self._real_generator = self._build_real_generator()
             if self.judge:
                 self._real_judge = LLMJudge(
                     judge_model=self.judge_model,
@@ -323,6 +349,8 @@ class HarnessRunner:
             self._ensure_real_components()
             if self._real_skip_reason:
                 return self._skip_result(case, reason=self._real_skip_reason, line_no=line_no)
+            if self.real_graph == "agentic":
+                return self._run_real_agentic_case(case, line_no=line_no)
 
         # 装配图组件
         retriever = self._retriever_for(_variant)
@@ -376,33 +404,115 @@ class HarnessRunner:
                 cost_usd=estimate_deepseek_cost(inp, out),
             )
 
-        # 回答质量 Judge（仅 variant=real 且 --judge 启用时）
-        if self.judge and _variant == "real" and self._real_judge is not None:
-            judge_result = self._real_judge.evaluate(
-                case.query,
-                result.get("answer", ""),
-                context=[c.text for c in result.get("context", [])] if result.get("context") else None,
-            )
-            if judge_result.scores:
-                scored.judge_scores = {k: v.score for k, v in judge_result.scores.items()}
-                scored.judge_reasoning = json.dumps(
-                    {k: v.reasoning for k, v in judge_result.scores.items()},
-                    ensure_ascii=False,
-                )
-            # judge token 用量合并到 case token_usage
-            if judge_result.token_usage:
-                jt = judge_result.token_usage
-                if scored.token_usage is None:
-                    scored.token_usage = jt
-                else:
-                    scored.token_usage.input_tokens += jt.input_tokens
-                    scored.token_usage.output_tokens += jt.output_tokens
-                    scored.token_usage.total_tokens += jt.total_tokens
-                    scored.token_usage.cost_usd = round(
-                        scored.token_usage.cost_usd + jt.cost_usd, 8
-                    )
+        if _variant == "real":
+            self._apply_judge(scored, case.query, result.get("answer", ""), context_texts=[c.text for c in result.get("context", [])])
 
         return scored
+
+    def _run_real_agentic_case(self, case, *, line_no: int | None = None) -> EvalResult:
+        """真实质量层（agentic 图）：模型自己检索、自己用 cite_clauses 声明引用、校验器真判。
+
+        context_articles 取自消息历史里 retrieve_clauses 的命中（按召回顺序，供 recall@k）；
+        token 用量汇总自各 AIMessage.usage_metadata；trace 由 build_agentic_app(trace=) 落盘。
+        """
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langgraph.checkpoint.memory import MemorySaver
+
+        assert self._real_retriever is not None and self._real_chat_model is not None
+        reranker = self._reranker_for("real")
+        retriever = (
+            RerankingRetriever(self._real_retriever, reranker, recall_top_k=self.recall_top_k)
+            if reranker is not None
+            else self._real_retriever
+        )
+        registry = ToolRegistry()
+        registry.register(build_retrieve_clauses_tool(retriever))
+        registry.register(build_cite_clauses_tool())
+        registry.register(calc_velocity_spec)
+        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+        recorder = JsonTraceRecorder(self.trace_dir)
+
+        started = time.perf_counter()
+        with MemorySaver() as saver:
+            app = build_agentic_app(
+                model=self._real_chat_model,
+                tools=tools,
+                checkpointer=saver,
+                prompt=PromptAssembler(tool_registry=registry),
+                max_tool_turns=self.max_tool_turns,
+                trace=recorder,
+            )
+            result = app.invoke(
+                {"messages": [HumanMessage(content=case.query)], "query": case.query},
+                config={"configurable": {"thread_id": uuid4().hex}},
+            )
+        latency_ms = (time.perf_counter() - started) * 1000
+
+        context_articles, _ = _extract_validation_signal(result)
+        actual_citations = [c.source_id for c in result.get("citations", [])]
+        scored = score_eval_case(
+            case,
+            actual_status=result.get("status", ""),
+            actual_citations=actual_citations,
+            context_articles=context_articles,
+            latency_ms=latency_ms,
+            trace_id=recorder.trace_id or "",
+            retry_count=int(result.get("retry_count", 0)),
+            line_no=line_no,
+        )
+        scored.variant = "real"
+        if not scored.passed and result.get("errors"):
+            scored.failure_reason = "; ".join([scored.failure_reason, *result["errors"]]).strip("; ")
+
+        in_tok = out_tok = 0
+        for m in result.get("messages", []):
+            meta = getattr(m, "usage_metadata", None) if isinstance(m, AIMessage) else None
+            if meta:
+                in_tok += int(meta.get("input_tokens", 0) or 0)
+                out_tok += int(meta.get("output_tokens", 0) or 0)
+        if in_tok or out_tok:
+            scored.token_usage = TokenUsage(
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                total_tokens=in_tok + out_tok,
+                cost_usd=estimate_deepseek_cost(in_tok, out_tok),
+            )
+        self._apply_judge(scored, case.query, result.get("answer", ""), context_texts=self._context_texts_from_messages(result))
+        return scored
+
+    @staticmethod
+    def _context_texts_from_messages(result: dict) -> list[str]:
+        """从 retrieve_clauses 的 ToolMessage 里取条文正文，供 judge 做忠实度判据。"""
+        from langchain_core.messages import ToolMessage
+
+        from water_agent.graphs.agent_rag import _payload_of
+
+        texts: list[str] = []
+        for m in result.get("messages", []):
+            if isinstance(m, ToolMessage) and m.name == "retrieve_clauses":
+                for hit in _payload_of(m).get("hits", []) or []:
+                    text = hit.get("text")
+                    if text:
+                        texts.append(str(text))
+        return texts
+
+    def _apply_judge(self, scored: EvalResult, query: str, answer: str, *, context_texts: list[str] | None) -> None:
+        """--judge 时给用例打 rubric 分并合并 judge token 用量（real 变体专用）。"""
+        if not self.judge or self._real_judge is None:
+            return
+        judge_result = self._real_judge.evaluate(query, answer, context=context_texts or None)
+        if judge_result.scores:
+            scored.judge_scores = {k: v.score for k, v in judge_result.scores.items()}
+            scored.judge_reasoning = json.dumps({k: v.reasoning for k, v in judge_result.scores.items()}, ensure_ascii=False)
+        if judge_result.token_usage:
+            jt = judge_result.token_usage
+            if scored.token_usage is None:
+                scored.token_usage = jt
+            else:
+                scored.token_usage.input_tokens += jt.input_tokens
+                scored.token_usage.output_tokens += jt.output_tokens
+                scored.token_usage.total_tokens += jt.total_tokens
+                scored.token_usage.cost_usd = round(scored.token_usage.cost_usd + jt.cost_usd, 8)
 
     def _error_result(self, case, *, line_no: int | None, exc: BaseException) -> EvalResult:
         """单用例崩溃兜底：标记 failed + actual_status=error，堆栈进 report 与 trace。"""
@@ -533,6 +643,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="Judge 模型名")
     p.add_argument("--judge-base-url", default=DEFAULT_JUDGE_BASE_URL, help="Judge base_url")
     p.add_argument("--judge-api-key-env", default=DEFAULT_JUDGE_API_KEY_ENV, help="Judge API Key 环境变量名")
+    p.add_argument("--real-graph", choices=["agentic", "legacy"], default="agentic",
+                   help="--variant real 走哪条图：agentic（默认，模型自己声明引用、校验器真判）/ legacy（引用系统代填，仅供对比）")
+    p.add_argument("--max-tool-turns", type=int, default=10, help="agentic 图每轮工具调用预算")
     return p
 
 
@@ -560,6 +673,8 @@ def main(argv: list[str] | None = None) -> int:
             judge_model=args.judge_model,
             judge_base_url=args.judge_base_url,
             judge_api_key_env=args.judge_api_key_env,
+            real_graph=args.real_graph,
+            max_tool_turns=args.max_tool_turns,
         )
         report, report_path, load_issues = runner.run()
     except RealComponentsError as exc:
@@ -575,6 +690,7 @@ def main(argv: list[str] | None = None) -> int:
     output = {
         "ok": True,
         "variant": runner.variant or "per-case",
+        "real_graph": runner.real_graph,
         "total": report.total,
         "passed": report.passed,
         "failed": report.failed,

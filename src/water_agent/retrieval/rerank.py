@@ -16,6 +16,7 @@ from urllib import request
 from urllib.error import HTTPError
 
 from water_agent.domain.models import RetrievedClause
+from water_agent.retrieval.base import Retriever
 
 
 class Reranker(ABC):
@@ -191,3 +192,24 @@ def build_bailian_reranker(
 ) -> BailianReranker:
     key = api_key if api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
     return BailianReranker(api_key=key, model=model, base_url=base_url, transport=transport)
+
+
+class RerankingRetriever(Retriever):
+    """把"召回 recall_top_k → rerank 截断 top_k"包成一个 Retriever。
+
+    legacy 图在 retrieve 节点里做这两步；agentic 图的 retrieve_clauses 工具只认
+    ``Retriever.retrieve``，用这个适配器让两条路径的检索口径一致。
+    """
+
+    def __init__(self, inner: Retriever, reranker: Reranker, *, recall_top_k: int = 20) -> None:
+        self._inner = inner
+        self._reranker = reranker
+        self._recall_top_k = recall_top_k
+
+    def retrieve(self, query: str, top_k: int = 5) -> list[RetrievedClause]:
+        candidates = self._inner.retrieve(query, top_k=max(self._recall_top_k, top_k))
+        return self._reranker.rerank(query, candidates, top_k=top_k)
+
+    def __getattr__(self, name: str):
+        # is_fallback / db_error / text_index_ready / close 等透传给内层检索器
+        return getattr(self._inner, name)
