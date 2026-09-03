@@ -45,7 +45,7 @@
 | 5 | 引用声明工具与确定性校验器 | ✅ | test_citation_check；validate_citations 纯函数 |
 | 6 | Agentic RAG 外层循环 + ToolNode（agent_loop→citation_validator→finalize，回流 ≤2 次，轮数预算） | ✅ | test_agent_rag 12 用例（Step 6 交付 9 + 评审 1 + Step 7 增 2）；run_agentic_smoke.py |
 | 7 | 真实模型接入（DeepSeek function calling + 流式） | ✅ | test_chat_model 4 用例；smoke_agentic.sh（无 Key SKIP）；--mode agentic 无 Key 结构化报错 |
-| 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 35 用例；run_agentic_smoke.py 上下文段仅注入一次 |
+| 8 | 系统提示装配 + 运行时上下文投影 + 规范版本注册表 | ✅ | test_assembler / test_runtime_context / test_version_registry 36 用例；run_agentic_smoke.py 上下文段仅注入一次 |
 | 9 | Human-in-the-Loop：interrupt 审批节点 | ✅ | test_docgen_hitl 9 用例；拒绝回流重拟（总稿数上限 2）+ 最后一稿被拒收口 failed + approval_log + SqliteSaver 落盘恢复+ `cli.py --flow docgen` 人审闭环（y/n+原因、EOF 挂起、--resume 恢复、审批记录进 trace，test_cli_flows） |
 | 10 | 双轨评测 + 观测 + CI 门禁 + 文档收口 | ✅（两项未做见下） | 评审修复：real 变体默认 agentic 图（引用由模型声明）、真实组件失败 exit 3（≠SKIP）、llm_call 观测真正接线、`--interactive` 真正作答；**未做**：prompt 打磨轮询、生产清单对照；pytest 432 全绿 / ruff 0 / mypy 0（清零）/ ci_gate.sh 通过 |
 
