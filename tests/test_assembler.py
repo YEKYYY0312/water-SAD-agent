@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import pytest
 from langchain_core.messages import SystemMessage
 
 from water_agent.prompting.assembler import (
@@ -82,16 +83,39 @@ class TestPromptAssembler:
         msg = asm.assemble_prompt()
         assert "规范版本状态" not in msg.content
 
-    def test_budget_limits_dynamic_segment(self) -> None:
-        """动态段（版本快照/工具指南）受段级预算约束。"""
-        registry = ToolRegistry()
-        registry.register(calc_velocity_spec)
-        asm = PromptAssembler(version_registry=_FakeRegistry(), tool_registry=registry)
-        msg = asm.assemble_prompt()
-        content = msg.content
-        # 整体长度受预算之和约束（粗略断言：不超过各段预算之和的 2 倍安全阀）
-        total_budget = sum(SEGMENT_BUDGETS.values())
-        assert len(content) <= total_budget * 4
+    def test_budget_truncates_dynamic_segment_with_marker(self) -> None:
+        """动态段（版本快照）超预算 → 按行截断到预算内，且**显式标注省略行数**。"""
+
+        class HugeRegistry:
+            def list_all(self):
+                return []
+
+            def snapshot_lines(self):
+                return [f"- GB{i:05d}-2019: 现行[来源: test]" for i in range(200)]
+
+        asm = PromptAssembler(version_registry=HugeRegistry())
+        content = asm.assemble_prompt().content
+        start = content.index("【规范版本状态")
+        end = content.index("【公式口径")
+        segment = content[start:end].strip()
+        assert len(segment) <= SEGMENT_BUDGETS["version_snapshot"]
+        assert "省略" in segment and "行" in segment, "截断必须可见，否则模型会把没列出误当不存在"
+        assert "GB00000-2019" in segment  # 前面的行保留
+        assert "GB00199-2019" not in segment  # 后面的行被省略
+
+    def test_dynamic_segment_within_budget_not_truncated(self) -> None:
+        asm = PromptAssembler(version_registry=_FakeRegistry())
+        content = asm.assemble_prompt().content
+        assert "省略" not in content
+
+    def test_static_segments_within_budget(self) -> None:
+        """静态段（角色铁律/公式口径）不截断：必须本身就在预算内，否则装配直接抛错。"""
+        from water_agent.prompting.assembler import FORMULA_SPECS, _check_static_budget
+
+        assert len(ROLE_AND_PRINCIPLES) <= SEGMENT_BUDGETS["role_and_principles"]
+        assert len(FORMULA_SPECS) <= SEGMENT_BUDGETS["formula_specs"]
+        with pytest.raises(ValueError, match="超预算"):
+            _check_static_budget("role_and_principles", "x" * (SEGMENT_BUDGETS["role_and_principles"] + 1))
 
     def test_callable_signature_for_create_react_agent(self) -> None:
         """PromptAssembler 可作为 create_react_agent 的 prompt 可调用对象。"""

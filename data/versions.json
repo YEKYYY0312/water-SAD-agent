@@ -2,37 +2,37 @@
   {
     "spec_id": "GB50015",
     "version": "2019",
-    "status": "current",
+    "status": "unknown",
     "effective_date": null,
     "successor": null,
-    "source": "项目语料实际入库（data/curated/clauses/GB50015-2019.jsonl），生效日期未人工核实，按现行处理",
+    "source": "未核实：data/curated/clauses/GB50015-2019.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
     "verified_at": "2026-09-03"
   },
   {
     "spec_id": "GB50013",
     "version": "2018",
-    "status": "current",
+    "status": "unknown",
     "effective_date": null,
     "successor": null,
-    "source": "项目语料实际入库（data/curated/clauses/GB50013-2018.jsonl），生效日期未人工核实，按现行处理",
+    "source": "未核实：data/curated/clauses/GB50013-2018.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
     "verified_at": "2026-09-03"
   },
   {
     "spec_id": "GB50014",
     "version": "2021",
-    "status": "current",
+    "status": "unknown",
     "effective_date": null,
     "successor": null,
-    "source": "项目语料实际入库（data/curated/clauses/GB50014-2021.jsonl），生效日期未人工核实，按现行处理",
+    "source": "未核实：data/curated/clauses/GB50014-2021.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
     "verified_at": "2026-09-03"
   },
   {
     "spec_id": "GB50318",
     "version": "2017",
-    "status": "current",
+    "status": "unknown",
     "effective_date": null,
     "successor": null,
-    "source": "项目语料实际入库（data/curated/clauses/GB50318-2017.jsonl），生效日期未人工核实，按现行处理",
+    "source": "未核实：data/curated/clauses/GB50318-2017.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
     "verified_at": "2026-09-03"
   }
 ]

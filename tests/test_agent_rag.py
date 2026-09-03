@@ -177,6 +177,34 @@ class TestAgenticApp:
         assert out["status"] == "succeeded"
         assert [c.source_id for c in out["citations"]] == ["FIX 1.1.1"]
 
+    def test_citation_claims_carry_version_status(self, retriever) -> None:
+        """Step 8：校验器接版本注册表，版本状态写回 CitationClaim；未知只标记不进 errors。"""
+
+        class FakeRegistry:
+            def get_spec_status(self, spec_id: str) -> dict:
+                return {"status": "current" if spec_id == "FIX" else "unknown"}
+
+        responses = [
+            _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
+            _assistant("最终回答。"),
+        ]
+        model = FakeMessagesListChatModel(responses=responses)
+        with MemorySaver() as saver:
+            app = build_agentic_app(
+                model=model,
+                tools=_build_tools(retriever),
+                checkpointer=saver,
+                version_registry=FakeRegistry(),
+            )
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": "t1"}},
+            )
+        assert out["status"] == "succeeded"
+        assert out["citations"][0].version_status == "current"
+        assert out["errors"] == []
+
     def test_citation_retry_bounded_then_fails(self, retriever) -> None:
         """最多回流 2 次；持续编造引用 → 结构化失败且 errors 可见。"""
         responses = [

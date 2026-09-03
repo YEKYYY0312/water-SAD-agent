@@ -16,6 +16,7 @@ from urllib import request
 
 from water_agent.domain.models import Citation, GeneratedAnswer, RetrievedClause
 from water_agent.generation.base import Generator
+from water_agent.ingestion.version_registry import split_spec_id
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-chat"
@@ -111,11 +112,14 @@ class LLMGenerator(Generator):
 
 
 def _clause_to_citation(clause: RetrievedClause) -> Citation:
+    # Step 8：spec_version 由 spec_id 后缀解析（"GB50015-2019" → "2019"），无后缀为 None
+    _, version = split_spec_id(clause.spec_id)
     return Citation(
         spec_id=clause.spec_id,
         article=clause.article,
         title=clause.title,
         text_snippet=clause.text[:60],
+        spec_version=version,
     )
 
 

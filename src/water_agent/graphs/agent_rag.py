@@ -49,8 +49,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
 from pydantic import ConfigDict
 
-from water_agent.domain.citation import CitationClaim, validate_citations
+from water_agent.domain.citation import CitationClaim, enrich_claims, validate_citations
 from water_agent.domain.state import MAX_CITATION_RETRIES, STATUS_FAILED, STATUS_SUCCEEDED
+from water_agent.ingestion.version_registry import get_version_registry
 
 # 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
 RECURSION_LIMIT = 20
@@ -250,16 +251,21 @@ def make_agent_loop(react_agent, holder: dict):
     return agent_loop
 
 
-def make_citation_validator():
-    """citation_validator 节点：引用校验 → 通过收口 / 失败回流（≤2 次）/ 失败收口。"""
+def make_citation_validator(version_registry: Any | None = None):
+    """citation_validator 节点：引用校验 → 通过收口 / 失败回流（≤2 次）/ 失败收口。
+
+    ``version_registry``（Step 8）：为每条引用解析版本状态写回 ``CitationClaim.version_status``；
+    未知只标记（``warnings``），不回流、不判失败。
+    """
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
         context_ids, cited_ids = _extract_validation_signal(state)
-        check = validate_citations(cited_ids, context_ids)
+        check = validate_citations(cited_ids, context_ids, version_registry=version_registry)
         errors = list(state.get("errors", [])) + list(check.errors)
-        citations = [
-            CitationClaim(source_id=cid, declared_by="model") for cid in cited_ids
-        ]
+        citations = enrich_claims(
+            [CitationClaim(source_id=cid, declared_by="model") for cid in cited_ids],
+            check,
+        )
         if check.ok:
             return {"status": STATUS_SUCCEEDED, "citations": citations, "errors": errors}
 
@@ -304,6 +310,7 @@ def build_agentic_app(
     checkpointer: BaseCheckpointSaver | None = None,
     prompt: str | Callable[[dict], Any] | None = None,
     max_tool_turns: int = 10,
+    version_registry: Any | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -312,10 +319,14 @@ def build_agentic_app(
     - ``checkpointer``：必配（thread_id 会话隔离，护住会话纪律）；
     - ``prompt``：系统提示；可以是字符串，或 ``(state) -> SystemMessage``
       可调用对象（Step 8 动态装配器）。缺省用 ``DEFAULT_AGENTIC_PROMPT``；
-    - ``max_tool_turns``：agent_loop 内模型工具调用轮数独立预算。
+    - ``max_tool_turns``：agent_loop 内模型工具调用轮数独立预算；
+    - ``version_registry``：版本注册表（Step 8）；缺省用 ``data/versions.json`` 单例，
+      引用校验时把版本状态写回 ``CitationClaim.version_status``（未知只标记）。
     """
     if checkpointer is None:
         raise ValueError("agentic 循环必须配置 checkpointer（thread_id 会话隔离）")
+    if version_registry is None:
+        version_registry = get_version_registry()
 
     holder: dict[str, int] = {"turns": 0}
     budget_model = _BudgetChatModel(inner=model, max_tool_turns=max_tool_turns, holder=holder)
@@ -333,7 +344,7 @@ def build_agentic_app(
 
     graph = StateGraph(AgenticRAGState)
     graph.add_node("agent_loop", make_agent_loop(react_agent, holder))
-    graph.add_node("citation_validator", make_citation_validator())
+    graph.add_node("citation_validator", make_citation_validator(version_registry))
     graph.add_node("finalize", make_finalize())
 
     def route_after_agent(state: AgenticRAGState) -> str:
@@ -373,8 +384,13 @@ async def astream_agentic(
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
-    - ``messages``：可选的初始消息列表（用于注入运行时上下文等）；默认 ``[HumanMessage(content=query)]``
-    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。
+    - ``stream_mode=["messages", "values"]`` 的事件形态为 ``(mode, payload)``：
+      ``("values", dict)`` 为每步完整状态（最后一个为 finalize 后的终态）；
+      ``("messages", (message_chunk, metadata))`` 为模型输出（含 tool call 与文本）；
+    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。tool-call 轮经由
+      ``_BudgetChatModel._stream`` 同步计数，超预算抛 ``ToolBudgetExceeded``；
+    - ``messages``：可选的初始消息列表（Step 8 用于注入运行时上下文）；
+      默认 ``[HumanMessage(content=query)]``。
     """
     final_state: dict[str, Any] = {}
     if messages is None:
