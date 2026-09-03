@@ -23,6 +23,10 @@ class JsonTraceRecorder:
         self._node_starts: dict[str, float] = {}
 
     @property
+    def trace_id(self) -> str | None:
+        return None if self._document is None else str(self._document.get("trace_id") or "")
+
+    @property
     def started(self) -> bool:
         """是否已 ``start``（agentic 图用它决定是否在首个节点开启 trace）。"""
         return self._document is not None

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from water_agent.domain.models import RetrievedClause
-from water_agent.retrieval.rerank import BailianReranker, LocalReranker, Reranker, IdentityReranker
+from water_agent.retrieval.rerank import BailianReranker, IdentityReranker, LocalReranker, Reranker
 
 
 def _clause(spec: str, article: str, text: str, score: float = 0.0) -> RetrievedClause:
@@ -106,3 +106,20 @@ def test_local_reranker_does_not_mutate_candidates_across_queries():
     assert first[0] is not shared[0]
     second = rr.rerank("排水管道最小坡度", shared, top_k=2)
     assert second[0].article == "2", [c.article for c in second]
+
+
+def test_reranking_retriever_recalls_then_reranks_and_proxies_attrs():
+    from water_agent.retrieval.in_memory import InMemoryRetriever
+    from water_agent.retrieval.rerank import RerankingRetriever
+
+    clauses = [
+        _clause("A", "1", "给水管道设计秒流量按用水定额计算"),
+        _clause("A", "2", "排水管道最小坡度与充满度规定"),
+        _clause("A", "3", "水泵扬程由几何扬程与水头损失组成"),
+    ]
+    inner = InMemoryRetriever(clauses)
+    wrapped = RerankingRetriever(inner, LocalReranker(), recall_top_k=3)
+    out = wrapped.retrieve("排水管道最小坡度", top_k=1)
+    assert [c.article for c in out] == ["2"]
+    assert out[0].score is not None
+    assert hasattr(wrapped, "add")  # __getattr__ 透传内层属性
