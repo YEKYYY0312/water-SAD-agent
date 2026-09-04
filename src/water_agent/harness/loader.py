@@ -9,13 +9,23 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from water_agent.domain.models import CalcCase, DocgenCase, EvalCase, MaterialCase
+from water_agent.domain.models import (
+    CalcCase,
+    DocgenCase,
+    DocgenQualityCase,
+    EvalCase,
+    MaterialCase,
+)
 
-# type → 模型映射（P2：calc 水力计算 / docgen 文档生成 / material 材料统计 / 其余走 RAG EvalCase）
-_EVAL_TYPE_MODELS: dict[str, type[EvalCase | CalcCase | DocgenCase | MaterialCase]] = {
+# type → 模型映射（P2：calc 水力计算 / docgen 文档生成 / material 材料统计 /
+# docgen_quality 质量层 / 其余走 RAG EvalCase）
+_EVAL_TYPE_MODELS: dict[
+    str, type[EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase]
+] = {
     "calc": CalcCase,
     "docgen": DocgenCase,
     "material": MaterialCase,
+    "docgen_quality": DocgenQualityCase,
 }
 
 
@@ -32,7 +42,7 @@ class EvalLoadIssue:
 
 @dataclass(slots=True)
 class EvalLoadBundle:
-    cases: list[EvalCase | CalcCase | DocgenCase | MaterialCase]
+    cases: list[EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase]
     issues: list[EvalLoadIssue]
     line_nos: list[int] = field(default_factory=list)  # 与 cases 逐位对齐的 JSONL 行号
 
@@ -41,7 +51,9 @@ class EvalLoadBundle:
         return bool(self.issues)
 
 
-def _parse_eval_case(payload: dict[str, Any], *, line_no: int) -> EvalCase | CalcCase | DocgenCase | MaterialCase:
+def _parse_eval_case(
+    payload: dict[str, Any], *, line_no: int
+) -> EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase:
     kind = str(payload.get("type") or "")
     model = _EVAL_TYPE_MODELS.get(kind, EvalCase)
     try:
@@ -61,13 +73,15 @@ def iter_eval_records(path: str | Path) -> Iterator[tuple[int, str]]:
                 yield line_no, stripped
 
 
-def load_eval_cases(path: str | Path, *, strict: bool = True) -> list[EvalCase | CalcCase | DocgenCase | MaterialCase]:
+def load_eval_cases(
+    path: str | Path, *, strict: bool = True
+) -> list[EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase]:
     bundle = load_eval_bundle(path, strict=strict)
     return bundle.cases
 
 
 def load_eval_bundle(path: str | Path, *, strict: bool = True) -> EvalLoadBundle:
-    cases: list[EvalCase | CalcCase | DocgenCase | MaterialCase] = []
+    cases: list[EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase] = []
     line_nos: list[int] = []
     issues: list[EvalLoadIssue] = []
     for line_no, raw_line in iter_eval_records(path):

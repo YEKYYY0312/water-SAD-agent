@@ -21,7 +21,7 @@ from pathlib import Path
 
 from water_agent.embedding import build_embedding_provider
 from water_agent.harness.retrieval_metrics import evaluate_retrieval
-from water_agent.retrieval.rerank import BailianReranker, LocalReranker, build_bailian_reranker
+from water_agent.retrieval.rerank import LocalReranker, build_bailian_reranker
 from water_agent.retrieval.trivium import TriviumRetriever
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +98,17 @@ def _fmt(v: float) -> str:
     return f"{v:.4f}"
 
 
+def _leaky_dimensions(results: list[dict]) -> list[int]:
+    """检测局部泄漏：同一维度下所有成功 rerank 组合 Recall@1 都异常接近 1。"""
+    dimensions = sorted({int(result["dimensions"]) for result in results})
+    return [
+        dim
+        for dim in dimensions
+        if (group := [result for result in results if int(result["dimensions"]) == dim])
+        and all(float(result["recall_at_1"]) >= 0.95 for result in group)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="检索评测矩阵（维度 × rerank）")
     p.add_argument("--gold", default=str(DEFAULT_GOLD))
@@ -112,8 +123,18 @@ def main(argv: list[str] | None = None) -> int:
 
     api_key = args.api_key if args.api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
     if not api_key.strip():
-        print(json.dumps({"ok": False, "error": "缺少 DASHSCOPE_API_KEY（环境变量或 --api-key）"}, ensure_ascii=False))
-        return 2
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "kind": "skip",
+                    "skipped": True,
+                    "reason": "SKIP: 缺少 DASHSCOPE_API_KEY（环境变量或 --api-key）",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
 
     for dim in args.dimensions:
         if not _db_for(dim).exists():
@@ -121,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     results = []
+    failures: list[dict[str, object]] = []
     for dim in args.dimensions:
         for kind in args.rerank:
             try:
@@ -132,7 +154,14 @@ def main(argv: list[str] | None = None) -> int:
                 results.append(r)
                 print(json.dumps({"ok": True, **r}, ensure_ascii=False))
             except Exception as exc:  # noqa: BLE001 — single combo failing shouldn't kill the matrix
-                print(json.dumps({"ok": False, "dimensions": dim, "rerank": kind, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+                failure = {
+                    "ok": False,
+                    "dimensions": dim,
+                    "rerank": kind,
+                    "error": str(exc),
+                }
+                failures.append(failure)
+                print(json.dumps(failure, ensure_ascii=False), file=sys.stderr)
 
     # ---- 聚合对比表 ----
     header = "| dim | rerank | Recall@1 | Recall@5 | Recall@10 | MRR |\n|---|---|---|---|---|---|\n"
@@ -143,9 +172,22 @@ def main(argv: list[str] | None = None) -> int:
             f"{_fmt(r['recall_at_5'])} | {_fmt(r['recall_at_10'])} | {_fmt(r['mrr'])} |\n"
         )
 
-    # 泄漏自检：如果任意组合 Recall@1 都接近 1.0，gold 极可能由源条款自动派生（query≈条文文本），
-    # 此时指标被高估、无法区分维度/rerank，不能当作有效基线。
-    leaky = bool(results) and all(r["recall_at_1"] >= 0.95 for r in results)
+    failure_rows = ""
+    if failures:
+        failure_rows = (
+            "\n## 失败组合\n\n"
+            "| dim | rerank | 错误 |\n|---|---|---|\n"
+            + "".join(
+                f"| {failure['dimensions']} | {failure['rerank']} | "
+                f"{str(failure['error']).replace('|', '\\|')} |\n"
+                for failure in failures
+            )
+        )
+
+    # 泄漏自检：某一维度的全部成功 rerank 组合 Recall@1 都接近 1.0，gold 极可能由
+    # 源条款自动派生（query≈条文文本）。其他维度损坏/失败不应掩盖这个信号。
+    leaky_dimensions = _leaky_dimensions(results)
+    leaky = bool(leaky_dimensions)
     best_mrr = max(results, key=lambda x: x["mrr"]) if results else None
     gapless = [r for r in results if r["recall_at_5"] >= 0.7]
     summary = ""
@@ -169,35 +211,40 @@ def main(argv: list[str] | None = None) -> int:
         )
         if leaky:
             summary += (
-                "> ⚠️ **泄漏警告**：所有组合 Recall@1 均 ≥ 0.95。这通常是 gold 由源条款自动派生"
+                f"> ⚠️ **泄漏警告**：维度 {leaky_dimensions} 的全部成功组合 Recall@1 均 ≥ 0.95。"
+                "这通常是 gold 由源条款自动派生"
                 "（query≈条文原文、gold=source_article）导致的——此时检索把源条款排在第 1 是必然的，"
                 "**该指标不能反映真实检索质量，不能作为 P1 基线**。请改用独立构造、可人工验证、且含"
                 "「语料内无答案」负例的 gold，再重新评测。\n\n"
             )
-        if any(r.get("ok") is False for r in results):
+        if failures:
             summary += (
-                "> ⚠️ **含失败组合**：部分组合未产出指标（多为 bailian rerank 403 AccessDenied，"
-                "通常是该 key 无 gte-rerank 模型访问权限，需在百炼/Model Studio 开通该模型）。\n\n"
+                f"> ⚠️ **含失败组合**：{len(failures)} 个组合未产出指标；详见「失败组合」表。\n\n"
             )
     else:
         summary = "⚠️ 所有组合均失败（缺少密钥或索引异常），未产生有效指标。参见上方逐条 stderr。\n"
 
     doc = (
         "# 检索评测矩阵报告\n\n"
-        f"- 生成时间：`{_dt.datetime.now(_dt.timezone.utc).isoformat()}`\n"
+        f"- 生成时间：`{_dt.datetime.now(_dt.UTC).isoformat()}`\n"
         f"- gold：`{args.gold}`\n"
         "- 对比纪律：同一 gold / top_k / recall-top-k / hybrid-alpha\n\n"
-        f"## 对比表\n\n{header}{rows}\n\n"
+        f"## 对比表\n\n{header}{rows}{failure_rows}\n\n"
         f"## 结论\n\n{summary}"
     )
 
-    out_path = Path(args.out) if args.out else DEFAULT_OUT_DIR / f"retrieval_matrix_{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.md"
+    out_path = (
+        Path(args.out)
+        if args.out
+        else DEFAULT_OUT_DIR
+        / f"retrieval_matrix_{_dt.datetime.now(_dt.UTC).strftime('%Y%m%dT%H%M%SZ')}.md"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(doc, encoding="utf-8")
     print(f"\n报告已写入：{out_path}")
 
     # 退出码语义：仅当「无泄漏 + 无失败 + 全部组合达标」才视为一次干净的基线跑分，否则非零提示需处理。
-    clean = bool(results) and not leaky and all(r.get("ok") is not False for r in results)
+    clean = bool(results) and not leaky and not failures
     passed = clean and all(r.get("recall_at_5", 0) >= 0.7 for r in results)
     return 0 if passed else 1
 
