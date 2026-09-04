@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -148,19 +149,24 @@ def _parse_segments(segments: list[dict[str, Any]] | list[PipeRun]) -> tuple[lis
             length = float(str(length_raw)) if length_raw is not None else 0.0
         except (TypeError, ValueError):
             length = 0.0
-        system = str(raw.get("system") or "water_supply").strip()
+        system_raw = raw.get("system")
+        system = str(system_raw).strip() if system_raw is not None else ""
         if dn <= 0:
             errors.append(f"{tag}（{segment_id or '?'}）：dn_mm 必须为正整数，得到 {dn_raw!r}")
-        if not (length > 0):
+        if math.isnan(length) or math.isinf(length):
+            errors.append(f"{tag}（{segment_id or '?'}）：length_m 必须为有限正数（拒绝 NaN/inf），得到 {length_raw!r}")
+        elif not (length > 0):
             errors.append(f"{tag}（{segment_id or '?'}）：length_m 必须为正数，得到 {length_raw!r}")
-        if system and system not in _ALLOWED_SYSTEMS:
+        if not system:
+            errors.append(f"{tag}（{segment_id or '?'}）：缺少 system（water_supply/drainage），禁止静默默认")
+        elif system not in _ALLOWED_SYSTEMS:
             errors.append(
                 f"{tag}（{segment_id or '?'}）：未知系统 {system!r}，允许：{sorted(_ALLOWED_SYSTEMS)}"
             )
         runs.append(
             PipeRun(
                 segment_id=segment_id or f"<空:{index}>",
-                system=system or "water_supply",
+                system=system or "<未知系统>",
                 dn_mm=dn or -1,
                 length_m=length,
                 material=material or "<空>",

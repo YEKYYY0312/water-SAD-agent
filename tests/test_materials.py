@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from pathlib import Path
 
 import pytest
@@ -82,15 +83,33 @@ class TestAggregation:
         assert not table.ok
         assert any("未知系统" in e for e in table.errors)
 
+    def test_missing_system_errors(self) -> None:
+        table = aggregate_materials([{"segment_id": "M0", "dn_mm": 100, "length_m": 10, "material": "钢管"}])
+        assert not table.ok
+        assert any("system" in e for e in table.errors)
+
+    def test_nonfinite_length_errors(self) -> None:
+        nan_table = aggregate_materials([_seg("NAN", 100, math.nan, "钢管")])
+        inf_table = aggregate_materials([_seg("INF", 100, math.inf, "钢管")])
+        assert not nan_table.ok and any("有限" in e for e in nan_table.errors)
+        assert not inf_table.ok and any("有限" in e for e in inf_table.errors)
+
+    def test_invalid_dn_errors(self) -> None:
+        float_table = aggregate_materials([{"segment_id": "D1", "system": "water_supply", "dn_mm": 150.5, "length_m": 10, "material": "钢管"}])
+        text_table = aggregate_materials([{"segment_id": "D2", "system": "water_supply", "dn_mm": "abc", "length_m": 10, "material": "钢管"}])
+        assert not float_table.ok and any("dn_mm" in e for e in float_table.errors)
+        assert not text_table.ok and any("dn_mm" in e for e in text_table.errors)
+
     def test_accepts_pipe_run_objects_directly(self) -> None:
         runs = [PipeRun(segment_id="R1", system="water_supply", dn_mm=100, length_m=25.0, material="钢管")]
         table = aggregate_materials(runs)
         assert table.ok and table.rows[0].quantity == 25.0
 
     def test_missing_fields_errors(self) -> None:
-        table = aggregate_materials([{"segment_id": "M1", "dn_mm": 100, "material": "钢管"}])  # 缺 length_m
+        table = aggregate_materials([{"segment_id": "M1", "dn_mm": 100, "material": "钢管"}])  # 缺 length_m/system
         assert not table.ok
         assert any("length_m" in e for e in table.errors)
+        assert any("system" in e for e in table.errors)
 
 
 class TestExport:

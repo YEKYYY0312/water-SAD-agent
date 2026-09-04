@@ -75,3 +75,24 @@ class TestToolSpec:
         )
         assert result["error"] is True
         assert result["code"] == "INVALID_ARGUMENTS"
+
+    def test_missing_system_rejected_by_schema(self) -> None:
+        registry = ToolRegistry()
+        registry.register(material_stats_spec)
+        result = registry.invoke(
+            "material_stats",
+            segments=[{"segment_id": "M1", "dn_mm": 150, "length_m": 10, "material": "钢管"}],
+        )
+        assert result["error"] is True
+        assert result["code"] == "INVALID_ARGUMENTS"
+        assert "system" in result["message"]
+
+    def test_noninteger_dn_rejected_by_schema(self) -> None:
+        registry = ToolRegistry()
+        registry.register(material_stats_spec)
+        result = registry.invoke(
+            "material_stats",
+            segments=[{"segment_id": "D1", "system": "water_supply", "dn_mm": 150.5, "length_m": 10, "material": "钢管"}],
+        )
+        assert result["error"] is True
+        assert result["code"] == "INVALID_ARGUMENTS"
