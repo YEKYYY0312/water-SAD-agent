@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -182,6 +182,41 @@ class MaterialCase(BaseModel):
     variant: str = "programmatic"
 
 
+class DocgenQualityCase(BaseModel):
+    """docgen 质量层评测用例（type == "docgen_quality"，P2 收口 §6）。
+
+    与 ``DocgenCase`` 的区别：判分对象不是机制层渲染结果，而是**润色 + 自检 +
+    质量结论**链路——
+
+    - 离线（variant=programmatic）：``polish_mode`` 指定脚本化润色行为
+      （paraphrase=合规改写 / identity=原样 / mutate_number=篡改数值 /
+      inject_citation=混入未声明引用 / drop_line=破坏行数结构），
+      ``expected_verdict`` 是确定性的质量结论期望（pass/fail/blocked），
+      用于证明自检能放行合规润色、拦下违规润色；
+    - real（--variant real）：``polish_mode`` 被忽略，走真实 LLM 润色传输；
+      无 Key → 结构化 SKIP；有 Key但调用失败/产物不可验证 → blocked 且计失败
+      （都不伪造 pass）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "docgen_quality"
+    query: str = ""
+    doc_type: str = "calculation_book"
+    calc_result: dict[str, Any] | None = None
+    citations: list[str] = Field(default_factory=list)
+    polish_mode: Literal[
+        "paraphrase",
+        "identity",
+        "mutate_number",
+        "inject_citation",
+        "drop_line",
+    ] = "paraphrase"
+    expected_verdict: Literal["pass", "fail", "blocked"] = "pass"
+    variant: str = "programmatic"
+
+
 class TokenUsage(BaseModel):
     """单次 LLM 调用的 token 用量与成本。"""
 
@@ -222,6 +257,9 @@ class EvalResult(BaseModel):
     # 判定规则与阈值见 harness/quality.py（单一配置位置）。
     quality_pass: bool | None = None  # None = judge 未运行/未给出评分，不做质量结论
     quality_fail_reasons: list[str] = Field(default_factory=list)
+    # docgen 质量层专用证据：真实/脚本化润色产物与是否实际使用真实模型。
+    quality_output_text: str = ""
+    quality_used_real_model: bool = False
 
 
 class EvalReport(BaseModel):

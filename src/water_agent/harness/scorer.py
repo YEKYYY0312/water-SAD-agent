@@ -7,6 +7,7 @@ from typing import Any
 
 from water_agent.docgen import (
     REQUIRED_SECTIONS,
+    PolishVerdict,
     RenderedDoc,
     normalize_heading,
     validate_citation_policy,
@@ -15,6 +16,7 @@ from water_agent.domain.models import (
     CalcCase,
     CalcTolerances,
     DocgenCase,
+    DocgenQualityCase,
     EvalCase,
     EvalResult,
     MaterialCase,
@@ -262,6 +264,55 @@ def score_docgen_case(
     )
 
 
+def score_docgen_quality_case(
+    case: DocgenQualityCase,
+    *,
+    verdict: PolishVerdict,
+    latency_ms: float = 0.0,
+    line_no: int | None = None,
+) -> EvalResult:
+    """docgen 质量层判分：期望结论与实际 pass/fail/blocked 分离。
+
+    ``blocked`` 不是 pass。只有无 Key 的前置条件缺失才带 ``skipped=True``；有 Key但
+    调用失败或模型破坏结构时保留 ``actual_status=blocked`` 并计为失败，便于命令退出码
+    和证据文档如实表达阻塞。
+    """
+    actual = verdict.verdict
+    reasons: list[str] = []
+    if actual != case.expected_verdict and not verdict.skipped:
+        reasons.append(f"expected verdict {case.expected_verdict}, got {actual}")
+    if actual == "fail" and actual != case.expected_verdict:
+        reasons.extend(verdict.problems)
+    if actual == "blocked":
+        reasons.append(verdict.blocked_reason or "docgen quality blocked")
+
+    # blocked 永远不是通过：即使某条测试显式期望 blocked，也只能验证状态语义，
+    # 不能把外部依赖不可用计入 passed。
+    counted_pass = actual == case.expected_verdict and actual != "blocked" and not verdict.skipped
+    return EvalResult(
+        case_id=case.id,
+        passed=counted_pass,
+        expected_status=case.expected_verdict,
+        actual_status=actual,
+        actual_citations=list(verdict.polished.citation_ids) if verdict.polished else [],
+        # docgen 没有 RAG context；质量层的可追溯边界就是结构化底座允许的 citation_ids。
+        # 仅用于通用 citation_ok 汇总，不宣称发生过真实检索。
+        context_articles=list(verdict.polished.citation_ids) if verdict.polished else [],
+        failure_reason="; ".join(reason for reason in reasons if reason),
+        latency_ms=round(latency_ms, 3),
+        line_no=line_no,
+        skipped=verdict.skipped,
+        quality_fail_reasons=[
+            *verdict.problems,
+            *([verdict.blocked_reason] if verdict.blocked_reason else []),
+        ],
+        quality_output_text=(
+            verdict.polished.text if verdict.polished is not None else verdict.raw_output
+        ),
+        quality_used_real_model=verdict.used_real_model,
+    )
+
+
 def _expected_group_sums(segments: list[dict[str, Any]]) -> dict[tuple[str, str], float] | None:
     """从原始管段表按 (材质, 规格) 重算组内长度和，作为 ``raw_quantity`` 的口径审计基准。
 
@@ -377,12 +428,13 @@ def score_material_case(
 
 
 def score_case(
-    case: EvalCase | CalcCase | DocgenCase | MaterialCase,
+    case: EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase,
     *,
     calc_result: CalcResult | None = None,
     rendered: RenderedDoc | None = None,
     render_error: str = "",
     table: MaterialTable | None = None,
+    quality_verdict: PolishVerdict | None = None,
     actual_status: str = "",
     actual_citations: Iterable[str] | None = None,
     context_articles: Iterable[str] | None = None,
@@ -400,6 +452,15 @@ def score_case(
             case,
             rendered=rendered,
             render_error=render_error,
+            latency_ms=latency_ms,
+            line_no=line_no,
+        )
+    if isinstance(case, DocgenQualityCase):
+        if quality_verdict is None:
+            raise ValueError(f"docgen quality case {case.id} 需要 quality_verdict 才能判分")
+        return score_docgen_quality_case(
+            case,
+            verdict=quality_verdict,
             latency_ms=latency_ms,
             line_no=line_no,
         )
