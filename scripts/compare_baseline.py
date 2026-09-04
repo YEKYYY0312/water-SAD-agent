@@ -16,6 +16,9 @@ SKIP 语义：新报告全部用例 SKIP（真实变体无 Key）→ 不参与�
     python scripts/compare_baseline.py data/eval/baseline.json
     python scripts/compare_baseline.py data/eval/baseline.json --report-path <report.json>
 
+    # 只对比指定套件（默认 MECHANISM_SUITES 全部四条机制层套件）
+    python scripts/compare_baseline.py data/eval/baseline.json --suite rag_p0 --suite calc_p0
+
     # 真实质量层独立基线（rag_p1，--variant real --judge 产物；需 Key，不入 PR CI）
     python scripts/compare_baseline.py --init data/eval/rag_p1_baseline.json --suite rag_p1
     python scripts/compare_baseline.py data/eval/rag_p1_baseline.json --suite rag_p1
@@ -32,9 +35,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = REPO_ROOT / "data" / "eval" / "baseline.json"
 DEFAULT_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
 
+# 机制层默认对比套件（--init 与对比共用；--suite 可覆盖）。
+# P2 收口后 docgen_p0/material_p0 正式纳入基线（docs/design/11-docgen-materials.md §5）。
+MECHANISM_SUITES: list[str] = ["rag_p0", "calc_p0", "docgen_p0", "material_p0"]
+
 # 单一权威阈值集（单位：pt=百分点）
 # quality_pass_rate_decline_pt 只作用于真实质量层 suite（rag_p1，独立基线文件），
-# 机制层 suite（rag_p0/calc_p0）不含 quality_pass_rate 字段，不受该阈值影响。
+# 机制层 suite（rag_p0/calc_p0/docgen_p0/material_p0）不含 quality_pass_rate 字段，
+# 不受该阈值影响。
+# citation_ok_rate 对机制层统一口径：calc/material 恒 1.0（无引用要求不误伤）；
+# docgen_p0 基线为 0.2727（RAG 口径"引用⊆检索上下文"回显——docgen 用例无检索上下文，
+# 有 citations_required 的用例按 runner.citation_ok_for_result 语义计失败，确定性可回归）。
 THRESHOLDS: dict[str, float] = {
     "pass_rate_decline_pt": 2.0,      # 通过率相对基线下降 ≤2pt
     "citation_ok_decline_pt": 3.0,    # 引用正确率相对基线下降 ≤3pt
@@ -196,11 +207,13 @@ def build_baseline(report_dir: Path, suite_keys: list[str]) -> dict:
             ],
             "source_report": latest.name,
         }
-        # 真实质量层 suite（rag_p1 --judge）：把质量判定指标带进独立基线（版本化，
-        # 不覆盖 rag_p0/calc_p0 基线文件）。机制层报告无这些字段，跳过。
-        for quality_key in ("quality_pass_rate", "quality_low_score_count", "quality_judged_count", "judge_dimension_averages"):
-            if quality_key in report:
-                entry[quality_key] = report.get(quality_key)
+        # 真实质量层 suite（rag_p1 --judge）：仅当报告真实判定过（judged>0）才把质量指标
+        # 带进独立基线文件；机制层报告 judged=0，不携带（compare 侧也以 judged>0 为前置，
+        # 与基线/阈值说明保持一致——机制层 baseline 只表达确定性通过率/引用口径）。
+        if int(report.get("quality_judged_count", 0) or 0) > 0:
+            for quality_key in ("quality_pass_rate", "quality_low_score_count", "quality_judged_count", "judge_dimension_averages"):
+                if quality_key in report:
+                    entry[quality_key] = report.get(quality_key)
         suites[key] = entry
     return {
         "schema_version": 1,
@@ -221,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
 
     baseline_path = Path(args.baseline_path)
     report_dir = Path(args.report_dir)
-    suite_keys = args.suite or ["rag_p0", "calc_p0"]
+    suite_keys = args.suite or MECHANISM_SUITES
 
     if args.init:
         baseline = build_baseline(report_dir, suite_keys)
