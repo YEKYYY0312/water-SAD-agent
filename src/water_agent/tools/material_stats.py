@@ -24,7 +24,7 @@ class PipeSegmentArgs(BaseModel):
 
     segment_id: str = Field(min_length=1, max_length=64, description="管段唯一编号，如 S1")
     system: Literal["water_supply", "drainage"] = Field(
-        default="water_supply",
+        ...,
         description="系统：water_supply 给水；drainage 排水/污水",
     )
     dn_mm: int = Field(gt=0, le=4000, description="公称管径 mm，如 150")
