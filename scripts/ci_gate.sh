@@ -51,13 +51,13 @@ else
     echo "calc_p0 通过（28/28）"
 fi
 
-step "docgen_p0 harness（P2 文档生成，期望 10/10，通过率 ≥95%）"
+step "docgen_p0 harness（P2 文档生成，期望 11/11，通过率 ≥95%）"
 DOCGEN_JSON="$($PY -m water_agent.harness.runner data/eval/docgen_p0.jsonl 2>/dev/null || true)"
 DOCGEN_PASS="$(printf '%s' "$DOCGEN_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('pass_rate', 0.0))" 2>/dev/null || echo 0)"
 if ! $PY -c "import sys; sys.exit(0 if float('$DOCGEN_PASS') >= 0.95 else 1)"; then
     fail "docgen_p0 pass_rate=$DOCGEN_PASS（预期 ≥0.95）"
 else
-    echo "docgen_p0 通过（10/10）"
+    echo "docgen_p0 通过（11/11）"
 fi
 
 step "material_p0 harness（P2 材料统计，期望 10/10，通过率 ≥95%）"
@@ -88,4 +88,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(10/10) + material_p0(10/10) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + 基线对比"
