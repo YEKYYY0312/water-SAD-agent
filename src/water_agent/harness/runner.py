@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -19,10 +20,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from water_agent.docgen import render_docgen_doc
+from water_agent.docgen import (
+    RealPolishTransport,
+    render_docgen_doc,
+    run_quality_polish,
+    strip_polish_meta_lines,
+)
+from water_agent.docgen.quality import PolishTransport
 from water_agent.domain.models import (
     CalcCase,
     DocgenCase,
+    DocgenQualityCase,
     EvalReport,
     EvalResult,
     MaterialCase,
@@ -43,6 +51,7 @@ from water_agent.harness.retrieval_metrics import aggregate_retrieval_metrics
 from water_agent.harness.scorer import (
     score_calc_case,
     score_docgen_case,
+    score_docgen_quality_case,
     score_eval_case,
     score_material_case,
 )
@@ -182,6 +191,7 @@ class HarnessRunner:
         self._real_chat_model = None
         self._real_skip_reason: str | None = None
         self._real_judge: LLMJudge | None = None
+        self._real_polisher: PolishTransport | None = None
 
     # ── 真实组件装配 ────────────────────────────────────────────────
 
@@ -401,11 +411,108 @@ class HarnessRunner:
         result.variant = "programmatic"
         return result
 
+    @staticmethod
+    def _offline_polisher(mode: str) -> PolishTransport:
+        """质量套件脚本化传输：只用于离线验证管线与自检，不冒充真实 LLM。"""
+
+        def polish(_system: str, user: str) -> str:
+            lines = strip_polish_meta_lines(user)
+            text = "\n".join(lines)
+            if mode == "identity":
+                return text
+            if mode == "paraphrase":
+                return text.replace("项目 / 查询：", "项目说明：").replace(
+                    "供人工复核后确认", "应由专业人员复核确认"
+                )
+            if mode == "mutate_number":
+                return re.sub(r"(=\s*)-?\d+(?:\.\d+)?", r"\g<1>999", text, count=1)
+            if mode == "inject_citation":
+                if lines:
+                    lines[0] += "；另见 FIX 9.9.9"
+                return "\n".join(lines)
+            if mode == "drop_line":
+                return "\n".join(lines[:-1])
+            raise ValueError(f"未知 polish_mode: {mode}")
+
+        return polish
+
+    def _build_real_polisher(self) -> PolishTransport:
+        return RealPolishTransport(
+            model=self.model,
+            base_url=self.base_url,
+            api_key_env=self.api_key_env,
+        )
+
+    def _run_docgen_quality_case(
+        self,
+        case: DocgenQualityCase,
+        *,
+        line_no: int | None = None,
+    ) -> EvalResult:
+        """docgen 质量层：结构化底座 → 受限润色 → 确定性自检 → 质量结论。"""
+        started = time.perf_counter()
+        try:
+            rendered = render_docgen_doc(
+                query=case.query,
+                doc_type=case.doc_type,
+                calc_result=case.calc_result,
+                citations=case.citations,
+            )
+        except ValueError as exc:
+            latency_ms = (time.perf_counter() - started) * 1000
+            return EvalResult(
+                case_id=case.id,
+                passed=False,
+                expected_status=case.expected_verdict,
+                actual_status="invalid_input",
+                failure_reason=f"docgen quality base render failed: {exc}",
+                latency_ms=round(latency_ms, 3),
+                line_no=line_no,
+                variant=self._effective_variant(case),
+            )
+
+        variant = self._effective_variant(case)
+        if variant == "real":
+            if not os.environ.get(self.api_key_env, "").strip():
+                verdict = run_quality_polish(rendered, api_key_env=self.api_key_env)
+            else:
+                if self._real_polisher is None:
+                    self._real_polisher = self._build_real_polisher()
+                verdict = run_quality_polish(
+                    rendered,
+                    polish=self._real_polisher,
+                    api_key_env=self.api_key_env,
+                    used_real_model=True,
+                )
+        else:
+            verdict = run_quality_polish(
+                rendered,
+                polish=self._offline_polisher(case.polish_mode),
+            )
+
+        latency_ms = (time.perf_counter() - started) * 1000
+        result = score_docgen_quality_case(
+            case,
+            verdict=verdict,
+            latency_ms=latency_ms,
+            line_no=line_no,
+        )
+        result.variant = variant
+        if variant == "real" and not verdict.skipped and verdict.verdict != "blocked":
+            result.quality_pass = verdict.ok
+        if variant == "real":
+            usage = getattr(self._real_polisher, "last_usage", None)
+            if isinstance(usage, TokenUsage):
+                result.token_usage = usage.model_copy(deep=True)
+        return result
+
     def _run_case(self, case, *, line_no: int | None = None):
         if isinstance(case, CalcCase):
             return self._run_calc_case(case, line_no=line_no)
         if isinstance(case, DocgenCase):
             return self._run_docgen_case(case, line_no=line_no)
+        if isinstance(case, DocgenQualityCase):
+            return self._run_docgen_quality_case(case, line_no=line_no)
         if isinstance(case, MaterialCase):
             return self._run_material_case(case, line_no=line_no)
 
@@ -713,8 +820,13 @@ class HarnessRunner:
         return self.run_bundle(bundle)
 
     def _write_report(self, report: EvalReport, *, load_issues: list[dict]) -> Path:
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        # 微秒级时间戳避免同一评测集并行跑 offline/real/SKIP 时互相覆盖证据。
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         path = self.report_dir / f"{self.eval_path.stem}_{stamp}.json"
+        suffix = 1
+        while path.exists():
+            path = self.report_dir / f"{self.eval_path.stem}_{stamp}_{suffix}.json"
+            suffix += 1
         payload = report.model_dump(mode="json")
         payload["load_issues"] = load_issues
         payload["created_at"] = report.created_at.isoformat()

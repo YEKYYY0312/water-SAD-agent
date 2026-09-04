@@ -4,6 +4,16 @@
 数值与引用均由调用方输入，模板不运算、不编造。
 """
 
+from water_agent.docgen.quality import (
+    POLISH_SYSTEM_PROMPT,
+    PolishVerdict,
+    RealPolishTransport,
+    build_polish_prompt,
+    numeric_preservation_problems,
+    run_quality_polish,
+    run_quality_self_check,
+    strip_polish_meta_lines,
+)
 from water_agent.docgen.templates import (
     DOC_TYPE_LABELS,
     EMPTY_CALC_NOTE,
@@ -26,14 +36,22 @@ __all__ = [
     "EMPTY_CALC_NOTE",
     "EMPTY_CITATION_NOTE",
     "NOTE_LABELS",
+    "POLISH_SYSTEM_PROMPT",
     "REQUIRED_SECTIONS",
     "SUPPORTED_DOC_TYPES",
     "UNIT_MAP",
     "DocSection",
+    "PolishVerdict",
+    "RealPolishTransport",
     "RenderedDoc",
+    "build_polish_prompt",
     "check_docgen_self_check",
     "check_structure",
     "normalize_heading",
+    "numeric_preservation_problems",
     "render_docgen_doc",
+    "run_quality_polish",
+    "run_quality_self_check",
+    "strip_polish_meta_lines",
     "validate_citation_policy",
 ]
