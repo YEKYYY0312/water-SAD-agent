@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "created_at": "2026-09-03T06:22:36.833066+00:00",
+  "created_at": "2026-09-04T04:46:21.435459+00:00",
   "thresholds": {
     "pass_rate_decline_pt": 2.0,
-    "citation_ok_decline_pt": 3.0
+    "citation_ok_decline_pt": 3.0,
+    "quality_pass_rate_decline_pt": 5.0
   },
   "suites": {
     "rag_p0": {
@@ -15,7 +16,7 @@
       "skipped": 0,
       "pass_rate": 0.9166666666666666,
       "citation_ok_rate": 0.9166666666666666,
-      "avg_latency_ms": 1.79,
+      "avg_latency_ms": 1.55,
       "retrieval_metrics": {
         "queries": 12.0,
         "recall_at_1": 0.75,
@@ -36,7 +37,7 @@
         "rag-p0-0010",
         "rag-p0-0012"
       ],
-      "source_report": "rag_p0_20260903T062236Z.json"
+      "source_report": "rag_p0_20260904T044220Z.json"
     },
     "calc_p0": {
       "input_path": "data/eval/calc_p0.jsonl",
@@ -47,7 +48,7 @@
       "skipped": 0,
       "pass_rate": 1.0,
       "citation_ok_rate": 1.0,
-      "avg_latency_ms": 0.53,
+      "avg_latency_ms": 0.49,
       "retrieval_metrics": {
         "queries": 0.0,
         "recall_at_1": 0.0,
@@ -85,7 +86,70 @@
         "calc-0027",
         "calc-0028"
       ],
-      "source_report": "calc_p0_20260903T062236Z.json"
+      "source_report": "calc_p0_20260904T044221Z.json"
+    },
+    "docgen_p0": {
+      "input_path": "data/eval/docgen_p0.jsonl",
+      "variant": "per-case",
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 1.0,
+      "citation_ok_rate": 0.2727272727272727,
+      "avg_latency_ms": 0.0,
+      "retrieval_metrics": {
+        "queries": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0
+      },
+      "passed_case_ids": [
+        "docgen-0001",
+        "docgen-0002",
+        "docgen-0003",
+        "docgen-0004",
+        "docgen-0005",
+        "docgen-0006",
+        "docgen-0007",
+        "docgen-0008",
+        "docgen-0009",
+        "docgen-0010",
+        "docgen-0011"
+      ],
+      "source_report": "docgen_p0_20260904T044238Z.json"
+    },
+    "material_p0": {
+      "input_path": "data/eval/material_p0.jsonl",
+      "variant": "per-case",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 1.0,
+      "citation_ok_rate": 1.0,
+      "avg_latency_ms": 0.01,
+      "retrieval_metrics": {
+        "queries": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0
+      },
+      "passed_case_ids": [
+        "mat-0001",
+        "mat-0002",
+        "mat-0003",
+        "mat-0004",
+        "mat-0005",
+        "mat-0006",
+        "mat-0007",
+        "mat-0008",
+        "mat-0009",
+        "mat-0010"
+      ],
+      "source_report": "material_p0_20260904T044239Z.json"
     }
   }
 }

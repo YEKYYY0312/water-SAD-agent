@@ -266,6 +266,90 @@ class TestCompareBaseline:
         _, citation_ok = _compute_new_metrics(report)
         assert citation_ok == 0.5, f"兜底 citation_ok 应排除零引用失败用例: {citation_ok}"
 
+    def test_mechanism_suites_include_p2(self) -> None:
+        """P2 收口：机制层默认套件必须覆盖 docgen_p0/material_p0（且保留 rag/calc）。"""
+        from scripts.compare_baseline import MECHANISM_SUITES
+        assert MECHANISM_SUITES == ["rag_p0", "calc_p0", "docgen_p0", "material_p0"]
+
+    def test_compare_p2_suite_identical_report_passes(self) -> None:
+        """docgen_p0 套件：与基线指标一致的新报告必须通过（零下降 + 无 PTP 违规）。"""
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        baseline = {
+            "docgen_p0": {
+                "total": 11, "passed": 11, "failed": 0, "skipped": 0,
+                "pass_rate": 1.0, "citation_ok_rate": 0.2727,
+                "passed_case_ids": [f"docgen-{i:04d}" for i in range(1, 12)],
+            }
+        }
+        new_report = {
+            "total": 11, "passed": 11, "failed": 0, "skipped": 0,
+            "pass_rate": 1.0, "citation_ok_rate": 0.2727,
+            "cases": [
+                {"case_id": f"docgen-{i:04d}", "passed": True, "skipped": False}
+                for i in range(1, 12)
+            ],
+        }
+        result = compare_suite("docgen_p0", baseline, new_report, THRESHOLDS)
+        assert result["passed"] is True, result["reason"]
+        assert result["deltas"]["pass_delta_pt"] == 0.0
+
+    def test_compare_p2_suite_ptp_violation_fails(self) -> None:
+        """PTP 门禁对 P2 套件同样生效：基线通过用例（docgen-0002）新失败 → 判失败。"""
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        baseline = {
+            "material_p0": {
+                "total": 10, "passed": 10, "failed": 0, "skipped": 0,
+                "pass_rate": 1.0, "citation_ok_rate": 1.0,
+                "passed_case_ids": [f"mat-{i:04d}" for i in range(1, 11)],
+            }
+        }
+        new_report = {
+            "total": 10, "passed": 9, "failed": 1, "skipped": 0,
+            "pass_rate": 0.9, "citation_ok_rate": 0.9,
+            "cases": [
+                {"case_id": "mat-0002", "passed": False, "skipped": False},
+                *[
+                    {"case_id": f"mat-{i:04d}", "passed": True, "skipped": False}
+                    for i in range(1, 11) if i != 2
+                ],
+            ],
+        }
+        result = compare_suite("material_p0", baseline, new_report, THRESHOLDS)
+        assert result["passed"] is False
+        assert "PASS_TO_PASS" in result["reason"]
+
+    def test_build_baseline_includes_p2_suites(self, tmp_path: Path) -> None:
+        """--init 从真实报告生成基线：docgen_p0/material_p0 进入 suites，指标与溯源取自报告。"""
+        from scripts.compare_baseline import MECHANISM_SUITES, build_baseline
+        report_dir = tmp_path / "reports"
+        report_dir.mkdir()
+        docgen_report = {
+            "input_path": "data/eval/docgen_p0.jsonl", "variant": "per-case",
+            "total": 11, "passed": 11, "failed": 0, "skipped": 0,
+            "pass_rate": 1.0, "citation_ok_rate": 0.2727, "avg_latency_ms": 0.01,
+            "retrieval_metrics": {},
+            "cases": [{"case_id": f"docgen-{i:04d}", "passed": True, "skipped": False} for i in range(1, 12)],
+        }
+        material_report = {
+            "input_path": "data/eval/material_p0.jsonl", "variant": "per-case",
+            "total": 10, "passed": 10, "failed": 0, "skipped": 0,
+            "pass_rate": 1.0, "citation_ok_rate": 1.0, "avg_latency_ms": 0.01,
+            "retrieval_metrics": {},
+            "cases": [{"case_id": f"mat-{i:04d}", "passed": True, "skipped": False} for i in range(1, 11)],
+        }
+        (report_dir / "docgen_p0_20260904T000000Z.json").write_text(json.dumps(docgen_report), encoding="utf-8")
+        (report_dir / "material_p0_20260904T000001Z.json").write_text(json.dumps(material_report), encoding="utf-8")
+
+        baseline = build_baseline(report_dir, MECHANISM_SUITES)
+        # rag_p0/calc_p0 无报告 → 跳过；docgen/material 必须进入
+        assert set(baseline["suites"]) == {"docgen_p0", "material_p0"}
+        assert baseline["suites"]["docgen_p0"]["total"] == 11
+        assert baseline["suites"]["docgen_p0"]["pass_rate"] == 1.0
+        assert baseline["suites"]["docgen_p0"]["source_report"] == "docgen_p0_20260904T000000Z.json"
+        assert baseline["suites"]["docgen_p0"]["passed_case_ids"] == [f"docgen-{i:04d}" for i in range(1, 12)]
+        assert baseline["suites"]["material_p0"]["total"] == 10
+        assert baseline["suites"]["material_p0"]["source_report"] == "material_p0_20260904T000001Z.json"
+
 
 class TestRunnerReportAggregates:
     """报告聚合字段正确性。"""
