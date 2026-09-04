@@ -1,7 +1,7 @@
 # 分阶段路线图（Roadmap）
 
 > 原则：**MVP 优先，DWG 与企业 MCP 后置**。每个阶段**连同其评测集一起交付**。
-> 这里的路线图是**未来实现阶段的规划**；当前处于工程设计阶段，尚未开始实现。
+> 路线图同时记录规划与当前验收状态；只把有版本化证据的项目标为完成，外部依赖或质量阈值未收口的项目保留为 blocked。
 > 每阶段列出**可度量验收标准**，作为阶段通过的门槛。
 
 ---
@@ -44,7 +44,7 @@
 
 ---
 
-## P2 —— 计算书/设计说明生成 + 材料统计（机制层完成 2026-09-03）
+## P2 —— 计算书/设计说明生成 + 材料统计（机制层 2026-09-03 完成；质量专项 2026-09-04 部分完成）
 **目标**：从「散点计算」到「成文成果」。实现与口径见 `docs/design/11-docgen-materials.md`。
 
 - [x] 文档生成子图（基于计算结果 + 引用，模板化输出）——`water_agent/docgen/` 模板引擎
@@ -55,13 +55,23 @@
   拒绝回流 ≤2 稿；正式文档仅批准后产出）
 
 **机制层验收**
-- [x] 计算书/设计说明基于计算结果 + 引用生成，结构合规：`data/eval/docgen_p0.jsonl` 10/10
+- [x] 计算书/设计说明基于计算结果 + 引用生成，结构合规：`data/eval/docgen_p0.jsonl` 11/11
   （必需章节齐全 / 数值与原值一致 / 引用不编造，机制层判分）
 - [x] 材料清单数值与计算一致、可追溯来源：`data/eval/material_p0.jsonl` 10/10
   （行集合精确一致 / 数量双阈值 / 全段溯源覆盖）
 - [x] 关键文档生成前有人工确认节点（checkpoint 可暂停/恢复）：docgen 审批图 + `--resume`
-- [ ] 质量层后置：真实 LLM 基于 `RenderedDoc` 润色 prose（数值仍程序化注入）；正式规范
-  语料到位后引用走真实检索 + 版本注册表；材料抽取依赖 P3 DWG 后置
+
+**质量层与鲁棒性验收**
+- [x] 受限 prose 润色 + 确定性自检管线：`data/eval/docgen_quality.jsonl` 离线 4/4；
+  2026-09-04 真实 DeepSeek 运行 4/4（仅证明 4 条样本，见 `docs/evals/p2-quality-2026-09-04.md`）
+- [x] 材料鲁棒性套件：`data/eval/material_quality.jsonl` 7/7；xlsx round-trip 由
+  `tests/test_materials_quality.py` 覆盖
+- [x] PR baseline 已纳入 `docgen_p0` 与 `material_p0`；`data/eval/baseline.json` 默认比较
+  rag_p0/calc_p0/docgen_p0/material_p0 四套机制层 suite
+- [ ] **blocked**：正式规范语料与版本状态未核实，docgen 的真实检索/正式条文引用质量尚未通过验收
+- [ ] **blocked**：共享 RAG 质量层 `rag_p1 --variant real --judge` 最新为机制 56/58、
+  独立质量 36/58（62.07%），未达到收口条件
+- [ ] **blocked**：材料管段从 DWG 自动抽取依赖 P3，当前只接收结构化管段表
 
 ---
 
