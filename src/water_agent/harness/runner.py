@@ -365,7 +365,8 @@ class HarnessRunner:
     def _run_docgen_case(self, case: DocgenCase, *, line_no: int | None = None) -> EvalResult:
         """docgen 机制层：模板引擎确定性渲染（与 docgen 图 draft/finalize 同一数据源）。
 
-        未知文档类型/渲染异常 → actual_status=invalid_input 的结果（不抛批级异常）。
+        未知文档类型/渲染异常 → 传 ``render_error`` 给 scorer，由 scorer 按
+        ``expected_status`` 判 invalid_input（成功/失败语义单点化，不在 runner 旁路）。
         """
         started = time.perf_counter()
         try:
@@ -377,16 +378,14 @@ class HarnessRunner:
             )
         except ValueError as exc:
             latency_ms = (time.perf_counter() - started) * 1000
-            result = EvalResult(
-                case_id=case.id,
-                passed=False,
-                expected_status=case.expected_status,
-                actual_status="invalid_input",
-                failure_reason=str(exc),
-                latency_ms=round(latency_ms, 3),
+            result = score_docgen_case(
+                case,
+                rendered=None,
+                render_error=str(exc),
+                latency_ms=latency_ms,
                 line_no=line_no,
-                variant="programmatic",
             )
+            result.variant = "programmatic"
             return result
         latency_ms = (time.perf_counter() - started) * 1000
         result = score_docgen_case(case, rendered=rendered, latency_ms=latency_ms, line_no=line_no)
