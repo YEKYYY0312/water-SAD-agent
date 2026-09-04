@@ -27,7 +27,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵（�
 - CLI 收口：`--interactive` 真正作答（`--mode agentic` 用同一 `AgenticSession`/thread 跨轮，`--resume` 恢复；其他模式每行 `run_once`）；`--flow docgen` = gather（计算/RAG）→ draft → 人审 y/n+原因 → finalize，EOF 挂起 exit 0、`--resume` 恢复，审批记录写 trace；`--doc-type auto|calculation_book|design_note`（P2，默认 auto：计算意图→计算书，其余→设计说明）；检索装配统一 `_build_retriever/_build_reranker`，agentic 检索工具经 `RerankingRetriever` 套 rerank。`--mode legacy|agentic` 双轨共存。
 - P2 文档模板引擎：`docgen/templates.py`（计算书/设计说明 = 必需章节 工程概况/设计依据/计算参数(与结果)/结论 + 可选材料统计；数值只渲染入参浮点原值+单位并保留 `calc_values` 映射，引用只渲染入参 source_id，`validate_citation_policy` 防编造、`check_structure` 结构校验）；`graphs/docgen.py` 状态加 `doc_type`，draft 以引擎渲染带"（第 N 稿）"标题，finalize 用**同一数据源**做正式渲染（终稿无"草稿/稿次"，用户反馈章节保留可追溯）——批准内容与终稿内容一致。
 - P2 材料统计：`materials/core.py` 管段表（段号/系统/管径/长度/材质）→ 按 `(材质, 规格)` 聚合（数量=长度和，round 3 位单一来源），每行带 `segments`+`detail` 溯源；`materials/export.py` 导出 `.xlsx`（材料清单 + 统计说明两个 sheet，openpyxl>=3.1,<4 已入 pyproject 依赖）与 CSV；`tools/material_stats.py`（ToolSpec，注册进 CLI agentic 会话与 runner real-agentic registry）。
-- P2 评测：`data/eval/docgen_p0.jsonl`（10 条：结构合规+数值双阈值+引用必须/禁止）与 `data/eval/material_p0.jsonl`（10 条：行集合一致+数量双阈值+全段溯源覆盖，含 1 条 invalid_input）机制层均 10/10；`DocgenCase`/`MaterialCase` 已进 loader/scorer/runner（离线确定性）；`scripts/ci_gate.sh` 已加两套 ≥95% 门禁。
+- P2 评测：`data/eval/docgen_p0.jsonl`（11 条：结构合规+数值双阈值+引用必须/禁止+未知 doc_type invalid_input）与 `data/eval/material_p0.jsonl`（10 条：行集合一致+数量双阈值+全段溯源覆盖，含 1 条 invalid_input）机制层均 11/11、10/10；`DocgenCase`/`MaterialCase` 已进 loader/scorer/runner（离线确定性）；`scripts/ci_gate.sh` 已加两套 ≥95% 门禁，`data/eval/baseline.json` 已含 docgen_p0/material_p0（`scripts/compare_baseline.py` 默认对比四条机制层套件）。
 - 计算永远走程序化工具，缺参→`missing_inputs`，越界→`assumptions`。
 
 ## 改动范围纪律
