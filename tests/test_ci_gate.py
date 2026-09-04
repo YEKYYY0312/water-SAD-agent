@@ -25,6 +25,12 @@ EVAL_PATH = REPO_ROOT / "data" / "eval" / "rag_p0.jsonl"
 FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 
 
+def test_verify_delegates_to_canonical_ci_gate() -> None:
+    """统一验证入口必须复用完整门禁，避免 P2/mypy/baseline 规则漂移。"""
+    verify_script = (REPO_ROOT / "scripts" / "verify.sh").read_text(encoding="utf-8")
+    assert 'exec bash "$ROOT/scripts/ci_gate.sh"' in verify_script
+
+
 class TestRunnerVariantRealSKIP:
     """--variant real 无 Key 时应 SKIP 所有用例，退出码 0。"""
 
