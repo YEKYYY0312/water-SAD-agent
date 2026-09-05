@@ -45,7 +45,13 @@ class ProviderCallSite(BaseModel):
     #: 稳定标识（trace/文档引用用它，改名等同破坏兼容）。
     site_id: str = Field(min_length=1)
     #: 相对 `src/` 的模块路径，例如 ``water_agent/generation/llm.py``。
+    #: 这是**逻辑调用点**所在模块（谁发起这类调用）。
     module: str = Field(min_length=1)
+    #: 实际打开网络连接的模块（相对 `src/`）。
+    #: P2.5 Step 12 后三个 chat 出口收敛到 ``generation/chat_model.py``，
+    #: 因此 ``module`` 与 ``egress_module`` 可以不同 —— 静态扫描断言的是
+    #: **egress_module 集合 == 代码里真实开连接的模块集合**。
+    egress_module: str = Field(min_length=1)
     #: 发起调用的限定名，例如 ``LLMGenerator._completion``。
     symbol: str = Field(min_length=1)
     provider: ProviderKind
@@ -82,90 +88,110 @@ class ToolCapabilityEntry(BaseModel):
 
 
 #: 远程 provider 调用点清单。**新增远程调用必须先加到这里**。
+#:
+#: P2.5 Step 12 后 ``governed=True``：每个出口都经 ``ProviderGateway``。
+#: ``current_timeout_seconds`` / ``current_retry`` 记录的是**接入后**的真实口径
+#: （统一取自 ``GovernanceConfig`` 的 provider 画像，不再各处硬编码）。
 PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
     ProviderCallSite(
         site_id="deepseek_chat_legacy_rag",
         module="water_agent/generation/llm.py",
-        symbol="LLMGenerator._completion",
+        egress_module="water_agent/generation/llm.py",
+        symbol="LLMGenerator.generate → _completion",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.RAG_GENERATION,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_USER_QUERY,
         principal_source="CLI 本地主体（local:<thread_id>）",
         current_timeout_seconds=60.0,
-        current_retry="无（单次 urlopen，HTTPError 直接抛出）",
+        current_retry="ProviderGateway：仅瞬时错误，max_attempts=3，429 遵守 Retry-After",
         cache_eligible=True,
-        target_gateway_method="ProviderGateway.chat_completion",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
     ProviderCallSite(
         site_id="deepseek_chat_agentic_loop",
         module="water_agent/generation/chat_model.py",
-        symbol="build_chat_model",
+        egress_module="water_agent/generation/chat_model.py",
+        symbol="build_chat_model → GovernedChatModel._generate",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.AGENTIC_LOOP,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_USER_QUERY,
         principal_source="AgenticSession thread_id → 本地主体",
-        current_timeout_seconds=None,
-        current_retry="langchain_openai 默认（max_retries 未显式设置）",
+        current_timeout_seconds=60.0,
+        current_retry="ProviderGateway：max_attempts=3；ChatOpenAI 自带重试已关（max_retries=0，避免叠乘）",
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.wrap_chat_model",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
     ProviderCallSite(
         site_id="deepseek_chat_docgen_polish",
         module="water_agent/docgen/quality.py",
-        symbol="RealPolishTransport.__call__",
+        # Step 12 收敛：不再内联构造 ChatOpenAI，改走 build_chat_model
+        egress_module="water_agent/generation/chat_model.py",
+        symbol="RealPolishTransport.__call__ → build_chat_model",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.DOCGEN_POLISH,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_PROJECT_DOC,
         principal_source="docgen flow 的 CLI 本地主体",
-        current_timeout_seconds=None,
-        current_retry="无（失败即 blocked，不回退）",
+        current_timeout_seconds=60.0,
+        current_retry="ProviderGateway：max_attempts=3；失败仍结构化为 blocked（不回退原文）",
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.chat_completion",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
     ProviderCallSite(
         site_id="deepseek_chat_judge",
         module="water_agent/harness/llm_judge.py",
-        symbol="LLMJudge._call_llm",
+        # Step 12 收敛：不再内联构造 ChatOpenAI，改走 build_chat_model
+        egress_module="water_agent/generation/chat_model.py",
+        symbol="LLMJudge._call_llm → build_chat_model",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.JUDGE,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_USER_QUERY,
         principal_source="harness runner 本地主体（评测进程）",
-        current_timeout_seconds=None,
-        current_retry="无（异常记为 judge 失败）",
+        current_timeout_seconds=60.0,
+        current_retry="ProviderGateway：max_attempts=3",
         cache_eligible=True,
-        target_gateway_method="ProviderGateway.chat_completion",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
     ProviderCallSite(
         site_id="bailian_embedding_query",
         module="water_agent/embedding.py",
-        symbol="BailianEmbeddingProvider._request_embedding",
+        egress_module="water_agent/embedding.py",
+        symbol="BailianEmbeddingProvider.embed → _request_embedding",
         provider=ProviderKind.BAILIAN_EMBEDDING,
         category=CallCategory.EMBEDDING_QUERY,
         required_capability=Capability.EMBEDDING,
         data_class=DATA_CLASS_USER_QUERY,
+        # Step 11 记为 30s 有误：代码实际是 60s（BailianEmbeddingConfig 默认）
         principal_source="检索装配阶段的本地主体",
-        current_timeout_seconds=30.0,
-        current_retry="有界重试（_is_transient_embed_error 判定瞬时错误）",
+        current_timeout_seconds=60.0,
+        current_retry="ProviderGateway：max_attempts=7（沿用 config.max_retries=6 口径）",
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.embed",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
     ProviderCallSite(
         site_id="bailian_rerank",
         module="water_agent/retrieval/rerank.py",
-        symbol="BailianReranker._call",
+        egress_module="water_agent/retrieval/rerank.py",
+        symbol="BailianReranker.rerank → _call",
         provider=ProviderKind.BAILIAN_RERANK,
         category=CallCategory.RERANK,
         required_capability=Capability.RERANK,
         data_class=DATA_CLASS_PUBLIC_CLAUSE,
+        # Step 11 记为 30s 有误：代码实际是 60s（构造参数默认）
         principal_source="检索装配阶段的本地主体",
-        current_timeout_seconds=30.0,
-        current_retry="无（HTTPError 直接抛出；403 AccessDenied 已知阻塞）",
+        current_timeout_seconds=60.0,
+        current_retry="ProviderGateway：max_attempts=2；403 AccessDenied 属永久错误 → 零重试",
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.rerank",
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
     ),
 )
 
@@ -230,8 +256,8 @@ def _relative(path: Path) -> str:
 
 
 def registered_call_site_modules() -> frozenset[str]:
-    """清单中登记的模块路径集合。"""
-    return frozenset(site.module for site in PROVIDER_CALL_SITES)
+    """清单中登记的**实际出站模块**集合（``egress_module``，不是逻辑调用点）。"""
+    return frozenset(site.egress_module for site in PROVIDER_CALL_SITES)
 
 
 def scan_remote_egress_modules() -> frozenset[str]:

@@ -34,6 +34,8 @@ from typing import Any
 from water_agent.docgen.templates import RenderedDoc, check_structure, validate_citation_policy
 from water_agent.domain.models import TokenUsage
 from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.runtime.governance.contracts import CallCategory, RequestContext
+from water_agent.runtime.governance.gateway import ProviderGateway
 
 # 数值保真双阈值（与 CalcTolerances 缺省口径一致：精确原值）
 NUMERIC_REL_TOL = 1e-6
@@ -269,27 +271,33 @@ class RealPolishTransport:
         model: str = POLISH_MODEL,
         base_url: str = POLISH_BASE_URL,
         api_key_env: str = POLISH_API_KEY_ENV,
+        gateway: ProviderGateway | None = None,
+        request_context: RequestContext | None = None,
     ) -> None:
         self.model = model
         self.base_url = base_url
         self.api_key_env = api_key_env
+        self._gateway = gateway
+        self._request_context = request_context
         self._llm: Any = None
         self.last_usage: TokenUsage | None = None
 
     def _ensure_llm(self) -> Any:
         if self._llm is not None:
             return self._llm
-        from langchain_openai import ChatOpenAI
-        from pydantic import SecretStr
+        # P2.5 Step 12：收敛到统一装配（build_chat_model），不再内联构造 ChatOpenAI。
+        # 返回的是 GovernedChatModel：经 ProviderGateway 限流/预算/重试/熔断/对账。
+        # 缺 Key 仍在此响亮失败（由 run_quality_polish 结构化为 blocked）。
+        from water_agent.generation.chat_model import build_chat_model
 
-        api_key = os.environ.get(self.api_key_env, "").strip()
-        if not api_key:
-            raise ValueError(f"{self.api_key_env} must not be empty")
-        self._llm = ChatOpenAI(
+        self._llm = build_chat_model(
             model=self.model,
             base_url=self.base_url,
-            api_key=SecretStr(api_key),
+            api_key_env=self.api_key_env,
             temperature=0.0,
+            category=CallCategory.DOCGEN_POLISH,
+            gateway=self._gateway,
+            request_context=self._request_context,
         )
         return self._llm
 
