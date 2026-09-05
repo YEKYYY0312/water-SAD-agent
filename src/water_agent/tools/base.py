@@ -28,7 +28,19 @@ _INJECTION_MARKERS = (
 
 
 class ToolSpec(BaseModel):
-    """工具规格：名称 / 描述 / 输入 schema / 执行函数 / 重试与超时 / 安全钩子。"""
+    """工具规格：名称 / 描述 / 输入 schema / 执行函数 / 超时 / 安全钩子。
+
+    P2.5 Step 12 变更（规格 §4「禁止保留看似生效的死字段」）：
+
+    - **删除 ``max_retries``**：从未被任何执行路径读取。工具重试语义与远程调用
+      不同——``retrieve_clauses`` 内部的远程 embedding 重试已由 ``ProviderGateway``
+      承担，纯计算工具重试无意义（同输入必得同输出）。保留一个不生效的字段
+      会让读者以为重试已配置。
+    - **``timeout_seconds`` 接入真实执行语义**：由 ``ToolRegistry.invoke`` 以
+      **协作式 deadline** 校验（执行后检查耗时并结构化报错）。
+      当前 4 个工具都是只读/纯计算，故**不用杀线程**实现超时——规格 §4 明确
+      禁止用杀线程破坏不可逆操作。未来若加入写入类工具，需另设 deadline 协议。
+    """
 
     model_config = {
         "arbitrary_types_allowed": True,
@@ -39,8 +51,11 @@ class ToolSpec(BaseModel):
     description: str
     args_model: type[BaseModel] = Field(description="pydantic 参数模型；枚举字段必须用 Literal/Enum 约束")
     execute: Callable[[Any], dict] = Field(description="执行函数，入参为 args_model 实例，返回 JSON 可序列化 dict")
-    max_retries: int = 3
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="协作式 deadline（秒）：ToolRegistry.invoke 执行后校验耗时，超时返回结构化 TOOL_TIMEOUT",
+    )
     guard: Callable[[Any], None] | None = None
 
     @field_validator("name")
@@ -64,13 +79,6 @@ class ToolSpec(BaseModel):
         for marker in _INJECTION_MARKERS:
             if marker in lowered:
                 raise ValueError(f"description 含疑似注入标记 {marker!r}")
-        return value
-
-    @field_validator("max_retries")
-    @classmethod
-    def _validate_retries(cls, value: int) -> int:
-        if value < 0 or value > 10:
-            raise ValueError("max_retries 必须在 0–10")
         return value
 
     def to_openai_tool(self) -> dict:

@@ -462,20 +462,31 @@ class TestInventoryCoverage:
         )
 
     def test_scan_actually_finds_known_egress(self) -> None:
-        """反例保护：扫描器本身必须能命中已知出口，否则覆盖测试是空的。"""
+        """反例保护：扫描器本身必须能命中已知出口，否则覆盖测试是空的。
+
+        Step 12 后三个 chat 出口（agentic/docgen/judge）已收敛到
+        ``generation/chat_model.py``，因此这里断言的是**实际开连接的 4 个模块**，
+        而不是 6 个逻辑调用点。
+        """
         found = scan_remote_egress_modules()
         for module in (
             "water_agent/generation/llm.py",
             "water_agent/generation/chat_model.py",
             "water_agent/embedding.py",
             "water_agent/retrieval/rerank.py",
-            "water_agent/harness/llm_judge.py",
-            "water_agent/docgen/quality.py",
         ):
             assert module in found
 
+    def test_consolidated_chat_sites_no_longer_open_own_connections(self) -> None:
+        """docgen 润色与 judge 不得再自建 provider 连接（Step 12 收敛的可测断言）。"""
+        found = scan_remote_egress_modules()
+        assert "water_agent/docgen/quality.py" not in found
+        assert "water_agent/harness/llm_judge.py" not in found
+        for site_id in ("deepseek_chat_docgen_polish", "deepseek_chat_judge"):
+            assert call_site(site_id).egress_module == "water_agent/generation/chat_model.py"
+
     def test_registered_modules_all_exist_on_disk(self) -> None:
-        """清单不得登记已删除的模块（避免用幽灵条目掩盖真实出口）。"""
+        """清单不得登记已删除的出站模块（避免用幽灵条目掩盖真实出口）。"""
         assert registered_call_site_modules() <= scan_remote_egress_modules()
 
     def test_tool_scan_finds_all_registered_tools(self) -> None:
@@ -495,14 +506,31 @@ class TestInventoryCoverage:
         ids = [s.site_id for s in PROVIDER_CALL_SITES]
         assert len(ids) == len(set(ids))
 
-    def test_no_site_claims_governed_before_step12(self) -> None:
-        """Step 11 不得声称已具备生产级治理：Gateway/Pipeline 尚未实现。"""
+    def test_all_provider_sites_governed_after_step12(self) -> None:
+        """Step 12 完成定义：6 个远程出口全部经 ProviderGateway。
+
+        ``tools_guardrail_validated`` 仍为 0 —— ``GuardrailPipeline`` 属 Step 14，
+        此刻不得声称工具护栏已就绪。
+        """
         assert governance_coverage() == {
             "provider_call_sites": 6,
-            "provider_governed": 0,
+            "provider_governed": 6,
             "tools": 4,
             "tools_guardrail_validated": 0,
         }
+        for site in PROVIDER_CALL_SITES:
+            assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"
+
+    def test_every_site_has_explicit_timeout(self) -> None:
+        """Step 12 必修项：原先 agentic/docgen/judge 三处无显式超时。"""
+        for site in PROVIDER_CALL_SITES:
+            assert site.current_timeout_seconds is not None, f"{site.site_id} 缺显式超时"
+            assert site.current_timeout_seconds > 0
+
+    def test_every_site_retry_goes_through_gateway(self) -> None:
+        """重试口径必须统一在 gateway，不得各处自行 sleep 重试。"""
+        for site in PROVIDER_CALL_SITES:
+            assert "ProviderGateway" in site.current_retry, f"{site.site_id} 重试未收敛到 gateway"
 
     def test_docgen_and_agentic_not_cache_eligible(self) -> None:
         """docgen 润色与 agentic 循环不得进精确缓存（规格 §5 禁止项）。"""

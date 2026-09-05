@@ -5,6 +5,10 @@
 
 任何云端 rerank 都必须显式提供 api_key（或 DASHSCOPE_API_KEY），未提供即抛错，
 绝不自动本地兜底。
+
+P2.5（Step 12）：``BailianReranker`` 的远程调用经 ``ProviderGateway``。
+403 AccessDenied 属永久错误 → 零重试、抛 ``PROVIDER_AUTH_FAILED``，
+**绝不静默回退 LocalReranker**（规格 §1.1 禁止 silent fallback）。
 """
 from __future__ import annotations
 
@@ -13,10 +17,18 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any
 from urllib import request
-from urllib.error import HTTPError
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.retrieval.base import Retriever
+from water_agent.runtime.governance.binding import default_gateway, local_request_context
+from water_agent.runtime.governance.contracts import (
+    CallCategory,
+    Capability,
+    ProviderCall,
+    ProviderKind,
+    RequestContext,
+)
+from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
 
 
 class Reranker(ABC):
@@ -100,6 +112,8 @@ class BailianReranker(Reranker):
         base_url: str = DEFAULT_BASE_URL,
         timeout_seconds: float = 60.0,
         transport: Any = None,
+        gateway: ProviderGateway | None = None,
+        request_context: RequestContext | None = None,
     ) -> None:
         if not api_key.strip():
             raise ValueError("BailianReranker requires api_key (no local fallback)")
@@ -108,6 +122,16 @@ class BailianReranker(Reranker):
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self._transport = transport
+        self._gateway = gateway
+        self._request_context = request_context
+
+    def _resolve_gateway(self) -> ProviderGateway:
+        return self._gateway if self._gateway is not None else default_gateway()
+
+    def _resolve_context(self) -> RequestContext:
+        if self._request_context is not None:
+            return self._request_context
+        return local_request_context(thread_id="rerank")
 
     def _endpoint(self) -> str:
         b = self.base_url.rstrip("/")
@@ -120,6 +144,12 @@ class BailianReranker(Reranker):
         return f"{b}{self.DEFAULT_PATH}"
 
     def _call(self, payload: dict) -> dict:
+        """发一次 rerank 请求（**单一注入缝**：测试可替换 transport）。
+
+        **不含重试**：重试/退避/熔断由 ``ProviderGateway`` 承担（Step 12）。
+        HTTP 错误保留 ``HTTPError`` 原型抛出，让 gateway 能按状态码分类
+        （403 AccessDenied = 永久错误，零重试）。
+        """
         if self._transport is not None:
             return self._transport(payload)  # type: ignore[no-any-return]
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -132,18 +162,15 @@ class BailianReranker(Reranker):
             },
             method="POST",
         )
+        with request.urlopen(req, timeout=self._resolve_timeout()) as raw:
+            return json.loads(raw.read().decode("utf-8"))  # type: ignore[no-any-return]
+
+    def _resolve_timeout(self) -> float:
+        """超时口径单一来源：gateway 的 provider 画像，取不到时回落构造参数。"""
         try:
-            with request.urlopen(req, timeout=self.timeout_seconds) as raw:
-                return json.loads(raw.read().decode("utf-8"))  # type: ignore[no-any-return]
-        except HTTPError as exc:
-            detail = ""
-            try:
-                detail = exc.read().decode("utf-8", errors="replace")[:500]
-            except Exception:  # noqa: BLE001, S110 — 错误体读取失败时用空串即可
-                pass
-            raise RuntimeError(
-                f"Bailian rerank HTTP {exc.code} {exc.reason}: {detail}"
-            ) from exc
+            return self._resolve_gateway().timeout_for(ProviderKind.BAILIAN_RERANK)
+        except KeyError:
+            return self.timeout_seconds
 
     @staticmethod
     def _extract_results(response: dict) -> list[dict]:
@@ -157,6 +184,13 @@ class BailianReranker(Reranker):
         raise ValueError("Bailian rerank response contains no results")
 
     def rerank(self, query: str, candidates: list[RetrievedClause], top_k: int) -> list[RetrievedClause]:
+        """真实 rerank。
+
+        P2.5 Step 12：经 ``ProviderGateway`` —— 限流、预算预留、有界重试
+        （仅瞬时错误）、熔断与 usage 对账。**403 AccessDenied 是永久错误，
+        零重试并抛 ``PROVIDER_AUTH_FAILED``；绝不静默回退 LocalReranker**
+        （那正是规格 §1.1 禁止的 silent fallback）。
+        """
         if not candidates:
             return []
         documents = [c.text or c.title or "" for c in candidates]
@@ -170,7 +204,21 @@ class BailianReranker(Reranker):
                 "top_n": top_k,
             },
         }
-        response = self._call(payload)
+        call = ProviderCall(
+            provider=ProviderKind.BAILIAN_RERANK,
+            category=CallCategory.RERANK,
+            model=self.model,
+            temperature=0.0,
+            estimated_input_tokens=len(query) + sum(len(d) for d in documents),
+            required_capability=Capability.RERANK,
+        )
+
+        def executor() -> tuple[dict, ProviderUsage]:
+            response = self._call(payload)
+            # rerank 接口通常不返回 token usage → unknown（不估算）
+            return response, ProviderUsage.unknown()
+
+        response = self._resolve_gateway().call(self._resolve_context(), call, executor).value
         results = self._extract_results(response)
         ordered = sorted(results, key=lambda r: float(r.get("relevance_score", 0.0)), reverse=True)
         out: list[RetrievedClause] = []

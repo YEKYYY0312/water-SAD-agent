@@ -1,0 +1,235 @@
+"""P2.5 治理配置（Step 12）：版本化的限流、重试、熔断、预算与价格。
+
+设计约束（`docs/design/12-p2.5-production-governance.md` §4）：
+
+1. **版本化**：``GovernanceConfig.version`` 进 trace 与 ``UsageRecord`` 的关联字段，
+   便于回溯"哪一版配置做出的拒绝"。改阈值必须改版本号。
+2. **价格未确认不做硬拒绝**：知识库示例价格**不得**复制为项目事实。
+   本项目沿用 `generation/cost.py` 的 DeepSeek 公开单价作为**估算口径**，
+   但 ``ModelPrice.confirmed=False`` —— 因此**成本预算默认不启用硬拒绝**，
+   只有可直接测量的 token 额度才做硬限制。
+3. **预算三态默认 WARN**：``DEGRADE`` 需显式配置 + 已评测的模型路由，P2.5 不启用。
+4. **不虚构阈值**：真实 DAU / 月账单 / 命中率均为 unknown，因此额度取
+   "单机单人使用下明显宽松、只挡住失控循环"的量级，并在字段注释里说明依据。
+   这不是"生产调优值"，是**失控保护**。
+
+本模块不导入 langchain/langgraph/provider SDK（治理层纯度约束）。
+"""
+from __future__ import annotations
+
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from water_agent.runtime.governance.contracts import (
+    BudgetPolicy,
+    CallCategory,
+    ProviderKind,
+)
+
+#: 配置版本。**改任何阈值都要改它**（trace 用它回溯裁定依据）。
+GOVERNANCE_CONFIG_VERSION = "p2.5-step12-2026-09-05"
+
+
+class RetryPolicy(BaseModel):
+    """有界重试策略。
+
+    ``max_attempts`` 含首次尝试（=1 表示不重试）。退避为指数 + 抖动；
+    **总等待时间另受 ``RequestContext.deadline_seconds`` 约束**，两者取先到者。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    base_backoff_seconds: float = Field(default=0.5, ge=0)
+    max_backoff_seconds: float = Field(default=8.0, ge=0)
+    #: 抖动比例：实际延迟 ∈ [d*(1-jitter), d]，避免多进程重试对齐。
+    jitter_ratio: float = Field(default=0.25, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _validate_backoff(self) -> Self:
+        if self.max_backoff_seconds < self.base_backoff_seconds:
+            raise ValueError("max_backoff_seconds 不得小于 base_backoff_seconds")
+        return self
+
+    def backoff_for(self, attempt: int) -> float:
+        """第 ``attempt`` 次失败后的退避基准（未加抖动，秒）。attempt 从 0 起。"""
+        return float(min(self.base_backoff_seconds * (2**attempt), self.max_backoff_seconds))
+
+
+class CircuitBreakerPolicy(BaseModel):
+    """熔断策略：连续可重试失败达阈值即开路；``recovery_seconds`` 后半开探测。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    failure_threshold: int = Field(default=5, ge=1)
+    recovery_seconds: float = Field(default=30.0, gt=0)
+    #: 半开期允许的探测请求数上限（超出直接拒绝，防半开期打满）。
+    half_open_max_calls: int = Field(default=1, ge=1)
+
+
+class RateLimitPolicy(BaseModel):
+    """token bucket 限流策略（按 ``principal_hash + capability/model tier``）。
+
+    额度依据：本项目当前是**单机单人 CLI**（DAU=unknown 但显然是 1）。
+    这里的数值不是"生产调优值"，而是**失控保护**——挡住 agentic 循环失控、
+    重试风暴、批量 embedding 打满，而不影响正常人工使用。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: 桶容量（token）。单次 RAG 约数千 token，容量给到十万级 = 允许突发几十次。
+    bucket_capacity_tokens: int = Field(default=200_000, ge=1)
+    #: 补充速率（token/秒）。约 3.6M token/小时，远超人工节奏，只挡机器失控。
+    refill_tokens_per_second: float = Field(default=1_000.0, gt=0)
+    #: 每分钟请求数上限。人工提问不可能超过；agentic 循环失控会立刻撞到。
+    max_requests_per_minute: int = Field(default=120, ge=1)
+
+
+#: 批量嵌入（入库）专用限流：`scripts/build_index.py` 会对整个语料库逐块嵌入，
+#: 属**合法批量作业**。若沿用 chat 的 120 RPM，正常入库会被自己的限流打断。
+#: 这里放宽到分钟级数千请求 —— 仍能挡住无限循环，但不干扰入库。
+INGEST_RATE_LIMIT = RateLimitPolicy(
+    bucket_capacity_tokens=5_000_000,
+    refill_tokens_per_second=50_000.0,
+    max_requests_per_minute=6_000,
+)
+
+
+class BudgetConfig(BaseModel):
+    """预算配置。
+
+    **成本上限默认 None（不启用）**：价格未经人工确认（见 :class:`ModelPrice`），
+    用未确认价格做硬拒绝等于"用估算当账单"。可直接测量的 token 额度才做硬限制。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy: BudgetPolicy = BudgetPolicy.WARN
+    #: 每日 token 额度（输入+输出）。None = 不启用。
+    daily_token_cap: int | None = Field(default=5_000_000, gt=0)
+    #: 每日成本上限（USD）。**默认 None：价格未确认，不做成本硬拒绝。**
+    daily_cost_cap_usd: float | None = Field(default=None, gt=0)
+    #: 告警比例（达到额度的该比例时记 warn 事件）。
+    warn_ratio: float = Field(default=0.8, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _validate_degrade_not_enabled(self) -> Self:
+        if self.policy is BudgetPolicy.DEGRADE:
+            raise ValueError(
+                "P2.5 不启用模型降级（BudgetPolicy.DEGRADE）："
+                "需先有独立配置、质量评测与审批记录（规格 §4）"
+            )
+        return self
+
+
+class ModelPrice(BaseModel):
+    """模型单价（USD / 1M token）。
+
+    ``confirmed=False`` 表示**该价格未经人工与账单核对**，只能用于估算记账，
+    不得作为硬拒绝依据。本项目沿用 `generation/cost.py` 既有 DeepSeek 公开单价口径。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    input_per_1m: float = Field(ge=0)
+    output_per_1m: float = Field(ge=0)
+    cached_input_per_1m: float | None = Field(default=None, ge=0)
+    #: 是否已与真实账单核对。**False 时成本只作估算**。
+    confirmed: bool = False
+
+    def estimate_usd(self, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0) -> float:
+        """估算成本（USD，8 位）。缓存 token 按 cached 单价计（无 cached 单价时按输入价）。"""
+        billable_input = max(0, input_tokens - max(0, cached_input_tokens))
+        cached_rate = self.cached_input_per_1m if self.cached_input_per_1m is not None else self.input_per_1m
+        total = (
+            billable_input * self.input_per_1m
+            + max(0, cached_input_tokens) * cached_rate
+            + max(0, output_tokens) * self.output_per_1m
+        ) / 1_000_000
+        return round(total, 8)
+
+
+class ProviderProfile(BaseModel):
+    """单个 provider 的可靠性画像：超时 + 重试 + 熔断 + 限流。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    timeout_seconds: float = Field(gt=0)
+    retry: RetryPolicy = RetryPolicy()
+    breaker: CircuitBreakerPolicy = CircuitBreakerPolicy()
+    rate_limit: RateLimitPolicy = RateLimitPolicy()
+
+
+#: DeepSeek 公开单价（沿用 `generation/cost.py` 口径）。**未与账单核对 → confirmed=False**。
+_DEEPSEEK_CHAT_PRICE = ModelPrice(
+    input_per_1m=0.27,
+    output_per_1m=1.10,
+    cached_input_per_1m=0.07,
+    confirmed=False,
+)
+
+
+class GovernanceConfig(BaseModel):
+    """治理配置根。按 provider 取画像，按模型名取价格。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: str = Field(default=GOVERNANCE_CONFIG_VERSION, min_length=1)
+    budget: BudgetConfig = BudgetConfig()
+    profiles: dict[ProviderKind, ProviderProfile] = Field(
+        default_factory=lambda: {
+            # 60s：沿用 generation/llm.py 既有超时口径。
+            ProviderKind.DEEPSEEK_CHAT: ProviderProfile(timeout_seconds=60.0),
+            # 60s + 6 次重试：沿用 embedding.py 既有口径（当前最健康的一路）。
+            # 限流用 INGEST_RATE_LIMIT：入库要对整个语料库逐块嵌入，属合法批量作业。
+            ProviderKind.BAILIAN_EMBEDDING: ProviderProfile(
+                timeout_seconds=60.0,
+                retry=RetryPolicy(max_attempts=7, base_backoff_seconds=1.0, max_backoff_seconds=32.0),
+                rate_limit=INGEST_RATE_LIMIT,
+            ),
+            # rerank 已知 403 AccessDenied（永久错误）；重试次数保持最小。
+            ProviderKind.BAILIAN_RERANK: ProviderProfile(
+                timeout_seconds=60.0,
+                retry=RetryPolicy(max_attempts=2),
+            ),
+        }
+    )
+    prices: dict[str, ModelPrice] = Field(
+        default_factory=lambda: {
+            "deepseek-chat": _DEEPSEEK_CHAT_PRICE,
+            "deepseek-reasoner": _DEEPSEEK_CHAT_PRICE,
+        }
+    )
+    #: 各调用分类的默认输出上限（token）。None = 不设限（由 provider 默认裁定）。
+    max_output_tokens: dict[CallCategory, int | None] = Field(default_factory=dict)
+
+    def profile_for(self, provider: ProviderKind) -> ProviderProfile:
+        """取 provider 画像；未配置 fail closed（抛 ``KeyError``，不给"默认宽松"）。"""
+        try:
+            return self.profiles[provider]
+        except KeyError:
+            raise KeyError(
+                f"provider {provider.value!r} 未配置 ProviderProfile；"
+                "新增 provider 必须先配置超时/重试/熔断/限流（fail closed）"
+            ) from None
+
+    def price_for(self, model: str) -> ModelPrice | None:
+        """取模型价格；未登记返回 ``None`` → 成本记为 ``None``（不猜价）。"""
+        return self.prices.get(model)
+
+
+#: 默认配置单例。测试与调用方可构造自己的实例覆盖。
+DEFAULT_GOVERNANCE_CONFIG = GovernanceConfig()
+
+__all__ = [
+    "DEFAULT_GOVERNANCE_CONFIG",
+    "GOVERNANCE_CONFIG_VERSION",
+    "BudgetConfig",
+    "CircuitBreakerPolicy",
+    "GovernanceConfig",
+    "ModelPrice",
+    "ProviderProfile",
+    "RateLimitPolicy",
+    "RetryPolicy",
+]
