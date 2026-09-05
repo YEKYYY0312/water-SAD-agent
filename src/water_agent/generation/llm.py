@@ -14,9 +14,20 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import request
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from water_agent.domain.models import Citation, GeneratedAnswer, RetrievedClause
 from water_agent.generation.base import Generator
 from water_agent.ingestion.version_registry import split_spec_id
+from water_agent.runtime.governance.binding import default_gateway, local_request_context
+from water_agent.runtime.governance.contracts import (
+    CallCategory,
+    Capability,
+    ProviderCall,
+    ProviderKind,
+    RequestContext,
+)
+from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-chat"
@@ -25,6 +36,26 @@ DEFAULT_SYSTEM_PROMPT = (
     "你是给排水专业标准助手。请依据提供的检索条款回答问题，仅能引用出现在检索结果里的条款，"
     "不得编造规范号或条款内容。回答要专业、简洁、可追溯。"
 )
+
+
+class StructuredCitation(BaseModel):
+    """LLM 返回的结构化引用条款。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1)
+    article: str = Field(min_length=1)
+    title: str = Field(default="")
+    text_snippet: str = Field(default="")
+
+
+class StructuredAnswer(BaseModel):
+    """LLM 返回的结构化回答。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(min_length=1)
+    citations: list[StructuredCitation] = Field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,9 +83,13 @@ class LLMGenerator(Generator):
         config: LLMConfig,
         *,
         transport: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        gateway: ProviderGateway | None = None,
+        request_context: RequestContext | None = None,
     ) -> None:
         self.config = config
         self._transport = transport
+        self._gateway = gateway
+        self._request_context = request_context
         # Step 10：记录最近一次调用的 usage 元数据（token 用量），供质量层评测统计成本
         self.last_usage: dict[str, Any] = {}
 
@@ -65,21 +100,37 @@ class LLMGenerator(Generator):
             f"[{i + 1}] {c.source_id}  {c.title or ''}\n{c.text[:400]}"
             for i, c in enumerate(context)
         )
+        system_message = (
+            f"{self.config.system_prompt}\n\n"
+            "你必须只输出 JSON，不要输出 Markdown、解释或额外文本。\n"
+            "JSON 结构必须是：{\"answer\": string, \"citations\": ["
+            "{\"source_id\": string, \"article\": string, \"title\": string, \"text_snippet\": string}"
+            "]}。\n"
+            f"最多返回 {self.config.max_citations} 条引用。\n"
+            "每条 citations[].source_id 必须来自检索结果，且 article 必须与 source_id 的条款号一致。"
+        )
         user_message = (
             f"问题：{query}\n\n"
             f"检索到的条款：\n{context_block}\n\n"
-            "请仅依据上述条款回答，并指出你引用了哪些（用其条款号）。"
+            "请仅依据上述条款回答，并输出结构化 JSON。"
         )
         return {
             "model": self.config.model,
             "messages": [
-                {"role": "system", "content": self.config.system_prompt},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message},
             ],
             "temperature": self.config.temperature,
+            "response_format": {"type": "json_object"},
         }
 
     def _completion(self, payload: dict[str, Any]) -> str:
+        """发一次 chat 请求并返回文本（**单一注入缝**：测试可替换 transport）。
+
+        **不含重试**：重试/退避/熔断由 ``ProviderGateway`` 承担（Step 12）。
+        provider usage 写入 :attr:`last_usage`（缺失时为空 dict → gateway 记
+        ``USAGE_UNKNOWN``，不估算成本）。
+        """
         if self._transport is not None:
             response = self._transport(payload)
         else:
@@ -93,7 +144,7 @@ class LLMGenerator(Generator):
                 },
                 method="POST",
             )
-            with request.urlopen(req, timeout=self.config.timeout_seconds) as raw:
+            with request.urlopen(req, timeout=self._resolve_timeout()) as raw:
                 response = json.loads(raw.read().decode("utf-8"))
         choices = response.get("choices") or []
         if not choices:
@@ -103,7 +154,79 @@ class LLMGenerator(Generator):
             self.last_usage = dict(usage)
         return (choices[0].get("message") or {}).get("content", "")  # type: ignore[no-any-return]
 
+    def _resolve_gateway(self) -> ProviderGateway:
+        """取 gateway：注入优先，否则用进程级默认 gateway（无绕过路径）。"""
+        return self._gateway if self._gateway is not None else default_gateway()
+
+    def _resolve_context(self) -> RequestContext:
+        if self._request_context is not None:
+            return self._request_context
+        return local_request_context(thread_id="legacy-rag")
+
+    def _resolve_timeout(self) -> float:
+        """超时口径单一来源：gateway 的 provider 画像，取不到时回落本地 config。"""
+        try:
+            return self._resolve_gateway().timeout_for(ProviderKind.DEEPSEEK_CHAT)
+        except KeyError:
+            return self.config.timeout_seconds
+
+    @staticmethod
+    def _usage_from_payload(usage: dict[str, Any]) -> ProviderUsage:
+        """OpenAI 兼容 usage → ``ProviderUsage``；字段缺失/形态不符 → ``unknown``。"""
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        if not isinstance(prompt, int) or not isinstance(completion, int):
+            return ProviderUsage.unknown()
+        details = usage.get("prompt_tokens_details")
+        cached = 0
+        if isinstance(details, dict) and isinstance(details.get("cached_tokens"), int):
+            cached = int(details["cached_tokens"])
+        return ProviderUsage.of(
+            input_tokens=prompt, output_tokens=completion, cached_input_tokens=cached
+        )
+
+    def _parse_structured_answer(self, raw: str, *, context: list[RetrievedClause]) -> GeneratedAnswer:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM response is not valid JSON: {exc.msg}") from exc
+        try:
+            parsed = StructuredAnswer.model_validate(payload)
+        except ValidationError as exc:
+            raise ValueError(f"LLM structured response validation failed: {exc}") from exc
+
+        context_map = {clause.source_id: clause for clause in context}
+        citations: list[Citation] = []
+        seen: set[str] = set()
+        for item in parsed.citations[: self.config.max_citations]:
+            clause = context_map.get(item.source_id)
+            if clause is None:
+                raise ValueError(f"LLM cited source_id not in context: {item.source_id}")
+            if item.source_id in seen:
+                continue
+            seen.add(item.source_id)
+            if item.article.strip() != clause.article.strip():
+                raise ValueError(
+                    f"LLM cited article mismatch for {item.source_id}: {item.article!r} != {clause.article!r}"
+                )
+            citations.append(
+                Citation(
+                    spec_id=clause.spec_id,
+                    article=clause.article,
+                    title=item.title or clause.title,
+                    text_snippet=item.text_snippet or clause.text[:60],
+                    spec_version=split_spec_id(clause.spec_id)[1],
+                )
+            )
+        return GeneratedAnswer(answer=parsed.answer, citations=citations, intent="rag")
+
     def generate(self, query: str, context: list[RetrievedClause]) -> GeneratedAnswer:
+        """生成带引用的回答。
+
+        P2.5 Step 12：远程调用经 ``ProviderGateway`` —— 限流、预算预留、
+        有界重试（仅瞬时错误）、429 退避、熔断与 usage 对账。
+        空上下文不发请求（省调用，也避免无依据作答）。
+        """
         if not context:
             # 未实际调用 LLM：清空 last_usage，避免 0 命中用例继承上一条用例的 token/cost
             self.last_usage = {}
@@ -114,9 +237,25 @@ class LLMGenerator(Generator):
             )
         payload = self._chat_request(query, context)
         assert payload is not None  # context 非空时必有请求体
-        answer = self._completion(payload)
-        citations = [_clause_to_citation(c) for c in context[: self.config.max_citations]]
-        return GeneratedAnswer(answer=answer, citations=citations, intent="rag")
+
+        call = ProviderCall(
+            provider=ProviderKind.DEEPSEEK_CHAT,
+            category=CallCategory.RAG_GENERATION,
+            model=self.config.model,
+            temperature=self.config.temperature,
+            estimated_input_tokens=sum(len(m["content"]) for m in payload["messages"]),
+            required_capability=Capability.LLM_INFERENCE,
+        )
+
+        def executor() -> tuple[str, ProviderUsage]:
+            self.last_usage = {}
+            raw = self._completion(payload)
+            return raw, self._usage_from_payload(self.last_usage)
+
+        raw = self._resolve_gateway().call(self._resolve_context(), call, executor).value
+        # 结构化解析在 gateway 之外：引用越界/JSON 非法是**模型输出契约违约**，
+        # 不是 provider 不可用，既不该被重试也不该记成 PROVIDER_UNAVAILABLE。
+        return self._parse_structured_answer(raw, context=context)
 
 
 def _clause_to_citation(clause: RetrievedClause) -> Citation:
