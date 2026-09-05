@@ -24,6 +24,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from water_agent.domain.models import TokenUsage
+from water_agent.runtime.governance.contracts import CallCategory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_JUDGE_CACHE_DIR = REPO_ROOT / "data" / "eval" / "judge_cache"
@@ -238,19 +239,23 @@ class LLMJudge:
             pass  # 缓存写入失败不阻塞评测
 
     def _call_llm(self, messages: list[dict[str, str]]) -> tuple[str, TokenUsage | None]:
-        """调用 LLM 获取 judge 结果。使用 ChatOpenAI 风格接口。"""
-        from langchain_openai import ChatOpenAI
-        from pydantic import SecretStr
+        """调用 LLM 获取 judge 结果。
 
-        api_key = self._resolve_api_key()
-        if not api_key:
+        P2.5 Step 12：收敛到统一装配（``build_chat_model``），不再内联构造
+        ``ChatOpenAI``。返回的是 ``GovernedChatModel``：经 ``ProviderGateway``
+        限流/预算/有界重试/429 退避/熔断/usage 对账。缺 Key 仍响亮失败。
+        """
+        from water_agent.generation.chat_model import build_chat_model
+
+        if not self._resolve_api_key():
             raise ValueError(f"{self.judge_api_key_env} must not be empty")
 
-        llm = ChatOpenAI(
+        llm = build_chat_model(
             model=self.judge_model,
             base_url=self.judge_base_url,
-            api_key=SecretStr(api_key),
+            api_key_env=self.judge_api_key_env,
             temperature=0.0,
+            category=CallCategory.JUDGE,
         )
         response = llm.invoke(messages)
 

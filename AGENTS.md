@@ -3,7 +3,7 @@
 给排水领域 AI Agent 的构建约定。任何会话开工前先读本文件与 `docs/给排水agent改造任务书.md`。
 
 ## 项目是什么
-面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 DWG 自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。
+面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 DWG 自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，P2.5（缓存/限流/成本/护栏）的权威规格见 `docs/design/12-p2.5-production-governance.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。
 
 ## 三条铁律（不得违反）
 1. 计算类永远程序化校验，LLM 不参与数值运算。
@@ -13,6 +13,7 @@
 ## 验证命令（改动完成前必须执行）
 ```bash
 bash scripts/ci_gate.sh  # pytest + ruff + mypy + 四套机制层 harness + baseline 对比
+_venv/bin/pytest -q tests/test_governance_contracts.py tests/test_provider_gateway.py tests/test_tool_runtime_policy.py  # P2.5 Step 11–12 治理层
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_quality.jsonl
 _venv/bin/python -m water_agent.harness.runner data/eval/material_quality.jsonl
 _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，需百炼 Key/权限/网络
@@ -30,9 +31,18 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 - P2 材料统计：`materials/core.py` 管段表（段号/系统/管径/长度/材质）→ 按 `(材质, 规格)` 聚合（数量=长度和，round 3 位单一来源），每行带 `segments`+`detail` 溯源；`materials/export.py` 导出 `.xlsx`（材料清单 + 统计说明两个 sheet，openpyxl>=3.1,<4 已入 pyproject 依赖）与 CSV；`tools/material_stats.py`（ToolSpec，注册进 CLI agentic 会话与 runner real-agentic registry）。
 - P2 评测：`docgen_p0` 11/11、`material_p0` 10/10，均进入 `scripts/ci_gate.sh` 与 `data/eval/baseline.json`；默认 baseline 四套为 rag_p0/calc_p0/docgen_p0/material_p0。专项质量集为 `docgen_quality` 4 条（离线 4/4；2026-09-04 真实 LLM 4/4）和 `material_quality` 7/7；专项质量集尚未纳入默认 baseline。
 - 计算永远走程序化工具，缺参→`missing_inputs`，越界→`assumptions`。
+- P2.5 治理层（Step 11–12）：`runtime/governance/` 是运行时边界的唯一定义，**不依赖 langchain/langgraph**（有测试锁死）。
+  - `contracts.py`：`Principal`（只能 `local:<thread_id>`，subject 不进 trace，只暴露 `principal_hash`；4 个危险能力构造期即拒绝授予）、`SourceTag`（信任级别是代码定义的偏序，`relabel` 只能降级；只有 `SYSTEM_POLICY` 可承载指令）、`ContentEnvelope`、`Capability`、`PolicyDecision`、`ProviderCall`、`UsageRecord`（`usage_known=False` 时禁止填 token/成本——估算不得当账单）、`CacheDisposition`（`status` 与 `eligible_for_store` 独立，使「MISS 且不可存」可表达）与 13 个稳定错误码。
+  - `gateway.py`：`ProviderGateway` 是**所有远程模型调用的唯一入口**。顺序为能力校验→熔断→预发送限流→预算预留→有界重试（受 deadline 约束）→usage 对账/回滚→落账。只对瞬时错误重试（408/429/5xx/超时/连接错误）；**401/403 零重试且不计熔断**（换 Key 才能解决，403 是 rerank 已知阻塞码）；未知错误默认永久（不确定就不放大故障）；429 遵守 `Retry-After`。**永不换模型/永不回退本地/永不伪造 usage**。
+  - `config.py`：版本化配置（改阈值须改 `GOVERNANCE_CONFIG_VERSION`）。**成本硬上限默认不启用**（`ModelPrice.confirmed=False`，用未核对价格做硬拒绝等于用估算当账单）；只有 `daily_token_cap` 做硬限制；`BudgetPolicy` 默认 `WARN`，`DEGRADE` 配置期即拒绝。限流额度定位是**失控保护**而非生产调优值（DAU/账单仍 unknown）；`INGEST_RATE_LIMIT` 单独放宽，否则批量入库会被自己的限流打断。
+  - `stores.py`：`RateLimitStore`/`BudgetLedger` 可替换；内存实现 `supports_multi_instance` **恒为 False**（不得用单进程 dict 谎称支持多实例）。预算是**预留→真实 usage 对账→失败回滚**三段语义。
+  - `inventory.py`：6 个远程调用点 + 4 个工具 capability 的机器可读真源，`governed=6/6`、`tools_guardrail_validated=0`（有测试锁死这两个数）。**静态扫描断言「代码里的出站模块 == 清单登记」**，新增未登记出口或未声明 capability 的工具立即红灯（反例已实测）。新增别的 SDK 入口必须同时扩展 `_EGRESS_PATTERNS`，否则扫描形同虚设；扫描不含 `scripts/`。
+  - 出站模块经 Step 12 收敛为 4 个：`docgen/quality.py` 与 `harness/llm_judge.py` 不再自建连接，统一走 `generation/chat_model.py::build_chat_model` → `GovernedChatModel`。**`ChatOpenAI` 自带重试必须关（`max_retries=0`）**，否则与 gateway 重试叠乘。
+  - `ToolSpec.max_retries` **已删除**（从未被读取的死字段，含静态测试保护）；`timeout_seconds` 接入 `ToolRegistry.invoke` 的**协作式 deadline**（超时返回 `TOOL_TIMEOUT`，**不杀线程**——当前 4 个工具均只读/纯计算，加入写入类工具需另设协议）。
 
 ## 改动范围纪律
-- 本任务书共 Step -1…10，每步一个逻辑面，一步一 commit。
+- 本任务书共 Step -1…15，每步一个逻辑面，一步一 commit。
+- P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）与 Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）**；Step 13（缓存）/14（护栏）/15（治理评测）未实施。因此**仍不得声称项目具备生产级缓存、通用内容过滤或 P4 认证授权**。
 - 未完成功能用特性开关护住，不删旧路径。
 - 每步验收 = 该步"最小闭环验证"命令全部跑出预期且 `pytest` 不回退。
 
@@ -56,4 +66,4 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 - **正式规范引用 blocked**：docgen 真实润色样本使用显式 `FIX` 引用，只证明受限润色与守卫，不证明真实规范检索/正式条文引用质量。`data/versions.json` 的 GB50015-2019、GB50013-2018、GB50014-2021、GB50318-2017 均为 unknown；公告号、生效日期与来源待人工核实，核实后同步更新 `tests/test_version_registry.py::test_status_from_prod_json`。
 - **P3 依赖 blocked**：材料统计目前接收结构化管段表；从 DWG 自动抽取管段仍依赖 P3，P3 尚未启动。
 - `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` 非持久配置；无 Key 时结构化 SKIP，有 Key但网络或权限失败时记 blocked。
-- `src/water_agent/ingestion/semantic_audit.py` 仍有编码事故遗留的 `[??]` 占位字符；需人工确认原字符集后替换并重跑相关质检报告。
+- `src/water_agent/ingestion/semantic_audit.py` 的 OCR 符号集合已按同类 OCR 噪声字符集还原为 `[#|]{3,}|[?？]{1,}`（2026-09-04）；如需纳入其他乱码符号（如 ■▲◆…）在此扩展并同步测试与质检报告。

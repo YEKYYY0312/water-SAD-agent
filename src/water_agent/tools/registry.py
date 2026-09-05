@@ -3,9 +3,14 @@
 执行路径唯一化：所有工具执行统一走 ``ToolRegistry.invoke``；LangChain/LLM 适配层
 （Step 6）只做参数与结果转换，不复制校验与错误语义。异常一律转结构化错误返回，
 绝不向循环抛裸异常。
+
+P2.5 Step 12：``ToolSpec.timeout_seconds`` 接入**协作式 deadline** —— 执行后
+校验耗时，超时返回结构化 ``TOOL_TIMEOUT``。当前 4 个工具都是只读/纯计算，
+故不用杀线程实现（规格 §4 禁止用杀线程破坏不可逆操作）。
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from pydantic import ValidationError
@@ -16,6 +21,8 @@ from water_agent.tools.base import ToolSpec
 CODE_UNKNOWN_TOOL = "UNKNOWN_TOOL"
 CODE_INVALID_ARGUMENTS = "INVALID_ARGUMENTS"
 CODE_TOOL_ERROR = "TOOL_ERROR"
+#: 工具执行超过 ``ToolSpec.timeout_seconds``（协作式 deadline，Step 12）。
+CODE_TOOL_TIMEOUT = "TOOL_TIMEOUT"
 
 
 def _structured_error(code: str, message: str, suggestions: list[str] | None = None) -> dict:
@@ -81,12 +88,22 @@ class ToolRegistry:
                 return _structured_error(CODE_TOOL_ERROR, f"安全校验未通过：{exc}", ["调整参数后重试"])
 
         try:
+            started = time.monotonic()
             result = spec.execute(model)
+            elapsed = time.monotonic() - started
         except Exception as exc:  # noqa: BLE001 — 工具异常必须转结构化错误，绝不外泄
             return _structured_error(
                 CODE_TOOL_ERROR,
                 f"工具 {name!r} 执行失败：{exc}",
                 ["请核对参数或稍后重试"],
+            )
+        if elapsed > spec.timeout_seconds:
+            # 协作式 deadline：结果已产出但已超时。只读/纯计算工具丢弃结果安全；
+            # 不杀线程（规格 §4：不得用杀线程破坏不可逆操作）。
+            return _structured_error(
+                CODE_TOOL_TIMEOUT,
+                f"工具 {name!r} 执行耗时 {elapsed:.3f}s 超过上限 {spec.timeout_seconds}s",
+                ["缩小输入规模后重试"],
             )
         if not isinstance(result, dict):
             return _structured_error(
