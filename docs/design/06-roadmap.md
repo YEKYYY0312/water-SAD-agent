@@ -75,13 +75,13 @@
 
 ---
 
-## P2.5 —— 生产治理与安全基座（进行中：Step 11–12 已交付，13–15 未实施；P3 前置）
+## P2.5 —— 生产治理与安全基座（进行中：Step 11–13 已交付，14–15 未实施；P3 前置）
 
 **目标**：为已有 RAG、计算、docgen、材料和远程 provider 调用建立可测试、不可绕过的
 缓存、限流、成本、可靠性与安全边界。权威规格：`docs/design/12-p2.5-production-governance.md`。
 
 - [x] 统一 `ProviderGateway`：限流、配额、预算、timeout、有界重试、429 退避、熔断与 usage 对账（**Step 12 已完成，6/6 出口接入**）
-- [ ] 仅对已验证引用的 temperature=0 RAG 回答启用精确缓存（TTL、失效、跨主体隔离）；不做语义缓存
+- [x] 仅对已验证引用的 temperature=0 RAG 回答启用精确缓存（TTL、失效、跨主体隔离）；不做语义缓存（**Step 13 机制已完成；但当前语料 4 本规范版本全 unknown，按规格 §5 写入资格恒为 false → 命中率结构性为 0，且未接进 RAG 主路径**）
 - [ ] `GuardrailPipeline`：来源标签、注入防御、PII/secret、工具 capability/allowlist、输出检查和脱敏 trace
 - [ ] `governance_p0` 评测、红队合成用例、失败检测器、告警事件和 CI/baseline 门禁
 - [x] 为 P4 预留 `Principal`/`Capability` 契约；P2.5 不将本地 CLI 主体误称为外部认证（**Step 11 已完成**）
@@ -89,16 +89,20 @@
 **验收标准**
 - [x] 所有远程 provider 调用已接入统一入口；绕过入口的回归测试失败（**Step 12：静态扫描断言「代码出站模块 == 清单」**）
 - [ ] 所有工具调用已接入 `GuardrailPipeline`（Step 14）
-- [ ] 缓存命中不绕过引用/安全检查，版本/策略/权限域变化必定失效（Step 13）
+- [x] 缓存命中不绕过引用/安全检查，版本/策略/权限域变化必定失效（**Step 13：10 个失效因子各有独立 miss 测试；未验证引用与版本未知的结果永不入缓存**）
+- [ ] 缓存已接进 RAG 主路径并有真实命中证据（**阻塞于 `data/versions.json` 人工核实**）
 - [x] 限流、预算、timeout、重试、熔断均有确定性正反例（**Step 12：`tests/test_provider_gateway.py` 63 条**）
 - [ ] PII/注入/工具策略的确定性正反例（Step 14）
 - [ ] `governance_p0` 进入 `scripts/ci_gate.sh`，真实组件失败与无 Key 的 SKIP 语义明确区分（Step 15）
 
-**Step 11–12 交付摘要**（权威细节见 `p2.5-step-11-decision.md` / `p2.5-step-12-decision.md`）
-- `runtime/governance/`：契约（不依赖 langchain/langgraph）+ gateway + 配置 + 限流/预算存储 + 接入清单
+**Step 11–13 交付摘要**（权威细节见 `p2.5-step-1{1,2,3}-decision.md`）
+- `runtime/governance/`：契约（不依赖 langchain/langgraph）+ gateway + 配置 + 限流/预算存储 + 精确缓存 + 接入清单
 - 出站模块由 6 个收敛为 4 个；`ToolSpec.max_retries` 死字段删除，`timeout_seconds` 接入协作式 deadline
 - **成本硬上限默认不启用**（价格未与账单核对，不得用估算当账单）；`BudgetPolicy` 默认 `WARN`
-- 内存限流/预算 `supports_multi_instance=False`（不谎称支持多实例）
+- 内存限流/预算/缓存均 `supports_multi_instance=False`（不谎称支持多实例）
+- **不做语义缓存**（`cache.py` 有测试断言不含 embedding 相关代码）；缓存键 10 个失效因子
+- ⚠️ **缓存解锁条件**：人工核实 `data/versions.json` 的 4 本规范状态。当前 fail closed，
+  有 3 条测试断言此事实；核实后相关测试会失败并提示更新
 
 ---
 
