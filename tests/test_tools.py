@@ -13,6 +13,8 @@ from pydantic import BaseModel, ValidationError
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.retrieval.base import Retriever
+from water_agent.runtime.governance.contracts import Capability
+from water_agent.runtime.governance.pipeline import GuardrailPipeline
 from water_agent.tools.base import ToolSpec
 from water_agent.tools.calc_velocity import VelocityArgs, calc_velocity_spec
 from water_agent.tools.registry import ToolRegistry
@@ -104,7 +106,12 @@ class TestErrorConversion:
         def boom(args) -> dict:
             raise RuntimeError("boom inside tool")
 
-        registry = ToolRegistry()
+        registry = ToolRegistry(
+            pipeline=GuardrailPipeline(
+                # 测试夹具不在治理清单，装配期显式声明所需能力（声明≠豁免）
+                declared_capabilities={"boom_tool": Capability.CALCULATE}
+            )
+        )
         registry.register(
             ToolSpec(
                 name="boom_tool",

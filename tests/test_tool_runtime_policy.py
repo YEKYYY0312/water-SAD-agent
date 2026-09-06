@@ -17,6 +17,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from water_agent.domain.citation import validate_citations
+from water_agent.runtime.governance.contracts import Capability
+from water_agent.runtime.governance.pipeline import GuardrailPipeline
 from water_agent.tools.base import ToolSpec
 from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.material_stats import material_stats_spec
@@ -52,6 +54,19 @@ def _spec(
         execute=execute or (lambda args: {"value": args.value}),
         timeout_seconds=timeout_seconds,
         guard=guard,
+    )
+
+
+def _registry() -> ToolRegistry:
+    """带装配期能力声明的注册表。
+
+    P2.5 Step 14 后 ``ToolRegistry.invoke`` 强制过护栏，未登记 capability 的工具
+    fail closed。测试夹具 ``echo_tool`` 不在治理清单里，故在**装配期显式声明**
+    它需要 ``CALCULATE``（与真实纯计算工具同级）——这是声明而非豁免：
+    主体授权、危险能力拒绝、参数大小与 allowlist 检查照旧生效。
+    """
+    return ToolRegistry(
+        pipeline=GuardrailPipeline(declared_capabilities={"echo_tool": Capability.CALCULATE})
     )
 
 
@@ -108,7 +123,7 @@ class TestTimeoutIsReal:
             time.sleep(0.05)
             return {"value": args.value}
 
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(timeout_seconds=0.01, execute=slow))
         result = registry.invoke("echo_tool", value=1)
         assert result["error"] is True
@@ -116,7 +131,7 @@ class TestTimeoutIsReal:
         assert "超过上限" in result["message"]
 
     def test_fast_tool_within_timeout_succeeds(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(timeout_seconds=30.0))
         assert registry.invoke("echo_tool", value=7) == {"value": 7}
 
@@ -132,7 +147,7 @@ class TestTimeoutIsReal:
             completed.append("finished")  # 若被杀线程则永不执行
             return {"value": args.value}
 
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(timeout_seconds=0.001, execute=slow))
         result = registry.invoke("echo_tool", value=1)
         assert result["code"] == CODE_TOOL_TIMEOUT
@@ -151,13 +166,13 @@ class TestExistingErrorSemanticsUnchanged:
         assert result["code"] == CODE_UNKNOWN_TOOL
 
     def test_invalid_arguments_still_structured(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec())
         result = registry.invoke("echo_tool", value="not-an-int")
         assert result["code"] == CODE_INVALID_ARGUMENTS
 
     def test_tool_exception_still_structured(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(execute=lambda args: (_ for _ in ()).throw(RuntimeError("boom"))))
         result = registry.invoke("echo_tool", value=1)
         assert result["code"] == CODE_TOOL_ERROR
@@ -167,14 +182,14 @@ class TestExistingErrorSemanticsUnchanged:
         def guard(_args: _EchoArgs) -> None:
             raise ValueError("guard rejected")
 
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(guard=guard))
         result = registry.invoke("echo_tool", value=1)
         assert result["code"] == CODE_TOOL_ERROR
         assert "安全校验未通过" in result["message"]
 
     def test_non_dict_return_still_structured(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(_spec(execute=lambda args: ["not", "a", "dict"]))
         result = registry.invoke("echo_tool", value=1)
         assert result["code"] == CODE_TOOL_ERROR
@@ -184,7 +199,7 @@ class TestPureCalculationUnaffectedByGovernance:
     """铁律①：计算永远程序化，治理层不参与数值运算。"""
 
     def test_calc_velocity_result_identical_via_registry(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(calc_velocity_spec)
         args = {"diameter_mm": 200.0, "flow_lps": 30.0}
         result = registry.invoke("calc_velocity", **args)
@@ -194,7 +209,7 @@ class TestPureCalculationUnaffectedByGovernance:
         assert result == direct
 
     def test_calc_is_deterministic_across_repeated_invocations(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(calc_velocity_spec)
         args = {"diameter_mm": 150.0, "flow_lps": 20.0}
         first = registry.invoke("calc_velocity", **args)
@@ -203,7 +218,7 @@ class TestPureCalculationUnaffectedByGovernance:
             assert registry.invoke("calc_velocity", **args) == first
 
     def test_material_stats_result_identical_via_registry(self) -> None:
-        registry = ToolRegistry()
+        registry = _registry()
         registry.register(material_stats_spec)
         segments = [
             {"segment_id": "S1", "system": "water_supply", "dn_mm": 100,
