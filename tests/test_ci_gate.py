@@ -10,14 +10,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from water_agent.domain.models import EvalCase, EvalResult, EvalReport
-from water_agent.harness.loader import load_eval_bundle
 from water_agent.harness.runner import HarnessRunner, main
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +43,7 @@ class TestRunnerVariantRealSKIP:
             fixture_path=FIXTURE_PATH,
             variant="real",
         )
-        report, report_path, load_issues = runner.run()
+        report, report_path, _load_issues = runner.run()
         assert report.skipped == report.total == 12
         assert report.failed == 0
         assert report.passed == 0
@@ -185,7 +181,7 @@ class TestCompareBaseline:
 
     def test_compare_passes_good_report(self, baseline_path: Path, good_report: Path) -> None:
         """通过率下降 ≤2pt → 通过。"""
-        from scripts.compare_baseline import compare_suite, THRESHOLDS
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
         result = compare_suite(
             suite_key="rag_p0",
             baseline={"rag_p0": json.loads(good_report.read_text())},
@@ -197,7 +193,7 @@ class TestCompareBaseline:
 
     def test_compare_fails_pass_rate_decline(self, baseline_path: Path, bad_report: Path) -> None:
         """通过率下降 >2pt → 失败。"""
-        from scripts.compare_baseline import compare_suite, THRESHOLDS
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
         baseline = json.loads(baseline_path.read_text())
         bad = json.loads(bad_report.read_text())
         result = compare_suite(
@@ -211,7 +207,7 @@ class TestCompareBaseline:
 
     def test_compare_handles_no_new_core_failures(self, baseline_path: Path, good_report: Path) -> None:
         """PTP 门禁：基线的通过用例在新报告中不得失败。"""
-        from scripts.compare_baseline import compare_suite, THRESHOLDS
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
         baseline = json.loads(baseline_path.read_text())
         good = json.loads(good_report.read_text())
         # 制造一个 PTP 违反：baseline 的 passed 用例（rag-p0-0001）在新报告中 failed
@@ -228,7 +224,7 @@ class TestCompareBaseline:
 
     def test_compare_skips_skip_cases(self, baseline_path: Path) -> None:
         """SKIP 用例不计入基线比较。"""
-        from scripts.compare_baseline import compare_suite, THRESHOLDS
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
         baseline = json.loads(baseline_path.read_text())
         # 新报告全部 SKIP
         skip_report = {
@@ -367,7 +363,7 @@ class TestRunnerReportAggregates:
             trace_dir=tmp_path / "traces",
             fixture_path=FIXTURE_PATH,
         )
-        report, report_path, _ = runner.run()
+        report, _report_path, _ = runner.run()
         assert report.retrieval_metrics is not None
         assert "recall_at_1" in report.retrieval_metrics
         assert "mrr" in report.retrieval_metrics

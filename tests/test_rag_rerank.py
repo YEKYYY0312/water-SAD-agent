@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from water_agent.domain.models import RetrievedClause
 from water_agent.domain.state import STATUS_SUCCEEDED, default_state
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.rag import build_rag_graph

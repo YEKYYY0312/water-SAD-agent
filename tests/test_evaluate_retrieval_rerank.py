@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from water_agent.retrieval.rerank import BailianReranker, LocalReranker
 from scripts.evaluate_retrieval import _build_reranker
+from water_agent.retrieval.rerank import BailianReranker, LocalReranker
 
 
 def test_build_local_reranker():

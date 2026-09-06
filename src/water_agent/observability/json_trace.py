@@ -202,6 +202,48 @@ class JsonTraceRecorder:
             data["prompt_cache_cached_tokens"] = int(prompt_cache_cached_tokens)
         self.record(node=node, event="cache", query=query, data=data)
 
+    def record_tool_event(
+        self,
+        *,
+        node: str = "tool",
+        tool_name: str,
+        status: str,
+        code: str | None = None,
+        invocation_id: str = "",
+        args_hash: str = "",
+        executed: bool = False,
+        duration_ms: float = 0.0,
+    ) -> None:
+        """记录一次工具调用裁定与执行（P2.5 Step 15）。
+
+        存在的理由是**可观测化 Step 14 的第 6 项缺口**：Step 14 保证了
+        "护栏在 execute 之前"，但 trace 里没有工具事件，所以无法事后证明
+        某次执行**确实**经过了护栏。本事件与 :meth:`record_guardrail_event`
+        共享 ``invocation_id``，`guardrail_bypass` 检测器据此做精确配对
+        （而不是靠时间相邻猜测）。
+
+        ``executed`` 是关键字段：``False`` 表示被护栏/schema 拦在执行之前，
+        ``True`` 表示 ``spec.execute`` 真的跑了。检测器只对 ``executed=True``
+        且缺少配对护栏事件的情况告警 —— 被拦住的调用本来就不该有执行记录。
+
+        不写参数原文，只写 ``args_hash``：工具参数可能含 PII 或注入载荷。
+        """
+        data: dict[str, Any] = {
+            "tool_name": tool_name,
+            "tool_status": status,
+            "executed": bool(executed),
+        }
+        if code:
+            data["code"] = code
+        if invocation_id:
+            data["invocation_id"] = invocation_id
+        if args_hash:
+            data["args_hash"] = args_hash
+        # query 显式传空串：工具事件不承载用户输入，只留 args_hash
+        self.record(
+            node=node, event="tool", query="", data=data, duration_ms=duration_ms
+        )
+
     def record_guardrail_event(
         self,
         *,
@@ -213,6 +255,7 @@ class JsonTraceRecorder:
         code: str | None = None,
         hits: _Seq[dict[str, Any]] | None = None,
         input_hash: str = "",
+        invocation_id: str = "",
         duration_ms: float = 0.0,
     ) -> None:
         """记录一次护栏裁定（P2.5 Step 14）。
@@ -229,6 +272,8 @@ class JsonTraceRecorder:
             stage: 护栏阶段（``input`` / ``retrieved`` / ``tool`` / ``output`` / ``memory``）。
             action: ``allow`` / ``redact`` / ``block``。
             input_hash: 输入内容哈希（不是原文），用于跨事件关联同一输入。
+            invocation_id: 与 :meth:`record_tool_event` 配对的调用 ID（Step 15）。
+                `guardrail_bypass` 检测器靠它精确配对，不靠事件时间相邻猜测。
         """
         allowed_hit_keys = ("rule_id", "category", "count")
         data: dict[str, Any] = {
@@ -245,6 +290,8 @@ class JsonTraceRecorder:
             data["code"] = code
         if input_hash:
             data["input_hash"] = input_hash
+        if invocation_id:
+            data["invocation_id"] = invocation_id
         # query 显式传空串：护栏事件不重复承载输入内容，只留 input_hash
         self.record(
             node=node, event="guardrail", query="", data=data, duration_ms=duration_ms

@@ -10,7 +10,6 @@ import pytest
 from water_agent.embedding import BailianEmbeddingConfig, BailianEmbeddingProvider
 from water_agent.ingestion.pipeline import ingest_to_trivium
 
-
 VALID = {
     "spec_id": "GB50318-2017",
     "chapter": "1",

@@ -1,11 +1,7 @@
 """P1-1/P1-2 父子级切块测试：不跨条/不跨章/ID稳定/表格单块/超长拆分/父块回填。"""
 from __future__ import annotations
 
-import json
-
-import pytest
-
-from water_agent.domain.models import Chunk, ChunkType, content_hash_of, stable_chunk_id
+from water_agent.domain.models import Chunk, content_hash_of, stable_chunk_id
 from water_agent.ingestion.chunker import ChunkConfig, Chunker, RawClause
 
 
@@ -190,9 +186,8 @@ class TestChunkerFromFixture:
         payload = [c.model_dump(mode="json") for c in chunks]
         assert len(payload) > 0
         # 子块 payload 可被 TriviumRetriever 解析
-        from water_agent.retrieval.trivium import TriviumRetriever
-
         from water_agent.domain.models import RetrievedClause
+        from water_agent.retrieval.trivium import TriviumRetriever
 
         retriever = TriviumRetriever(db_path=None, fallback_clauses=RetrievedClause.model_validate(chunks[0].model_dump()) if False else [])
         assert retriever.is_fallback
