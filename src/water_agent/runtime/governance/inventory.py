@@ -195,6 +195,10 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
     ),
 )
 
+#: 工具策略版本（P2.5 Step 13）。**新增/删除工具或改变 capability 映射都必须改它** ——
+#: 它是 `cache.py` 缓存键的失效因子：可用工具集变了，旧回答不该再命中。
+TOOL_POLICY_VERSION = "p2.5-step13-2026-09-06"
+
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
     ToolCapabilityEntry(
@@ -337,6 +341,7 @@ __all__ = [
     "PACKAGE_ROOT",
     "PROVIDER_CALL_SITES",
     "TOOL_CAPABILITIES",
+    "TOOL_POLICY_VERSION",
     "ProviderCallSite",
     "ToolCapabilityEntry",
     "call_site",

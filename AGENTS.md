@@ -13,7 +13,7 @@
 ## 验证命令（改动完成前必须执行）
 ```bash
 bash scripts/ci_gate.sh  # pytest + ruff + mypy + 四套机制层 harness + baseline 对比
-_venv/bin/pytest -q tests/test_governance_contracts.py tests/test_provider_gateway.py tests/test_tool_runtime_policy.py  # P2.5 Step 11–12 治理层
+_venv/bin/pytest -q tests/test_governance_contracts.py tests/test_provider_gateway.py tests/test_tool_runtime_policy.py tests/test_answer_cache.py  # P2.5 Step 11–13 治理层
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_quality.jsonl
 _venv/bin/python -m water_agent.harness.runner data/eval/material_quality.jsonl
 _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，需百炼 Key/权限/网络
@@ -31,7 +31,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 - P2 材料统计：`materials/core.py` 管段表（段号/系统/管径/长度/材质）→ 按 `(材质, 规格)` 聚合（数量=长度和，round 3 位单一来源），每行带 `segments`+`detail` 溯源；`materials/export.py` 导出 `.xlsx`（材料清单 + 统计说明两个 sheet，openpyxl>=3.1,<4 已入 pyproject 依赖）与 CSV；`tools/material_stats.py`（ToolSpec，注册进 CLI agentic 会话与 runner real-agentic registry）。
 - P2 评测：`docgen_p0` 11/11、`material_p0` 10/10，均进入 `scripts/ci_gate.sh` 与 `data/eval/baseline.json`；默认 baseline 四套为 rag_p0/calc_p0/docgen_p0/material_p0。专项质量集为 `docgen_quality` 4 条（离线 4/4；2026-09-04 真实 LLM 4/4）和 `material_quality` 7/7；专项质量集尚未纳入默认 baseline。
 - 计算永远走程序化工具，缺参→`missing_inputs`，越界→`assumptions`。
-- P2.5 治理层（Step 11–12）：`runtime/governance/` 是运行时边界的唯一定义，**不依赖 langchain/langgraph**（有测试锁死）。
+- P2.5 治理层（Step 11–13）：`runtime/governance/` 是运行时边界的唯一定义，**不依赖 langchain/langgraph**（有测试锁死）。
   - `contracts.py`：`Principal`（只能 `local:<thread_id>`，subject 不进 trace，只暴露 `principal_hash`；4 个危险能力构造期即拒绝授予）、`SourceTag`（信任级别是代码定义的偏序，`relabel` 只能降级；只有 `SYSTEM_POLICY` 可承载指令）、`ContentEnvelope`、`Capability`、`PolicyDecision`、`ProviderCall`、`UsageRecord`（`usage_known=False` 时禁止填 token/成本——估算不得当账单）、`CacheDisposition`（`status` 与 `eligible_for_store` 独立，使「MISS 且不可存」可表达）与 13 个稳定错误码。
   - `gateway.py`：`ProviderGateway` 是**所有远程模型调用的唯一入口**。顺序为能力校验→熔断→预发送限流→预算预留→有界重试（受 deadline 约束）→usage 对账/回滚→落账。只对瞬时错误重试（408/429/5xx/超时/连接错误）；**401/403 零重试且不计熔断**（换 Key 才能解决，403 是 rerank 已知阻塞码）；未知错误默认永久（不确定就不放大故障）；429 遵守 `Retry-After`。**永不换模型/永不回退本地/永不伪造 usage**。
   - `config.py`：版本化配置（改阈值须改 `GOVERNANCE_CONFIG_VERSION`）。**成本硬上限默认不启用**（`ModelPrice.confirmed=False`，用未核对价格做硬拒绝等于用估算当账单）；只有 `daily_token_cap` 做硬限制；`BudgetPolicy` 默认 `WARN`，`DEGRADE` 配置期即拒绝。限流额度定位是**失控保护**而非生产调优值（DAU/账单仍 unknown）；`INGEST_RATE_LIMIT` 单独放宽，否则批量入库会被自己的限流打断。
@@ -39,10 +39,15 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
   - `inventory.py`：6 个远程调用点 + 4 个工具 capability 的机器可读真源，`governed=6/6`、`tools_guardrail_validated=0`（有测试锁死这两个数）。**静态扫描断言「代码里的出站模块 == 清单登记」**，新增未登记出口或未声明 capability 的工具立即红灯（反例已实测）。新增别的 SDK 入口必须同时扩展 `_EGRESS_PATTERNS`，否则扫描形同虚设；扫描不含 `scripts/`。
   - 出站模块经 Step 12 收敛为 4 个：`docgen/quality.py` 与 `harness/llm_judge.py` 不再自建连接，统一走 `generation/chat_model.py::build_chat_model` → `GovernedChatModel`。**`ChatOpenAI` 自带重试必须关（`max_retries=0`）**，否则与 gateway 重试叠乘。
   - `ToolSpec.max_retries` **已删除**（从未被读取的死字段，含静态测试保护）；`timeout_seconds` 接入 `ToolRegistry.invoke` 的**协作式 deadline**（超时返回 `TOOL_TIMEOUT`，**不杀线程**——当前 4 个工具均只读/纯计算，加入写入类工具需另设协议）。
+  - `cache.py` / `cache_service.py` / `corpus_version.py`（Step 13）：**只做精确缓存，不做语义缓存**（`cache.py` 有测试断言不含 `embed`/`similarity`/`cosine`/`vector`；规范化只做 NFKC + 空白折叠，不做大小写折叠或同义处理）。缓存键有 **10 个失效因子**（规范化 query、`principal_scope`=主体+授权域、模型、温度、`PROMPT_TEMPLATE_VERSION`、`TOOL_POLICY_VERSION`、语料+索引版本、规范版本状态摘要、检索参数、条目格式版本），每个都有独立 miss 测试；`CacheKeyFactors` 为 `extra="forbid"`+`frozen`，**新增失效维度必须改契约**。写入资格有 **10 种稳定拒绝原因**；`output_guardrails_passed` **无宽松默认**（忘传即报错）。TTL/容量必须为正；`no_cache` 不读但可写（返回 `BYPASS` 且**不计 miss**），`no_store` 不写。条目只存最终回答 + 已验证 source_id，**不存**条文全文/系统提示/用户原文。
+  - **⚠️ 缓存当前命中率结构性为 0**：`data/versions.json` 4 本规范全为 `unknown`，按规格 §5「不缓存版本未知的结果」写入资格恒为 false（原因 `spec_version_unknown`）。这是刻意的 fail closed，有 3 条测试断言（含直读 `data/versions.json` 双保险）。**人工核实版本状态即解锁缓存**，届时相关测试会失败并提示更新。**不得为提高命中率放宽版本校验**。缓存也因此**尚未接进 RAG 主路径**（`graphs/rag.py`/`run_once`），留到版本核实后一并做。
+  - 缓存键的规范版本摘要用**注册表全量快照**而非本次引用：`lookup` 发生在检索之前，用"本次引用"会导致查写键永不相同、缓存永远命中不了。
+  - provider prompt cache 观测（`observe_prompt_cache`）恒返回 `DOCUMENTED_UNVERIFIED`，**不得声称 `VERIFIED`**（字段路径依官方文档编写，无 Key 环境未用真实响应证实；有测试锁死）。`cached_tokens=None`（字段缺失）与 `=0`（有字段未命中）是**不同事实**。
+  - trace 的 `record_cache_event` **只写 `cache_key_hash`，永不写 key 原文**；`saved_*` 仅在 usage 可得时填写（不估算）。
 
 ## 改动范围纪律
 - 本任务书共 Step -1…15，每步一个逻辑面，一步一 commit。
-- P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）与 Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）**；Step 13（缓存）/14（护栏）/15（治理评测）未实施。因此**仍不得声称项目具备生产级缓存、通用内容过滤或 P4 认证授权**。
+- P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）、Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）与 Step 13（精确回答缓存：机制完整，但当前语料版本全 unknown 故命中率为 0，且未接进 RAG 主路径）**；Step 14（护栏）/15（治理评测）未实施。因此**仍不得声称项目具备生产级通用内容过滤或 P4 认证授权**。
 - 未完成功能用特性开关护住，不删旧路径。
 - 每步验收 = 该步"最小闭环验证"命令全部跑出预期且 `pytest` 不回退。
 
