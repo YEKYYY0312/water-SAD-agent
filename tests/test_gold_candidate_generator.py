@@ -61,5 +61,5 @@ def test_candidate_never_fabricates_non_included_spec():
         assert all("GB5749-2022" not in " ".join(c["gold_articles_any"]) for c in candidates)
 
 
-def _candidates_path(root: Path) -> Path:  # noqa: F811
+def _candidates_path(root: Path) -> Path:
     return root / "candidates.jsonl"

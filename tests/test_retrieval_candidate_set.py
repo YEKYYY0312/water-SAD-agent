@@ -11,7 +11,6 @@ from water_agent.ingestion.retrieval_candidates import (
     select_candidates,
 )
 
-
 VALID = {
     "spec_id": "GB50014-2021",
     "chapter": "4",

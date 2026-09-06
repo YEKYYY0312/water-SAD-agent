@@ -3,7 +3,7 @@
 给排水领域 AI Agent 的构建约定。任何会话开工前先读本文件与 `docs/给排水agent改造任务书.md`。
 
 ## 项目是什么
-面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 DWG 自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，P2.5（缓存/限流/成本/护栏）的权威规格见 `docs/design/12-p2.5-production-governance.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。P2.5 Step 14（分层护栏）已交付，见 `docs/design/p2.5-step-14-decision.md`；护栏是**确定性正则规则集**，不是分类器，**必然存在未覆盖的改写变体**，不得声称"能拦住任意注入"。
+面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 DWG 自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，P2.5（缓存/限流/成本/护栏/检测器）的权威规格见 `docs/design/12-p2.5-production-governance.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。P2.5 Step 11–15 已交付：Step 14（分层护栏）见 `docs/design/p2.5-step-14-decision.md`，Step 15（治理评测与失败检测器）见 `docs/design/p2.5-step-15-decision.md`；护栏是**确定性正则规则集**，不是分类器，**必然存在未覆盖的改写变体**，不得声称"能拦住任意注入"。
 
 ## 三条铁律（不得违反）
 1. 计算类永远程序化校验，LLM 不参与数值运算。
@@ -12,9 +12,10 @@
 
 ## 验证命令（改动完成前必须执行）
 ```bash
-bash scripts/ci_gate.sh  # pytest + ruff + mypy + 四套机制层 harness + baseline 对比
+bash scripts/ci_gate.sh  # pytest + ruff + mypy + 五套机制层 harness + baseline 对比
 _venv/bin/pytest -q tests/test_governance_contracts.py tests/test_provider_gateway.py tests/test_tool_runtime_policy.py tests/test_answer_cache.py  # P2.5 Step 11–13 治理层
 _venv/bin/pytest -q tests/test_guardrails.py tests/test_injection_defense.py tests/test_tool_policy.py tests/test_redteam_dataset.py  # P2.5 Step 14 护栏与红队数据集
+_venv/bin/pytest -q tests/test_detectors.py tests/test_governance_observability.py tests/test_governance_dataset.py  # P2.5 Step 15 检测器与观测
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_quality.jsonl
 _venv/bin/python -m water_agent.harness.runner data/eval/material_quality.jsonl
 _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，需百炼 Key/权限/网络
@@ -45,11 +46,12 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
   - 缓存键的规范版本摘要用**注册表全量快照**而非本次引用：`lookup` 发生在检索之前，用"本次引用"会导致查写键永不相同、缓存永远命中不了。
   - provider prompt cache 观测（`observe_prompt_cache`）恒返回 `DOCUMENTED_UNVERIFIED`，**不得声称 `VERIFIED`**（字段路径依官方文档编写，无 Key 环境未用真实响应证实；有测试锁死）。`cached_tokens=None`（字段缺失）与 `=0`（有字段未命中）是**不同事实**。
   - trace 的 `record_cache_event` **只写 `cache_key_hash`，永不写 key 原文**；`saved_*` 仅在 usage 可得时填写（不估算）。
-  - `rules.py` / `pipeline.py`（Step 14）：`GuardrailPipeline` 有五个检查面，**动作不同**——用户输入/工具参数/记忆写入命中即 **BLOCK**；检索内容命中是 **REDACT+标记**（丢弃整条会让投毒语料把正常检索废掉，真正防线是"内容不能成为指令"）；输出面与既有 docgen 校验组合而非替代。规则集是**确定性正则**（`RULESET_VERSION`，进缓存键），不是分类器，**必然存在未覆盖的改写变体**。检测前先规范化（NFKC + 剥不可见字符 + 有界 Base64 解码），但**放行时送模型的内容是原文**（规范化只用于检测，不用于改写）；零宽字符测试/规则**只能用 `\uXXXX` 转义**，字面字符会在编辑中静默消失。身份证用 GB 11643 校验位+出生日期验证（不是"18 位数字"，工程长数字曾被误判）；`pii_mode=allow` 下**凭据仍强制脱敏**（授权的是 PII 不是密钥）；trace 落盘的 `_redact` **无条件脱敏、不看 `pii_mode`**。`ToolRegistry.invoke` 护栏在 `args_model` 校验**之前**（顺序是安全属性），**未在治理清单登记且未装配期声明能力的工具 fail closed**；`declared_capabilities` 是**装配期声明**（测试夹具用），不放松任何检查，也不得在生产工具上使用。`GuardrailPipeline`/`principal` 缺省回落**进程级默认单例**，不是跳过治理（无绕过后门）。`data/eval/redteam_p0.jsonl`（33 条合成用例）由 `tests/test_redteam_dataset.py` 逐条断言"命中哪条规则"，不只断言"被拦了"。**残余缺口**：`check_memory_write` 未接进 checkpointer 写入路径；`materials/export.py` 未接护栏路径校验；护栏事件未接聚合/告警（Step 15）。
+  - `rules.py` / `pipeline.py`（Step 14）：`GuardrailPipeline` 有五个检查面，**动作不同**——用户输入/工具参数/记忆写入命中即 **BLOCK**；检索内容命中是 **REDACT+标记**（丢弃整条会让投毒语料把正常检索废掉，真正防线是"内容不能成为指令"）；输出面与既有 docgen 校验组合而非替代。规则集是**确定性正则**（`RULESET_VERSION`，进缓存键），不是分类器，**必然存在未覆盖的改写变体**。检测前先规范化（NFKC + 剥不可见字符 + 有界 Base64 解码），但**放行时送模型的内容是原文**（规范化只用于检测，不用于改写）；零宽字符测试/规则**只能用 `\uXXXX` 转义**，字面字符会在编辑中静默消失。身份证用 GB 11643 校验位+出生日期验证（不是"18 位数字"，工程长数字曾被误判）；`pii_mode=allow` 下**凭据仍强制脱敏**（授权的是 PII 不是密钥）；trace 落盘的 `_redact` **无条件脱敏、不看 `pii_mode`**。`ToolRegistry.invoke` 护栏在 `args_model` 校验**之前**（顺序是安全属性），**未在治理清单登记且未装配期声明能力的工具 fail closed**；`declared_capabilities` 是**装配期声明**（测试夹具用），不放松任何检查，也不得在生产工具上使用。`GuardrailPipeline`/`principal` 缺省回落**进程级默认单例**，不是跳过治理（无绕过后门）。`data/eval/redteam_p0.jsonl`（33 条合成用例）由 `tests/test_redteam_dataset.py` 逐条断言"命中哪条规则"，不只断言"被拦了"。
+  - `scenarios.py` / `detectors.py` / `observability.py`（Step 15）：32 条离线治理场景（`data/eval/governance_p0.jsonl`，覆盖限流/预算/可靠性/护栏/trace/检测器/缓存十个面）；8 个基于 trace 的失败模式检测器（`guardrail_bypass`/`tool_misuse`/`cascading_errors`/`context_loss`/`hallucinated_action`/`success_hallucination`/`unverified_citation_after_cache`/`budget_bypass`，每个有 PAGE/TICKET 严重度与运维 runbook）；聚合指标与本地结构化告警（`delivery="local_event_only"`，**不假装已发送 PagerDuty/Slack**）。检测器**不得调用 LLM**（有 AST 静态断言），**不得只在崩溃时打标**（多数 Agent 故障产出看起来正常的输出）。未知值记 `None` 不记 `0.0`（同 `UsageRecord.usage_known` 纪律）。工具执行事件已接入 `ToolRegistry.invoke`，护栏事件已接入 `record_guardrail_event`，两者通过 `invocation_id` 配对供 `guardrail_bypass` 检测器判定。**残余缺口**：检测器尚未接进 CLI/runner 生产调用站点（trace 参数未传递）；告警路由未接外部投递通道；`check_memory_write` 未接 checkpointer；`materials/export.py` 未接护栏路径校验。
 
 ## 改动范围纪律
 - 本任务书共 Step -1…15，每步一个逻辑面，一步一 commit。
-- P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）、Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）、Step 13（精确回答缓存：机制完整，但当前语料版本全 unknown 故命中率为 0，且未接进 RAG 主路径）与 Step 14（GuardrailPipeline：4/4 工具已接入，确定性正则规则集，红队数据集 33 条）**；Step 15（治理评测：聚合指标/模式检测/告警/红队数据集接入 CI 门禁）未实施。因此**仍不得声称项目具备生产级通用内容过滤或 P4 认证授权**。
+- P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）、Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）、Step 13（精确回答缓存：机制完整，但当前语料版本全 unknown 故命中率为 0，且未接进 RAG 主路径）、Step 14（GuardrailPipeline：4/4 工具已接入，确定性正则规则集，红队数据集 33 条）与 Step 15（治理评测集 32 条，8 个失败检测器，聚合指标与本地告警）**；因此**仍不得声称项目具备生产级通用内容过滤或 P4 认证授权**。
 - 未完成功能用特性开关护住，不删旧路径。
 - 每步验收 = 该步"最小闭环验证"命令全部跑出预期且 `pytest` 不回退。
 
@@ -60,7 +62,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 
 ## 工程基线入口
 - `data/eval/baseline_preflight.json`：基线记录（含 Step -1 与 Step 0–10 post_state），改动前先对照。
-- `data/eval/baseline.json`：2026-09-04 更新的 PR 机制层基线，包含 rag_p0 11/12、calc_p0 28/28、docgen_p0 11/11、material_p0 10/10。
+- `data/eval/baseline.json`：2026-09-06 更新的 PR 机制层基线，包含 rag_p0 11/12、calc_p0 28/28、docgen_p0 11/11、material_p0 10/10、governance_p0 32/32。
 - `docs/design/10-sdd-harness.md`：SDD+Harness 工程规范（规格模板/错误状态语义/完成定义）。
 
 ## 术语

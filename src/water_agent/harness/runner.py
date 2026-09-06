@@ -33,6 +33,7 @@ from water_agent.domain.models import (
     DocgenQualityCase,
     EvalReport,
     EvalResult,
+    GovernanceCase,
     MaterialCase,
     TokenUsage,
 )
@@ -53,6 +54,7 @@ from water_agent.harness.scorer import (
     score_docgen_case,
     score_docgen_quality_case,
     score_eval_case,
+    score_governance_case,
     score_material_case,
 )
 from water_agent.materials import aggregate_materials
@@ -530,6 +532,25 @@ class HarnessRunner:
                 result.token_usage = usage.model_copy(deep=True)
         return result
 
+    def _run_governance_case(
+        self, case: GovernanceCase, *, line_no: int | None = None
+    ) -> EvalResult:
+        """驱动治理场景并判分（P2.5 Step 15）。
+
+        全离线、无 Key 依赖，因此**永不 SKIP** —— 规格 §7 要求 guardrail/cost/cache
+        核心用例不得 SKIP。场景执行异常由 scorer 计为失败（不是 SKIP）。
+        """
+        from water_agent.runtime.governance.scenarios import run_scenario
+
+        started = time.perf_counter()
+        outcome = run_scenario(case.scenario)
+        latency_ms = (time.perf_counter() - started) * 1000
+        scored = score_governance_case(
+            case, outcome=outcome, latency_ms=latency_ms, line_no=line_no
+        )
+        scored.variant = "programmatic"
+        return scored
+
     def _run_case(self, case, *, line_no: int | None = None):
         if isinstance(case, CalcCase):
             return self._run_calc_case(case, line_no=line_no)
@@ -539,6 +560,8 @@ class HarnessRunner:
             return self._run_docgen_quality_case(case, line_no=line_no)
         if isinstance(case, MaterialCase):
             return self._run_material_case(case, line_no=line_no)
+        if isinstance(case, GovernanceCase):
+            return self._run_governance_case(case, line_no=line_no)
 
         _variant = self._effective_variant(case)
 

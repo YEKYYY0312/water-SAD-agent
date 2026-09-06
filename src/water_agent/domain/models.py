@@ -217,6 +217,43 @@ class DocgenQualityCase(BaseModel):
     variant: str = "programmatic"
 
 
+class GovernanceCase(BaseModel):
+    """治理评测用例（type == "governance"，P2.5 Step 15 规格 §7）。
+
+    判分对象不是回答质量，而是**治理组件的裁定是否符合期望**：限流、预算、
+    重试/熔断、能力、护栏动作、缓存写入资格、trace 脱敏。
+
+    ``scenario`` 指向 `runtime/governance/scenarios.py::SCENARIOS` 的驱动函数，
+    由 scorer 与本用例声明的期望比对。
+
+    判分纪律（与 Step 14 红队数据集同源）：``expected_code`` 存在时**必须**精确
+    匹配，只断言"被拒了"会让规则退化时假绿 —— 被别的原因偶然拒掉也算通过，
+    那样测试就失去了区分力。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "governance"
+    #: 场景名，必须在 SCENARIOS 中登记（未登记 → 判失败，不是 SKIP）。
+    scenario: str
+    #: 治理面，仅用于报告分组：rate_limit / budget / reliability / guardrail /
+    #: cache / trace / detector。
+    surface: str = ""
+    #: 期望观察到的动作（与 ScenarioOutcome.observed 精确比对）。
+    expected_observed: str
+    #: 期望的稳定治理错误码；空串表示不校验（放行类场景无错误码）。
+    expected_code: str = ""
+    #: 期望 evidence 中必须为真的键（如 content_unchanged、payload_not_echoed）。
+    expect_evidence_true: list[str] = Field(default_factory=list)
+    #: 期望 evidence 中必须为假的键（如 pii_leaked、secret_leaked）。
+    expect_evidence_false: list[str] = Field(default_factory=list)
+    #: 该用例证明的规格条款/铁律，写进报告便于回溯"这条在守什么"。
+    rationale: str = ""
+    expected_status: str = "succeeded"
+    variant: str = "programmatic"
+
+
 class TokenUsage(BaseModel):
     """单次 LLM 调用的 token 用量与成本。"""
 

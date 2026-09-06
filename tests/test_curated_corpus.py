@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 
 from water_agent.ingestion.curated_corpus import build_curated_corpus
 
-
 VALID = {
     "spec_id": "GB50013-2018",
     "chapter": "4",

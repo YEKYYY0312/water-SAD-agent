@@ -1,7 +1,7 @@
 # 给排水 Agent
 
 面向给排水设计院的 AI Agent，覆盖 **规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计** 共五类能力。
-当前已交付 **P1/Step 0–10 工程机制** 与 **P2 结构化底座**（文档模板、材料统计与导出、HITL、自检、专项评测）。P2 的受限真实 LLM 润色已有 4 条样本证据；真实 RAG 质量、正式规范引用与 P3 DWG 自动抽取仍为 blocked，不能视为整体质量验收通过。
+当前已交付 **P1/Step 0–10 工程机制**、**P2 结构化底座**（文档模板、材料统计与导出、HITL、自检、专项评测）与 **P2.5 治理基础**（限流、预算、可靠性、护栏、trace、检测器、缓存）。P2 的受限真实 LLM 润色已有 4 条样本证据；真实 RAG 质量、正式规范引用与 P3 DWG 自动抽取仍为 blocked，不能视为整体质量验收通过。
 
 ## 三条铁律
 
@@ -26,6 +26,7 @@ _venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl          #
 _venv/bin/python -m water_agent.harness.runner data/eval/calc_p0.jsonl          # 28/28
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_p0.jsonl        # 11/11（P2 文档生成）
 _venv/bin/python -m water_agent.harness.runner data/eval/material_p0.jsonl      # 10/10（P2 材料统计）
+_venv/bin/python -m water_agent.harness.runner data/eval/governance_p0.jsonl    # 32/32（P2.5 治理）
 
 # 3) P2 专项质量评测（不属于默认 baseline）
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_quality.jsonl   # 离线 4/4
@@ -70,6 +71,7 @@ src/water_agent/
   harness/        # loader / scorer / runner / doubles / retrieval_metrics / llm_judge
   docgen/         # P2 文档模板 + 受限 LLM 润色 + 确定性质量自检
   materials/      # P2 材料统计：管段聚合（可追溯）+ .xlsx/CSV 导出
+  runtime/        # P2.5 治理：gateway / guardrails / cache / scenarios / detectors / observability
   observability/  # json_trace / otel (guarded OTel GenAI)
   cli.py          # 生产问答 CLI (--mode auto|calc|legacy|agentic, --flow qa|docgen, --doc-type, --interactive/--resume, --mock-generator, --stream)
   embedding.py    # 阿里云百炼 Embedding Provider
@@ -81,10 +83,11 @@ data/
     calc_p0.jsonl         # P0 计算评测集（28 条）
     docgen_p0.jsonl       # P2 文档生成机制层评测集（11 条，含 1 条非法输入）
     material_p0.jsonl     # P2 材料统计评测集（10 条：聚合一致/溯源，含 1 条非法输入）
+    governance_p0.jsonl   # P2.5 治理评测集（32 条：限流/预算/可靠性/护栏/trace/检测器/缓存）
     docgen_quality.jsonl  # P2 受限 prose 润色质量集（4 条；支持 real 变体）
     material_quality.jsonl  # P2 材料鲁棒性质量集（7 条）
     rag_p1.jsonl          # P1 真实规范问答评测集（58 条，变体 real）
-    baseline.json         # 四套机制层门禁基线（rag/calc/docgen/material p0）
+    baseline.json         # 五套机制层门禁基线（rag/calc/docgen/material/governance p0）
     reports/              # Harness 评测报告（JSON，被 .gitignore 忽略）
     traces/               # 过程 Trace（JSON，被 .gitignore 忽略）
     judge_cache/          # LLM-as-judge 结果缓存

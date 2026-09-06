@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from water_agent.domain.models import RetrievedClause
-from water_agent.generation.base import Generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.in_memory import InMemoryRetriever
