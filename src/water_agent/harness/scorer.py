@@ -19,6 +19,7 @@ from water_agent.domain.models import (
     DocgenQualityCase,
     EvalCase,
     EvalResult,
+    GovernanceCase,
     MaterialCase,
 )
 from water_agent.harness.retrieval_metrics import case_retrieval_metrics
@@ -313,6 +314,71 @@ def score_docgen_quality_case(
     )
 
 
+def score_governance_case(
+    case: GovernanceCase,
+    *,
+    outcome: Any,
+    latency_ms: float = 0.0,
+    line_no: int | None = None,
+) -> EvalResult:
+    """治理评测判分（P2.5 Step 15）。
+
+    判分纪律：
+
+    1. **场景执行异常一律失败**，绝不当 SKIP —— 本套件全离线，不存在"缺前置
+       条件"的合法理由。执行不起来就是真的坏了。
+    2. ``expected_code`` 非空时**精确匹配**。只断言"被拒了"会让规则退化时假绿：
+       被别的原因偶然拒掉也算通过，测试就失去区分力（与 Step 14 红队数据集同源纪律）。
+    3. ``expect_evidence_true/false`` 逐键校验，缺键即失败 —— 键缺失说明场景
+       没有产出该证据，而不是"证据为假"，两者都不该算通过。
+    """
+    reasons: list[str] = []
+
+    if getattr(outcome, "error", ""):
+        reasons.append(f"场景执行异常：{outcome.error}")
+        return EvalResult(
+            case_id=case.id,
+            passed=False,
+            expected_status=case.expected_observed,
+            actual_status="error",
+            failure_reason="; ".join(reasons),
+            latency_ms=round(latency_ms, 3),
+            line_no=line_no,
+            skipped=False,  # 治理套件永不 SKIP
+        )
+
+    observed = str(getattr(outcome, "observed", "") or "")
+    code = str(getattr(outcome, "code", "") or "")
+    evidence = dict(getattr(outcome, "evidence", {}) or {})
+
+    if observed != case.expected_observed:
+        reasons.append(f"expected observed {case.expected_observed!r}, got {observed!r}")
+    if case.expected_code and code != case.expected_code:
+        reasons.append(f"expected code {case.expected_code!r}, got {code!r}")
+
+    for key in case.expect_evidence_true:
+        if key not in evidence:
+            reasons.append(f"证据缺少键 {key!r}（期望为真）")
+        elif not evidence[key]:
+            reasons.append(f"证据 {key!r} 期望为真，实际 {evidence[key]!r}")
+    for key in case.expect_evidence_false:
+        if key not in evidence:
+            reasons.append(f"证据缺少键 {key!r}（期望为假）")
+        elif evidence[key]:
+            reasons.append(f"证据 {key!r} 期望为假，实际 {evidence[key]!r}")
+
+    return EvalResult(
+        case_id=case.id,
+        passed=not reasons,
+        expected_status=case.expected_observed,
+        actual_status=observed,
+        failure_reason="; ".join(reasons),
+        latency_ms=round(latency_ms, 3),
+        line_no=line_no,
+        skipped=False,
+    )
+
+
 def _expected_group_sums(segments: list[dict[str, Any]]) -> dict[tuple[str, str], float] | None:
     """从原始管段表按 (材质, 规格) 重算组内长度和，作为 ``raw_quantity`` 的口径审计基准。
 
@@ -428,13 +494,14 @@ def score_material_case(
 
 
 def score_case(
-    case: EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase,
+    case: EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase | GovernanceCase,
     *,
     calc_result: CalcResult | None = None,
     rendered: RenderedDoc | None = None,
     render_error: str = "",
     table: MaterialTable | None = None,
     quality_verdict: PolishVerdict | None = None,
+    governance_outcome: Any | None = None,
     actual_status: str = "",
     actual_citations: Iterable[str] | None = None,
     context_articles: Iterable[str] | None = None,
@@ -468,6 +535,13 @@ def score_case(
         if table is None:
             raise ValueError(f"material case {case.id} 需要 table 才能判分")
         return score_material_case(case, table=table, latency_ms=latency_ms, line_no=line_no)
+    if isinstance(case, GovernanceCase):
+        if governance_outcome is None:
+            # 不静默放过：缺 outcome 说明 runner 没驱动场景，那是接线缺陷。
+            raise ValueError(f"governance case {case.id} 需要 governance_outcome 才能判分")
+        return score_governance_case(
+            case, outcome=governance_outcome, latency_ms=latency_ms, line_no=line_no
+        )
     return score_eval_case(
         case,
         actual_status=actual_status,

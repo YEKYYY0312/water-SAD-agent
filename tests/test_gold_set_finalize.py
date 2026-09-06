@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 from water_agent.ingestion.gold_set import finalize_gold_set
 from water_agent.ingestion.retrieval_candidates import read_curated_records, select_candidates
 
-
 VALID = {
     "spec_id": "GB50014-2021",
     "chapter": "4",

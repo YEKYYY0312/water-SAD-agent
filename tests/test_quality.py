@@ -6,7 +6,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from water_agent.ingestion.quality import (
-    QualityReport,
     report_has_strict_blockers,
     scan_clause_file,
     scan_clause_files,
