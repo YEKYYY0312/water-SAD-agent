@@ -36,13 +36,30 @@ class JsonTraceRecorder:
         return datetime.now(UTC).isoformat()
 
     @staticmethod
+    def _redact(value: str) -> str:
+        """落盘前脱敏（P2.5 Step 14）。
+
+        规格 §6：trace 里不得留 PII 与凭据原文。**无条件执行**，不看 `pii_mode` ——
+        `pii_mode=allow` 只授权 PII 进本次上下文，磁盘长期留存是另一件事。
+
+        导入放在函数内：`observability` 是底层模块，模块级导入治理层会形成环
+        （治理层的 gateway 需要 trace）。脱敏本身是纯函数，无状态开销。
+        """
+        from water_agent.runtime.governance.rules import redact_text
+
+        return redact_text(value)[0]
+
+    @staticmethod
     def _serialize(value: Any) -> Any:
         if isinstance(value, (RetrievedClause, Citation, CitationClaim)):
-            return value.model_dump(mode="json") | {"source_id": value.source_id}
+            dumped = value.model_dump(mode="json") | {"source_id": value.source_id}
+            return JsonTraceRecorder._serialize(dumped)
         if isinstance(value, list):
             return [JsonTraceRecorder._serialize(item) for item in value]
         if isinstance(value, dict):
             return {key: JsonTraceRecorder._serialize(item) for key, item in value.items()}
+        if isinstance(value, str):
+            return JsonTraceRecorder._redact(value)
         return value
 
     def start(self, run_id: str, trace_id: str, query: str) -> None:
@@ -51,7 +68,7 @@ class JsonTraceRecorder:
         self._document = {
             "run_id": run_id,
             "trace_id": trace_id,
-            "query": query,
+            "query": self._redact(query),
             "started_at": self._now(),
             "finished_at": None,
             "status": "running",
@@ -84,11 +101,13 @@ class JsonTraceRecorder:
             "node_name": node,
             "timestamp": self._now(),
             "duration_ms": round(duration_ms, 3),
-            "query": query if query is not None else self._document["query"],
+            "query": self._redact(
+                query if query is not None else str(self._document["query"])
+            ),
             "retrieved_context": self._serialize(context or []),
             "citations": self._serialize(citations or []),
             "retry_count": retry_count,
-            "error": error,
+            "error": None if error is None else self._redact(error),
             "status": status,
         }
         if data:
@@ -128,8 +147,8 @@ class JsonTraceRecorder:
             data={
                 "model": model,
                 "provider": provider,
-                "prompt_preview": (prompt_preview or "")[:200],
-                "response_preview": (response_preview or "")[:200],
+                "prompt_preview": self._redact((prompt_preview or "")[:200]),
+                "response_preview": self._redact((response_preview or "")[:200]),
                 "input_tokens": int(input_tokens),
                 "output_tokens": int(output_tokens),
                 "total_tokens": int(total_tokens),
@@ -182,6 +201,64 @@ class JsonTraceRecorder:
         if prompt_cache_cached_tokens is not None:
             data["prompt_cache_cached_tokens"] = int(prompt_cache_cached_tokens)
         self.record(node=node, event="cache", query=query, data=data)
+
+    def record_guardrail_event(
+        self,
+        *,
+        node: str = "guardrail",
+        stage: str,
+        action: str,
+        rule_id: str = "",
+        ruleset_version: str = "",
+        code: str | None = None,
+        hits: _Seq[dict[str, Any]] | None = None,
+        input_hash: str = "",
+        duration_ms: float = 0.0,
+    ) -> None:
+        """记录一次护栏裁定（P2.5 Step 14）。
+
+        规格 §6 的落盘纪律：**只写输入 hash、规则 ID、动作、耗时与脱敏摘要**，
+        绝不写攻击原文 —— 攻击载荷本身就是注入内容，永久留存等于给后续读取者
+        埋一颗定时炸弹（trace 会被人工与工具读取）。
+
+        ``hits`` 只接受 ``{"rule_id", "category", "count"}`` 三键的摘要
+        （即 ``GuardrailOutcome.trace_payload()["hits"]`` 的形态），
+        多余键一律丢弃 —— 不给"顺手把命中文本塞进来"留缝。
+
+        Args:
+            stage: 护栏阶段（``input`` / ``retrieved`` / ``tool`` / ``output`` / ``memory``）。
+            action: ``allow`` / ``redact`` / ``block``。
+            input_hash: 输入内容哈希（不是原文），用于跨事件关联同一输入。
+        """
+        allowed_hit_keys = ("rule_id", "category", "count")
+        data: dict[str, Any] = {
+            "stage": stage,
+            "action": action,
+            "rule_id": rule_id,
+            "ruleset_version": ruleset_version,
+            "hits": [
+                {key: hit[key] for key in allowed_hit_keys if key in hit}
+                for hit in (hits or [])
+            ],
+        }
+        if code:
+            data["code"] = code
+        if input_hash:
+            data["input_hash"] = input_hash
+        # query 显式传空串：护栏事件不重复承载输入内容，只留 input_hash
+        self.record(
+            node=node, event="guardrail", query="", data=data, duration_ms=duration_ms
+        )
+
+    @staticmethod
+    def hash_input(text: str) -> str:
+        """输入内容的稳定哈希，供 ``record_guardrail_event(input_hash=...)`` 使用。
+
+        `skill-guardrail-patterns` 的监控要求：记录 input hash 而非明文。
+        """
+        import hashlib
+
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     def node_enter(self, node: str, **kwargs: Any) -> None:
         self._node_starts[node] = time.perf_counter()
