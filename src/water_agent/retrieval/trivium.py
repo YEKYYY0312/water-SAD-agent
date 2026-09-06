@@ -22,6 +22,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from water_agent.domain.models import Chunk, RetrievedClause
 from water_agent.retrieval.base import Retriever
@@ -38,6 +39,19 @@ class TriviumRetrievalError(RuntimeError):
     """真实 TriviumDB 检索失败时抛出。"""
 
 
+class TriviumFallbackReason(str):
+    """TriviumRetriever 当前回落原因。"""
+
+
+class TriviumFallbackKind(str):
+    """回落类型：显式 mock / fixture / none / real_error。"""
+
+
+class TriviumRuntimeStatus(dict[str, Any]):
+    """检索器运行态，供 CLI/harness 记录与诊断。"""
+
+
+
 def mock_embed(text: str, dim: int = TRIVIUM_DIM) -> list[float]:
     """确定性伪嵌入：仅用于 P0/P1 离线验证与适配器自检，不替代真实嵌入模型。"""
     digest = hashlib.sha256(text.encode("utf-8")).digest()
@@ -45,6 +59,7 @@ def mock_embed(text: str, dim: int = TRIVIUM_DIM) -> list[float]:
     for i in range(dim):
         out.append((digest[i % len(digest)] / 255.0 - 0.5) * 2.0)
     return out
+
 
 
 def _default_fixture_clauses() -> list[RetrievedClause]:
@@ -63,8 +78,10 @@ def _default_fixture_clauses() -> list[RetrievedClause]:
     return clauses
 
 
+
 def _parents_path(db_path: str | Path) -> Path:
     return Path(str(db_path) + ".parents.json")
+
 
 
 def _friendly_parent_label(chunk: Chunk) -> str:
@@ -107,7 +124,9 @@ class TriviumRetriever(Retriever):
         self._db = None
         self._db_error: str | None = None
         self._db_opened = False
-        self._used_fallback = self.db_path is None or (self.db_path is not None and not self.db_path.exists())
+        self._fallback_kind: str = "fixture" if self.db_path is None or not self.db_path.exists() else "none"
+        self._fallback_reason: str = "db path missing" if self.db_path is None else ("db path not found" if not self.db_path.exists() else "")
+        self._used_fallback = self._fallback_kind != "none"
         if self.db_path is not None and self.db_path.exists():
             try:
                 import triviumdb
@@ -126,11 +145,21 @@ class TriviumRetriever(Retriever):
             except Exception as exc:  # noqa: BLE001 — pragma: no cover — triviumdb 打开失败降级 fixture
                 self._db_error = str(exc)
                 self._db = None
+                self._fallback_kind = "fixture"
+                self._fallback_reason = f"real db open failed: {exc}"
                 self._used_fallback = True
         self._text_index_ready = False
         self._text_indexed_nodes = 0
         if self._db is not None:
             self._rebuild_text_index()
+
+    @property
+    def fallback_kind(self) -> str:
+        return self._fallback_kind
+
+    @property
+    def fallback_reason(self) -> str:
+        return self._fallback_reason
 
     def _rebuild_text_index(self) -> None:
         """打开库后重建文本索引（triviumdb 0.8.2 的文本索引只存在于进程内）。
@@ -186,6 +215,20 @@ class TriviumRetriever(Retriever):
     @property
     def db_error(self) -> str | None:
         return self._db_error
+
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        """统一暴露真实库/显式 fallback 的运行态，供 CLI/harness 上报。"""
+        return {
+            "db_path": str(self.db_path) if self.db_path is not None else None,
+            "is_fallback": self.is_fallback,
+            "fallback_kind": self._fallback_kind,
+            "fallback_reason": self._fallback_reason,
+            "db_error": self._db_error,
+            "text_index_ready": self._text_index_ready,
+            "text_indexed_nodes": self._text_indexed_nodes,
+            "db_opened": self._db_opened,
+        }
 
     def _enrich_with_parent(self, clause: RetrievedClause, payload: dict) -> RetrievedClause:
         parent_id = payload.get("parent_id")

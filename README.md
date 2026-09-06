@@ -12,7 +12,7 @@
 ## 环境
 
 - Python 3.12+（`requires-python >=3.11,<3.13`）
-- `langgraph>=1.2.0` / `triviumdb>=0.8.2` / `pydantic>=2.7` / `openpyxl>=3.1,<4`（P2 材料 Excel 导出）
+- `langgraph>=1.2.0,<2` / `triviumdb>=0.8.0` / `pydantic>=2.7` / `openpyxl>=3.1,<4`（P2 材料 Excel 导出）
 - 安装：`uv sync` 或 `pip install -e .[dev]`
 
 ## 快速验证

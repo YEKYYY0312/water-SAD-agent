@@ -1,10 +1,10 @@
-# 给排水 Agent 改造任务书（v1.1 修订版）
+# 给排水 Agent 改造任务书（v1.2 修订版）
 
 > **修订说明：** 本版根据当前代码、数据资产、测试与 `docs/09-next-steps.md` 的实际状态修订。它是可执行计划，不把尚未验证的 API、指标或业务公式写成既定事实。
 >
 > **给 Cursor Agent 的执行说明：** 本任务书每步都是独立的最小闭环，按顺序执行，一步一提交。
 > 每步开头必须**先朗读"使用技能"列出的文件**，严格按其中方法执行；完成时必须以**新鲜验证证据**（实际命令输出）作为完成门槛，禁止空口宣称完成。
-> 执行前请先读：`~/Desktop/给排水agent/docs/design/00-overview-and-decisions.md`、`01-architecture.md`、`02-loop-engineering.md`、`03-harness-engineering.md` 与 `~/Desktop/给排水agent/docs/09-next-steps.md`。
+> 执行前请先读：`~/Desktop/给排水agent/docs/design/00-overview-and-decisions.md`、`01-architecture.md`、`02-loop-engineering.md`、`03-harness-engineering.md` 与 `~/Desktop/给排水agent/docs/09-next-steps.md`。执行 P2.5 时还必须先读 `docs/design/12-p2.5-production-governance.md`，它是 P2.5 的权威规格。
 
 **目标：** 把给排水 Agent 从"单次 RAG 流水线"改造为"工具调用型多轮 Agent"，同时把评测链与校验链接回"真实模型与真实检索"，使每一次改动都有可度量的闭环。
 
@@ -38,6 +38,13 @@
 - Step 9 Human-in-the-Loop：interrupt 审批节点
 - Step 10 双轨评测深化、观测、CI 门禁与文档收口
 
+**第 4 阶段 P2.5 生产治理与安全基座**
+- Step 11 治理契约、威胁模型与接入清单
+- Step 12 Provider Gateway：限流、配额、预算、超时与可靠性
+- Step 13 保守缓存与上下文/输出成本控制
+- Step 14 不可绕过的输入、工具与输出护栏
+- Step 15 治理评测、脱敏观测、告警与发布门禁
+
 **附录**：A 技能资产索引｜B 环境事实与已验证 API｜C 术语对照｜D 执行守则
 
 ---
@@ -63,7 +70,7 @@
 
 ### 本版执行覆盖规则
 
-下方保留了原任务书的详细设计素材，但其中旧的 Step 编号仅作为主题参考。实际执行以本版目录为准：原 Step 6 拆为新 Step 1–2；原 Step 1 为新 Step 3；原 Step 2–5 依次为新 Step 4–7；原 Step 7–9 依次为新 Step 8–10。若详细块与本节冲突，以本版的前置条件、文件清单、接口契约和验收规则为准。
+下方保留了原任务书的详细设计素材，但其中旧的 Step 编号仅作为主题参考。实际执行以本版目录为准：原 Step 6 拆为新 Step 1–2；原 Step 1 为新 Step 3；原 Step 2–5 依次为新 Step 4–7；原 Step 7–9 依次为新 Step 8–10；P2.5 新增 Step 11–15，其细化规格在 `docs/design/12-p2.5-production-governance.md`。若详细块与本节冲突，以本版的前置条件、文件清单、接口契约和验收规则为准。
 
 - 测试数量是参考值，不是验收条件；验收以退出码为 0、既有测试不回退和新增行为断言为准。
 - 真实模型、百炼 embedding/rerank 属于可选质量链路；无 Key 时必须输出结构化 `SKIP`，不将 `SKIP` 当作通过或失败。
@@ -908,6 +915,84 @@ ruff check src && mypy src/water_agent # 预期：0 error
 
 ---
 
+# 第 4 阶段：P2.5 生产治理与安全基座（Step 11–15）
+
+> **定位：** P2.5 位于 P2 文档/材料能力与 P3 DWG/P4 外部 MCP 接入之间。它补齐本地可验证的缓存、限流、成本、可靠性和安全边界，不把 DeepSeek 的未知服务端策略当作项目护栏。
+>
+> **权威规格与强制阅读：** `docs/design/12-p2.5-production-governance.md`。每个 Step 开始前，coding agent 必须读取该规格中本 Step 的“使用 Skill”和“使用 Prompt”，按“Prompt 使用规则”产出并提交 `docs/design/p2.5-step-<n>-decision.md`。Prompt 只作分析模板，不能覆盖 AGENTS.md、任务书、用户要求或三条铁律，不能用未知 DAU/账单/合规结论伪造节省金额、阈值或通过证据。
+
+## P2.5 全局约束（不得违反）
+
+1. **统一入口：** 所有远程 provider 调用必须通过 `ProviderGateway`，所有工具调用必须在 `ToolRegistry.invoke` 前经过 `GuardrailPipeline`。新路径绕过入口时，测试/CI 必须失败。
+2. **安全失败语义：** 身份、来源标签、策略、预算、限流或护栏不可判定时 fail closed；有 Key 但远程/治理组件失败为 `blocked`/非零，无 Key 才是结构化 `SKIP`。
+3. **缓存边界：** P2.5 只做带 TTL 和失效机制的精确回答缓存；不做语义缓存，不缓存计算、docgen、审批、未验证引用、被阻断或含敏感原文的结果。
+4. **不静默降级：** 429/5xx/timeout 仅做有界、可观测的重试；不得静默换模型、本地检索、fixture 或伪造 usage。模型路由只有在单独配置、评测和审批后才可启用。
+5. **隐私与 trace：** 发送云模型、写缓存、写 trace 前完成策略要求的 PII/secret 处理；trace 只存 hash、规则 ID、脱敏摘要和引用 ID，禁止完整系统提示、API Key、原始 PII 或完整攻击样本。
+6. **P4 交接：** P2.5 的 `Principal`/`Capability` 是 P4 MCP OAuth/权限控制的前置契约；P2.5 不假装已经完成外部认证授权。
+
+## Step 11｜治理契约、威胁模型与接入清单（约半天 ★★☆）
+
+**目标：** 先定义 `Principal`、`RequestContext`、`SourceTag`、`Capability`、`PolicyDecision` 和 provider inventory，建立所有治理能力的唯一接入边界。
+
+**必须读取：** `skill-production-checklist.md`、`skill-guardrail-patterns.md`、`skill-injection-defense.md`、`security-and-hardening.md`；Prompt 为 `prompt-architecture-reviewer.md` 与 `prompt-safety-auditor.md`。绝对路径见 P2.5 权威规格。
+
+**最小闭环：** 新增 `runtime/governance/`、威胁模型和 provider inventory；测试来源标签不可由用户降级、契约不泄漏敏感字段、未接入 Gateway/Guardrail 的调用可被测试发现。
+
+**验收/提交：** 执行 `tests/test_governance_contracts.py` 与全量 `pytest -q`；提交 `feat: 定义 P2.5 生产治理契约与威胁模型`。
+
+## Step 12｜Provider Gateway：限流、配额、预算、超时与可靠性（约 1 天 ★★★）
+
+**目标：** DeepSeek chat/docgen、百炼 embedding/rerank、LLM judge 全部经 `ProviderGateway`，实现 token bucket、逐主体账本、deadline、429/5xx 有界重试、熔断与安全结构化错误。
+
+**必须读取：** `skill-cost-patterns.md`、`skill-production-checklist.md`、`security-and-hardening.md`；Prompt 为 `prompt-cost-optimizer.md` 与 `prompt-architecture-reviewer.md`。
+
+**最小闭环：** 预发送限流/预算预留、返回后 usage 对账；429 遵守 `Retry-After`；非瞬时错误不重试；不允许 silent fallback；`ToolSpec` timeout/retry 必须真实生效或删除死字段。
+
+**验收/提交：** `tests/test_provider_gateway.py`、`tests/test_tool_runtime_policy.py`、全量回归通过；提交 `feat: 接入 P2.5 provider 限流预算与可靠性网关`。
+
+## Step 13｜保守缓存与上下文/输出成本控制（约半天 ★★☆）
+
+**目标：** 增加仅用于安全、已验证、temperature=0 RAG 最终答案的精确缓存；cache key 必须绑定主体/授权域、模型、prompt/policy、语料 manifest/版本与检索参数。
+
+**必须读取：** `skill-cost-patterns.md`、`skill-prompt-caching-planner.md`、`skill-production-checklist.md`；Prompt 为 `prompt-cost-optimizer.md` 与 `prompt-context-optimizer.md`。
+
+**最小闭环：** TTL、LRU/淘汰、显式失效、`no_cache`/`no_store`、版本变更 miss、跨主体隔离与 provider prompt-cache 的真实 usage 观测；语义缓存明确不做。
+
+**验收/提交：** `tests/test_answer_cache.py` 和 trace 脱敏断言通过；提交 `feat: 增加 P2.5 精确回答缓存与成本控制`。
+
+## Step 14｜不可绕过的输入、工具与输出护栏（约 1 天 ★★★）
+
+**目标：** 统一输入长度/规范化、PII/secret、直接与间接提示注入、来源隔离、工具 capability/allowlist 和输出 PII/引用/格式检查；阻断发生在模型或工具动作之前。
+
+**必须读取：** `skill-guardrail-patterns.md`、`skill-injection-defense.md`、`skill-failure-detector.md`、`security-and-hardening.md`；Prompt 为 `prompt-safety-auditor.md` 与 `prompt-architecture-reviewer.md`。
+
+**最小闭环：** `ContentEnvelope` 贯穿用户/检索/工具/记忆来源；当前默认只允许只读检索、纯计算和用户显式目录导出；可写、网络、shell、邮件工具在 P4 授权前拒绝；红队集用合成数据。
+
+**验收/提交：** `tests/test_guardrails.py`、`tests/test_injection_defense.py`、`tests/test_tool_policy.py` 及既有 docgen/material/rag/calc 回归通过；提交 `feat: 建立 P2.5 分层护栏与工具策略`。
+
+## Step 15｜治理评测、脱敏观测、告警与发布门禁（约半天 ★★☆）
+
+**目标：** 把治理能力接进 `governance_p0`、baseline、CI 和 trace failure detector，形成持续证据而非一次性实现。
+
+**必须读取：** `skill-failure-detector.md`、`skill-production-checklist.md`、`skill-cost-patterns.md`、`observability-and-instrumentation.md`；Prompt 为 `prompt-architecture-reviewer.md`、`prompt-safety-auditor.md` 和 `prompt-cost-optimizer.md`。
+
+**最小闭环：** `governance_p0` 覆盖缓存/TTL、限流、预算、重试/熔断、来源标签、注入、PII、工具策略和 trace 脱敏；规则型失败检测器无逐 trace LLM 调用；`ci_gate.sh` 纳入该 suite。
+
+**验收/提交：**
+
+```bash
+bash scripts/ci_gate.sh
+_venv/bin/python -m water_agent.harness.runner data/eval/governance_p0.jsonl
+_venv/bin/pytest -q tests/test_provider_gateway.py tests/test_answer_cache.py \\
+  tests/test_guardrails.py tests/test_injection_defense.py tests/test_tool_policy.py
+ruff check src tests
+mypy src/water_agent
+```
+
+提交 `feat: 为 P2.5 接入治理评测与发布门禁`；输出 `docs/evals/p2.5-governance-<date>.md`，如实记录 pass、SKIP、blocked、未启用配置与残余风险。
+
+---
+
 # 附录 A｜技能与 Prompt 资产索引（obsidian knowledge → 改造步骤映射）
 
 > 全部资产在 `~/Desktop/obsidian knowledge/`，共 159 份 md。下表按"用在哪一步"索引，执行每步前先读对应文件。
@@ -926,6 +1011,11 @@ ruff check src && mypy src/water_agent # 预期：0 error
 | Step 8 | `01 LLM Engineering/Skills/{skill-context-engineering, skill-prompt-caching-planner}.md` + `Prompts/prompt-context-optimizer.md`；`AI应用开发者精选 Skills/Skills/context-engineering.md` | 动态装配/缓存友好/投影/版本状态 |
 | Step 9 | `01 LLM Engineering/Skills/{skill-stategraph-designer, skill-production-checklist}.md`；`03 Agent Engineering/Skills/skill-hybrid-planner.md` | interrupt 放置/人审阈值 |
 | Step 10 | `03 Agent Engineering/Skills/{skill-benchmark-harness, skill-feedback-runner, skill-otel-genai, skill-failure-detector, skill-rule-set-builder, skill-workbench-benchmark}.md`；`01 LLM Engineering/Skills/{skill-eval-patterns, skill-production-checklist, skill-cost-patterns}.md` + `Prompts/{prompt-eval-designer, prompt-advanced-rag-debugger, prompt-architecture-reviewer}.md`；`AI应用开发者精选 Skills/Skills/{verification-before-completion, handoff, ci-cd-and-automation, source-driven-development}.md` | FTP/PTP 门禁/judge/失败探测器/规则检查器/成本/收口 |
+| Step 11 | `01 LLM Engineering/Skills/{skill-production-checklist, skill-guardrail-patterns}.md`；`03 Agent Engineering/Skills/skill-injection-defense.md`；`AI应用开发者精选 Skills/Skills/security-and-hardening.md` + `Prompts/{prompt-architecture-reviewer, prompt-safety-auditor}.md` | 治理契约/威胁模型/信任边界/provider 清单 |
+| Step 12 | `01 LLM Engineering/Skills/{skill-cost-patterns, skill-production-checklist}.md`；`AI应用开发者精选 Skills/Skills/security-and-hardening.md` + `Prompts/{prompt-cost-optimizer, prompt-architecture-reviewer}.md` | Gateway/限流/预算/重试/熔断/可靠性 |
+| Step 13 | `01 LLM Engineering/Skills/{skill-cost-patterns, skill-prompt-caching-planner, skill-production-checklist}.md` + `Prompts/{prompt-cost-optimizer, prompt-context-optimizer}.md` | 精确缓存/TTL/失效/prompt cache 观测/上下文预算 |
+| Step 14 | `01 LLM Engineering/Skills/skill-guardrail-patterns.md`；`03 Agent Engineering/Skills/{skill-injection-defense, skill-failure-detector}.md`；`AI应用开发者精选 Skills/Skills/security-and-hardening.md` + `Prompts/{prompt-safety-auditor, prompt-architecture-reviewer}.md` | 输入/工具/输出护栏、PII、来源标签、红队 |
+| Step 15 | `03 Agent Engineering/Skills/skill-failure-detector.md`；`01 LLM Engineering/Skills/{skill-production-checklist, skill-cost-patterns}.md`；`AI应用开发者精选 Skills/Skills/observability-and-instrumentation.md` + `Prompts/{prompt-architecture-reviewer, prompt-safety-auditor, prompt-cost-optimizer}.md` | 治理评测/告警/脱敏观测/CI 门禁 |
 
 **其余技能备用索引（按需取用）：**
 
