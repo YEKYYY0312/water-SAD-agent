@@ -137,6 +137,52 @@ class JsonTraceRecorder:
             },
         )
 
+    def record_cache_event(
+        self,
+        *,
+        node: str = "cache",
+        cache_status: str,
+        cache_key_hash: str = "",
+        reason: str = "",
+        entry_age_seconds: float | None = None,
+        eligible_for_store: bool | None = None,
+        saved_input_tokens: int | None = None,
+        saved_output_tokens: int | None = None,
+        saved_cost_usd: float | None = None,
+        prompt_cache_support: str = "",
+        prompt_cache_cached_tokens: int | None = None,
+        query: str | None = None,
+    ) -> None:
+        """记录一次缓存裁定（P2.5 Step 13）。
+
+        规格 §5 的落盘纪律：
+        - 只写 ``cache_key_hash``，**永不写 cache key 原文**；
+        - ``saved_*`` 仅在 provider usage 可得时填写，``None`` 表示不可知
+          （**不估算** —— 与 ``UsageRecord.usage_known=False`` 同口径）；
+        - ``prompt_cache_cached_tokens=None`` 表示 provider 未返回该字段，
+          与"命中 0 token"是不同的事实。
+        """
+        data: dict[str, Any] = {
+            "cache_status": cache_status,
+            "cache_key_hash": cache_key_hash,
+            "reason": reason,
+        }
+        if entry_age_seconds is not None:
+            data["entry_age_seconds"] = round(float(entry_age_seconds), 6)
+        if eligible_for_store is not None:
+            data["eligible_for_store"] = bool(eligible_for_store)
+        if saved_input_tokens is not None:
+            data["saved_input_tokens"] = int(saved_input_tokens)
+        if saved_output_tokens is not None:
+            data["saved_output_tokens"] = int(saved_output_tokens)
+        if saved_cost_usd is not None:
+            data["saved_cost_usd"] = round(float(saved_cost_usd), 8)
+        if prompt_cache_support:
+            data["prompt_cache_support"] = prompt_cache_support
+        if prompt_cache_cached_tokens is not None:
+            data["prompt_cache_cached_tokens"] = int(prompt_cache_cached_tokens)
+        self.record(node=node, event="cache", query=query, data=data)
+
     def node_enter(self, node: str, **kwargs: Any) -> None:
         self._node_starts[node] = time.perf_counter()
         self.record(node=node, event="node_enter", **kwargs)
