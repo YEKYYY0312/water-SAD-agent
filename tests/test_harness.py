@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from water_agent.domain.models import EvalCase, EvalResult
-from water_agent.harness.doubles import BadCitationGenerator
-from water_agent.harness.loader import EvalLoadError, load_eval_bundle, load_eval_cases
+from water_agent.harness.loader import EvalLoadError, load_eval_cases
 from water_agent.harness.runner import HarnessRunner, main
 from water_agent.harness.scorer import score_eval_case
 
@@ -122,7 +121,6 @@ class TestNoGoldLeakInRealAgenticRun:
         return runner_mod
 
     def _case_file(self, tmp_path: Path, *, forbidden: list[str], cited: list[str]) -> Path:
-        from langchain_core.messages import AIMessage
 
         case = {
             "id": "fb-1",
@@ -288,7 +286,7 @@ class TestQualityVerdict:
     def test_low_non_blocking_dimension_does_not_block_pass(self) -> None:
         from water_agent.harness.quality import judge_quality_verdict
 
-        verdict, reasons = judge_quality_verdict(
+        verdict, _reasons = judge_quality_verdict(
             {"faithfulness": 5, "citation_coverage": 5, "no_fabrication": 5, "completeness": 1}
         )
         assert verdict is True

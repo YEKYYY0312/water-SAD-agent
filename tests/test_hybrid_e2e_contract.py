@@ -5,7 +5,6 @@ import json
 import tempfile
 from pathlib import Path
 
-from water_agent.domain.models import RetrievedClause
 from water_agent.ingestion.pipeline import ingest_to_trivium
 from water_agent.retrieval.trivium import TriviumRetriever
 

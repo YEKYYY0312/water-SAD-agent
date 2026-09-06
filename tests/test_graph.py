@@ -8,9 +8,7 @@ import pytest
 from water_agent.domain.state import (
     MAX_CITATION_RETRIES,
     STATUS_FAILED,
-    STATUS_RUNNING,
     STATUS_SUCCEEDED,
-    WaterAgentState,
     default_state,
 )
 from water_agent.generation.base import Generator

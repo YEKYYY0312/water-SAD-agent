@@ -13,7 +13,6 @@ from water_agent.ingestion.semantic_audit import (
 )
 from water_agent.ingestion.semantic_audit_cli import main
 
-
 VALID = {
     "spec_id": "GB50014-2021",
     "chapter": "4",

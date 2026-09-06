@@ -10,8 +10,11 @@ P2.5 Step 12：``ToolSpec.timeout_seconds`` 接入**协作式 deadline** —— 
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from typing import Any
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -32,6 +35,20 @@ CODE_TOOL_TIMEOUT = "TOOL_TIMEOUT"
 CODE_GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
 
 
+def _hash_args(args: dict[str, Any]) -> str:
+    """工具参数的稳定哈希（Step 15 观测用）。
+
+    只进 trace 的 ``args_hash``，**不写参数原文** —— 工具参数可能含 PII
+    或注入载荷。``default=str`` 保证不可序列化对象也能得到稳定摘要，
+    哈希失败时返回空串（观测不得影响执行）。
+    """
+    try:
+        payload = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return ""
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def _structured_error(code: str, message: str, suggestions: list[str] | None = None) -> dict:
     return {
         "error": True,
@@ -49,9 +66,15 @@ class ToolRegistry:
     ``pipeline`` 参数可选，但为 ``None`` 时取**进程级默认管线**而非跳过校验 ——
     因此不存在"不传即绕过"的后门（规格 §1.2）。
 
+    P2.5 Step 15：可选 ``trace`` 记录器把**护栏裁定**与**工具执行**成对写入 trace
+    （共享 ``invocation_id``），使 `guardrail_bypass` 检测器能事后证明"这次执行
+    确实过了护栏"。``trace`` 为 ``None`` 时不记录 —— 观测缺失不得影响执行语义，
+    但也因此**不能**用"没有 trace"当作"没有绕过"的证据。
+
     Args:
         pipeline: 护栏管线；``None`` 用 ``default_guardrail_pipeline()``。
         principal: 执行主体；``None`` 用 CLI 本地主体（默认能力集）。
+        trace: trace 记录器（需已 ``start``）；``None`` 不记录观测事件。
     """
 
     def __init__(
@@ -59,10 +82,12 @@ class ToolRegistry:
         *,
         pipeline: GuardrailPipeline | None = None,
         principal: Principal | None = None,
+        trace: Any | None = None,
     ) -> None:
         self._tools: dict[str, ToolSpec] = {}
         self._pipeline = pipeline
         self._principal = principal
+        self._trace = trace
 
     def _resolve_pipeline(self) -> GuardrailPipeline:
         return self._pipeline if self._pipeline is not None else default_guardrail_pipeline()
@@ -71,6 +96,23 @@ class ToolRegistry:
         if self._principal is not None:
             return self._principal
         return Principal.local("tool-registry")
+
+    def _emit(self, method: str, **kwargs: Any) -> None:
+        """尽力而为地写一条 trace 事件。
+
+        观测**永不**影响执行语义：recorder 未 start、方法不存在或写入抛错，
+        都只是静默丢弃这条事件。反过来说，缺事件不能当作"没绕过"的证据 ——
+        这一点写进了 operator 文档。
+        """
+        if self._trace is None:
+            return
+        emitter = getattr(self._trace, method, None)
+        if emitter is None:
+            return
+        try:
+            emitter(**kwargs)
+        except Exception:  # noqa: BLE001 — 观测失败不得影响工具执行
+            return
 
     def register(self, spec: ToolSpec) -> None:
         """注册工具；重名抛 ValueError。名称已在 ToolSpec 校验为 snake_case。"""
@@ -94,9 +136,24 @@ class ToolRegistry:
 
         成功返回 execute 的输出 dict；任何失败返回结构化错误 dict，不抛裸异常。
         护栏拒绝返回 ``GUARDRAIL_BLOCKED``，并带脱敏原因（不含原始命中文本）。
+
+        P2.5 Step 15：每条返回路径都写一条工具事件（``executed`` 区分"真跑了"
+        与"被拦在执行前"），护栏裁定事件与之共享 ``invocation_id``。
         """
+        invocation_id = uuid4().hex[:16]
+        args_hash = _hash_args(args)
+
         spec = self._tools.get(name)
         if spec is None:
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="failed",
+                code=CODE_UNKNOWN_TOOL,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=False,
+            )
             return _structured_error(
                 CODE_UNKNOWN_TOOL,
                 f"未知工具 {name!r}；已注册：{sorted(self._tools)}",
@@ -105,10 +162,33 @@ class ToolRegistry:
 
         # P2.5 Step 14：护栏前置校验（不可绕过）。必须在 schema 校验与 execute 之前 ——
         # 越权/注入参数不应有机会通过 pydantic 后进入执行路径。
+        guard_started = time.monotonic()
         outcome = self._resolve_pipeline().validate_tool_call(
             name, dict(args), self._resolve_principal()
         )
+        guard_ms = (time.monotonic() - guard_started) * 1000
+        payload = outcome.trace_payload()
+        self._emit(
+            "record_guardrail_event",
+            stage="tool",
+            action=payload.get("action", ""),
+            rule_id=payload.get("rule_id", ""),
+            ruleset_version=payload.get("ruleset_version", ""),
+            code=payload.get("code"),
+            hits=payload.get("hits", []),
+            invocation_id=invocation_id,
+            duration_ms=guard_ms,
+        )
         if not outcome.allowed:
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="blocked",
+                code=CODE_GUARDRAIL_BLOCKED,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=False,
+            )
             return _structured_error(
                 CODE_GUARDRAIL_BLOCKED,
                 f"工具 {name!r} 未通过护栏校验：{outcome.decision.detail}",
@@ -121,6 +201,15 @@ class ToolRegistry:
             # 只聚合首个错误位置对应的字段名（pydantic 2 的 errors()[0]['loc']）
             field = ".".join(str(part) for part in exc.errors()[0]["loc"])
             msg = exc.errors()[0].get("msg", "schema 校验失败")
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="failed",
+                code=CODE_INVALID_ARGUMENTS,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=False,
+            )
             return _structured_error(
                 CODE_INVALID_ARGUMENTS,
                 f"参数 {field!r} 非法：{msg}",
@@ -131,6 +220,15 @@ class ToolRegistry:
             try:
                 spec.guard(model)
             except Exception as exc:  # noqa: BLE001 — guard 失败转结构化错误
+                self._emit(
+                    "record_tool_event",
+                    tool_name=name,
+                    status="failed",
+                    code=CODE_TOOL_ERROR,
+                    invocation_id=invocation_id,
+                    args_hash=args_hash,
+                    executed=False,
+                )
                 return _structured_error(CODE_TOOL_ERROR, f"安全校验未通过：{exc}", ["调整参数后重试"])
 
         try:
@@ -138,6 +236,17 @@ class ToolRegistry:
             result = spec.execute(model)
             elapsed = time.monotonic() - started
         except Exception as exc:  # noqa: BLE001 — 工具异常必须转结构化错误，绝不外泄
+            # executed=True：execute 确实被调用了（只是抛了异常），
+            # 这与"被拦在执行前"是不同的事实，检测器需要区分。
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="failed",
+                code=CODE_TOOL_ERROR,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=True,
+            )
             return _structured_error(
                 CODE_TOOL_ERROR,
                 f"工具 {name!r} 执行失败：{exc}",
@@ -146,15 +255,44 @@ class ToolRegistry:
         if elapsed > spec.timeout_seconds:
             # 协作式 deadline：结果已产出但已超时。只读/纯计算工具丢弃结果安全；
             # 不杀线程（规格 §4：不得用杀线程破坏不可逆操作）。
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="failed",
+                code=CODE_TOOL_TIMEOUT,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=True,
+                duration_ms=elapsed * 1000,
+            )
             return _structured_error(
                 CODE_TOOL_TIMEOUT,
                 f"工具 {name!r} 执行耗时 {elapsed:.3f}s 超过上限 {spec.timeout_seconds}s",
                 ["缩小输入规模后重试"],
             )
         if not isinstance(result, dict):
+            self._emit(
+                "record_tool_event",
+                tool_name=name,
+                status="failed",
+                code=CODE_TOOL_ERROR,
+                invocation_id=invocation_id,
+                args_hash=args_hash,
+                executed=True,
+                duration_ms=elapsed * 1000,
+            )
             return _structured_error(
                 CODE_TOOL_ERROR,
                 f"工具 {name!r} 必须返回 dict，得到 {type(result).__name__}",
                 [],
             )
+        self._emit(
+            "record_tool_event",
+            tool_name=name,
+            status="succeeded",
+            invocation_id=invocation_id,
+            args_hash=args_hash,
+            executed=True,
+            duration_ms=elapsed * 1000,
+        )
         return result

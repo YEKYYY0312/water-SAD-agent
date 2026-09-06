@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-import json
+from pathlib import Path
 
 import pytest
 
@@ -19,7 +19,6 @@ from water_agent.harness.llm_judge import (
     DEFAULT_CRITERIA,
     JUDGE_RUBRIC,
     FakeJudge,
-    JudgeResult,
     LLMJudge,
 )
 
@@ -30,9 +29,9 @@ class TestFakeJudge:
         result = judge.evaluate(query="给水管道设计秒流量", answer="根据 GB50015 确定……")
         assert result.skipped is False
         assert result.scores.keys() == set(DEFAULT_CRITERIA)
-        for criterion, entry in result.scores.items():
-            assert 1 <= entry.score <= 5
-            assert entry.reasoning
+        for criterion in result.scores.values():
+            assert 1 <= criterion.score <= 5
+            assert criterion.reasoning
         # 默认固定 4 分 → overall = 4.0
         assert result.overall_score == 4.0
 

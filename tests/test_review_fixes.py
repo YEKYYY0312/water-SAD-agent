@@ -16,7 +16,6 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from water_agent.domain.models import RetrievedClause
 from water_agent.ingestion.chunker import Chunker, RawClause
 from water_agent.ingestion.pipeline import (
     ingest_jsonl_to_chunks,
@@ -203,8 +202,9 @@ class TestRealDbFailureNoSilentFallback:
             class BadPayloadDB:
                 def search_hybrid(self, *args, **kwargs):
                     class Hit:
-                        score = 0.5
-                        payload = {"chunk_type": "article", "bogus_field_only": True}
+                        def __init__(self):
+                            self.score = 0.5
+                            self.payload = {"chunk_type": "article", "bogus_field_only": True}
 
                     return [Hit()]
 

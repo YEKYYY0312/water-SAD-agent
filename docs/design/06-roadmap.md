@@ -75,7 +75,7 @@
 
 ---
 
-## P2.5 —— 生产治理与安全基座（进行中：Step 11–14 已交付，15 未实施；P3 前置）
+## P2.5 —— 生产治理与安全基座（2026-09-06 完成：Step 11–15 已交付；P3 前置）
 
 **目标**：为已有 RAG、计算、docgen、材料和远程 provider 调用建立可测试、不可绕过的
 缓存、限流、成本、可靠性与安全边界。权威规格：`docs/design/12-p2.5-production-governance.md`。
@@ -83,7 +83,7 @@
 - [x] 统一 `ProviderGateway`：限流、配额、预算、timeout、有界重试、429 退避、熔断与 usage 对账（**Step 12 已完成，6/6 出口接入**）
 - [x] 仅对已验证引用的 temperature=0 RAG 回答启用精确缓存（TTL、失效、跨主体隔离）；不做语义缓存（**Step 13 机制已完成；但当前语料 4 本规范版本全 unknown，按规格 §5 写入资格恒为 false → 命中率结构性为 0，且未接进 RAG 主路径**）
 - [x] `GuardrailPipeline`：来源标签、注入防御、PII/secret、工具 capability/allowlist、输出检查和脱敏 trace（**Step 14 已完成，4/4 工具接入；规则集是确定性正则，非分类器，必然存在未覆盖的改写变体**）
-- [ ] `governance_p0` 评测、红队合成用例、失败检测器、告警事件和 CI/baseline 门禁（**红队数据集 33 条已产出并有测试执行 `data/eval/redteam_p0.jsonl`，但尚未接入 harness runner 与 CI 门禁 → Step 15**）
+- [x] `governance_p0` 评测（32 条离线场景）、红队合成用例（33 条）、失败检测器（8 个）、告警事件和 CI/baseline 门禁（**Step 15 已完成，进入 `scripts/ci_gate.sh` 与 `data/eval/baseline.json`**）
 - [x] 为 P4 预留 `Principal`/`Capability` 契约；P2.5 不将本地 CLI 主体误称为外部认证（**Step 11 已完成**）
 
 **验收标准**
@@ -93,10 +93,10 @@
 - [ ] 缓存已接进 RAG 主路径并有真实命中证据（**阻塞于 `data/versions.json` 人工核实**）
 - [x] 限流、预算、timeout、重试、熔断均有确定性正反例（**Step 12：`tests/test_provider_gateway.py` 63 条**）
 - [x] PII/注入/工具策略的确定性正反例（**Step 14：`test_guardrails.py` 77 + `test_injection_defense.py` 43 + `test_tool_policy.py` 52 + `test_redteam_dataset.py` 111**）
-- [ ] `governance_p0` 进入 `scripts/ci_gate.sh`，真实组件失败与无 Key 的 SKIP 语义明确区分（Step 15）
+- [x] `governance_p0` 进入 `scripts/ci_gate.sh`，真实组件失败与无 Key 的 SKIP 语义明确区分（**Step 15：32 条场景全离线，检测器+观测有 76 条测试，进入 CI gate 与 baseline**）
 
-**Step 11–14 交付摘要**（权威细节见 `p2.5-step-1{1,2,3,4}-decision.md`）
-- `runtime/governance/`：契约（不依赖 langchain/langgraph）+ gateway + 配置 + 限流/预算存储 + 精确缓存 + 分层护栏 + 接入清单
+**Step 11–15 交付摘要**（权威细节见 `p2.5-step-1{1,2,3,4,5}-decision.md`）
+- `runtime/governance/`：契约（不依赖 langchain/langgraph）+ gateway + 配置 + 限流/预算存储 + 精确缓存 + 分层护栏 + 治理场景 + 失败检测器 + 聚合观测 + 接入清单
 - 出站模块由 6 个收敛为 4 个；`ToolSpec.max_retries` 死字段删除，`timeout_seconds` 接入协作式 deadline
 - **成本硬上限默认不启用**（价格未与账单核对，不得用估算当账单）；`BudgetPolicy` 默认 `WARN`
 - 内存限流/预算/缓存均 `supports_multi_instance=False`（不谎称支持多实例）
@@ -106,8 +106,13 @@
 - `GuardrailPipeline` 五个检查面动作不同：用户输入/工具参数/记忆写入命中即 BLOCK；
   检索内容命中是 REDACT+标记（丢弃整条会让投毒语料把正常检索废掉）；输出面与既有
   docgen 校验组合。规则集版本 `p2.5-step14-2026-09-06`；**不得声称能拦住任意注入**。
-- ⚠️ **Step 14 已知未做完**：`check_memory_write` 未接进 checkpointer 写入路径；
-  `materials/export.py` 未接护栏路径校验；护栏事件未接聚合/告警（均留给 Step 15 或之后）
+- 治理评测（Step 15）：32 条离线场景覆盖限流/预算/可靠性/护栏/trace/检测器/缓存十个面；
+  8 个失败模式检测器（不调 LLM、不只在崩溃时打标）；聚合指标与本地结构化告警
+  （`delivery="local_event_only"`，不假装已发 PagerDuty/Slack）；工具执行事件与护栏事件
+  通过 `invocation_id` 配对供 `guardrail_bypass` 检测。检测器版本 `p2.5-step15-2026-09-06`。
+- ⚠️ **Step 15 残余缺口**：检测器尚未接进 CLI/runner 生产调用站点（trace 参数未传递）；
+  告警路由未接外部投递通道；`check_memory_write` 未接 checkpointer；`materials/export.py`
+  未接护栏路径校验
 
 ---
 

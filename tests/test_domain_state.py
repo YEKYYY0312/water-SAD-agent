@@ -20,7 +20,6 @@ from water_agent.domain.state import (
     STATUS_FAILED,
     STATUS_RUNNING,
     STATUS_SUCCEEDED,
-    WaterAgentState,
     default_state,
 )
 

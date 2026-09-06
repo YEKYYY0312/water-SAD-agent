@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from water_agent.curation.gold_candidate_generator import generate_candidate_queries
 from water_agent.curation.candidate_quality import validate_candidate_set
-
+from water_agent.curation.gold_candidate_generator import generate_candidate_queries
 
 CURATED = {
     "GB50013-2018": [
