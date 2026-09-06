@@ -162,7 +162,8 @@ def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
     fixture = load_clauses_jsonl(DEFAULT_FIXTURE)
     db_path = _resolve_db_path(args)
     if db_path is None:
-        return TriviumRetriever(db_path=None, fallback_clauses=fixture), ""
+        retriever = TriviumRetriever(db_path=None, fallback_clauses=fixture)
+        return retriever, ""
 
     dim = args.dimensions
     if args.mock_generator:
@@ -175,12 +176,16 @@ def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
         from water_agent.retrieval.trivium import mock_embed
 
         embedding_fn = lambda text: mock_embed(text, dim=dim)
+        fallback_kind = "mock"
+        fallback_reason = "explicit mock_generator"
     else:
         # 真实库需要真实 embedding 做 query 向量（维度须与库一致）
         provider, detected = _embedding_for(db_path)
         if args.dimensions is None:
             dim = detected
         embedding_fn = provider.embed  # type: ignore[attr-defined]
+        fallback_kind = "none"
+        fallback_reason = "real db"
     retriever = TriviumRetriever(
         db_path=db_path,
         embedding_fn=embedding_fn,
@@ -188,6 +193,8 @@ def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
         dim=dim,
         fallback_clauses=fixture,
     )
+    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
+    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
     return retriever, str(db_path)
 
 
@@ -234,6 +241,7 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
         recall_top_k=args.recall_top_k,
     )
     return app, retriever, db_path
+
 
 def run_calc_once(query: str) -> dict:
     """走水力计算确定性子图（参数解析用规则替身，数值计算用真工具）。
@@ -327,6 +335,7 @@ class _ScriptedAgenticModel(BaseChatModel):
         else:
             answer = "未能在规范条款库中检索到相关内容。"
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
+
 
 def _initial_messages_with_runtime_context(
     query: str,
@@ -431,7 +440,7 @@ class AgenticSession:
             }
             for c in state.get("citations", [])
         ]
-        return {
+        payload = {
             "ok": True,
             "query": query,
             "answer": state.get("answer", ""),
@@ -445,6 +454,13 @@ class AgenticSession:
             "retriever_fallback": bool(getattr(self.retriever, "is_fallback", True)),
             "db_path": self.db_path,
         }
+        runtime_status = getattr(self.retriever, "runtime_status", None)
+        if isinstance(runtime_status, dict):
+            payload["retriever_runtime_status"] = runtime_status
+            payload["db_error"] = runtime_status.get("db_error")
+        else:
+            payload["db_error"] = getattr(self.retriever, "db_error", None)
+        return payload
 
 
 def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
@@ -471,7 +487,7 @@ def run_once(query: str, *, args: argparse.Namespace) -> dict:
     citations = [c.model_dump(mode="json") | {"source_id": c.source_id} for c in result.get("citations", [])]
     context = [c.model_dump(mode="json") | {"source_id": c.source_id} for c in result.get("context", [])]
     final_trace_id = result.get("trace_id", trace_id)
-    return {
+    payload = {
         "query": query,
         "answer": result.get("answer", ""),
         "status": result.get("status", ""),
@@ -487,6 +503,13 @@ def run_once(query: str, *, args: argparse.Namespace) -> dict:
         "retry_count": result.get("retry_count", 0),
         "step_count": result.get("step_count", 0),
     }
+    runtime_status = getattr(retriever, "runtime_status", None)
+    if isinstance(runtime_status, dict):
+        payload["retriever_runtime_status"] = runtime_status
+        payload["db_error"] = runtime_status.get("db_error")
+        payload["retriever_fallback_kind"] = runtime_status.get("fallback_kind")
+        payload["retriever_fallback_reason"] = runtime_status.get("fallback_reason")
+    return payload
 
 
 def _print_calc_result(payload: dict) -> None:
@@ -500,6 +523,7 @@ def _print_calc_result(payload: dict) -> None:
         print(f"候选方案: {'；'.join(payload['candidates'])}")
     if payload.get("spec_record"):
         print(payload["spec_record"])
+
 
 
 def _print_result(payload: dict, *, json_output: bool) -> None:
@@ -517,10 +541,15 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
     else:
         print("\n引用：无")
     print(f"\n状态: {payload['status']}")
-    if payload["retriever_fallback"]:
+    if payload.get("retriever_runtime_status"):
+        status = payload["retriever_runtime_status"]
+        print(f"检索运行态: kind={status.get('fallback_kind')} reason={status.get('fallback_reason')} db_error={status.get('db_error')}")
+    elif payload["retriever_fallback"]:
         print("检索: fixture 回落（未使用真实 TriviumDB 索引）")
     if payload["errors"]:
         print("错误:", "; ".join(payload["errors"]))
+    if payload.get("db_error"):
+        print(f"db_error: {payload['db_error']}")
     if payload.get("db_path"):
         print(f"索引: {payload['db_path']}")
 
@@ -554,8 +583,6 @@ def _build_chat_checkpointer(session_dir: str | Path, stack: ExitStack):
         from langgraph.checkpoint.memory import MemorySaver
 
         return MemorySaver()
-
-
 def _run_chat_session(args: argparse.Namespace, query: str = "") -> int:
     """交互式多轮会话：每行输入按 ``--mode`` 真正作答（不再是占位回声）。
 
@@ -622,15 +649,26 @@ def _citation_claims_from_rag(rag: dict[str, Any]) -> list[CitationClaim]:
 
 
 def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
-    """docgen 的 gather：计算意图 → 计算子图结果；否则 → 一次 RAG 问答取引用。
+    """docgen 的 gather：一次 RAG（取引用+完整检索上下文）+ 一次计算（calc 意图）。
 
     P2 收口（见 docs/design/11-docgen-materials.md §2.1）：
     - 计算结果富化：**数值入参与结果同表**（params 数值键并进 calc_result，模板只渲染
       数值/备注两路，不运算）；公式口径/spec_record/缺参/错误/假设按备注行透出；
     - 设计依据：calc 分支不再无条件返回空引用——对原查询跑一次 legacy/agentic RAG（按 args.mode
       选择图，auto/calc 走 legacy，agentic 保持 agentic），命中的 source_id 汇成 citations；
-      0 命中时为空，模板显式写「未声明规范依据」（不编造）。
+      0 命中时为空，模板显式写「未声明规范依据」（不编造）；
+    - 返回结构显式包含：``citations``（校验后声明）、``calc_result``（计算产物，calc 意图）、
+      ``context``（检索命中的完整条款，供审批/渲染直接消费）、``rag_answer`` / ``rag_status``
+      （RAG 回答与状态）。**只执行一次 RAG**，下游不再重复检索。
     """
+    rag = run_once(query, args=_docgen_rag_args(args))
+    gather: dict[str, Any] = {
+        "citations": _citation_claims_from_rag(rag),
+        "calc_result": None,
+        "context": list(rag.get("context", [])),
+        "rag_answer": rag.get("answer", ""),
+        "rag_status": rag.get("status", ""),
+    }
     if detect_intent(query) == "calc":
         calc = run_calc_once(query)
         calc_result = dict(calc.get("result_values") or {})
@@ -649,19 +687,8 @@ def _gather_docgen_inputs(query: str, args: argparse.Namespace) -> dict:
             calc_result["formula"] = calc["formula"]
         if calc.get("spec_record"):
             calc_result["spec_record"] = calc["spec_record"]
-        return {"citations": _design_basis_claims(query, args), "calc_result": calc_result or None}
-
-    return {"citations": _citation_claims_from_rag(run_once(query, args=_docgen_rag_args(args))), "calc_result": None}
-
-
-def _design_basis_claims(query: str, args: argparse.Namespace) -> list[CitationClaim]:
-    """设计依据检索（计算书/设计说明共用）：对原查询跑一次 RAG 收集引用。
-
-    引用校验由 RAG 图内的 citation_check 完成（source_id ⊆ 本次检索上下文），
-    gather 只透传校验通过的声明；0 命中 = 空列表 → 模板显式说明未声明依据。
-    """
-    rag = run_once(query, args=_docgen_rag_args(args))
-    return _citation_claims_from_rag(rag)
+        gather["calc_result"] = calc_result or None
+    return gather
 
 
 def _read_cli_input(prompt: str, ui) -> str:
@@ -722,10 +749,24 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
                 # P2：计算意图 → 计算书；规范问答/设计意图 → 设计说明
                 doc_type = "calculation_book" if detect_intent(query) == "calc" else "design_note"
             print(f"文档类型：{doc_type}（人工审批通过后产出正式文档）", file=ui)
-            result = app.invoke(
-                {"query": query, "status": "running", "draft_rounds": 0, "doc_type": doc_type, **gathered},
-                config=config,
-            )
+            # gather 一次检索的产物显式进图：引用/计算结果/完整检索上下文/检索回答
+            initial_state = {
+                "query": query,
+                "status": "running",
+                "draft_rounds": 0,
+                "doc_type": doc_type,
+                "citations": gathered["citations"],
+                "calc_result": gathered["calc_result"],
+                "gather_artifacts": {
+                    "retrieval_context": gathered["context"],
+                    "retrieval_claims": [c.source_id for c in gathered["citations"]],
+                    "retrieval_payload": {
+                        "answer": gathered["rag_answer"],
+                        "status": gathered["rag_status"],
+                    },
+                },
+            }
+            result = app.invoke(initial_state, config=config)
 
         while result.get("__interrupt__"):
             preview = result["__interrupt__"][0].value
@@ -758,6 +799,7 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
         "status": status,
         "final_doc": result.get("final_doc"),
         "approval_log": result.get("approval_log", []),
+        "gather_artifacts": result.get("gather_artifacts", {}),
         "errors": result.get("errors", []),
         "trace_path": str(Path(args.trace_dir) / f"{recorder.trace_id}.json"),
     }

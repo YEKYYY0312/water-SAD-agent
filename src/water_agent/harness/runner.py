@@ -263,6 +263,30 @@ class HarnessRunner:
             return
         try:
             self._real_retriever = self._build_real_retriever()
+            # 关键真实链路防线：真实检索器若已回落 fixture（is_fallback）或带 db_error，
+            # 说明真实索引不可用，拒绝在 fixture 语料上跑"真实"评测——否则结果会被污染成
+            # 机制层分数而误报为真实质量（code review 问题 1b）。
+            # 注：测试注入的检索器替身（如 _FixedOrderRetriever）无这些属性，按无缺陷处理。
+            fallback = bool(getattr(self._real_retriever, "is_fallback", False))
+            db_error = getattr(self._real_retriever, "db_error", None)
+            if fallback:
+                raise RealComponentsError(
+                    "真实检索器回落 fixture（is_fallback=True）；"
+                    f"db_error={db_error!r}，"
+                    "真实评测必须在真实索引上运行，拒绝用 fixture 语料跑 --variant real"
+                )
+            if db_error:
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "warning": "真实检索器带缺陷运行（db_error 非空，检索结果可能不完整）",
+                            "db_error": db_error,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
             if self.real_graph == "agentic":
                 self._real_chat_model = self._build_real_chat_model()
             else:
