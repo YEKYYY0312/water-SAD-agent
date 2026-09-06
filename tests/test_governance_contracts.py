@@ -509,14 +509,16 @@ class TestInventoryCoverage:
     def test_all_provider_sites_governed_after_step12(self) -> None:
         """Step 12 完成定义：6 个远程出口全部经 ProviderGateway。
 
-        ``tools_guardrail_validated`` 仍为 0 —— ``GuardrailPipeline`` 属 Step 14，
-        此刻不得声称工具护栏已就绪。
+        Step 14 后 ``tools_guardrail_validated`` 由 0 变 4：``ToolRegistry.invoke``
+        在 schema 校验前调用 ``GuardrailPipeline.validate_tool_call``。
+        这个断言是**防倒退**的 —— 有人日后给 `invoke` 加旁路，`test_tool_policy.py`
+        的 `TestNoBypass` 会红，而这里的计数会提醒清单与代码已不同步。
         """
         assert governance_coverage() == {
             "provider_call_sites": 6,
             "provider_governed": 6,
             "tools": 4,
-            "tools_guardrail_validated": 0,
+            "tools_guardrail_validated": 4,
         }
         for site in PROVIDER_CALL_SITES:
             assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"

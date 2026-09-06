@@ -10,7 +10,9 @@
 - :attr:`ProviderCallSite.governed` = 该出口是否已经过 ``ProviderGateway``。
   Step 11 全部为 ``False``（Gateway 属 Step 12）；Step 12 逐个翻转为 ``True``。
 - :attr:`ToolCapabilityEntry.guardrail_validated` = 该工具是否已过 ``GuardrailPipeline``
-  前置校验。Step 11 全部为 ``False``（Pipeline 属 Step 14）。
+  前置校验。Step 14 后全部为 ``True``：``ToolRegistry.invoke`` 在
+  ``args_model`` 校验**之前**调用 ``validate_tool_call``，未过护栏则工具体永不执行。
+  注意这条标记的含义是"该工具的调用路径已被护栏覆盖"，**不是**"该工具无风险"。
 
 **纪律**：新增远程 provider 调用或新增 ToolSpec，必须先更新本清单，否则覆盖测试失败。
 详见 `docs/design/p2.5-provider-inventory.md`。
@@ -83,7 +85,9 @@ class ToolCapabilityEntry(BaseModel):
     required_capability: Capability
     #: 只读 / 纯计算 / 写入。P2.5 只允许前两类与"用户显式目录导出"。
     effect: str = Field(min_length=1)
-    #: 是否已过 GuardrailPipeline 前置校验。Step 11 全 False。
+    #: 是否已过 GuardrailPipeline 前置校验。
+    #: **默认仍为 False**：新增工具默认"未覆盖"，必须显式声明并配套测试才能翻 True，
+    #: 否则新工具会因为字段默认值而白得一个"已治理"的名声。
     guardrail_validated: bool = False
 
 
@@ -200,30 +204,39 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 TOOL_POLICY_VERSION = "p2.5-step13-2026-09-06"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
+#:
+#: P2.5 Step 14 后 ``guardrail_validated=True``：4 个工具的调用都经
+#: ``ToolRegistry.invoke`` → ``GuardrailPipeline.validate_tool_call``
+#: （主体授权、危险能力拒绝、参数注入/大小、路径与域名 allowlist），
+#: 由 ``tests/test_tool_policy.py`` 与 ``tests/test_injection_defense.py`` 断言。
 TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
     ToolCapabilityEntry(
         tool_name="retrieve_clauses",
         module="water_agent/tools/retrieve_clauses.py",
         required_capability=Capability.RETRIEVE_CLAUSES,
         effect="只读（向量/文本检索，无写入）",
+        guardrail_validated=True,
     ),
     ToolCapabilityEntry(
         tool_name="cite_clauses",
         module="water_agent/tools/cite.py",
         required_capability=Capability.CITE_CLAUSES,
         effect="只读（声明引用，校验由 validate_citations 承担）",
+        guardrail_validated=True,
     ),
     ToolCapabilityEntry(
         tool_name="calc_velocity",
         module="water_agent/tools/calc_velocity.py",
         required_capability=Capability.CALCULATE,
         effect="纯计算（程序化，LLM 不参与数值运算）",
+        guardrail_validated=True,
     ),
     ToolCapabilityEntry(
         tool_name="material_stats",
         module="water_agent/tools/material_stats.py",
         required_capability=Capability.MATERIAL_STATS,
         effect="纯计算（聚合管段表；导出到磁盘由 CLI 另行显式触发）",
+        guardrail_validated=True,
     ),
 )
 

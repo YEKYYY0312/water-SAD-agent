@@ -15,6 +15,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from water_agent.runtime.governance.contracts import Principal
+from water_agent.runtime.governance.pipeline import (
+    GuardrailPipeline,
+    default_guardrail_pipeline,
+)
 from water_agent.tools.base import ToolSpec
 
 # 结构化错误码
@@ -23,6 +28,8 @@ CODE_INVALID_ARGUMENTS = "INVALID_ARGUMENTS"
 CODE_TOOL_ERROR = "TOOL_ERROR"
 #: 工具执行超过 ``ToolSpec.timeout_seconds``（协作式 deadline，Step 12）。
 CODE_TOOL_TIMEOUT = "TOOL_TIMEOUT"
+#: 护栏前置校验拒绝（capability/参数大小/allowlist/参数注入，Step 14）。
+CODE_GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
 
 
 def _structured_error(code: str, message: str, suggestions: list[str] | None = None) -> dict:
@@ -35,10 +42,35 @@ def _structured_error(code: str, message: str, suggestions: list[str] | None = N
 
 
 class ToolRegistry:
-    """按名称注册与调度 ``ToolSpec`` 的注册表。"""
+    """按名称注册与调度 ``ToolSpec`` 的注册表。
 
-    def __init__(self) -> None:
+    P2.5 Step 14：``invoke`` 在执行前**强制**经 ``GuardrailPipeline.validate_tool_call``
+    做 capability / 参数大小 / 路径与域名 allowlist / 参数注入校验。
+    ``pipeline`` 参数可选，但为 ``None`` 时取**进程级默认管线**而非跳过校验 ——
+    因此不存在"不传即绕过"的后门（规格 §1.2）。
+
+    Args:
+        pipeline: 护栏管线；``None`` 用 ``default_guardrail_pipeline()``。
+        principal: 执行主体；``None`` 用 CLI 本地主体（默认能力集）。
+    """
+
+    def __init__(
+        self,
+        *,
+        pipeline: GuardrailPipeline | None = None,
+        principal: Principal | None = None,
+    ) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self._pipeline = pipeline
+        self._principal = principal
+
+    def _resolve_pipeline(self) -> GuardrailPipeline:
+        return self._pipeline if self._pipeline is not None else default_guardrail_pipeline()
+
+    def _resolve_principal(self) -> Principal:
+        if self._principal is not None:
+            return self._principal
+        return Principal.local("tool-registry")
 
     def register(self, spec: ToolSpec) -> None:
         """注册工具；重名抛 ValueError。名称已在 ToolSpec 校验为 snake_case。"""
@@ -58,9 +90,10 @@ class ToolRegistry:
         return sorted(self._tools)
 
     def invoke(self, name: str, **args: Any) -> dict:
-        """执行工具：先校验 schema，再执行并捕获异常。
+        """执行工具：护栏前置校验 → schema 校验 → guard → 执行（含协作式 deadline）。
 
         成功返回 execute 的输出 dict；任何失败返回结构化错误 dict，不抛裸异常。
+        护栏拒绝返回 ``GUARDRAIL_BLOCKED``，并带脱敏原因（不含原始命中文本）。
         """
         spec = self._tools.get(name)
         if spec is None:
@@ -69,6 +102,19 @@ class ToolRegistry:
                 f"未知工具 {name!r}；已注册：{sorted(self._tools)}",
                 [f"可用工具：{sorted(self._tools)}"],
             )
+
+        # P2.5 Step 14：护栏前置校验（不可绕过）。必须在 schema 校验与 execute 之前 ——
+        # 越权/注入参数不应有机会通过 pydantic 后进入执行路径。
+        outcome = self._resolve_pipeline().validate_tool_call(
+            name, dict(args), self._resolve_principal()
+        )
+        if not outcome.allowed:
+            return _structured_error(
+                CODE_GUARDRAIL_BLOCKED,
+                f"工具 {name!r} 未通过护栏校验：{outcome.decision.detail}",
+                ["调整参数或申请相应能力后重试"],
+            )
+
         try:
             model = spec.args_model.model_validate(args)
         except ValidationError as exc:
