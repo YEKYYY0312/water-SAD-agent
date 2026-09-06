@@ -79,6 +79,8 @@ class DocGenState(TypedDict):
     self_check_attempts: int       # 已执行自检次数（含初检；上限 MAX_SELF_CHECK_ATTEMPTS）
     errors: list[str]
     status: str
+    gather_artifacts: dict[str, Any]
+
 
 
 def default_docgen_state(**overrides: Any) -> DocGenState:
@@ -99,9 +101,11 @@ def default_docgen_state(**overrides: Any) -> DocGenState:
         "self_check_attempts": 0,
         "errors": [],
         "status": STATUS_RUNNING,
+        "gather_artifacts": {},
     }
     state.update(overrides)  # type: ignore[typeddict-item]  # 与 state.py:71 同模式，基线型告警，Step 10 清零
     return state
+
 
 
 def _docgen_inputs(state: DocGenState) -> dict[str, Any]:
@@ -115,6 +119,7 @@ def _docgen_inputs(state: DocGenState) -> dict[str, Any]:
     }
 
 
+
 def _render_doc_obj(state: DocGenState) -> RenderedDoc:
     """结构化渲染（草稿稿次标题）：自检与草稿共用同一数据源（数值与引用不因稿次变化）。
 
@@ -124,15 +129,18 @@ def _render_doc_obj(state: DocGenState) -> RenderedDoc:
     return render_docgen_doc(**_docgen_inputs(state), draft_no=draft_no)
 
 
+
 def _render_draft(state: DocGenState) -> str:
     """模板化草稿文本（P2 docgen 引擎）：计算书/设计说明结构化渲染 + 引用/数值 + 反馈回显。"""
     return _render_doc_obj(state).text
+
 
 
 def _render_final(state: DocGenState) -> str:
     """正式文档：批准后基于同一数据源渲染（不带"草稿/稿次"标题，反馈痕迹保留可追溯）。"""
     rendered = render_docgen_doc(**_docgen_inputs(state))
     return rendered.text
+
 
 
 def _normalize_approval_decision(decision: Any) -> tuple[bool, str]:
@@ -160,6 +168,7 @@ def _normalize_approval_decision(decision: Any) -> tuple[bool, str]:
     )
 
 
+
 def route_after_self_check(state: DocGenState) -> str:
     """自检路由：通过 → approval；不通过且预算内 → draft（有界重试）；不通过且超限 → 终止。"""
     if state.get("status") == STATUS_SELF_CHECK_FAILED:
@@ -167,6 +176,7 @@ def route_after_self_check(state: DocGenState) -> str:
     if state.get("status") == STATUS_FAILED:
         return END
     return "approval"
+
 
 
 def route_after_approval(state: DocGenState) -> str:
@@ -182,6 +192,7 @@ def route_after_approval(state: DocGenState) -> str:
     return "finalize"
 
 
+
 def build_docgen_graph(*, checkpointer=None):
     """构建 Human-in-the-Loop 审批图。
 
@@ -192,7 +203,12 @@ def build_docgen_graph(*, checkpointer=None):
         raise ValueError("docgen 图必须配置 checkpointer（interrupt 依赖持久化挂起/恢复）")
 
     def gather_inputs_node(state: DocGenState) -> dict:
-        """汇集输入：query/意图 + 已有 citations/calc_result（调用方预置；本步不主动检索/计算）。"""
+        """汇集输入：query/意图 + 已有 citations/calc_result（调用方预置；本步不主动检索/计算）。
+
+        ``gather_artifacts`` 只承载**可 JSON 序列化**的检索快照（上下文/声明清单/回答），
+        供审批人查看与 trace 落盘；citations 本体走 state 的 ``citations`` 字段（CitationClaim）。
+        """
+        artifacts = state.get("gather_artifacts") or {}
         return {
             "intent": "docgen",
             "status": STATUS_RUNNING,
@@ -200,6 +216,11 @@ def build_docgen_graph(*, checkpointer=None):
             "calc_result": state.get("calc_result"),
             "approval_log": list(state.get("approval_log") or []),
             "errors": state.get("errors") or [],
+            "gather_artifacts": {
+                "retrieval_context": artifacts.get("retrieval_context", []),
+                "retrieval_claims": artifacts.get("retrieval_claims", []),
+                "retrieval_payload": artifacts.get("retrieval_payload", {}),
+            },
         }
 
     def draft_node(state: DocGenState) -> dict:
@@ -218,55 +239,53 @@ def build_docgen_graph(*, checkpointer=None):
         - 不通过且自检次数未达上限 → status=self_check_failed（回 draft 有界重试）；
         - 不通过且已达上限 → status=failed（可见 errors，不产出、不进审批）。
         """
-        attempts = state.get("self_check_attempts", 0) + 1
         rendered = _render_doc_obj(state)
-        problems = check_docgen_self_check(rendered, calc_result=state.get("calc_result"))
-        if problems:
-            errors = list(state.get("errors") or [])
-            errors.append(f"草稿自检未通过（第 {attempts}/{MAX_SELF_CHECK_ATTEMPTS} 次）：" + "；".join(problems))
-            if attempts >= MAX_SELF_CHECK_ATTEMPTS:
-                errors.append("自检连续失败已达上限：草稿未通过自检不得进入审批/终稿，不产出文档")
-                return {
-                    "self_check_errors": problems,
-                    "self_check_attempts": attempts,
-                    "errors": errors,
-                    "status": STATUS_FAILED,
-                    "final_doc": None,
-                }
+        errors = check_docgen_self_check(rendered, calc_result=state.get("calc_result"))
+        attempts = state.get("self_check_attempts", 0) + 1
+        if not errors:
             return {
-                "self_check_errors": problems,
+                "status": STATUS_WAITING,
+                "self_check_errors": [],
                 "self_check_attempts": attempts,
-                "errors": errors,
-                "status": STATUS_SELF_CHECK_FAILED,
+                "approval": None,
             }
+        if attempts < MAX_SELF_CHECK_ATTEMPTS:
+            return {
+                "status": STATUS_SELF_CHECK_FAILED,
+                "self_check_errors": errors,
+                "self_check_attempts": attempts,
+                "errors": list(state.get("errors", [])) + errors,
+            }
+        errors_out = list(state.get("errors", [])) + errors + ["草稿自检失败次数已达上限，终止文档生成"]
         return {
-            "self_check_errors": [],
+            "status": STATUS_FAILED,
+            "self_check_errors": errors,
             "self_check_attempts": attempts,
-            "errors": [],
-            "status": STATUS_WAITING,
-            "approval": None,
+            "errors": errors_out,
+            "final_doc": None,
         }
 
     def approval_node(state: DocGenState) -> Command | dict:
-        """人工审批：interrupt 挂起展示草稿；恢复时按 decision 路由，并把决定追加进 approval_log。
-
-        resume 值契约（严格布尔，见 ``_normalize_approval_decision``）：非法形态抛
-        ValueError，绝不把 ``"false"`` 等静默 bool() 成批准。
-        """
+        """审批节点：interrupt 挂起，等待 Command(resume=...) 决策。"""
+        preview = state.get("doc_draft") or _render_draft(state)
         decision = interrupt(
             {
-                "draft_preview": state.get("doc_draft", ""),
+                "draft_preview": preview,
                 "approval_required": True,
                 "draft_rounds": state.get("draft_rounds", 0),
+                "gather_artifacts": state.get("gather_artifacts", {}),
             }
         )
         approved, reason = _normalize_approval_decision(decision)
         draft_rounds = state.get("draft_rounds", 0)
-        log = list(state.get("approval_log") or [])
+        log = list(state.get("approval_log", []))
         log.append({"decision": "approved" if approved else "rejected", "reason": reason, "draft_rounds": draft_rounds})
-
         if approved:
-            return {"approval": True, "status": STATUS_APPROVED, "approval_log": log}
+            return {
+                "approval": True,
+                "approval_log": log,
+                "status": STATUS_APPROVED,
+            }
         if draft_rounds + 1 < MAX_DRAFT_ROUNDS:
             # 拒绝且还有稿数预算：带反馈回到 draft 重拟（新一轮稿子的自检预算复位，
             # 保证每次新草稿都获得完整的 MAX_SELF_CHECK_ATTEMPTS 自检机会）

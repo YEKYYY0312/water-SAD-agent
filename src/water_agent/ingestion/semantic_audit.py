@@ -16,8 +16,10 @@ STANDARD_ARTICLE_RE = re.compile(r"^[1-9]\d*(?:\.[1-9]\d*){1,3}$")
 TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
 TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*[-:]+\s*\|", re.MULTILINE)
 OCR_SPACED_NUMBER_RE = re.compile(r"\d\s+\.\s*\d|\d\s+\d")
-# TODO(需人工确认): 原字符在编码事故中丢失，当前 [??] 是占位，待用户确认真实字符集后替换
-OCR_SYMBOL_RE = re.compile(r"[#|]{3,}|[??]{1,}")
+# OCR 质检符号集合：连续乱码符号（# / | / ? / ？）或单个全角问号（？）判为 OCR 疑似。
+# 2026-09-04 修订：原 [??] 是编码事故占位（[??] 等价于 "?"），按同类 OCR 噪声字符集还原为
+# 「#|?？」三/单字符规则；如需纳入其他乱码符号（如 ■▲◆…），在此扩展并同步测试。
+OCR_SYMBOL_RE = re.compile(r"[#|]{3,}|[?？]{1,}")
 
 
 class AuditCategory(str, Enum):
