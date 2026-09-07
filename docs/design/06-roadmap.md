@@ -71,9 +71,11 @@
 - [ ] **blocked**：正式规范语料与版本状态未核实，docgen 的真实检索/正式条文引用质量尚未通过验收
 - [ ] **blocked**：共享 RAG 质量层 `rag_p1 --variant real --judge` 最新为机制 56/58、
   独立质量 36/58（62.07%），未达到收口条件
-- [ ] **blocked**：材料管段从图纸自动抽取依赖 P3，当前只接收结构化管段表。
-  P3 已于 2026-09-07 启动（Step 17 规格已交付）；接缝是 `materials.PipeRun`，
-  由 P3 Step 21 的语义映射产出，见 `docs/design/13-p3-drawing-review.md` §8
+- [ ] **blocked**：材料管段从图纸自动抽取依赖 P3。**Step 21 已交付语义映射，
+  `DXF → MappedPipe → materials.PipeRun → aggregate_materials` 链路实测闭环**；
+  但仅覆盖 LINE/POLYLINE 管线，且真实设计院图纸未验证（标注关联半径需按真实图纸
+  重新标定），故**尚不能声称"能从真实图纸出材料清单"**。
+  见 `docs/design/p3-step-21-decision.md` 残余风险 1–3
 
 ---
 
@@ -125,12 +127,12 @@
 > **解析基线是 DXF，不是 DWG** —— 见下方 blocked 说明。
 
 - [x] **Step 17** P3 权威规格 + 决策记录 + 文档收口（含修正威胁模型信任边界图）
-- [ ] Step 18 治理契约扩展：`READ_DRAWING` 只读能力 + `allowed_read_dirs` 读写白名单分离
-- [ ] Step 19 DXF 解析管线（ezdxf → 图元）+ 统一中间格式 + `DRAWING_ROOT` 四态契约
+- [x] **Step 18** 治理契约扩展：`READ_DRAWING` 只读能力 + `allowed_read_dirs` 读写白名单分离
+- [x] **Step 19** DXF 解析管线（ezdxf → 图元）+ 统一中间格式 + `DRAWING_ROOT` 四态契约
       + 合成图纸生成器
-- [ ] Step 20 `read_drawing` 只读工具 + 四道护栏与 CLI/harness 接线
-- [ ] Step 21 给排水对象语义映射（管线/立管/洁具/水表…）→ `materials.PipeRun`
-- [ ] Step 21 规则引擎：规范条文 → 可执行检查规则（含阈值来源分级，见规格 §6）
+- [x] **Step 20** `read_drawing` 只读工具 + 四道护栏与 CLI/harness 接线
+- [x] **Step 21** 给排水对象语义映射（管线 → `materials.PipeRun`；立管/洁具/水表未覆盖，见决策记录残余风险 2）
+- [x] **Step 21** 规则引擎：3 条规则 + 阈值来源分级（其中坡度/流速恒报未检查，见决策记录 D8）
 - [ ] Step 22 图纸审查子图 + 缺陷标注 + `drawing_p0` 评测集 + 门禁接入
 
 **验收标准**
