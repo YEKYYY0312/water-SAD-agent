@@ -851,6 +851,7 @@ class TestContextBudgetReview:
         from water_agent.tools.calc_velocity import calc_velocity_spec
         from water_agent.tools.cite import build_cite_clauses_tool
         from water_agent.tools.material_stats import material_stats_spec
+        from water_agent.tools.read_drawing import build_read_drawing_tool
         from water_agent.tools.registry import ToolRegistry
         from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
@@ -859,6 +860,9 @@ class TestContextBudgetReview:
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
         registry.register(material_stats_spec)
+        # P3 Step 20：图纸工具进装配，预算断言必须测**真实装配**的开销 ——
+        # 否则守的是一个不存在的配置。
+        registry.register(build_read_drawing_tool(Path("/tmp/water-agent-token-probe")))
         return registry
 
     def test_system_prompt_within_segment_budget(self) -> None:
@@ -875,10 +879,15 @@ class TestContextBudgetReview:
         assert used < 1800, f"系统提示膨胀到 {used} tokens，请复核预算"
 
     def test_tool_definitions_token_cost_is_bounded(self) -> None:
-        """4 个工具的 schema 约 3.4K tokens —— 是当前最大的静态开销。
+        """5 个工具的 schema 约 4.4K tokens —— 是当前最大的静态开销。
 
-        规格 §5 要求"工具按意图最小暴露"。当前 4 个工具全量暴露，
+        规格 §5 要求"工具按意图最小暴露"。当前全量暴露，
         按意图裁剪属独立改动（需先有工具选择准确率证据），见决策文档 §5 拒绝项。
+
+        P3 Step 20 实测：4 工具 3412 → 5 工具 4370（`read_drawing` 单独 958），
+        headroom 仅 130。**上限刻意保持 4500 不上调** —— 为了塞进新工具而抬高预算
+        护栏，等于把这条断言变成事后追认。Step 21 若再加工具很可能撞破，
+        届时必须实施按意图最小暴露，而不是再改这个数（规格 §9 第 5 条）。
         """
         from water_agent.prompting.assembler import _estimate_tokens
 

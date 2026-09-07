@@ -204,14 +204,20 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: 命名格式 `p<阶段>-step<步号>-<YYYY-MM-DD>`（有测试锁死结构，不锁死阶段号）。
 #: P3 Step 18：新增 `Capability.READ_DRAWING` 与 `ToolPolicy.allowed_read_dirs`，
 #: capability 映射面已变，故递进版本号。
-TOOL_POLICY_VERSION = "p3-step18-2026-09-07"
+#: P3 Step 20：新增 `read_drawing` 工具，可用工具集已变，再次递进。
+TOOL_POLICY_VERSION = "p3-step20-2026-09-07"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
-#: P2.5 Step 14 后 ``guardrail_validated=True``：4 个工具的调用都经
+#: P2.5 Step 14 后 ``guardrail_validated=True``：工具的调用都经
 #: ``ToolRegistry.invoke`` → ``GuardrailPipeline.validate_tool_call``
 #: （主体授权、危险能力拒绝、参数注入/大小、路径与域名 allowlist），
 #: 由 ``tests/test_tool_policy.py`` 与 ``tests/test_injection_defense.py`` 断言。
+#:
+#: P3 Step 20 加入 ``read_drawing``（第 5 个工具）。它是**第一个碰文件系统**的
+#: 模型可调用工具，因此路径判定不依赖护栏的 ``_looks_like_path``
+#: （已实测不识别相对路径），而由工具层三层纵深防御承担，见
+#: ``drawing/dxf_reader.py`` 与规格 §4.3。
 TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
     ToolCapabilityEntry(
         tool_name="retrieve_clauses",
@@ -239,6 +245,16 @@ TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
         module="water_agent/tools/material_stats.py",
         required_capability=Capability.MATERIAL_STATS,
         effect="纯计算（聚合管段表；导出到磁盘由 CLI 另行显式触发）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="read_drawing",
+        module="water_agent/tools/read_drawing.py",
+        required_capability=Capability.READ_DRAWING,
+        effect=(
+            "只读（在 ToolPolicy.allowed_read_dirs 内读 DXF；无写入、无网络、无 shell。"
+            "路径由装配期注入的 DRAWING_ROOT 决定，模型只能表达 drawing_id）"
+        ),
         guardrail_validated=True,
     ),
 )

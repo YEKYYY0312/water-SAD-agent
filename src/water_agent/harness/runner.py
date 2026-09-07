@@ -73,6 +73,7 @@ from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
 from water_agent.tools.material_stats import material_stats_spec
+from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
@@ -682,6 +683,12 @@ class HarnessRunner:
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
         registry.register(material_stats_spec)
+        # P3 Step 20：与 CLI 同一条策略（共用 maybe_build_read_drawing_tool）——
+        # DRAWING_ROOT 不可用就不暴露图纸工具。评测环境通常没配 DRAWING_ROOT，
+        # 此时工具集与 P2 一致，既有用例不受影响。
+        drawing_tool, _ = maybe_build_read_drawing_tool()
+        if drawing_tool is not None:
+            registry.register(drawing_tool)
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
         started = time.perf_counter()

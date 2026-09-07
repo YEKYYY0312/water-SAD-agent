@@ -61,6 +61,7 @@ from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.material_stats import material_stats_spec
+from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
@@ -123,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="docgen 文档类型：auto（默认，计算意图→计算书，其余→设计说明）/ calculation_book 计算书 / design_note 设计说明",
     )
     p.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR), help="Trace 输出目录")
+    p.add_argument(
+        "--drawing-root",
+        default=None,
+        help="图纸目录（P3，默认读环境变量 DRAWING_ROOT）。目录内 *.dxf 按文件名作登记号；"
+        "未配置或目录内无 DXF 时不注册 read_drawing 工具（能力不可用就不暴露）",
+    )
     p.add_argument("--json", action="store_true", help="以 JSON 输出（单次模式）")
     return p
 
@@ -461,6 +468,16 @@ class AgenticSession:
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
         registry.register(material_stats_spec)
+        # P3 Step 20：图纸工具**按 DRAWING_ROOT 可用性条件注册**。
+        # 未配置/目录不存在/无 DXF 时不注册 —— 注册一个必然失败的工具会诱导模型
+        # 反复重试，还白占近 1000 tokens 的 schema 预算（规格 §9 第 5 条）。
+        # 状态存到 self.drawing_root_status，供 --json 如实报告原因。
+        drawing_tool, drawing_resolution = maybe_build_read_drawing_tool(
+            getattr(args, "drawing_root", None)
+        )
+        self.drawing_root_status = drawing_resolution
+        if drawing_tool is not None:
+            registry.register(drawing_tool)
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
         # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
