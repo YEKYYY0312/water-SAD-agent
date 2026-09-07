@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -387,11 +388,20 @@ class TestNoBypass:
         assert "calculate" in result["message"]
 
     def test_tool_policy_version_is_recorded(self) -> None:
-        """策略版本进缓存键与 trace；改策略必须改版本号。"""
+        """策略版本进缓存键与 trace；改策略必须改版本号。
+
+        只锁**结构** `p<阶段>-step<步号>-<日期>`，不锁阶段号：该版本号的语义是
+        "工具策略集的失效标识"，正确性只依赖「变了就不同」。原先断言
+        `startswith("p2.5-")` 会让 P3 及以后的阶段无法表达策略变更 ——
+        要么谎称仍是 p2.5，要么让测试红（见 `p3-step-17-decision.md` D10）。
+        """
         assert TOOL_POLICY_VERSION
-        assert TOOL_POLICY_VERSION.startswith("p2.5-")
+        assert re.fullmatch(r"p[0-9.]+-step\d+-\d{4}-\d{2}-\d{2}", TOOL_POLICY_VERSION), (
+            f"版本号不符合 p<阶段>-step<步号>-<YYYY-MM-DD>：{TOOL_POLICY_VERSION}"
+        )
 
     def test_default_policy_denies_all_writes_and_network(self) -> None:
-        """默认策略的字面事实：不允许任何文件写入与网络访问。"""
+        """默认策略的字面事实：不允许任何文件读写与网络访问。"""
         assert DEFAULT_TOOL_POLICY.allowed_export_dirs == frozenset()
+        assert DEFAULT_TOOL_POLICY.allowed_read_dirs == frozenset()
         assert DEFAULT_TOOL_POLICY.allowed_domains == frozenset()

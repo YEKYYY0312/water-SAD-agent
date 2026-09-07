@@ -123,6 +123,31 @@ def _summarize(hits: Sequence[RuleHit]) -> str:
 # 工具策略
 # ---------------------------------------------------------------------------
 
+#: 路径参数应按**只读**白名单裁定的能力集（P3 Step 18）。
+#: 不在此集合内的能力一律查 `allowed_export_dirs`（默认空集 = 全拒）。
+#: 新增只读文件能力必须同时加进这里，否则它的路径参数会被按"写出"口径裁定 ——
+#: 那样只会更严（读白名单配了也不放行），不会更松，故遗漏是 fail closed 的。
+_READ_ONLY_PATH_CAPABILITIES: frozenset[Capability] = frozenset({Capability.READ_DRAWING})
+
+
+def _within_allowed_dirs(target: Path, allowed_dirs: frozenset[Path]) -> bool:
+    """``target`` 是否落在 ``allowed_dirs`` 之内（解析后比较，防路径穿越）。
+
+    读、写两个白名单共用本函数 —— 两份各自实现必然漂移，而"能不能碰这个路径"
+    的判定逻辑一旦漂移就是安全缺口。
+    """
+    try:
+        resolved = target.resolve()
+    except (OSError, RuntimeError):
+        return False
+    for allowed in allowed_dirs:
+        try:
+            resolved.relative_to(allowed.resolve())
+        except (ValueError, OSError):
+            continue
+        return True
+    return False
+
 
 @dataclass(frozen=True, slots=True)
 class ToolPolicy:
@@ -131,34 +156,40 @@ class ToolPolicy:
     P2.5 默认（规格 §6）：只允许**只读检索、纯计算、导出到用户显式允许目录**。
     新写入、网络、shell、邮件工具在 P4 授权/人工确认前**默认拒绝** ——
     由 `Principal` 构造期拒绝授予危险能力 + 本策略的 allowlist 双重保证。
+
+    P3 Step 18：读与写是**两个独立白名单**。`allowed_read_dirs` 授予"能读"，
+    `allowed_export_dirs` 授予"能写出"，互不蕴含 —— 用户让 Agent 看图纸，
+    不等于允许它往图纸目录里写东西（决策记录 `p3-step-17-decision.md` D4）。
     """
 
     #: 允许导出的目录（绝对路径）。空集合 = 不允许任何文件写入。
     allowed_export_dirs: frozenset[Path] = frozenset()
+    #: 允许**只读**访问的目录（绝对路径）。空集合 = 不允许任何文件读取。
+    #: 与 `allowed_export_dirs` 语义分离：在此不授予任何写权限。
+    allowed_read_dirs: frozenset[Path] = frozenset()
     #: 允许访问的域名。空集合 = 不允许任何工具发起网络请求
-    #: （当前 4 个工具都不需要，provider 调用走 gateway 而非工具）。
+    #: （当前工具都不需要，provider 调用走 gateway 而非工具）。
     allowed_domains: frozenset[str] = frozenset()
     #: 单个工具参数的字节上限。
     max_arg_bytes: int = 64 * 1024
 
     def export_dir_allowed(self, target: Path) -> bool:
-        """目标路径是否在允许目录内（解析后比较，防路径穿越）。"""
-        try:
-            resolved = target.resolve()
-        except (OSError, RuntimeError):
-            return False
-        for allowed in self.allowed_export_dirs:
-            try:
-                resolved.relative_to(allowed.resolve())
-            except (ValueError, OSError):
-                continue
-            return True
-        return False
+        """目标路径是否可**写出**（解析后比较，防路径穿越）。"""
+        return _within_allowed_dirs(target, self.allowed_export_dirs)
+
+    def read_dir_allowed(self, target: Path) -> bool:
+        """目标路径是否可**读取**（解析后比较，防路径穿越）。
+
+        **不**回落到 `allowed_export_dirs`：可写目录未必是用户想让模型读的目录，
+        反向蕴含同样不成立。两个白名单都为空时读写皆拒（fail closed）。
+        """
+        return _within_allowed_dirs(target, self.allowed_read_dirs)
 
 
-#: P2.5 默认工具策略：**不允许任何文件写入与网络访问**。
+#: P2.5 默认工具策略：**不允许任何文件读写与网络访问**。
 #: 材料导出当前由 CLI 显式触发（不是模型可调用的工具），故无需 allowlist；
-#: 若 Step 14 后把导出暴露为工具，必须在此配置 `allowed_export_dirs`。
+#: 若日后把导出暴露为工具，必须在此配置 `allowed_export_dirs`。
+#: P3 的图纸读取工具由 CLI 装配期注入带 `allowed_read_dirs` 的策略，默认仍是空集。
 DEFAULT_TOOL_POLICY = ToolPolicy()
 
 
@@ -359,7 +390,7 @@ class GuardrailPipeline:
                 "", tuple(size_hits),
             )
 
-        path_decision = self._check_paths_and_domains(tool_name, args)
+        path_decision = self._check_paths_and_domains(tool_name, args, capability)
         if path_decision is not None:
             return GuardrailOutcome(path_decision, "")
 
@@ -373,11 +404,28 @@ class GuardrailPipeline:
         return GuardrailOutcome(_allow("tool.allowed", f"capability={capability.value}"), "")
 
     def _check_paths_and_domains(
-        self, tool_name: str, args: dict[str, Any]
+        self, tool_name: str, args: dict[str, Any], capability: Capability
     ) -> PolicyDecision | None:
-        """路径穿越与域名 allowlist 检查。返回 ``None`` 表示通过。"""
+        """路径穿越与域名 allowlist 检查。返回 ``None`` 表示通过。
+
+        白名单按 **capability** 选，不按参数名启发式：参数名启发式
+        （"叫 path 的查读、叫 dest 的查写"）可被换个参数名绕过，
+        而 capability 由治理清单 `TOOL_CAPABILITIES` 静态登记、模型无法影响。
+        只读能力查 `allowed_read_dirs`，其余一律查 `allowed_export_dirs`
+        （默认空集 = 全拒，fail closed 语义不变）。
+
+        **已知局限**：`_looks_like_path` 刻意保守，不识别相对路径
+        （见 `docs/design/p2.5-threat-model.md` §5 第 23 条）。
+        新增直接收路径参数的工具必须在工具层自行校验绝对路径，
+        不得依赖本函数作为唯一防线。
+        """
+        path_allowed = (
+            self.policy.read_dir_allowed
+            if capability in _READ_ONLY_PATH_CAPABILITIES
+            else self.policy.export_dir_allowed
+        )
         for key, value in _iter_strings(args):
-            if _looks_like_path(value) and not self.policy.export_dir_allowed(Path(value)):
+            if _looks_like_path(value) and not path_allowed(Path(value)):
                 return _block(
                     "tool.path_not_allowed", CODE_GUARDRAIL_BLOCKED,
                     f"参数 {key} 指向不在允许目录内的路径（工具 {tool_name}）",

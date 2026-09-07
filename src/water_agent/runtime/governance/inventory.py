@@ -199,9 +199,12 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
     ),
 )
 
-#: 工具策略版本（P2.5 Step 13）。**新增/删除工具或改变 capability 映射都必须改它** ——
+#: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
 #: 它是 `cache.py` 缓存键的失效因子：可用工具集变了，旧回答不该再命中。
-TOOL_POLICY_VERSION = "p2.5-step13-2026-09-06"
+#: 命名格式 `p<阶段>-step<步号>-<YYYY-MM-DD>`（有测试锁死结构，不锁死阶段号）。
+#: P3 Step 18：新增 `Capability.READ_DRAWING` 与 `ToolPolicy.allowed_read_dirs`，
+#: capability 映射面已变，故递进版本号。
+TOOL_POLICY_VERSION = "p3-step18-2026-09-07"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
