@@ -324,10 +324,13 @@ Step 17–20 **不添加**无消费者的 threshold/gold 数据模型（P2.5 §4
 ### 7.3 度量设计（Step 22 落地）
 
 - 新建 `harness/drawing_metrics.py`，计算逐条覆盖的 `defect_recall` 与 `false_positive_rate`；
-- **单条用例的 pass/fail 仍精确匹配 `rule_id`**，不用召回率替代。
+- **单条用例的 pass/fail 仍精确匹配 `rule_id`**（实现取 `(rule_id, handle)`，
+  handle 是缺陷定位主键），不用召回率替代。
   理由与治理评测集同源（`GovernanceCase` 的判分纪律）：只断言"报了缺陷"会让
   个别规则退化被平均值掩盖——被别的规则偶然命中也算通过，测试就失去区分力；
-- 召回率/误报率作**报告级观测指标**，进基线后由 `compare_baseline.py` 守护。
+- 召回率/误报率作**报告级观测指标**。**Step 22 落地口径**：`drawing_p0`（合成
+  smoke 集）的观测指标由 `scripts/compare_drawing_p0.py` 守护（PTP + 5pt 阈值），
+  **不进** `compare_baseline.py` 的机制层基线；真实样本集落地后才设验收门槛。
 
 ---
 
@@ -340,7 +343,7 @@ Step 17–20 **不添加**无消费者的 threshold/gold 数据模型（P2.5 §4
 | **19** | DXF 解析 + 中间格式 + `DRAWING_ROOT` 四态契约 + 合成图纸生成器 | 已交付 |
 | **20** | `read_drawing` 只读工具 + 护栏与 CLI/harness 接线 | 已交付 |
 | **21** | 语义映射（→ `materials.PipeRun`）+ 规则引擎（含 §6 来源分级） | 已交付 |
-| 22 | 审查子图（`02-loop-engineering.md:67-71` 固定管线）+ `drawing_p0` 评测集 + 门禁接入 | 后续 |
+| **22** | 审查子图（`02-loop-engineering.md:67-71` 固定管线）+ `drawing_p0` 评测集 + 门禁接入 | **已交付**（合成 smoke 集；真实样本集 `drawing_p1` blocked，见 §8.3） |
 
 ### 本轮（17–20）验收
 
@@ -352,11 +355,46 @@ Step 17–20 **不添加**无消费者的 threshold/gold 数据模型（P2.5 §4
 5. 间接注入测试：注入图元被 REDACT 且 `suspicious` 非空，**其余图元正常返回**；
 6. `unit_known=False` 时 `assumptions` 明确提示单位未声明。
 
-### 本轮**不**改动
+### 本轮（21）验收
 
-`scripts/ci_gate.sh`、`scripts/compare_baseline.py` 的 `MECHANISM_SUITES`、
-`data/eval/baseline.json`（本轮无新评测集）、`domain/state.py` 的
-`drawings: list[Any]`（目前零消费，收紧类型是 Step 22 子图消费它时的事）。
+1. `bash scripts/ci_gate.sh` 全绿，既有指标零下降；
+2. `mypy src/water_agent` 0 告警，零 `type: ignore`；
+3. `unit_known=False` → 结构化 `missing_inputs`，长度恒不换算；
+4. 投毒标注不参与任何数值推导，且被如实披露（不静默丢弃）；
+5. 每个 `Finding.rendered_finding()` 的表述与 `EvidenceLevel` 匹配（表述纪律单点化）；
+6. 两条恒未检查规则保留并如实上报，`pipes_reviewed == 0` 时无任何合规措辞。
+
+### 本轮（22）验收
+
+1. **子图管线固定**：`graphs/drawing_review.py` = load → map → check → report
+   四节点线性编排（`02-loop-engineering.md:67-71`），全确定性、不调模型；
+2. **报告渲染唯一出口**：缺陷行逐条来自 `Finding.rendered_finding()`，
+   测试断言 `report_text` 与 `rendered` 逐字一致；`not_checked` 独立成节；
+3. **失败传播**：`extraction.ok=False` → `ok=false` / `status=failed` /
+   `extraction_errors` 原样携带错误码，summary 为"未执行任何管段审查…不含任何合规判断"，
+   `pipes_reviewed == 0` 时不渲染"缺陷（0 条）"小节；
+4. **召回度量独立**：`harness/drawing_metrics.py` 分母是人工标注缺陷数、
+   逐条 `(rule_id, handle)` 精确匹配（有静态测试断言不 import `retrieval_metrics`）；
+5. **门禁接入**：`ci_gate.sh` 跑 `drawing_p0` smoke 集 + `compare_drawing_p0.py`
+   （HEAD vs 入仓基线 `data/eval/drawing_p0_main.json`，PTP + 观测指标 >5pt 红灯）；
+6. **诚实性硬门**：smoke 集 `real_samples=false`/`accepts_recall_gate=false`，
+   决策记录与 README 明示"不构成召回率验收证据"。
+
+### 本轮（22）**不**改动
+
+`scripts/compare_baseline.py` 的 `MECHANISM_SUITES` 与 `data/eval/baseline.json`
+（drawing_p0 独立对比，不进既有四套机制层基线 —— 它是合成 smoke 集，不是质量档基线）；
+`domain/state.py` 的 `drawings: list[Any]`（子图用独立内部状态，主图接线步才消费
+`WaterAgentState.drawings`）。
+
+### 8.3 drawing_p0 与真实样本的关系（Step 22 决策记录 D1）
+
+- `tests/eval/drawing_p0/` 是 **ezdxf 合成的 smoke 集**：8 条用例覆盖最小管径
+  规则缺陷分支（2）、合规图（3）、投毒隔离、单位缺失、解析失败，只验证**链路完整
+  性与判分口径**；
+- **在真实样本 + `ANNOTATION_MATCH_RADIUS` 重标定之前，drawing_p0 的
+  `defect_recall` 不构成 §7 验收证据**，门禁只守护其回归；
+- 真实样本集（`drawing_p1`）的采集与标定是 blocked 待办（见 §9 与决策记录残余风险）。
 
 ---
 
