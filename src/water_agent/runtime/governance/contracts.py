@@ -176,6 +176,10 @@ class Capability(str, Enum):
     CALCULATE = "calculate"
     MATERIAL_STATS = "material_stats"
     EXPORT_TO_ALLOWED_DIR = "export_to_allowed_dir"
+    #: P3：在 `ToolPolicy.allowed_read_dirs` 内**只读**图纸文件。
+    #: 只授予读，不含写入/网络/shell —— 与 `EXPORT_TO_ALLOWED_DIR` 语义分离
+    #: （可读 ≠ 可写，见 `docs/design/p3-step-17-decision.md` D4）。
+    READ_DRAWING = "read_drawing"
     LLM_INFERENCE = "llm_inference"
     EMBEDDING = "embedding"
     RERANK = "rerank"
@@ -197,13 +201,14 @@ DANGEROUS_CAPABILITIES: frozenset[Capability] = frozenset(
     }
 )
 
-#: CLI 本地主体的默认能力集：只读检索 / 纯计算 / 显式目录导出 / 远程模型推理。
+#: CLI 本地主体的默认能力集：只读检索 / 纯计算 / 只读图纸 / 显式目录导出 / 远程模型推理。
 DEFAULT_LOCAL_CAPABILITIES: frozenset[Capability] = frozenset(
     {
         Capability.RETRIEVE_CLAUSES,
         Capability.CITE_CLAUSES,
         Capability.CALCULATE,
         Capability.MATERIAL_STATS,
+        Capability.READ_DRAWING,
         Capability.EXPORT_TO_ALLOWED_DIR,
         Capability.LLM_INFERENCE,
         Capability.EMBEDDING,
