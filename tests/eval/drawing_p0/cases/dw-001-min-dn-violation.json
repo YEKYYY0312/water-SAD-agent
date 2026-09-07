@@ -1,0 +1,24 @@
+{
+  "case_id": "dw-001-min-dn-violation",
+  "description": "排水横管 DN200 < 惯例下限 300mm → 应报 drain.min_diameter 缺陷",
+  "drawing": "dw-001-min-dn-violation.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "发现 1 条待核问题"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": [
+    {
+      "rule_id": "drain.min_diameter",
+      "handle": "33",
+      "segment_id": "DR-PIPE#33",
+      "layer": "DR-PIPE",
+      "evidence": "标注 DN200 钢筋混凝土（DN200 < 下限 DN300）"
+    }
+  ]
+}

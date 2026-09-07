@@ -1,0 +1,19 @@
+{
+  "case_id": "dw-004-missing-dn",
+  "description": "排水管无管径标注 → 最小管径规则报未检查（不是假装通过）",
+  "drawing": "dw-004-missing-dn.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "未检查"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity",
+    "drain.min_diameter"
+  ],
+  "expected_missing_inputs_contains": [
+    "dn_mm"
+  ],
+  "defects": []
+}

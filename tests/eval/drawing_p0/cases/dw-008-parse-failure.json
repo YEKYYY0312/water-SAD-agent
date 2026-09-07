@@ -1,0 +1,14 @@
+{
+  "case_id": "dw-008-parse-failure",
+  "description": "坏文件 → 抽取失败，报告不得出现任何合规措辞（pipes_reviewed=0）",
+  "drawing": "dw-008-parse-failure.dxf",
+  "declare_units": true,
+  "expected_status": "failed",
+  "expected_summary_contains": [
+    "未执行任何管段审查",
+    "不含任何合规判断"
+  ],
+  "expected_not_checked_contains": [],
+  "expected_missing_inputs_contains": [],
+  "defects": []
+}
