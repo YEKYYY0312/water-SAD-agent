@@ -513,12 +513,17 @@ class TestInventoryCoverage:
         在 schema 校验前调用 ``GuardrailPipeline.validate_tool_call``。
         这个断言是**防倒退**的 —— 有人日后给 `invoke` 加旁路，`test_tool_policy.py`
         的 `TestNoBypass` 会红，而这里的计数会提醒清单与代码已不同步。
+
+        P3 Step 20 后工具数由 4 变 5（新增 `read_drawing`）。**远程出口仍是 6** ——
+        图纸解析是纯本地读文件，不新增任何 provider 调用点。这两个数分开验证是
+        刻意的：如果哪天有人给图纸链路加了 vision 模型调用，
+        `provider_call_sites` 会对不上而立刻红灯。
         """
         assert governance_coverage() == {
             "provider_call_sites": 6,
             "provider_governed": 6,
-            "tools": 4,
-            "tools_guardrail_validated": 4,
+            "tools": 5,
+            "tools_guardrail_validated": 5,
         }
         for site in PROVIDER_CALL_SITES:
             assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"
