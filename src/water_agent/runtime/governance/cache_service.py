@@ -134,6 +134,7 @@ class AnswerCacheService:
         ctx: RequestContext,
         model: str,
         temperature: float,
+        category: CallCategory = CallCategory.RAG_GENERATION,
     ) -> CacheKeyFactors:
         """构造缓存键因子。
 
@@ -144,6 +145,7 @@ class AnswerCacheService:
         return CacheKeyFactors(
             query_normalized=normalize_query(query),
             principal_scope=f"{ctx.principal.principal_hash}|{ctx.principal.auth_domain}",
+            category=category,
             model=model,
             temperature=temperature,
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
@@ -177,7 +179,13 @@ class AnswerCacheService:
         return spec_version_digest(pairs)
 
     def lookup(
-        self, *, query: str, ctx: RequestContext, model: str, temperature: float
+        self,
+        *,
+        query: str,
+        ctx: RequestContext,
+        model: str,
+        temperature: float,
+        category: CallCategory = CallCategory.RAG_GENERATION,
     ) -> tuple[CacheDisposition, CachedAnswer | None]:
         """查缓存。语料版本不可信时直接 ``INELIGIBLE``（不读不写）。"""
         if not self.corpus_version_known:
@@ -190,7 +198,7 @@ class AnswerCacheService:
                 None,
             )
         factors = self.key_factors(
-            query=query, ctx=ctx, model=model, temperature=temperature
+            query=query, ctx=ctx, model=model, temperature=temperature, category=category
         )
         return self._cache.lookup(factors, ctx)
 
@@ -231,6 +239,7 @@ class AnswerCacheService:
         answer: str,
         source_ids: Sequence[str],
         eligibility: StoreEligibility,
+        category: CallCategory = CallCategory.RAG_GENERATION,
     ) -> CacheDisposition:
         """按资格写入。语料版本不可信时拒绝写入。"""
         if not self.corpus_version_known:
@@ -240,7 +249,7 @@ class AnswerCacheService:
                 reason="corpus_version_unknown",
             )
         factors = self.key_factors(
-            query=query, ctx=ctx, model=model, temperature=temperature
+            query=query, ctx=ctx, model=model, temperature=temperature, category=category
         )
         return self._cache.store(
             factors,
@@ -251,13 +260,21 @@ class AnswerCacheService:
         )
 
     def invalidate(
-        self, *, query: str, ctx: RequestContext, model: str, temperature: float
+        self,
+        *,
+        query: str,
+        ctx: RequestContext,
+        model: str,
+        temperature: float,
+        category: CallCategory = CallCategory.RAG_GENERATION,
     ) -> bool:
         """显式失效一条（管理接口）。"""
         if not self.corpus_version_known:
             return False
         return self._cache.invalidate(
-            self.key_factors(query=query, ctx=ctx, model=model, temperature=temperature)
+            self.key_factors(
+                query=query, ctx=ctx, model=model, temperature=temperature, category=category
+            )
         )
 
     def purge(self) -> int:

@@ -303,6 +303,32 @@ class TestInvalidationFactors:
             != b.key_factors(query=_QUERY, ctx=ctx, model="m", temperature=0.0).cache_key()
         )
 
+    def test_category_participates_in_key(self) -> None:
+        """legacy（RAG_GENERATION）与 agentic（AGENTIC_LOOP）不得跨分类互相命中。"""
+        cache = InMemoryAnswerCache()
+        ctx = _ctx()
+        svc = _service(cache=cache)
+        # legacy 写入（分类 RAG_GENERATION）
+        svc.store(
+            query=_QUERY, ctx=ctx, model="m", temperature=0.0, answer="legacy 答案",
+            source_ids=_SOURCES, eligibility=_eligible(),
+            category=CallCategory.RAG_GENERATION,
+        )
+        # agentic 同 query/model/temperature/principal 也不得命中
+        disposition, entry = svc.lookup(
+            query=_QUERY, ctx=ctx, model="m", temperature=0.0,
+            category=CallCategory.AGENTIC_LOOP,
+        )
+        assert disposition.status is CacheStatus.MISS
+        assert entry is None
+        # legacy 自身仍命中
+        hit, entry = svc.lookup(
+            query=_QUERY, ctx=ctx, model="m", temperature=0.0,
+            category=CallCategory.RAG_GENERATION,
+        )
+        assert hit.status is CacheStatus.HIT
+        assert entry is not None and entry.answer == "legacy 答案"
+
 
 class TestCrossPrincipalIsolation:
     """规格 §5：禁止仅用 query 文本跨用户命中。"""

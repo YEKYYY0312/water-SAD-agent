@@ -11,6 +11,7 @@ P2.5（Step 12）：返回的模型被 ``GovernedChatModel`` 包裹，每次生�
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -39,6 +40,7 @@ def build_chat_model(
     category: CallCategory = CallCategory.AGENTIC_LOOP,
     gateway: ProviderGateway | None = None,
     request_context: RequestContext | None = None,
+    request_context_factory: Callable[[], RequestContext] | None = None,
 ) -> BaseChatModel:
     """构造 DeepSeek（OpenAI 兼容）chat model，供 agentic 循环使用。
 
@@ -69,4 +71,5 @@ def build_chat_model(
         model_name_hint=model,
         gateway=gateway,
         request_context=request_context,
+        request_context_factory=request_context_factory,
     )

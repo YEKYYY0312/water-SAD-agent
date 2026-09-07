@@ -15,6 +15,8 @@ STATUS_RUNNING = "running"
 STATUS_WAITING = "waiting"
 STATUS_SUCCEEDED = "succeeded"
 STATUS_FAILED = "failed"
+#: 被 P2.5 输入/输出护栏阻断（fail closed）：**不得**伪装成 succeeded。
+STATUS_BLOCKED = "blocked"
 
 
 class WaterAgentState(TypedDict):
@@ -40,6 +42,8 @@ class WaterAgentState(TypedDict):
     assumptions: list[str]
     # P0 RAG 图内部字段
     citation_ok: bool
+    # P2.5 缓存命中标记（legacy RAG 图：cache hit 后仍需过引用/输出护栏，不得直接返回）
+    cache_hit: bool
     # approval 语义（Step 9 Human-in-the-Loop 消费）：
     #   None = 待审批（docgen approval 节点 interrupt 前/后）｜True = 已批准（放行 finalize 副作用）
     #   False = 已拒绝（带 approval_reason 回流 draft 或收口 failed，见 graphs/docgen.py）
@@ -67,6 +71,7 @@ def default_state(**overrides: Any) -> WaterAgentState:
         "missing_inputs": [],
         "assumptions": [],
         "citation_ok": True,
+        "cache_hit": False,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state

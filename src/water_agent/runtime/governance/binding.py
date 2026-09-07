@@ -17,6 +17,7 @@ gateway**（:func:`default_gateway`），而不是跳过治理。因此**不存�
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from uuid import uuid4
 
 from water_agent.runtime.governance.config import (
@@ -28,6 +29,7 @@ from water_agent.runtime.governance.contracts import (
     Principal,
     ProviderKind,
     RequestContext,
+    UsageRecord,
 )
 from water_agent.runtime.governance.gateway import ProviderGateway
 
@@ -68,6 +70,26 @@ def gateway_for_profile_overrides(
     merged = dict(base.profiles)
     merged.update(overrides)
     return ProviderGateway(config=base.model_copy(update={"profiles": merged}))
+
+
+def default_gateway_with_sink(
+    on_usage: Callable[[UsageRecord], None],
+) -> ProviderGateway:
+    """返回一个**共享默认 gateway 的限流/预算账本**、但接上本次 run 的 usage sink 的 gateway。
+
+    存在的理由：``default_gateway()`` 是进程级单例（限流桶/预算账本跨会话累积，
+    主体隔离靠 principal_hash 分键）；但 trace 是每次 run 一份，usage 事件必须写进
+    **当前** trace。因此这里复用默认 gateway 的 config/stores，只把 ``on_usage``
+    换成 ``JsonTraceRecorder.record_provider_event``，使 usage/budget/rate-limit/
+    breaker/failure 事件按 trace schema 落盘。
+    """
+    base = default_gateway()
+    return ProviderGateway(
+        config=base.config,
+        rate_limit_store=base.rate_limit_store,
+        budget_ledger=base.budget_ledger,
+        on_usage=on_usage,
+    )
 
 
 def local_request_context(
