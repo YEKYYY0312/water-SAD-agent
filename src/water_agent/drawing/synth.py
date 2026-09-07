@@ -138,3 +138,74 @@ def build_synthetic_drawing(
         injected_handle=injected_handle,
         unit_declared=declare_units,
     )
+
+
+def build_drainage_drawing(
+    dest: Path,
+    *,
+    drawing_id: str = "drain-001",
+    dn_mm: int = 200,
+    material: str = "钢筋混凝土",
+    declare_units: bool = True,
+    inject_annotation: str | None = None,
+) -> SyntheticDrawing:
+    """建一张**只含排水管**的图纸，管径可控 —— 供 Step 21 规则引擎测正反例。
+
+    与 `build_synthetic_drawing` 分开而不加参数：那张图是"解析器能读完整图形"的
+    夹具（多图层、多图元类型），这张是"规则能判缺陷"的夹具（单一系统、参数可控）。
+    合成一张既要覆盖解析又要覆盖规则的图，会让两类测试的失败原因纠缠在一起。
+
+    Args:
+        dn_mm: 排水管标注管径。传 `< 300` 触发最小管径规则的缺陷分支。
+        material: 材质标注文本；传空串则不写材质（测 missing_inputs）。
+        inject_annotation: 额外注入一条 MTEXT（测可疑标注不参与推导）。
+    """
+    import ezdxf
+
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f"{drawing_id}.dxf"
+
+    doc = ezdxf.new(DXF_VERSION)
+    doc.header["$INSUNITS"] = 6 if declare_units else 0
+    doc.layers.add(LAYER_DRAIN_PIPE)
+    msp = doc.modelspace()
+    counts: dict[str, int] = {}
+
+    # 排水干管：一段 40 单位的 LINE
+    msp.add_line((0.0, 0.0), (40.0, 0.0), dxfattribs={"layer": LAYER_DRAIN_PIPE})
+    counts["LINE"] = 1
+
+    # 管段标注：贴在管线旁 3 单位处（在 ANNOTATION_MATCH_RADIUS 之内）
+    label = f"DN{dn_mm}" + (f" {material}" if material else "")
+    text = msp.add_text(label, dxfattribs={"layer": LAYER_DRAIN_PIPE, "height": 2.5})
+    text.set_placement((10.0, 3.0))
+    counts["TEXT"] = 1
+
+    injected_handle: str | None = None
+    if inject_annotation is not None:
+        injected = msp.add_mtext(
+            inject_annotation, dxfattribs={"layer": LAYER_DRAIN_PIPE}
+        )
+        injected.set_location((20.0, 2.0))
+        counts["MTEXT"] = 1
+
+    doc.saveas(str(path))
+
+    if inject_annotation is not None:
+        from ezdxf.entities import MText
+        from ezdxf.tools.text import plain_mtext
+
+        reopened = ezdxf.readfile(str(path))
+        for entity in reopened.modelspace():
+            if isinstance(entity, MText) and plain_mtext(entity.text or "") == inject_annotation:
+                injected_handle = str(entity.dxf.handle)
+                break
+
+    return SyntheticDrawing(
+        drawing_id=drawing_id,
+        path=path,
+        layers=(LAYER_DRAIN_PIPE,),
+        entity_counts=counts,
+        injected_handle=injected_handle,
+        unit_declared=declare_units,
+    )
