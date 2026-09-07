@@ -1,0 +1,315 @@
+{
+  "suite": "drawing_p0",
+  "suite_dir": "tests/eval/drawing_p0",
+  "real_samples": false,
+  "accepts_recall_gate": false,
+  "created_at": "2026-09-07T08:20:12.456121+00:00",
+  "total": 8,
+  "passed": 8,
+  "failed": 0,
+  "case_pass_rate": 1.0,
+  "defect_recall": 1.0,
+  "false_positive_rate": 0.0,
+  "aggregate": {
+    "cases_total": 8,
+    "cases_passed": 8,
+    "case_pass_rate": 1.0,
+    "gold_defects_total": 3,
+    "reported_findings_total": 3,
+    "matched_defects_total": 3,
+    "missed_defects_total": 0,
+    "false_positives_total": 0,
+    "defect_recall": 1.0,
+    "false_positive_rate": 0.0
+  },
+  "cases": [
+    {
+      "case_id": "dw-001-min-dn-violation",
+      "drawing": "dw-001-min-dn-violation.dxf",
+      "description": "排水横管 DN200 < 惯例下限 300mm → 应报 drain.min_diameter 缺陷",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "33",
+          "segment_id": "DR-PIPE#33",
+          "layer": "DR-PIPE",
+          "evidence": "标注 DN200 钢筋混凝土（DN200 < 下限 DN300）"
+        }
+      ],
+      "reported_findings": [
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "33"
+        }
+      ],
+      "pipes_reviewed": 1,
+      "summary": "发现 1 条待核问题（engineering_practice 1 条）；另有 2 项因缺输入未检查",
+      "reported_rendered": [
+        "[工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN200，小于惯例最小值 DN300（图元 33，图层 DR-PIPE）"
+      ],
+      "not_checked": [
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+      ],
+      "missing_inputs": [],
+      "report_text": "== 图纸审查报告：dw-001-min-dn-violation ==\n审查对象抽取：成功\n已审查管段：1\n结论：发现 1 条待核问题（engineering_practice 1 条）；另有 2 项因缺输入未检查\n【缺陷（1 条）】\n- [工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN200，小于惯例最小值 DN300（图元 33，图层 DR-PIPE）\n【未检查项（2 项）】\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 1,
+        "reported_findings": 1,
+        "matched_defects": 1,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": 1.0,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-002-min-dn-two-violations",
+      "drawing": "dw-002-min-dn-two-violations.dxf",
+      "description": "两条排水管各 <300mm（DN150 / DN200）→ 逐条覆盖两个缺陷（分母为 2）",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "33",
+          "segment_id": "DR-PIPE#33",
+          "layer": "DR-PIPE",
+          "evidence": "标注 DN150 钢筋混凝土（DN150 < 下限 DN300）"
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "35",
+          "segment_id": "DR-PIPE#35",
+          "layer": "DR-PIPE",
+          "evidence": "标注 DN200 PVC-U（DN200 < 下限 DN300）"
+        }
+      ],
+      "reported_findings": [
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "33"
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "handle": "35"
+        }
+      ],
+      "pipes_reviewed": 2,
+      "summary": "发现 2 条待核问题（engineering_practice 2 条）；另有 2 项因缺输入未检查",
+      "reported_rendered": [
+        "[工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN150，小于惯例最小值 DN300（图元 33，图层 DR-PIPE）",
+        "[工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN200，小于惯例最小值 DN300（图元 35，图层 DR-PIPE）"
+      ],
+      "not_checked": [
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+      ],
+      "missing_inputs": [],
+      "report_text": "== 图纸审查报告：dw-002-min-dn-two-violations ==\n审查对象抽取：成功\n已审查管段：2\n结论：发现 2 条待核问题（engineering_practice 2 条）；另有 2 项因缺输入未检查\n【缺陷（2 条）】\n- [工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN150，小于惯例最小值 DN300（图元 33，图层 DR-PIPE）\n- [工程惯例提示（无条文支撑，需人工确认）] 室外排水管（污水/合流）公称管径不宜小于 300mm：标注管径 DN200，小于惯例最小值 DN300（图元 35，图层 DR-PIPE）\n【未检查项（2 项）】\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 2,
+        "reported_findings": 2,
+        "matched_defects": 2,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": 1.0,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-003-compliant-drain",
+      "drawing": "dw-003-compliant-drain.dxf",
+      "description": "排水横管 DN400 合规 → 无缺陷；坡度/流速两条恒未检查必须如实上报",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 1,
+      "summary": "已跑的规则未发现问题，但有 2 项因缺输入**未检查**——不等于图纸无问题",
+      "reported_rendered": [],
+      "not_checked": [
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+      ],
+      "missing_inputs": [],
+      "report_text": "== 图纸审查报告：dw-003-compliant-drain ==\n审查对象抽取：成功\n已审查管段：1\n结论：已跑的规则未发现问题，但有 2 项因缺输入**未检查**——不等于图纸无问题\n【未检查项（2 项）】\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-004-missing-dn",
+      "drawing": "dw-004-missing-dn.dxf",
+      "description": "排水管无管径标注 → 最小管径规则报未检查（不是假装通过）",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 1,
+      "summary": "已跑的规则未发现问题，但有 3 项因缺输入**未检查**——不等于图纸无问题",
+      "reported_rendered": [],
+      "not_checked": [
+        "drain.min_diameter：1 条排水管段无管径标注，未检查",
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+      ],
+      "missing_inputs": [
+        "dn_mm：1 条管段无管径标注（DR-PIPE#33）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+        "material：1 条管段无材质标注（DR-PIPE#33）。不假定默认管材（管材差价大，猜错直接影响造价）"
+      ],
+      "report_text": "== 图纸审查报告：dw-004-missing-dn ==\n审查对象抽取：成功\n已审查管段：1\n结论：已跑的规则未发现问题，但有 3 项因缺输入**未检查**——不等于图纸无问题\n【未检查项（3 项）】\n- drain.min_diameter：1 条排水管段无管径标注，未检查\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n【缺输入（2 项）】\n- dn_mm：1 条管段无管径标注（DR-PIPE#33）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断\n- material：1 条管段无材质标注（DR-PIPE#33）。不假定默认管材（管材差价大，猜错直接影响造价）\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-005-water-supply-out-of-scope",
+      "drawing": "dw-005-water-supply-out-of-scope.dxf",
+      "description": "给水管 DN200（<300）不适用排水最小管径 → 无缺陷（规则作用域不误伤）",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 1,
+      "summary": "已检查的规则均未发现问题",
+      "reported_rendered": [],
+      "not_checked": [],
+      "missing_inputs": [],
+      "report_text": "== 图纸审查报告：dw-005-water-supply-out-of-scope ==\n审查对象抽取：成功\n已审查管段：1\n结论：已检查的规则均未发现问题\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-006-poisoned-annotation",
+      "drawing": "dw-006-poisoned-annotation.dxf",
+      "description": "DN400 合规管旁有投毒标注（写 DN2000）→ 不得据此报缺陷，管线仍审",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 1,
+      "summary": "已跑的规则未发现问题，但有 2 项因缺输入**未检查**——不等于图纸无问题",
+      "reported_rendered": [],
+      "not_checked": [
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+      ],
+      "missing_inputs": [],
+      "report_text": "== 图纸审查报告：dw-006-poisoned-annotation ==\n审查对象抽取：成功\n已审查管段：1\n结论：已跑的规则未发现问题，但有 2 项因缺输入**未检查**——不等于图纸无问题\n【未检查项（2 项）】\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n【假设（2 项）】\n- 1 条标注命中内容护栏（suspicious 非空），其文本未参与管径/材质推导；如需采用请人工核对图面原文\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-007-unit-undeclared",
+      "drawing": "dw-007-unit-undeclared.dxf",
+      "description": "$INSUNITS 缺失（unit_known=False）→ 长度类检查未执行必须进报告",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "succeeded",
+      "actual_status": "succeeded",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 1,
+      "summary": "已跑的规则未发现问题，但有 3 项因缺输入**未检查**——不等于图纸无问题",
+      "reported_rendered": [],
+      "not_checked": [
+        "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+        "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）",
+        "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+      ],
+      "missing_inputs": [
+        "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），长度无法换算为米。请人工确认图纸单位后重新提供，解析器不按默认单位换算（估算的长度会变成错误的工程量）"
+      ],
+      "report_text": "== 图纸审查报告：dw-007-unit-undeclared ==\n审查对象抽取：成功\n已审查管段：1\n结论：已跑的规则未发现问题，但有 3 项因缺输入**未检查**——不等于图纸无问题\n【未检查项（3 项）】\n- drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）\n- drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）\n- 长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**\n【缺输入（1 项）】\n- drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），长度无法换算为米。请人工确认图纸单位后重新提供，解析器不按默认单位换算（估算的长度会变成错误的工程量）\n【假设（1 项）】\n- 管段属性按标注与管线的图面邻近关系匹配（半径 12.0 图纸单位）；这是工程惯例而非规范规定，标注位置异常的图纸需人工复核对应关系",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    },
+    {
+      "case_id": "dw-008-parse-failure",
+      "drawing": "dw-008-parse-failure.dxf",
+      "description": "坏文件 → 抽取失败，报告不得出现任何合规措辞（pipes_reviewed=0）",
+      "passed": true,
+      "failure_reasons": [],
+      "expected_status": "failed",
+      "actual_status": "failed",
+      "gold_defects": [],
+      "reported_findings": [],
+      "pipes_reviewed": 0,
+      "summary": "**未执行任何管段审查**：无可审查的管段（图纸解析失败或图上无可识别管线图元），本结论不含任何合规判断",
+      "reported_rendered": [],
+      "not_checked": [
+        "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+      ],
+      "missing_inputs": [
+        "图纸抽取失败，无可映射图元（先解决 DrawingExtraction.errors）"
+      ],
+      "report_text": "== 图纸审查报告：dw-008-parse-failure ==\n审查对象抽取：失败\n已审查管段：0\n结论：**未执行任何管段审查**：无可审查的管段（图纸解析失败或图上无可识别管线图元），本结论不含任何合规判断\n【未检查项（1 项）】\n- 长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**\n【缺输入（1 项）】\n- 图纸抽取失败，无可映射图元（先解决 DrawingExtraction.errors）\n【解析错误】\n- DRAWING_UNREADABLE: DXF 解析失败: File '<DRAWING_ROOT>/dw-008-parse-failure.dxf' is not a DXF file.",
+      "defect_metrics": {
+        "gold_defects": 0,
+        "reported_findings": 0,
+        "matched_defects": 0,
+        "missed_defects": 0,
+        "false_positives": 0,
+        "defect_recall": null,
+        "false_positive_rate": 0.0,
+        "case_passed": true
+      }
+    }
+  ],
+  "gate_note": "合成 smoke 集：仅守护链路回归，不构成真实缺陷召回率验收证据"
+}

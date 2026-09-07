@@ -73,9 +73,10 @@
   独立质量 36/58（62.07%），未达到收口条件
 - [ ] **blocked**：材料管段从图纸自动抽取依赖 P3。**Step 21 已交付语义映射，
   `DXF → MappedPipe → materials.PipeRun → aggregate_materials` 链路实测闭环**；
-  但仅覆盖 LINE/POLYLINE 管线，且真实设计院图纸未验证（标注关联半径需按真实图纸
-  重新标定），故**尚不能声称"能从真实图纸出材料清单"**。
-  见 `docs/design/p3-step-21-decision.md` 残余风险 1–3
+  Step 22 已交付审查子图编排与 smoke 评测集（`drawing_p0`，合成样本）。
+  但仅覆盖 LINE/POLYLINE 管线，且真实设计院图纸未验证（标注关联半径需按真实
+  图纸重新标定），故**尚不能声称"能从真实图纸出材料清单/审查报告"**。
+  见 `docs/design/p3-step-22-decision.md` 残余风险 1–3 与 blocked 待办
 
 ---
 
@@ -133,11 +134,15 @@
 - [x] **Step 20** `read_drawing` 只读工具 + 四道护栏与 CLI/harness 接线
 - [x] **Step 21** 给排水对象语义映射（管线 → `materials.PipeRun`；立管/洁具/水表未覆盖，见决策记录残余风险 2）
 - [x] **Step 21** 规则引擎：3 条规则 + 阈值来源分级（其中坡度/流速恒报未检查，见决策记录 D8）
-- [ ] Step 22 图纸审查子图 + 缺陷标注 + `drawing_p0` 评测集 + 门禁接入
+- [x] **Step 22** 图纸审查子图（`02-loop-engineering.md:67-71` 固定管线）+ `drawing_p0` 合成 smoke 评测集 + 门禁接入
+      （**合成样本集，`real_samples=false`，只守护链路回归，不构成召回率验收**；见决策记录 D1）
 
 **验收标准**
 - [ ] 构造含缺陷图纸集，缺陷**召回率 ≥80%**、误报率可控
       （度量口径见规格 §7；**不能复用** `harness/retrieval_metrics.py`）
+      **—— blocked**：无真实设计院样本；`drawing_p0` 为合成 smoke 集，门禁只守护回归。
+      开启条件：真实样本采集 + `ANNOTATION_MATCH_RADIUS` 重标定 + INSERT/ARC 实体覆盖
+      （Step 22 决策记录残余风险 1–3，已列 blocked 待办）
 - [ ] 能定位缺陷对象（图层/图元/坐标）—— 由 `DrawingEntity.handle` + `points` 承担
 
 **已知阻塞（不得淡化）**

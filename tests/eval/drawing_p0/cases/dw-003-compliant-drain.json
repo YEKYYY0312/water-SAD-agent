@@ -1,0 +1,16 @@
+{
+  "case_id": "dw-003-compliant-drain",
+  "description": "排水横管 DN400 合规 → 无缺陷；坡度/流速两条恒未检查必须如实上报",
+  "drawing": "dw-003-compliant-drain.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "未检查"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": []
+}

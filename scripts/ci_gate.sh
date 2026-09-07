@@ -79,6 +79,33 @@ else
     echo "governance_p0 通过（32/32）"
 fi
 
+# drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
+# ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
+# HEAD 与 main 的用例级回归与 smoke 观测指标（阈值 5pt），**不是**真实缺陷
+# 召回率验收；真实样本到手并重标定前，召回率数字不构成验收证据
+# （P3 规格 §9.2、p3-step-21-decision.md 残余风险 1–3）。
+step "drawing_p0 审查子图 smoke 集（合成图纸，链路回归守护）"
+DRAWING_HEAD="data/eval/reports/drawing_p0_head.json"
+# main 固化报告入仓（data/eval/drawing_p0_main.json）；HEAD 报告是可重建产物
+# （data/eval/reports/ 不入仓）。
+DRAWING_MAIN="data/eval/drawing_p0_main.json"
+if ! $PY -m water_agent.harness.drawing_eval tests/eval/drawing_p0 --report-path "$DRAWING_HEAD" > /tmp/ci_gate_drawing.log 2>&1; then
+    tail -20 /tmp/ci_gate_drawing.log
+    fail "drawing_p0 runner"
+else
+    tail -14 /tmp/ci_gate_drawing.log
+    if [ -f "$DRAWING_MAIN" ]; then
+        if ! $PY scripts/compare_drawing_p0.py --head "$DRAWING_HEAD" --base "$DRAWING_MAIN" > /tmp/ci_gate_drawing_cmp.log 2>&1; then
+            cat /tmp/ci_gate_drawing_cmp.log
+            fail "drawing_p0 基线对比"
+        else
+            cat /tmp/ci_gate_drawing_cmp.log
+        fi
+    else
+        echo "drawing_p0 无 main 基线报告（首次运行）；固化方法见 scripts/compare_drawing_p0.py 文档头"
+    fi
+fi
+
 step "基线对比（compare_baseline.py，阈值见 THRESHOLDS）"
 if [ -f data/eval/baseline.json ]; then
     if ! $PY scripts/compare_baseline.py data/eval/baseline.json > /tmp/ci_gate_baseline.log 2>&1; then
@@ -98,4 +125,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + 基线对比"
