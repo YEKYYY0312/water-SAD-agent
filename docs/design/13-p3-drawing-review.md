@@ -339,7 +339,7 @@ Step 17–20 **不添加**无消费者的 threshold/gold 数据模型（P2.5 §4
 | **18** | 治理契约扩展：`READ_DRAWING` 能力 + `allowed_read_dirs` 读写分离 | 已交付 |
 | **19** | DXF 解析 + 中间格式 + `DRAWING_ROOT` 四态契约 + 合成图纸生成器 | 已交付 |
 | **20** | `read_drawing` 只读工具 + 护栏与 CLI/harness 接线 | 已交付 |
-| 21 | 语义映射（→ `materials.PipeRun`）+ 规则引擎（含 §6 来源分级） | 后续 |
+| **21** | 语义映射（→ `materials.PipeRun`）+ 规则引擎（含 §6 来源分级） | 已交付 |
 | 22 | 审查子图（`02-loop-engineering.md:67-71` 固定管线）+ `drawing_p0` 评测集 + 门禁接入 | 后续 |
 
 ### 本轮（17–20）验收
