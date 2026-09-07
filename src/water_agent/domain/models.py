@@ -4,9 +4,9 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def utc_now() -> datetime:
@@ -255,12 +255,48 @@ class GovernanceCase(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    """单次 LLM 调用的 token 用量与成本。"""
+    """单次 LLM 调用的 token 用量与成本。
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
-    cost_usd: float = 0.0
+    P2.5 review 修复（usage_unknown 语义）：provider 未返回 usage 时
+    ``usage_known=False``，且 token/cost 字段必须为 ``None`` ——
+    **不得**填充 0 或估算值（估算不得当账单）。JSON 兼容：新增 ``usage_known``
+    缺省 ``True``，旧数据（无该字段）仍可解析；token/cost 字段由 ``int=0``
+    改为 ``int|None=None``，序列化时 unknown 表现为 ``null`` 而非 ``0``。
+    """
+
+    usage_known: bool = True
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    cost_usd: float | None = None
+
+    @model_validator(mode="after")
+    def _validate_unknown(self) -> Self:
+        if not self.usage_known:
+            for name in ("input_tokens", "output_tokens", "total_tokens", "cost_usd"):
+                if getattr(self, name) is not None:
+                    raise ValueError(
+                        f"usage_known=False 时禁止填充 {name}（估算不得当账单）"
+                    )
+        return self
+
+    @classmethod
+    def unknown(cls) -> TokenUsage:
+        """provider 未返回 usage 的占位（token/cost 为 None，不冒充 0）。"""
+        return cls(usage_known=False)
+
+    @classmethod
+    def known(
+        cls, *, input_tokens: int, output_tokens: int, cost_usd: float
+    ) -> TokenUsage:
+        """provider 已返回 usage 的账单条目。"""
+        return cls(
+            usage_known=True,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            cost_usd=cost_usd,
+        )
 
 
 class EvalResult(BaseModel):

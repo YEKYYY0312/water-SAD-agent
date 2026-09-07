@@ -64,6 +64,10 @@ from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.retrieval.rerank import RerankingRetriever
 from water_agent.retrieval.trivium import TriviumRetriever
+from water_agent.runtime.governance.binding import (
+    default_gateway_with_sink,
+    local_request_context,
+)
 from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
@@ -584,12 +588,20 @@ class HarnessRunner:
         trace_id = uuid4().hex
         run_id = uuid4().hex
         recorder = JsonTraceRecorder(self.trace_dir)
+        # P2.5 主体隔离：本次 run 的稳定标识构造 RequestContext，传给生成器与图。
+        request_context = local_request_context(thread_id=run_id, request_id=f"req-{run_id[:12]}")
+        gateway = default_gateway_with_sink(recorder.record_provider_event)
+        if hasattr(generator, "_request_context"):
+            generator._request_context = request_context
+        if hasattr(generator, "_gateway"):
+            generator._gateway = gateway
         app = build_rag_graph(
             retriever, generator,
             trace=recorder,
             reranker=reranker,
             top_k=self.top_k if _variant == "real" else getattr(case, "top_k", 5),
             recall_top_k=self.recall_top_k if _variant == "real" else 20,
+            request_context=request_context,
         )
         state = default_state(query=case.query, run_id=run_id, trace_id=trace_id)
         started = time.perf_counter()
@@ -613,15 +625,15 @@ class HarnessRunner:
         )
         scored.variant = _variant
 
-        # 真实生成器 token 用量
+        # 真实生成器 token 用量（P2.5 review 修复：缺失时保持 unknown，不填 0）
         gen_usage = getattr(generator, "last_usage", None) or {}
-        if gen_usage.get("prompt_tokens") or gen_usage.get("completion_tokens"):
-            inp = int(gen_usage.get("prompt_tokens", 0) or 0)
-            out = int(gen_usage.get("completion_tokens", 0) or 0)
-            scored.token_usage = TokenUsage(
-                input_tokens=inp,
-                output_tokens=out,
-                total_tokens=inp + out,
+        if isinstance(gen_usage.get("prompt_tokens"), int) and isinstance(
+            gen_usage.get("completion_tokens"), int
+        ):
+            inp = int(gen_usage["prompt_tokens"])
+            out = int(gen_usage["completion_tokens"])
+            scored.token_usage = TokenUsage.known(
+                input_tokens=inp, output_tokens=out,
                 cost_usd=estimate_deepseek_cost(inp, out),
             )
 
@@ -651,13 +663,26 @@ class HarnessRunner:
             if reranker is not None
             else self._real_retriever
         )
-        registry = ToolRegistry()
+        recorder = JsonTraceRecorder(self.trace_dir)
+        # P2.5 主体隔离 + trace 接线：每条用例一个真实 thread_id，
+        # ToolRegistry 传入当前 trace 与真实主体（工具/护栏事件成对落盘）。
+        case_thread_id = uuid4().hex
+        request_context = local_request_context(
+            thread_id=case_thread_id, request_id=f"req-{case_thread_id[:12]}"
+        )
+        # 让缓存的真实 chat model 用本条用例的主体（GovernedChatModel 经 _BudgetChatModel
+        # 持有内层引用，这里直接置位其 request_context 即可逐用例生效）。
+        gateway = default_gateway_with_sink(recorder.record_provider_event)
+        if hasattr(self._real_chat_model, "request_context"):
+            self._real_chat_model.request_context = request_context
+        if hasattr(self._real_chat_model, "gateway"):
+            self._real_chat_model.gateway = gateway
+        registry = ToolRegistry(principal=request_context.principal, trace=recorder)
         registry.register(build_retrieve_clauses_tool(retriever))
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
         registry.register(material_stats_spec)
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
-        recorder = JsonTraceRecorder(self.trace_dir)
 
         started = time.perf_counter()
         with MemorySaver() as saver:
@@ -668,10 +693,11 @@ class HarnessRunner:
                 prompt=PromptAssembler(tool_registry=registry),
                 max_tool_turns=self.max_tool_turns,
                 trace=recorder,
+                request_context=request_context,
             )
             result = app.invoke(
                 {"messages": [HumanMessage(content=case.query)], "query": case.query},
-                config={"configurable": {"thread_id": uuid4().hex}},
+                config={"configurable": {"thread_id": case_thread_id}},
             )
         latency_ms = (time.perf_counter() - started) * 1000
 
@@ -691,17 +717,22 @@ class HarnessRunner:
         if not scored.passed and result.get("errors"):
             scored.failure_reason = "; ".join([scored.failure_reason, *result["errors"]]).strip("; ")
 
+        # 逐消息聚合 usage_metadata；任一消息缺失 usage 则该次真实用量不可完整对账。
         in_tok = out_tok = 0
+        saw_usage = False
         for m in result.get("messages", []):
             meta = getattr(m, "usage_metadata", None) if isinstance(m, AIMessage) else None
-            if meta:
-                in_tok += int(meta.get("input_tokens", 0) or 0)
-                out_tok += int(meta.get("output_tokens", 0) or 0)
-        if in_tok or out_tok:
-            scored.token_usage = TokenUsage(
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                total_tokens=in_tok + out_tok,
+            if not meta:
+                continue
+            i = meta.get("input_tokens") if isinstance(meta, dict) else getattr(meta, "input_tokens", None)
+            o = meta.get("output_tokens") if isinstance(meta, dict) else getattr(meta, "output_tokens", None)
+            if isinstance(i, int) and isinstance(o, int):
+                in_tok += i
+                out_tok += o
+                saw_usage = True
+        if saw_usage:
+            scored.token_usage = TokenUsage.known(
+                input_tokens=in_tok, output_tokens=out_tok,
                 cost_usd=estimate_deepseek_cost(in_tok, out_tok),
             )
         self._apply_judge(scored, case.query, result.get("answer", ""), context_texts=self._context_texts_from_messages(result))
@@ -746,10 +777,21 @@ class HarnessRunner:
             if scored.token_usage is None:
                 scored.token_usage = jt
             else:
-                scored.token_usage.input_tokens += jt.input_tokens
-                scored.token_usage.output_tokens += jt.output_tokens
-                scored.token_usage.total_tokens += jt.total_tokens
-                scored.token_usage.cost_usd = round(scored.token_usage.cost_usd + jt.cost_usd, 8)
+                # P2.5 review 修复：usage_unknown 的字段为 None，不得把 None 当 0 相加；
+                # 双方都 known 才可合并，否则合并结果保持 unknown。
+                st = scored.token_usage
+                if (
+                    st.usage_known
+                    and jt.usage_known
+                    and st.input_tokens is not None
+                    and jt.input_tokens is not None
+                    and st.output_tokens is not None
+                    and jt.output_tokens is not None
+                ):
+                    st.input_tokens += jt.input_tokens
+                    st.output_tokens += jt.output_tokens
+                    st.total_tokens = (st.input_tokens or 0) + (st.output_tokens or 0)
+                    st.cost_usd = round((st.cost_usd or 0.0) + (jt.cost_usd or 0.0), 8)
 
     def _error_result(self, case, *, line_no: int | None, exc: BaseException) -> EvalResult:
         """单用例崩溃兜底：标记 failed + actual_status=error，堆栈进 report 与 trace。"""
@@ -808,12 +850,16 @@ class HarnessRunner:
             [r.retrieval_metrics for r in non_skipped if r.retrieval_metrics]
         )
 
-        # 成本 & token 汇总
+        # 成本 & token 汇总（P2.5 review 修复：unknown 的 None 不参与求和，不写成 0）
         total_cost = sum(
-            (r.token_usage.cost_usd if r.token_usage else 0.0) for r in non_skipped
+            (r.token_usage.cost_usd or 0.0)
+            for r in non_skipped
+            if r.token_usage and r.token_usage.cost_usd is not None
         )
         total_tokens = sum(
-            (r.token_usage.total_tokens if r.token_usage else 0) for r in non_skipped
+            (r.token_usage.total_tokens or 0)
+            for r in non_skipped
+            if r.token_usage and r.token_usage.total_tokens is not None
         )
 
         # 质量层汇总（judge 判定过才参与；quality_pass=None 的用例不计入分母）

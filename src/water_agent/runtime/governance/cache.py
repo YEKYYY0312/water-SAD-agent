@@ -177,6 +177,10 @@ class CacheKeyFactors(BaseModel):
     #: 主体 + 授权域，形如 ``<principal_hash>|<auth_domain>``。
     #: **必需**：禁止仅用 query 文本跨用户命中。
     principal_scope: str = Field(min_length=1)
+    #: 调用分类。legacy RAG（``RAG_GENERATION``）与 agentic（``AGENTIC_LOOP``）的最终
+    #: 回答语义不同（单次结构化 JSON vs 多轮工具调用），**不得跨分类互相命中**；
+    #: 这也是"新增失效维度必须改契约"的一次实例——分类隔离是缓存键的新因子。
+    category: CallCategory = CallCategory.RAG_GENERATION
     model: str = Field(min_length=1)
     temperature: float = Field(ge=0)
     #: 系统提示模板版本（`prompting/assembler.py::PROMPT_TEMPLATE_VERSION`）。
