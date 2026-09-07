@@ -1,7 +1,7 @@
 # 给排水 Agent
 
 面向给排水设计院的 AI Agent，覆盖 **规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计** 共五类能力。
-当前已交付 **P1/Step 0–10 工程机制**、**P2 结构化底座**（文档模板、材料统计与导出、HITL、自检、专项评测）与 **P2.5 治理基础**（限流、预算、可靠性、护栏、trace、检测器、缓存）。P2 的受限真实 LLM 润色已有 4 条样本证据；真实 RAG 质量、正式规范引用与 P3 DWG 自动抽取仍为 blocked，不能视为整体质量验收通过。
+当前已交付 **P1/Step 0–10 工程机制**、**P2 结构化底座**（文档模板、材料统计与导出、HITL、自检、专项评测）与 **P2.5 治理基础**（限流、预算、可靠性、护栏、trace、检测器、缓存）。**P3 图纸审查于 2026-09-07 启动**（DXF-first，规格见 `docs/design/13-p3-drawing-review.md`）。P2 的受限真实 LLM 润色已有 4 条样本证据；真实 RAG 质量、正式规范引用与 P3 图纸自动抽取仍为 blocked，不能视为整体质量验收通过。
 
 ## 三条铁律
 
@@ -168,6 +168,8 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 - 真实检索矩阵虽已于 2026-09-04 重跑，但 70 条 query 存在 gold 泄漏；百炼 rerank 两组返回 403 `AccessDenied`，矩阵仍 blocked
 - GB50015-2019 等现有语料含非正式摘要/要点，`data/versions.json` 四本规范状态仍为 unknown；正式引用需核对出版标准与版本来源
 - P2 真实 docgen 4/4 只证明受限 prose 润色样本与确定性守卫；CLI docgen 的正式规范引用质量尚未验收
-- 材料统计目前输入结构化管段表；从 DWG 自动抽取依赖 P3，P3 尚未启动
+- 材料统计目前输入结构化管段表；从图纸自动抽取依赖 P3（2026-09-07 启动，Step 17 规格已交付，接缝是 `materials.PipeRun`）
+- **P3 DWG 直读 blocked**：本机无 ODA File Converter / libredwg，且转换需 `EXECUTE_SHELL`（构造期即被拒绝的危险能力），故 P3 只支持 DXF，`.dwg` 恒返回结构化 `DRAWING_UNSUPPORTED_FORMAT`
+- **P3 真实图纸未验证**：测试图纸由 ezdxf 程序化合成；真实设计院 DXF 含块参照/外部参照/非标图层，当前只证明解析管线与护栏正确
 - 无 DEEPSEEK_API_KEY 时离线闭环（CLI `--mock-generator`；harness 默认机制层 variant）完全可用
 - 语料扩容：`knowledge/` 下 221 个 md（40MB）尚未入库
