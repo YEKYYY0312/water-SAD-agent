@@ -51,12 +51,28 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import ConfigDict
 
 from water_agent.domain.citation import CitationClaim, enrich_claims, validate_citations
-from water_agent.domain.state import MAX_CITATION_RETRIES, STATUS_FAILED, STATUS_SUCCEEDED
+from water_agent.domain.state import (
+    MAX_CITATION_RETRIES,
+    STATUS_BLOCKED,
+    STATUS_FAILED,
+    STATUS_SUCCEEDED,
+)
 from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
+from water_agent.runtime.governance.binding import local_request_context
+from water_agent.runtime.governance.cache_service import AnswerCacheService
+from water_agent.runtime.governance.contracts import (
+    CallCategory,
+    RequestContext,
+)
+from water_agent.runtime.governance.pipeline import (
+    GuardrailPipeline,
+    default_guardrail_pipeline,
+)
 
 # 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
 RECURSION_LIMIT = 20
@@ -308,17 +324,91 @@ def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) 
         )
 
 
-def make_agent_loop(react_agent, holder: dict, trace: JsonTraceRecorder | None = None):
+def make_agent_loop(
+    react_agent,
+    holder: dict,
+    trace: JsonTraceRecorder | None = None,
+    *,
+    pipeline: GuardrailPipeline | None = None,
+    request_context: RequestContext | None = None,
+    cache_service: AnswerCacheService | None = None,
+    model_name: str = "",
+    temperature: float = 0.0,
+):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
 
     ``trace``：首次进入时 ``start``，每轮结束把 llm_call 记录刷进去（Step 10 观测）。
+
+    P2.5 接线（review 修复）：运行 react agent 前先对用户输入做护栏（注入/超长→blocked），
+    再在真正 provider 调用前做缓存 lookup（agentic 分类不可缓存，故只会 MISS/INELIGIBLE）。
     """
+    pipeline = pipeline if pipeline is not None else default_guardrail_pipeline()
+    if request_context is None:
+        request_context = local_request_context(thread_id="chat-agentic_loop")
+
+    def _record_guardrail(stage: str, outcome) -> None:
+        if trace is None:
+            return
+        try:
+            payload = outcome.trace_payload()
+            trace.record_guardrail_event(
+                stage=stage,
+                action=payload.get("action", ""),
+                rule_id=payload.get("rule_id", ""),
+                ruleset_version=payload.get("ruleset_version", ""),
+                code=payload.get("code"),
+                hits=payload.get("hits", []),
+                input_hash=trace.hash_input(outcome.content) if outcome.content else "",
+            )
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    def _record_cache(disposition) -> None:
+        if trace is None:
+            return
+        try:
+            trace.record_cache_event(
+                node="cache",
+                cache_status=disposition.status.value,
+                cache_key_hash=disposition.cache_key_hash,
+                reason=disposition.reason,
+                entry_age_seconds=disposition.entry_age_seconds,
+                eligible_for_store=disposition.eligible_for_store,
+            )
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
         query = state.get("query", "") or _first_human_text(state)
         if trace is not None and not trace.started:
             trace.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=query)
+
+        # 输入护栏（在 provider 调用与工具执行之前）
+        outcome = pipeline.check_user_input(query, request_context)
+        _record_guardrail("input", outcome)
+        if not outcome.allowed:
+            block_msg = f"输入未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
+            return {
+                "status": STATUS_BLOCKED,
+                "errors": list(state.get("errors", [])) + [block_msg],
+                "answer": "",
+            }
+
+        # 缓存 lookup（真正 provider 调用之前；agentic 分类不可缓存 → 只会 MISS/INELIGIBLE）
+        if cache_service is not None and model_name:
+            try:
+                disposition, _cached = cache_service.lookup(
+                    query=query,
+                    ctx=request_context,
+                    model=model_name,
+                    temperature=temperature,
+                    category=CallCategory.AGENTIC_LOOP,
+                )
+                _record_cache(disposition)
+            except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
+                pass
+
         try:
             result = react_agent.invoke(state, config=config)
             return dict(result)
@@ -484,8 +574,23 @@ def make_citation_validator(version_registry: Any | None = None):
     return citation_validator
 
 
-def make_finalize(trace: JsonTraceRecorder | None = None):
-    """finalize 节点：从最后一条 AI 消息提取 answer，保留最终 status；有 trace 则落盘。"""
+def make_finalize(
+    trace: JsonTraceRecorder | None = None,
+    *,
+    pipeline: GuardrailPipeline | None = None,
+    request_context: RequestContext | None = None,
+    cache_service: AnswerCacheService | None = None,
+    model_name: str = "",
+    temperature: float = 0.0,
+):
+    """finalize 节点：从最后一条 AI 消息提取 answer，保留最终 status；有 trace 则落盘。
+
+    P2.5 接线（review 修复）：输出护栏在最终返回/写 trace 之前执行；agentic 分类
+    不可缓存（``AGENTIC_LOOP``），写入资格恒 INELIGIBLE（fail closed）。
+    """
+    pipeline = pipeline if pipeline is not None else default_guardrail_pipeline()
+    if request_context is None:
+        request_context = local_request_context(thread_id="chat-agentic_loop")
 
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
         answer: str = ""
@@ -494,15 +599,95 @@ def make_finalize(trace: JsonTraceRecorder | None = None):
                 answer = m.content
                 break
         status = state.get("status", STATUS_FAILED)
+        errors = list(state.get("errors", []))
+
+        # 输入护栏已阻断：直接收口 blocked，不再跑输出护栏。
+        if status == STATUS_BLOCKED:
+            if trace is not None and trace.started:
+                trace.finish(
+                    status=STATUS_BLOCKED,
+                    error=errors[-1] if errors else None,
+                    citations=list(state.get("citations", [])),
+                    retry_count=int(state.get("retry_count", 0)),
+                )
+            return {"answer": "", "status": STATUS_BLOCKED}
+
+        # 输出护栏：仅在引用校验通过（succeeded）且有答案时执行；与引用校验组合。
+        if status == STATUS_SUCCEEDED and answer:
+            outcome = pipeline.check_output(
+                answer,
+                request_context,
+                citations_verified=True,
+                structured_output_ok=True,
+            )
+            if trace is not None:
+                try:
+                    payload = outcome.trace_payload()
+                    trace.record_guardrail_event(
+                        stage="output",
+                        action=payload.get("action", ""),
+                        rule_id=payload.get("rule_id", ""),
+                        ruleset_version=payload.get("ruleset_version", ""),
+                        code=payload.get("code"),
+                        hits=payload.get("hits", []),
+                        input_hash=trace.hash_input(outcome.content) if outcome.content else "",
+                    )
+                except Exception:  # noqa: BLE001, S110
+                    pass
+            if not outcome.allowed:
+                errors.append(
+                    f"输出未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
+                )
+                status = STATUS_BLOCKED
+                answer = ""
+            else:
+                answer = outcome.content
+
+            # 缓存写入资格：agentic 分类不可缓存（REASON_CATEGORY），恒 INELIGIBLE。
+            if cache_service is not None and model_name:
+                try:
+                    source_ids = [c.source_id for c in state.get("citations", [])]
+                    eligibility = cache_service.eligibility_for(
+                        category=CallCategory.AGENTIC_LOOP,
+                        temperature=temperature,
+                        citation_verified=True,
+                        output_guardrails_passed=outcome.allowed,
+                        answer=answer,
+                        source_ids=source_ids,
+                        ctx=request_context,
+                    )
+                    disposition = cache_service.store(
+                        query=state.get("query", "") or _first_human_text(state),
+                        ctx=request_context,
+                        model=model_name,
+                        temperature=temperature,
+                        answer=answer,
+                        source_ids=source_ids,
+                        eligibility=eligibility,
+                        category=CallCategory.AGENTIC_LOOP,
+                    )
+                    if trace is not None:
+                        try:
+                            trace.record_cache_event(
+                                node="cache",
+                                cache_status=disposition.status.value,
+                                cache_key_hash=disposition.cache_key_hash,
+                                reason=disposition.reason,
+                                eligible_for_store=disposition.eligible_for_store,
+                            )
+                        except Exception:  # noqa: BLE001, S110
+                            pass
+                except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
+                    pass
+
         if trace is not None and trace.started:
-            errors = list(state.get("errors", []))
             trace.finish(
                 status=status,
-                error=errors[-1] if (status == STATUS_FAILED and errors) else None,
+                error=errors[-1] if (status in (STATUS_FAILED, STATUS_BLOCKED) and errors) else None,
                 citations=list(state.get("citations", [])),
                 retry_count=int(state.get("retry_count", 0)),
             )
-        return {"answer": answer, "status": status}
+        return {"answer": answer, "status": status, "errors": errors}
 
     return finalize
 
@@ -516,6 +701,9 @@ def build_agentic_app(
     max_tool_turns: int = 10,
     version_registry: Any | None = None,
     trace: JsonTraceRecorder | None = None,
+    request_context: RequestContext | None = None,
+    pipeline: GuardrailPipeline | None = None,
+    cache_service: AnswerCacheService | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -528,12 +716,21 @@ def build_agentic_app(
     - ``version_registry``：版本注册表（Step 8）；缺省用 ``data/versions.json`` 单例，
       引用校验时把版本状态写回 ``CitationClaim.version_status``（未知只标记）；
     - ``trace``：可选 JsonTraceRecorder（Step 10 观测）：agent_loop 首次进入 ``start``，
-      每次模型响应记一条 ``llm_call``（token/cost/延迟/摘要），finalize ``finish`` 落盘。
+      每次模型响应记一条 ``llm_call``（token/cost/延迟/摘要），finalize ``finish`` 落盘；
+    - ``request_context`` / ``pipeline`` / ``cache_service``：P2.5 治理接线（review 修复），
+      缺省回落进程级默认实例（仍经治理层，不绕过）。
     """
     if checkpointer is None:
         raise ValueError("agentic 循环必须配置 checkpointer（thread_id 会话隔离）")
     if version_registry is None:
         version_registry = get_version_registry()
+
+    # 缓存只对真实受治理模型有意义（agentic 分类本身不可缓存，这里只是接线）。
+    cache_model_name = ""
+    cache_temperature = 0.0
+    if cache_service is not None and isinstance(model, GovernedChatModel):
+        cache_model_name = model._resolve_model_name()
+        cache_temperature = float(getattr(model, "temperature", 0.0) or 0.0)
 
     holder: dict[str, Any] = {"turns": 0}
     budget_model = _BudgetChatModel(inner=model, max_tool_turns=max_tool_turns, holder=holder)
@@ -552,12 +749,34 @@ def build_agentic_app(
     )
 
     graph = StateGraph(AgenticRAGState)
-    graph.add_node("agent_loop", make_agent_loop(react_agent, holder, trace))
+    graph.add_node(
+        "agent_loop",
+        make_agent_loop(
+            react_agent,
+            holder,
+            trace,
+            pipeline=pipeline,
+            request_context=request_context,
+            cache_service=cache_service,
+            model_name=cache_model_name,
+            temperature=cache_temperature,
+        ),
+    )
     graph.add_node("citation_validator", make_citation_validator(version_registry))
-    graph.add_node("finalize", make_finalize(trace))
+    graph.add_node(
+        "finalize",
+        make_finalize(
+            trace,
+            pipeline=pipeline,
+            request_context=request_context,
+            cache_service=cache_service,
+            model_name=cache_model_name,
+            temperature=cache_temperature,
+        ),
+    )
 
     def route_after_agent(state: AgenticRAGState) -> str:
-        if state.get("status") == STATUS_FAILED:
+        if state.get("status") in (STATUS_FAILED, STATUS_BLOCKED):
             return "finalize"
         return "citation_validator"
 

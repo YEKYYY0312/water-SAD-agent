@@ -30,6 +30,7 @@ from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.rag import build_rag_graph
+from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
 from water_agent.prompting.runtime_context import (
@@ -45,6 +46,11 @@ from water_agent.retrieval.rerank import (
     build_bailian_reranker,
 )
 from water_agent.retrieval.trivium import TriviumRetrievalError, TriviumRetriever
+from water_agent.runtime.governance.binding import (
+    default_gateway_with_sink,
+    local_request_context,
+)
+from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.session import (
     DEFAULT_SESSION_DIR,
     new_session_id,
@@ -121,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _embedding_for(db_path: Path) -> tuple[object, int]:
+def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:
     """按 db-path 推断维度并构建真实 embedding provider。"""
     dim = None
     if db_path.exists():
@@ -135,7 +141,9 @@ def _embedding_for(db_path: Path) -> tuple[object, int]:
             dim = None
     if dim is None:
         dim = 512
-    provider = build_embedding_provider(dimensions=dim)
+    provider = build_embedding_provider(
+        dimensions=dim, request_context=request_context, gateway=gateway
+    )
     return provider, dim
 
 
@@ -153,7 +161,9 @@ def _resolve_db_path(args: argparse.Namespace) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
+def _build_retriever(
+    args: argparse.Namespace, *, request_context=None, gateway=None
+) -> tuple[Retriever, str]:
     """装配检索器（不含 rerank）。返回 (retriever, db_path_or_empty)。
 
     legacy 图与 agentic 工具共用：真实库需真实 embedding（DASHSCOPE_API_KEY），
@@ -180,7 +190,7 @@ def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
         fallback_reason = "explicit mock_generator"
     else:
         # 真实库需要真实 embedding 做 query 向量（维度须与库一致）
-        provider, detected = _embedding_for(db_path)
+        provider, detected = _embedding_for(db_path, request_context=request_context, gateway=gateway)
         if args.dimensions is None:
             dim = detected
         embedding_fn = provider.embed  # type: ignore[attr-defined]
@@ -198,7 +208,7 @@ def _build_retriever(args: argparse.Namespace) -> tuple[Retriever, str]:
     return retriever, str(db_path)
 
 
-def _build_reranker(args: argparse.Namespace):
+def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=None):
     if args.rerank == "local":
         return LocalReranker()
     if args.rerank == "bailian":
@@ -206,16 +216,43 @@ def _build_reranker(args: argparse.Namespace):
             api_key=args.rerank_api_key,
             model=args.rerank_model or BailianReranker.DEFAULT_MODEL,
             base_url=args.rerank_base_url or BailianReranker.DEFAULT_BASE_URL,
+            request_context=request_context,
+            gateway=gateway,
         )
     return None
 
 
-def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = None) -> tuple[object, Retriever, str]:
+def _build_cache_service(args: argparse.Namespace) -> AnswerCacheService:
+    """装配 RAG 精确回答缓存（P2.5 review 修复：接入主路径）。
+
+    当前 `data/versions.json` 4 本规范全 unknown，写入资格恒 INELIGIBLE（fail closed）；
+    lookup 仍会执行并记录 MISS/INELIGIBLE 事件。人工核实版本后自动解锁命中。
+    """
+    reranker = None if args.rerank == "none" else args.rerank
+    return AnswerCacheService(
+        embedding_model="qwen3.7-text-embedding",
+        dimensions=args.dimensions or 512,
+        top_k=args.top_k,
+        recall_top_k=args.recall_top_k,
+        reranker=reranker,
+        version_registry=get_version_registry(),
+    )
+
+
+def build_app(
+    *,
+    args: argparse.Namespace,
+    trace: JsonTraceRecorder | None = None,
+    request_context=None,
+    gateway=None,
+) -> tuple[object, Retriever, str]:
     """装配 检索(含 rerank) + 生成 + legacy RAG 图。返回 (app, retriever, db_path_or_empty).
 
     ``trace`` 传入图内 recorder，使检索/生成/引用校验等事件可被记录。
+    ``request_context`` / ``gateway`` 由本次 run 的稳定会话标识构造（P2.5 主体隔离），
+    为 ``None`` 时回落进程级默认主体（仍经 default_gateway，不绕过治理）。
     """
-    retriever, db_path = _build_retriever(args)
+    retriever, db_path = _build_retriever(args, request_context=request_context, gateway=gateway)
 
     generator: Generator
     if args.mock_generator:
@@ -230,15 +267,19 @@ def build_app(*, args: argparse.Namespace, trace: JsonTraceRecorder | None = Non
             model=args.model,
             base_url=args.base_url,
             system_prompt=system_prompt,
+            gateway=gateway,
+            request_context=request_context,
         )
 
     app = build_rag_graph(
         retriever,
         generator,
         trace=trace,
-        reranker=_build_reranker(args),
+        reranker=_build_reranker(args, request_context=request_context, gateway=gateway),
         top_k=args.top_k,
         recall_top_k=args.recall_top_k,
+        request_context=request_context,
+        cache_service=_build_cache_service(args) if not args.mock_generator else None,
     )
     return app, retriever, db_path
 
@@ -368,32 +409,54 @@ class AgenticSession:
 
     def __init__(self, args: argparse.Namespace, *, stack: ExitStack, thread_id: str | None = None) -> None:
         self.args = args
+        # P2.5 主体隔离：必须先创建 thread_id，再用它构造 RequestContext / GovernedChatModel /
+        # ToolRegistry 与图。否则所有 agentic 会话共享固定 thread_id（chat-agentic_loop）。
+        self.thread_id = thread_id or uuid4().hex
+        self.request_context = local_request_context(
+            thread_id=self.thread_id, request_id=f"req-{self.thread_id[:12]}"
+        )
+        self.recorder = JsonTraceRecorder(Path(args.trace_dir))
+        # P2.5 trace 接线：provider 治理事件写进当前会话的 trace（复用默认账本）。
+        self.gateway = default_gateway_with_sink(self.recorder.record_provider_event)
         api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
         self.model: BaseChatModel
         if args.mock_generator:
             self.model = _ScriptedAgenticModel()
         else:
             try:
-                self.model = build_chat_model(model=args.model, base_url=args.base_url, api_key_env=api_key_env)
+                self.model = build_chat_model(
+                    model=args.model,
+                    base_url=args.base_url,
+                    api_key_env=api_key_env,
+                    gateway=self.gateway,
+                    request_context_factory=lambda: self.request_context,
+                )
             except ValueError as exc:
                 raise ValueError(
                     f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
                     "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
                 ) from exc
         try:
-            retriever, self.db_path = _build_retriever(args)
+            retriever, self.db_path = _build_retriever(
+                args, request_context=self.request_context, gateway=self.gateway
+            )
         except ValueError as exc:
             raise ValueError(
                 f"{exc}。真实检索装配失败：需配置 DASHSCOPE_API_KEY（embedding）且索引可用；"
                 "或用 --mock-generator 走离线占位链路（fixture 回落，不要求 Key）"
             ) from exc
         self.retriever = retriever
-        reranker = _build_reranker(args)
+        reranker = _build_reranker(args, request_context=self.request_context, gateway=self.gateway)
         tool_retriever: Retriever = (
             RerankingRetriever(retriever, reranker, recall_top_k=args.recall_top_k) if reranker is not None else retriever
         )
 
-        registry = ToolRegistry()
+        # P2.5 Step 15 接线：ToolRegistry 传入当前 trace 与真实主体，使工具/护栏事件成对落盘，
+        # guardrail_bypass 检测器才能事后证明"这次执行确实过了护栏"。
+        registry = ToolRegistry(
+            principal=self.request_context.principal,
+            trace=self.recorder,
+        )
         registry.register(build_retrieve_clauses_tool(tool_retriever))
         registry.register(build_cite_clauses_tool())
         registry.register(calc_velocity_spec)
@@ -402,7 +465,6 @@ class AgenticSession:
 
         # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
         self.projection = RuntimeContextProjection()
-        self.thread_id = thread_id or uuid4().hex
         self.config = {"configurable": {"thread_id": self.thread_id}}
         saver = _build_chat_checkpointer(args.session_dir, stack)
         self.app = build_agentic_app(
@@ -410,6 +472,9 @@ class AgenticSession:
             tools=tools,
             checkpointer=saver,
             prompt=PromptAssembler(tool_registry=registry),  # callable：装配器按 state 动态生成 SystemMessage
+            trace=self.recorder,
+            request_context=self.request_context,
+            cache_service=_build_cache_service(args) if not args.mock_generator else None,
         )
 
     def ask(self, query: str) -> dict:
@@ -475,9 +540,16 @@ def run_once(query: str, *, args: argparse.Namespace) -> dict:
     if mode == "calc" or (mode == "auto" and detect_intent(query) == "calc"):
         return run_calc_once(query)
     recorder = JsonTraceRecorder(Path(args.trace_dir))
-    app, retriever, db_path = build_app(args=args, trace=recorder)
     run_id = uuid4().hex
     trace_id = uuid4().hex
+    # P2.5 主体隔离：用本次 run 的稳定标识构造 RequestContext，
+    # 传给生成器/embedding/rerank/图，避免所有会话共享固定 thread_id（如 legacy-rag）。
+    request_context = local_request_context(thread_id=run_id, request_id=f"req-{run_id[:12]}")
+    # P2.5 trace 接线：usage/budget/rate-limit/breaker/failure 事件写入当前 run 的 trace。
+    gateway = default_gateway_with_sink(recorder.record_provider_event)
+    app, retriever, db_path = build_app(
+        args=args, trace=recorder, request_context=request_context, gateway=gateway
+    )
     state = default_state(query=query, run_id=run_id, trace_id=trace_id)
     try:
         result: dict = app.invoke(state)  # type: ignore[attr-defined]

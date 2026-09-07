@@ -246,11 +246,21 @@ def default_gateway_for_embedding(config: BailianEmbeddingConfig) -> ProviderGat
     return gateway
 
 
-def build_embedding_provider(*, api_key: str | None = None, dimensions: int = DEFAULT_DIMENSIONS) -> BailianEmbeddingProvider:
+def build_embedding_provider(
+    *,
+    api_key: str | None = None,
+    dimensions: int = DEFAULT_DIMENSIONS,
+    request_context: RequestContext | None = None,
+    gateway: ProviderGateway | None = None,
+) -> BailianEmbeddingProvider:
     key = api_key if api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
-    return BailianEmbeddingProvider(BailianEmbeddingConfig(
-        api_key=key,
-        model=DEFAULT_MODEL,
-        dimensions=dimensions,
-        index_version=f"{DEFAULT_MODEL}__{dimensions}__curated-v1",
-    ))
+    return BailianEmbeddingProvider(
+        BailianEmbeddingConfig(
+            api_key=key,
+            model=DEFAULT_MODEL,
+            dimensions=dimensions,
+            index_version=f"{DEFAULT_MODEL}__{dimensions}__curated-v1",
+        ),
+        request_context=request_context,
+        gateway=gateway,
+    )

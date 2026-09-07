@@ -259,18 +259,24 @@ class LLMJudge:
         )
         response = llm.invoke(messages)
 
+        # P2.5 review 修复：provider 未返回 usage → usage_unknown（token/cost 为 None）。
         token_usage = None
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            meta = response.usage_metadata
-            input_tokens = getattr(meta, "input_tokens", 0) or 0
-            output_tokens = getattr(meta, "output_tokens", 0) or 0
-            from water_agent.generation.cost import estimate_deepseek_cost
-            token_usage = TokenUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=input_tokens + output_tokens,
-                cost_usd=estimate_deepseek_cost(input_tokens, output_tokens),
-            )
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            def _get(name: str):
+                return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+
+            input_tokens = _get("input_tokens")
+            output_tokens = _get("output_tokens")
+            if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+                from water_agent.generation.cost import estimate_deepseek_cost
+                token_usage = TokenUsage.known(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=estimate_deepseek_cost(input_tokens, output_tokens),
+                )
+            else:
+                token_usage = TokenUsage.unknown()
 
         if not hasattr(response, "content") or not response.content:
             raise ValueError("judge LLM returned empty response")

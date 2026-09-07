@@ -237,9 +237,18 @@ def build_bailian_reranker(
     model: str = BailianReranker.DEFAULT_MODEL,
     base_url: str = BailianReranker.DEFAULT_BASE_URL,
     transport: Any = None,
+    request_context: RequestContext | None = None,
+    gateway: ProviderGateway | None = None,
 ) -> BailianReranker:
     key = api_key if api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
-    return BailianReranker(api_key=key, model=model, base_url=base_url, transport=transport)
+    return BailianReranker(
+        api_key=key,
+        model=model,
+        base_url=base_url,
+        transport=transport,
+        request_context=request_context,
+        gateway=gateway,
+    )
 
 
 class RerankingRetriever(Retriever):
