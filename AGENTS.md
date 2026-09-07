@@ -3,7 +3,7 @@
 给排水领域 AI Agent 的构建约定。任何会话开工前先读本文件与 `docs/给排水agent改造任务书.md`。
 
 ## 项目是什么
-面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 DWG 自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，P2.5（缓存/限流/成本/护栏/检测器）的权威规格见 `docs/design/12-p2.5-production-governance.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。P2.5 Step 11–15 已交付：Step 14（分层护栏）见 `docs/design/p2.5-step-14-decision.md`，Step 15（治理评测与失败检测器）见 `docs/design/p2.5-step-15-decision.md`；护栏是**确定性正则规则集**，不是分类器，**必然存在未覆盖的改写变体**，不得声称"能拦住任意注入"。
+面向给排水设计院的 Agent，覆盖规范问答、水力计算、计算书/设计说明生成、图纸审查、材料统计。Step 0–10 的工程机制已交付；P2 的模板引擎、材料聚合与导出、HITL、自检、专项评测已落地。2026-09-04 的受限 docgen 真实 LLM 润色样本为 4/4，但真实 RAG 质量、正式规范引用、检索 gold 与 P3 图纸自动抽取仍未收口。P2 权威口径见 `docs/design/11-docgen-materials.md`，P2.5（缓存/限流/成本/护栏/检测器）的权威规格见 `docs/design/12-p2.5-production-governance.md`，最新质量证据见 `docs/evals/p2-quality-2026-09-04.md`。P2.5 Step 11–16 已交付：Step 14（分层护栏）见 `docs/design/p2.5-step-14-decision.md`，Step 15（治理评测与失败检测器）见 `docs/design/p2.5-step-15-decision.md`，Step 16（治理组件端到端接入主链路）见 `docs/design/p2.5-step-16-wiring-decision.md`；护栏是**确定性正则规则集**，不是分类器，**必然存在未覆盖的改写变体**，不得声称"能拦住任意注入"。P3（图纸读取与审查）于 2026-09-07 启动，权威规格见 `docs/design/13-p3-drawing-review.md`，**解析基线是 DXF，DWG 直读 blocked**（转换需 `EXECUTE_SHELL`，该能力构造期即被拒绝）。
 
 ## 三条铁律（不得违反）
 1. 计算类永远程序化校验，LLM 不参与数值运算。
@@ -50,7 +50,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
   - `scenarios.py` / `detectors.py` / `observability.py`（Step 15）：32 条离线治理场景（`data/eval/governance_p0.jsonl`，覆盖限流/预算/可靠性/护栏/trace/检测器/缓存十个面）；8 个基于 trace 的失败模式检测器（`guardrail_bypass`/`tool_misuse`/`cascading_errors`/`context_loss`/`hallucinated_action`/`success_hallucination`/`unverified_citation_after_cache`/`budget_bypass`，每个有 PAGE/TICKET 严重度与运维 runbook）；聚合指标与本地结构化告警（`delivery="local_event_only"`，**不假装已发送 PagerDuty/Slack**）。检测器**不得调用 LLM**（有 AST 静态断言），**不得只在崩溃时打标**（多数 Agent 故障产出看起来正常的输出）。未知值记 `None` 不记 `0.0`（同 `UsageRecord.usage_known` 纪律）。工具执行事件已接入 `ToolRegistry.invoke`，护栏事件已接入 `record_guardrail_event`，两者通过 `invocation_id` 配对供 `guardrail_bypass` 检测器判定。**残余缺口**：检测器尚未接进 CLI/runner 生产调用站点（trace 参数未传递）；告警路由未接外部投递通道；`check_memory_write` 未接 checkpointer；`materials/export.py` 未接护栏路径校验。
 
 ## 改动范围纪律
-- 本任务书共 Step -1…15，每步一个逻辑面，一步一 commit。
+- 本任务书共 Step -1…15，每步一个逻辑面，一步一 commit。P3 在任务书之外续编为 Step 17…22（Step 16 已被 P2.5 接线步占用），权威规格见 `docs/design/13-p3-drawing-review.md` §8。
 - P2.5 新增 Step 11…15；执行前必须读取 `docs/design/12-p2.5-production-governance.md` 中对应 Step 的 Skill/Prompt，并产出受任务书约束的决策记录。**已完成 Step 11（治理契约+威胁模型+接入清单）、Step 12（ProviderGateway：6/6 远程出口已接入限流/预算/超时/有界重试/熔断/usage 对账）、Step 13（精确回答缓存：机制完整，但当前语料版本全 unknown 故命中率为 0，且未接进 RAG 主路径）、Step 14（GuardrailPipeline：4/4 工具已接入，确定性正则规则集，红队数据集 33 条）与 Step 15（治理评测集 32 条，8 个失败检测器，聚合指标与本地告警）**；因此**仍不得声称项目具备生产级通用内容过滤或 P4 认证授权**。
 - 未完成功能用特性开关护住，不删旧路径。
 - 每步验收 = 该步"最小闭环验证"命令全部跑出预期且 `pytest` 不回退。
@@ -73,6 +73,10 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 - **真实 RAG 质量层 blocked**：2026-09-04 的 `rag_p1 --variant real --judge` 为机制判分 56/58、独立质量判定 36/58（62.07%），退出码 1；失败与低分项必须继续保留，不能写成通过。2026-09-03 的连接错误是历史阻塞证据，已被本次可运行但未达标的结果更新。
 - **真实检索矩阵 blocked**：2026-09-04 已重跑；none/local 四组虽为 Recall@1/5/10=1.0、MRR=1.0，但 70 条 query 与条文原文高度同构，属于泄漏 gold，不能建基线；两组百炼 rerank 为 HTTP 403 `AccessDenied`。
 - **正式规范引用 blocked**：docgen 真实润色样本使用显式 `FIX` 引用，只证明受限润色与守卫，不证明真实规范检索/正式条文引用质量。`data/versions.json` 的 GB50015-2019、GB50013-2018、GB50014-2021、GB50318-2017 均为 unknown；公告号、生效日期与来源待人工核实，核实后同步更新 `tests/test_version_registry.py::test_status_from_prod_json`。
-- **P3 依赖 blocked**：材料统计目前接收结构化管段表；从 DWG 自动抽取管段仍依赖 P3，P3 尚未启动。
+- **P3 依赖 blocked**：材料统计目前接收结构化管段表；从图纸自动抽取管段仍依赖 P3。P3 于 2026-09-07 启动（Step 17 规格已交付，权威规格 `docs/design/13-p3-drawing-review.md`），接缝是 `materials.PipeRun`，由 Step 21 语义映射产出。
+- **P3 DWG 直读 blocked**：本机无 ODA File Converter / libredwg（`ezdxf.addons.odafc.is_installed()` 实测 `False`），且转换需 `Capability.EXECUTE_SHELL` —— 该能力在 `Principal` 构造期即被拒绝，**故不可能做成模型可调用的工具**。`.dwg` 恒返回结构化 `DRAWING_UNSUPPORTED_FORMAT`，只能人工预先转 DXF。
+- **P3 真实图纸未验证 blocked**：全仓 0 个样例图纸，测试图纸由 ezdxf 程序化合成。真实设计院 DXF 含 INSERT 块参照、XREF 外部参照、非标图层命名与图纸空间视口；当前只证明解析管线与护栏正确，**不得声称**能处理真实图纸。
+- **P3 规则引擎条文支撑不足 blocked**：`GB50014-2021 5.2.10`（最小管径与最小设计坡度）、`5.2.13` **均不在语料库**；`GB50015-2019` 全库仅 9 条且 `4.7.1` 自述"非正式规范条文"。Step 21 的规则必须按规格 §6 分级标注（`formal_clause`/`informal_summary`/`engineering_practice`），缺正式条文者**不得声称"已按规范校验"**。
+- **护栏路径面已知缺口**：`GuardrailPipeline._looks_like_path` **不识别相对路径**（实测 `plan1.dxf`、`drawings/a.dxf` 的 `validate_tool_call` 返回 `allowed=True`）。它刻意保守以免误伤 `DN200/DN150`，**不能靠收紧正则修复**。新增任何直接收路径参数的工具必须在工具层自行做绝对路径校验，不得依赖护栏路径面；详见 `docs/design/p2.5-threat-model.md` §5 第 23 条与 `docs/design/p3-step-17-decision.md` D3。
 - `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` 非持久配置；无 Key 时结构化 SKIP，有 Key但网络或权限失败时记 blocked。
 - `src/water_agent/ingestion/semantic_audit.py` 的 OCR 符号集合已按同类 OCR 噪声字符集还原为 `[#|]{3,}|[?？]{1,}`（2026-09-04）；如需纳入其他乱码符号（如 ■▲◆…）在此扩展并同步测试与质检报告。
