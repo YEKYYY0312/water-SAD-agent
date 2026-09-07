@@ -311,19 +311,25 @@ class RealPolishTransport:
                 {"role": "user", "content": user},
             ]
         )
-        usage = getattr(response, "usage_metadata", None) or {}
-        if isinstance(usage, dict):
-            input_tokens = int(usage.get("input_tokens", 0) or 0)
-            output_tokens = int(usage.get("output_tokens", 0) or 0)
+        # P2.5 review 修复：provider 未返回 usage → usage_unknown（token/cost 为 None），
+        # 不填充 0、不用估算值冒充账单。
+        usage = getattr(response, "usage_metadata", None)
+        if not usage:
+            self.last_usage = TokenUsage.unknown()
         else:
-            input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-            output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
-        self.last_usage = TokenUsage(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=input_tokens + output_tokens,
-            cost_usd=estimate_deepseek_cost(input_tokens, output_tokens),
-        )
+            def _get(name: str):
+                return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+
+            input_tokens = _get("input_tokens")
+            output_tokens = _get("output_tokens")
+            if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+                self.last_usage = TokenUsage.known(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=estimate_deepseek_cost(input_tokens, output_tokens),
+                )
+            else:
+                self.last_usage = TokenUsage.unknown()
         content = getattr(response, "content", "")
         if not content:
             raise ValueError("润色 LLM 返回空响应")

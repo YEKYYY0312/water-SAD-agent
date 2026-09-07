@@ -297,10 +297,14 @@ def build_llm_generator(
     base_url: str = DEFAULT_BASE_URL,
     transport: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     system_prompt: str | None = None,
+    gateway: ProviderGateway | None = None,
+    request_context: RequestContext | None = None,
 ) -> LLMGenerator:
     key = api_key if api_key is not None else os.environ.get("DEEPSEEK_API_KEY", "")
     prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
     return LLMGenerator(
         LLMConfig(api_key=key, model=model, base_url=base_url, system_prompt=prompt),
         transport=transport,
+        gateway=gateway,
+        request_context=request_context,
     )

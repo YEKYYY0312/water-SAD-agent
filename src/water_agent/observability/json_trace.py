@@ -297,6 +297,43 @@ class JsonTraceRecorder:
             node=node, event="guardrail", query="", data=data, duration_ms=duration_ms
         )
 
+    def record_provider_event(self, record: Any) -> None:
+        """记录一次 provider 治理事件（P2.5 Step 15 review 修复：gateway → trace 接线）。
+
+        由 ``ProviderGateway.on_usage`` 回调调用。``UsageRecord`` 只含
+        ``principal_hash``（非 subject）、模型、分类、token/cost 与结果状态，
+        **不含 API Key / 原始输入 / PII**。
+
+        事件类型由 ``result_status`` 映射：
+        - ``ok`` / ``USAGE_UNKNOWN`` → ``usage``（usage_known=False 时 token 为 None，不写成 0）；
+        - ``RATE_LIMITED`` → ``rate_limit``；``BUDGET_EXCEEDED`` → ``budget``；
+        - ``CIRCUIT_OPEN`` → ``breaker``；其余失败 → ``failure``。
+
+        观测失败绝不影响主流程（gateway 的 ``_emit`` 已兜底）。
+        """
+        try:
+            data = record.model_dump(mode="json") if hasattr(record, "model_dump") else dict(record)
+        except Exception:  # noqa: BLE001
+            return
+        result_status = str(data.get("result_status", "ok") or "ok")
+        if result_status in ("ok", "USAGE_UNKNOWN"):
+            event_type = "usage"
+        elif result_status == "RATE_LIMITED":
+            event_type = "rate_limit"
+        elif result_status == "BUDGET_EXCEEDED":
+            event_type = "budget"
+        elif result_status == "CIRCUIT_OPEN":
+            event_type = "breaker"
+        else:
+            event_type = "failure"
+        self.record(
+            node="provider",
+            event=event_type,
+            query="",
+            duration_ms=float(data.get("latency_ms", 0.0) or 0.0),
+            data=data,
+        )
+
     @staticmethod
     def hash_input(text: str) -> str:
         """输入内容的稳定哈希，供 ``record_guardrail_event(input_hash=...)`` 使用。

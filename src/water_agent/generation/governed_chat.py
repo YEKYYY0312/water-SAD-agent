@@ -11,7 +11,7 @@ langchain（`tests/test_governance_contracts.py` 锁死这条），而本包装�
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -88,6 +88,11 @@ class GovernedChatModel(BaseChatModel):
     model_name_hint: str = ""
     gateway: ProviderGateway | None = None
     request_context: RequestContext | None = None
+    #: 会话级上下文工厂：由 CLI/runner 提供（如 ``AgenticSession`` 在创建 thread_id 后
+    #: 提供 ``lambda: local_request_context(thread_id=self.thread_id)``）。与固定
+    #: ``request_context`` 二选一；两者都未提供时回落**进程级默认主体**（仍经
+    #: default_gateway，不绕过治理，但主体未按会话隔离——仅测试/向后兼容路径）。
+    request_context_factory: Callable[[], RequestContext] | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -99,6 +104,8 @@ class GovernedChatModel(BaseChatModel):
     def _resolve_context(self) -> RequestContext:
         if self.request_context is not None:
             return self.request_context
+        if self.request_context_factory is not None:
+            return self.request_context_factory()
         return local_request_context(thread_id=f"chat-{self.category.value}")
 
     def _resolve_model_name(self) -> str:
@@ -152,6 +159,7 @@ class GovernedChatModel(BaseChatModel):
             model_name_hint=self._resolve_model_name(),
             gateway=self.gateway,
             request_context=self.request_context,
+            request_context_factory=self.request_context_factory,
         )
 
     def __getattr__(self, name: str) -> Any:
