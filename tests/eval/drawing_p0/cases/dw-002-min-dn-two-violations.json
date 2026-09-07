@@ -1,0 +1,31 @@
+{
+  "case_id": "dw-002-min-dn-two-violations",
+  "description": "两条排水管各 <300mm（DN150 / DN200）→ 逐条覆盖两个缺陷（分母为 2）",
+  "drawing": "dw-002-min-dn-two-violations.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "发现 2 条待核问题"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": [
+    {
+      "rule_id": "drain.min_diameter",
+      "handle": "33",
+      "segment_id": "DR-PIPE#33",
+      "layer": "DR-PIPE",
+      "evidence": "标注 DN150 钢筋混凝土（DN150 < 下限 DN300）"
+    },
+    {
+      "rule_id": "drain.min_diameter",
+      "handle": "35",
+      "segment_id": "DR-PIPE#35",
+      "layer": "DR-PIPE",
+      "evidence": "标注 DN200 PVC-U（DN200 < 下限 DN300）"
+    }
+  ]
+}

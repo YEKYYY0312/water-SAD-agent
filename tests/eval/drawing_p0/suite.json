@@ -1,0 +1,18 @@
+{
+  "suite": "drawing_p0",
+  "description": "图纸审查链路完整性 smoke 集（合成图纸，非真实样本，不可度量真实缺陷召回率）",
+  "spec_ref": "docs/design/13-p3-drawing-review.md §7/§8",
+  "real_samples": false,
+  "accepts_recall_gate": false,
+  "purpose": "验证 load→extract→map→check→report 子图管线的端到端完整性与判分口径；真实设计院图纸到手前不构成 P3 验收证据（规格 §9.2）",
+  "generator": "cases 由 tests/eval/drawing_p0/build_cases.py 程序化合成（ezdxf，R2010，$INSUNITS=6 米）",
+  "gold_format": "每张图一个 <drawing_id>.gold.json：{ drawing_id, expect_extraction_ok, defects: [{ rule_id, handle, layer, segment_id, evidence }] }；handle 是缺陷定位主键（DXF handle，生成时从重读文件取权威值）",
+  "scoring": "单 case 按 (rule_id, handle) 精确匹配（water_agent.harness.drawing_metrics）；聚合 defect_recall 的分母是 gold 缺陷总数；defect_recall 只作为报告级观测指标，本套件不设召回率门槛",
+  "spec_fields": {
+    "drawing_id": "图纸登记号 = 文件名（不含 .dxf）",
+    "declare_units": "false 时不写 $INSUNITS（测 unit_known=False 的未检查报告）",
+    "expect_extraction_ok": "false 表示该图应解析失败（坏文件）",
+    "drain_pipes": "排水管线 [{x1,y1,x2,y2,label}]，label 为图面标注文本",
+    "water_pipes": "给水对照管线（不参与排水规则判定）"
+  }
+}

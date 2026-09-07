@@ -1,0 +1,19 @@
+{
+  "case_id": "dw-007-unit-undeclared",
+  "description": "$INSUNITS 缺失（unit_known=False）→ 长度类检查未执行必须进报告",
+  "drawing": "dw-007-unit-undeclared.dxf",
+  "declare_units": false,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "未检查"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity",
+    "单位未声明"
+  ],
+  "expected_missing_inputs_contains": [
+    "drawing_unit"
+  ],
+  "defects": []
+}

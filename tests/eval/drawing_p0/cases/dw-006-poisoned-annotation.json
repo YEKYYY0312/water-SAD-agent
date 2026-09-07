@@ -1,0 +1,16 @@
+{
+  "case_id": "dw-006-poisoned-annotation",
+  "description": "DN400 合规管旁有投毒标注（写 DN2000）→ 不得据此报缺陷，管线仍审",
+  "drawing": "dw-006-poisoned-annotation.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "未检查"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": []
+}

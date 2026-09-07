@@ -1,0 +1,13 @@
+{
+  "case_id": "dw-005-water-supply-out-of-scope",
+  "description": "给水管 DN200（<300）不适用排水最小管径 → 无缺陷（规则作用域不误伤）",
+  "drawing": "dw-005-water-supply-out-of-scope.dxf",
+  "declare_units": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "均未发现问题"
+  ],
+  "expected_not_checked_contains": [],
+  "expected_missing_inputs_contains": [],
+  "defects": []
+}
