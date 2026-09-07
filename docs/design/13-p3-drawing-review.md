@@ -150,7 +150,7 @@ DrawingEntity
 | **类型** | 仅 `.dxf`；`.dwg` 显式拒绝 | BLOCK |
 | **大小** | `MAX_DRAWING_BYTES = 20 MiB` | BLOCK |
 | **路径** | 三层纵深防御（下述） | BLOCK |
-| **内容** | 逐图元 `check_retrieved_content` | **REDACT + 标记** |
+| **内容** | 逐图元 `check_retrieved_content` + `redact_text` | **REDACT + 标记** |
 
 **路径三层纵深防御**（针对已实测的护栏缺口）：
 
@@ -201,9 +201,23 @@ i=0.005           排水横管坡度 0.005~0.01
 
 ### 4.6 PII 与落盘
 
-图纸标注是 `p2.5-threat-model.md:51` 登记的**用户 PII 资产（A6）**。
-送模型前过 `pii_mode`（默认 REDACT）；落 trace/缓存前过
-`GuardrailPipeline.sanitize_for_persistence`（无条件脱敏，不看 `pii_mode`）。
+图纸标注是 `p2.5-threat-model.md:51` 登记的**用户 PII 资产（A6）**——
+业主联系人、电话写进图签是设计院的真实情况。
+
+**实测发现的机制事实**：`GuardrailPipeline` 的 `pii_mode` 只覆盖
+**input / output / 持久化**三面，**不覆盖检索面**（`check_retrieved_content`
+不做 PII 处理）。这对公开条文语料是合理的——那里没有用户 PII。
+
+因此**图纸解析器必须自己显式调用 `redact_text`**，不得指望检索面代劳。
+落 trace/缓存前仍过 `GuardrailPipeline.sanitize_for_persistence`
+（无条件脱敏，不看 `pii_mode`）。
+
+已实测：`业主联系人 张工 13812345678` → `业主联系人 张工 [REDACTED:PHONE]`，
+且 PII 正则自带工程单位护栏（`m/s`、`kPa`、`DN` 等不误伤），
+§4.5 的 7 个工程样本零误伤。
+
+**已知局限**（不得淡化）：PII 正则不覆盖带分隔符的手机号（`138-1234-5678`）
+与身份证号。这是既有规则集的局限，非 P3 引入；不得声称"能脱敏任意 PII"。
 
 ---
 
