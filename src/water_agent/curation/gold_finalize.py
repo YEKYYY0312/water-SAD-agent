@@ -16,6 +16,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+#: Gold 准入白名单：只允许可追溯到正式规范条文的规范进入正式 gold 集。
+#:
+#: **为何四本入库但只有三本进 gold？** GB50015-2019 全库 9 条**全部**自述
+#: 「本条目为联网整理的设计要点综述，非正式规范条文」（标题含「要点综述」9/9，
+#: 正文自述非正式 9/9），其他三本零条如此（实测 2026-09-08）。
+#:
+#: gold 集是检索质量的判分基准。把自述「非正式」的综述条目放进 gold，等于用非正式
+#: 内容定义「正确答案」——之后检索命中它算 Recall 成功，而那个「正确」本身不可追溯到
+#: 正式条文，直接冲撞铁律②（引用可追溯）。故刻意排除，直到其非正式状态改变。
+#:
+#: 这与**入库白名单**是两个不同门槛：`docs/09-next-steps.md:66` 的入库策略保留四本
+#: （含 GB50015），那管的是「能不能被检索」；本处管的是「能不能当 gold 判分基准」。
+#:
+#: **已知不一致**：`data/eval/rag_p1.jsonl` 有 6 条用例（rag-p1-0044…0049）的 gold
+#: 就是 GB50015 这些综述条目 —— 它们不经本流程固化、是手工写入的，且 rag_p1 本身
+#: 已 blocked（36/58 未达标）。待质量层收口时一并处理，现阶段不动以保持基线可比。
+#:
+#: 依据由 `tests/test_gold_finalize.py::test_gb50015_exclusion_rationale_reflects_corpus_reality`
+#: 锁死：若语料补入 GB50015 正式条文，该测试红灯提示重新评估本白名单。
+#: 修改本白名单须同步 `candidate_quality.py::ALLOWED_SPECS`。
 ALLOWED_SPECS = frozenset({"GB50013-2018", "GB50014-2021", "GB50318-2017"})
 MIN_GOLD = 50
 REVIEW_ACTIONS = frozenset({"approve", "edit", "reject"})
