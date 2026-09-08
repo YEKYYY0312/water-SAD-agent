@@ -225,6 +225,52 @@ def test_finalize_fails_when_under_50():
         assert not (base / "gold.jsonl").exists()
 
 
+def test_gb50015_exclusion_rationale_reflects_corpus_reality():
+    """GB50015-2019 不在 ALLOWED_SPECS：全库 9 条全部自述「非正式规范条文」。
+
+    本测试锁死这个事实——哪天语料里补入 GB50015 的正式条文，测试会红灯提示可以
+    重新评估 ALLOWED_SPECS 是否需要放开。在那之前，刻意排除 GB50015 是为了保证
+    gold 判分基准可追溯到正式规范（铁律②）。
+    """
+    from water_agent.curation.gold_finalize import ALLOWED_SPECS
+
+    curated = Path(__file__).resolve().parents[1] / "data" / "curated" / "clauses"
+    if not curated.exists():
+        pytest.skip("data/curated/clauses/ 不存在，跳过生产语料断言")
+
+    # 断言 GB50015 不在白名单
+    assert "GB50015-2019" not in ALLOWED_SPECS, "GB50015-2019 应当被排除（见 gold_finalize.py 注释）"
+
+    # 断言生产语料的 GB50015 全部自述非正式（这是排除的依据）
+    gb50015_path = curated / "GB50015-2019.jsonl"
+    if not gb50015_path.exists():
+        pytest.skip("GB50015-2019.jsonl 不存在")
+
+    records = [json.loads(line) for line in gb50015_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(records) > 0, "GB50015-2019.jsonl 应有至少一条记录"
+
+    informal_count = sum(1 for r in records if "非正式规范条文" in (r.get("text") or ""))
+    summary_count = sum(1 for r in records if "要点综述" in (r.get("title") or ""))
+
+    assert informal_count == len(records), (
+        f"GB50015-2019 全库应全部自述「非正式规范条文」（当前 {informal_count}/{len(records)}）。"
+        "若新增正式条文，则白名单排除理由失效 —— 重新评估 ALLOWED_SPECS 是否需要放开。"
+    )
+    assert summary_count == len(records), (
+        f"GB50015-2019 全库标题应全部含「要点综述」（当前 {summary_count}/{len(records)}）。"
+        "若新增正式条文，则白名单排除理由失效。"
+    )
+
+    # 断言其他三本规范不含此类自述（对比基线）
+    for spec in ["GB50013-2018", "GB50014-2021", "GB50318-2017"]:
+        spec_path = curated / f"{spec}.jsonl"
+        if not spec_path.exists():
+            continue
+        spec_records = [json.loads(line) for line in spec_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        spec_informal = sum(1 for r in spec_records if "非正式规范条文" in (r.get("text") or ""))
+        assert spec_informal == 0, f"{spec} 不应含自述「非正式规范条文」的条目（发现 {spec_informal}）"
+
+
 def test_manifest_reports_distribution_and_duplicates():
     with TemporaryDirectory() as tmp:
         base = Path(tmp)

@@ -6,6 +6,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+#: Gold 准入白名单：只允许可追溯到正式规范条文的规范进入候选集校验。
+#: 依据同 `gold_finalize.py::ALLOWED_SPECS` 的注释（GB50015-2019 全库 9 条全部
+#: 自述「非正式规范条文」，不可作为 gold 判分基准）。两处同步修改。
 ALLOWED_SPECS = frozenset({"GB50013-2018", "GB50014-2021", "GB50318-2017"})
 _PIPE_RE = re.compile(r"(DN\s*\d+|DE\s*\d+|[0-9]+(?:\.[0-9]+)?\s*(?:m|mm|m/s|m³|m3|L/s|mg/L|MPa))", re.IGNORECASE)
 
