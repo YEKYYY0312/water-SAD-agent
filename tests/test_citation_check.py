@@ -92,7 +92,11 @@ class TestVersionRegistryWiring:
         path = tmp_path / "versions.json"
         path.write_text(
             json.dumps(
-                [{"spec_id": "GB50015", "version": "2019", "status": "current", "source": "人工确认", "verified_at": "2026-09-03"}]
+                # 夹具须是一条**合法的已核实记录**：current 必须带 effective_date
+                # （2026-09-08 加固，缺它会被降级 unknown）。本组测的是引用校验接线，
+                # 不是核实纪律，所以补齐依据而不是放宽守卫。
+                [{"spec_id": "GB50015", "version": "2019", "status": "current",
+                  "effective_date": "2020-03-01", "source": "人工确认", "verified_at": "2026-09-03"}]
             ),
             encoding="utf-8",
         )
