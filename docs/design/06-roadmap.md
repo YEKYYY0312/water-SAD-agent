@@ -162,13 +162,39 @@
 ## P4 —— MCP 扩展（CAD/BIM + 企业库）
 **目标**：打通专业软件与企业数据。
 
+> **权威规格**：`docs/design/14-p4-mcp-gateway.md`。2026-09-08 启动（Step 23 地基）。
+
+- [x] **Step 23** 客户端网关地基：纯标准库 stdio JSON-RPC 客户端（无 `mcp` SDK——
+      `pypi.org` 实测不可达，无法安装）+ 版本化配置（`allow` 白名单 / `env_file`+`env`
+      显式注入 / `human_confirmation` 确认位）+ inputSchema 确定性子集 → pydantic
+      模型 + 描述投毒安检 + 治理绑定桥（`MCP_INVOKE` 能力默认无主体持有，
+      `inventory.register_mcp_tool_binding` 单一真源） + fake server 离线测试
+      （`tests/test_mcp_gateway.py` 17 条 + `tests/test_mcp_behaviors.py` 16 条）
+- [ ] **Step 24** 自研 MCP server 端：水力计算 + 规范库检索包装（`mcp/servers/`）
+- [ ] **Step 25** CLI/harness 接线 + 危险操作确认门（interrupt/HITL）+ 端到端验证
 - [ ] 接入专业 CAD/BIM（天正/Revit/中望）MCP
 - [ ] 接入企业知识库/数据库 MCP
-- [ ] 网关权限控制 + 危险操作确认
+- [ ] 网关权限控制 + 危险操作确认（Step 23 已交付**结构性拒绝**面：权限走
+      `MCP_INVOKE` + 白名单 + 主体授予两侧收敛；完整 HITL 确认门在 Step 25）
 
 **验收标准**
 - [ ] 至少接通 1 个 CAD/BIM 工具与 1 个企业数据源
+      **—— blocked**：本机无天正/Revit/中望与企业库端点；Step 23 的 fake server 是
+      **机制验证**（与 P3 合成图纸同纪律），**不构成验收证据**。
 - [ ] 写/危险操作需人工确认，权限可配置
+      —— 权限可配置面已交付（`MCP_INVOKE` + `allow` 白名单 + `Principal` 授予，
+      有测试锁死）；写/危险操作的人工确认门（interrupt → 人工批准 → resume）在
+      Step 25 接线，接线前 `human_confirmation=true` 的 server 一律不暴露
+      （`MCP_CONFIRMATION_UNAVAILABLE`，不假装已完成确认）
+
+**已知阻塞（不得淡化）**
+- [ ] **blocked：真实 server 未验证**。官方 `mcp` SDK 无法安装、无网络、无真实
+      第三方 server；Step 23 只与协议正确的本地 fake server 验证过往返
+      （协议骨架 + 全部治理语义），握手细节未与真实厂商实现对照。
+- [ ] **blocked：HTTP/SSE transport 未做**。远程 MCP 端点需 `NETWORK_FETCH` 类能力，
+      属 Step 26+。
+- [ ] **blocked：OAuth/外部认证未做**。`Principal.authenticated()` 仍无调用方；
+      "配置了 env/env_file" 不等于"已完成企业认证"。
 
 ---
 
