@@ -170,7 +170,9 @@
       模型 + 描述投毒安检 + 治理绑定桥（`MCP_INVOKE` 能力默认无主体持有，
       `inventory.register_mcp_tool_binding` 单一真源） + fake server 离线测试
       （`tests/test_mcp_gateway.py` 17 条 + `tests/test_mcp_behaviors.py` 16 条）
-- [ ] **Step 24** 自研 MCP server 端：水力计算 + 规范库检索包装（`mcp/servers/`）
+- [x] **Step 24** 自研 MCP server 端：水力计算 + 规范库检索包装（`mcp/servers/`）
+      + stdio JSON-RPC 直连验证（`MCPStdioClient` → `hydraulics_server`/`specs_server`，
+      `isError=true` 业务失败与 `GUARDRAIL_BLOCKED` 护栏全链路验证）
 - [ ] **Step 25** CLI/harness 接线 + 危险操作确认门（interrupt/HITL）+ 端到端验证
 - [ ] 接入专业 CAD/BIM（天正/Revit/中望）MCP
 - [ ] 接入企业知识库/数据库 MCP
