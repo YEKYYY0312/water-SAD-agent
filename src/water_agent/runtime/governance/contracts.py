@@ -183,6 +183,11 @@ class Capability(str, Enum):
     LLM_INFERENCE = "llm_inference"
     EMBEDDING = "embedding"
     RERANK = "rerank"
+    #: P4：调用 MCP server 上的**只读**远程工具（经 MCP 网关桥接为 ToolSpec）。
+    #: **不在** DEFAULT_LOCAL_CAPABILITIES 内 —— 默认没有主体持有它；只有装配期
+    #: 依据人工配置（mcp_servers.json）显式授予时才生效，这就是 P4「权限可配置」
+    #: 的落点。危险操作（写/破坏性）不走本能力，见 `requires_human_confirmation`。
+    MCP_INVOKE = "mcp_invoke"
     # 以下能力当前**没有任何主体被授予**（见 DEFAULT_LOCAL_CAPABILITIES），
     # 存在的意义是让 Step 14 的"默认拒绝"可被正例/反例测试覆盖。
     WRITE_FILE = "write_file"

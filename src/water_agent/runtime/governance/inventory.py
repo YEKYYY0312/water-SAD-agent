@@ -261,6 +261,66 @@ TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
 
 
 # ---------------------------------------------------------------------------
+# 运行时 MCP 绑定登记（P4 Step 23）
+# ---------------------------------------------------------------------------
+
+
+class McpToolBinding(BaseModel):
+    """一个 MCP 动态工具的治理登记项。
+
+    MCP 工具是**运行时**从 server 发现的，无法静态录入 ``TOOL_CAPABILITIES``
+    （那份清单 + 静态扫描的契约是"代码里声明的 ToolSpec == 清单"，MCP 工具不在
+    代码里声明）。但它们必须进**同一个** ``capability_for_tool`` 查询口 ——
+    否则护栏对 MCP 工具 fail closed 失效，或反过来出现"未登记即放行"的后门。
+
+    写入走 :func:`register_mcp_tool_binding`，只由 ``mcp/bridge.py`` 在装配期调用：
+    仅当 server 已配置、工具被 allowlist 收录、且无危险标记时才登记 ——
+    "工具出现在 server 上"本身不构成登记资格。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: 桥接后的工具名（``mcp_<server>_<tool>``，桥接层已保证唯一与 snake_case）。
+    tool_name: str = Field(min_length=1)
+    #: 所属 server 的稳定 id（配置里的 key）。
+    server_id: str = Field(min_length=1)
+    #: server 上的原始工具名。
+    remote_tool: str = Field(min_length=1)
+    capability: Capability
+    #: server 配置是否显式声明了该工具的写/危险操作需人工确认。
+    #: 桥接层据此把工具标记为 ``requires_human_confirmation``；未确认前调用
+    #: 一律被护栏拒绝（P4 验收"危险操作需人工确认"的登记面）。
+    requires_human_confirmation: bool = False
+
+
+#: 进程内 MCP 绑定登记。**只增不删**（进程生命周期内注册表不可被部分撤销，
+#: 避免出现"登记了桥接工具又摘掉登记"的窗口期）。测试用独立进程或
+#: ``clear_mcp_tool_bindings()``（后者仅供测试，生产代码不得调用）。
+_MCP_RUNTIME_BINDINGS: dict[str, McpToolBinding] = {}
+
+
+def register_mcp_tool_binding(binding: McpToolBinding) -> None:
+    """登记一个 MCP 动态工具绑定；重名拒绝（防同名校验被静默覆盖）。"""
+    existing = _MCP_RUNTIME_BINDINGS.get(binding.tool_name)
+    if existing is not None:
+        raise ValueError(
+            f"MCP 工具绑定 {binding.tool_name!r} 已登记（server={existing.server_id}）；"
+            "桥接层必须保证工具名全局唯一"
+        )
+    _MCP_RUNTIME_BINDINGS[binding.tool_name] = binding
+
+
+def mcp_tool_bindings() -> frozenset[McpToolBinding]:
+    """当前全部 MCP 绑定（只读视图，供测试与 governance_coverage 消费）。"""
+    return frozenset(_MCP_RUNTIME_BINDINGS.values())
+
+
+def clear_mcp_tool_bindings() -> None:
+    """清空 MCP 绑定登记。**仅供测试**（隔离进程级状态）；生产代码不得调用。"""
+    _MCP_RUNTIME_BINDINGS.clear()
+
+
+# ---------------------------------------------------------------------------
 # 静态扫描：让"新增未登记的出口/工具"成为可失败的测试，而不是靠人记得改文档
 # ---------------------------------------------------------------------------
 
@@ -334,7 +394,10 @@ def undeclared_tool_names() -> frozenset[str]:
 
 
 def capability_for_tool(tool_name: str) -> Capability:
-    """查询工具所需能力；未登记的工具 fail closed（抛 ``KeyError``）。
+    """查询工具所需能力；未登记 fail closed（抛 ``KeyError``）。
+
+    查询顺序：静态清单 ``TOOL_CAPABILITIES`` → 运行时 MCP 绑定登记
+    （``register_mcp_tool_binding``，P4 Step 23）。仍未命中 = 不可判定 = 拒绝。
 
     Step 14 的 ``GuardrailPipeline`` 用它在 ``ToolRegistry.invoke`` 前做能力校验：
     未登记 = 不可判定 = 拒绝，而不是"默认放行"。
@@ -342,9 +405,13 @@ def capability_for_tool(tool_name: str) -> Capability:
     for entry in TOOL_CAPABILITIES:
         if entry.tool_name == tool_name:
             return entry.required_capability
+    binding = _MCP_RUNTIME_BINDINGS.get(tool_name)
+    if binding is not None:
+        return binding.capability
     raise KeyError(
-        f"工具 {tool_name!r} 未在 runtime/governance/inventory.py 登记 capability；"
-        "新增工具必须先登记（fail closed，不得默认放行）"
+        f"工具 {tool_name!r} 未在 runtime/governance/inventory.py 登记；"
+        "静态工具必须在 TOOL_CAPABILITIES 声明，MCP 动态工具必须经 "
+        "register_mcp_tool_binding 登记（fail closed，不得默认放行）"
     )
 
 
@@ -374,11 +441,15 @@ __all__ = [
     "PROVIDER_CALL_SITES",
     "TOOL_CAPABILITIES",
     "TOOL_POLICY_VERSION",
+    "McpToolBinding",
     "ProviderCallSite",
     "ToolCapabilityEntry",
     "call_site",
     "capability_for_tool",
+    "clear_mcp_tool_bindings",
     "governance_coverage",
+    "mcp_tool_bindings",
+    "register_mcp_tool_binding",
     "registered_call_site_modules",
     "scan_remote_egress_modules",
     "scan_tool_spec_names",
