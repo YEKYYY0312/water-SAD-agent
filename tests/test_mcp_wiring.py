@@ -386,3 +386,100 @@ asyncio.run(main())
         env = child_env(cfg)
         assert "FOO" in env and env["FOO"] == "bar"
         assert "PATH" in env or "HOME" in env
+
+
+class TestManifestCacheInvalidation:
+    """Step 12 (A3-3): 补充 mcp_server_manifest 缓存失效测试。
+
+    验证 compute_manifest_hash() 作为缓存失效因子的完整性：
+    配置清单/白名单/超时/env/确认位任一变化 → hash 变化 → 缓存失效。
+    """
+
+    def test_manifest_hash_invalidates_on_server_addition(self) -> None:
+        """新增 server → manifest hash 变化"""
+        cfg_one = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv1", command="/bin/echo", allow=("drawing",)),),
+        )
+        cfg_two = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(
+                MCPServerConfig(server_id="srv1", command="/bin/echo", allow=("drawing",)),
+                MCPServerConfig(server_id="srv2", command="/usr/bin/env", allow=("entity",)),
+            ),
+        )
+        hash_one = compute_manifest_hash(cfg_one)
+        hash_two = compute_manifest_hash(cfg_two)
+        assert hash_one != hash_two, "新增 server 应导致 manifest hash 变化"
+
+    def test_manifest_hash_invalidates_on_allow_change(self) -> None:
+        """白名单变化 → manifest hash 变化"""
+        cfg_a = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",)),),
+        )
+        cfg_b = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing", "entity")),),
+        )
+        assert compute_manifest_hash(cfg_a) != compute_manifest_hash(cfg_b)
+
+    def test_manifest_hash_invalidates_on_command_change(self) -> None:
+        """命令变化 → manifest hash 变化"""
+        cfg_a = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",)),),
+        )
+        cfg_b = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv", command="/usr/bin/env", allow=("drawing",)),),
+        )
+        assert compute_manifest_hash(cfg_a) != compute_manifest_hash(cfg_b)
+
+    def test_manifest_hash_invalidates_on_env_change(self) -> None:
+        """环境变量显式值变化 → manifest hash 变化"""
+        cfg_a = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(
+                MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",), env={"KEY": "val1"}),
+            ),
+        )
+        cfg_b = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(
+                MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",), env={"KEY": "val2"}),
+            ),
+        )
+        assert compute_manifest_hash(cfg_a) != compute_manifest_hash(cfg_b)
+
+    def test_manifest_hash_invalidates_on_confirmation_flag(self) -> None:
+        """确认位变化 → manifest hash 变化"""
+        cfg_a = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(
+                MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",), human_confirmation=False),
+            ),
+        )
+        cfg_b = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(
+                MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",), human_confirmation=True),
+            ),
+        )
+        assert compute_manifest_hash(cfg_a) != compute_manifest_hash(cfg_b)
+
+    def test_manifest_hash_stable_when_unchanged(self) -> None:
+        """配置不变 → manifest hash 稳定（可用作缓存键）"""
+        cfg = MCPGatewayConfig(
+            version="p4-step23",
+            servers=(MCPServerConfig(server_id="srv", command="/bin/echo", allow=("drawing",)),),
+        )
+        hash_1 = compute_manifest_hash(cfg)
+        hash_2 = compute_manifest_hash(cfg)
+        assert hash_1 == hash_2, "同一配置的 manifest hash 应稳定"
+        assert hash_1 != "", "非空配置的 hash 应非空"
+
+    def test_manifest_hash_empty_for_disabled(self) -> None:
+        """功能关闭（空 servers）→ 空 hash（与"从未启用"同键）"""
+        cfg_empty = MCPGatewayConfig(version="p4-step23", servers=())
+        assert compute_manifest_hash(cfg_empty) == ""
