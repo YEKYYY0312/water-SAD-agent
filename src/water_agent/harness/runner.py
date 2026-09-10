@@ -98,7 +98,7 @@ EXIT_REAL_COMPONENTS_FAILED = 3
 _MCP_ASSEMBLY_CACHE: tuple[object, str, float] | None = None  # (assembly, config_path, config_mtime)
 
 
-def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
+def _get_or_create_mcp_assembly() -> object | None:
     """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。
 
     文件不存在 = 功能关闭（返回 None）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
@@ -751,7 +751,7 @@ class HarnessRunner:
         registry = base_registry  # 默认使用基础 registry
         # P4 Step 25：MCP 网关装配（装配期单入口，manifest hash 进 trace；单台故障不拖垮其余）。
         # 性能优化：使用模块级缓存避免每条用例重复 I/O
-        mcp_assembly = _get_or_create_mcp_assembly(trace=recorder)
+        mcp_assembly = _get_or_create_mcp_assembly()
         try:
             from water_agent.mcp.wiring import register_mcp_tools
             from water_agent.runtime.governance.contracts import Capability as _Cap
