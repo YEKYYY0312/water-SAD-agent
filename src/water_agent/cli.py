@@ -64,6 +64,12 @@ from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
+from water_agent.mcp.wiring import (
+    load_mcp_gateway,
+    open_gateway_sessions,
+    principal_with_mcp,
+    register_mcp_tools,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
@@ -416,6 +422,7 @@ class AgenticSession:
 
     def __init__(self, args: argparse.Namespace, *, stack: ExitStack, thread_id: str | None = None) -> None:
         self.args = args
+        self.stack = stack  # 保留 ExitStack 供 MCP 装配清理
         # P2.5 主体隔离：必须先创建 thread_id，再用它构造 RequestContext / GovernedChatModel /
         # ToolRegistry 与图。否则所有 agentic 会话共享固定 thread_id（chat-agentic_loop）。
         self.thread_id = thread_id or uuid4().hex
@@ -460,8 +467,31 @@ class AgenticSession:
 
         # P2.5 Step 15 接线：ToolRegistry 传入当前 trace 与真实主体，使工具/护栏事件成对落盘，
         # guardrail_bypass 检测器才能事后证明"这次执行确实过了护栏"。
+        # P4 Step 25：MCP 网关启用时，主体需被授予 MCP_INVOKE 能力（两把钥匙之一）。
+        base_principal = self.request_context.principal
+
+        # P4 Step 25：MCP 网关装配（配置 → 连接 → 桥接 → 注册）。
+        # 文件不存在 = 功能关闭（空装配）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
+        mcp_config = load_mcp_gateway()
+        mcp_assembly = open_gateway_sessions(mcp_config)
+        self.mcp_assembly = mcp_assembly  # 保留装配产物供 close() / --json 报告
+        stack.callback(mcp_assembly.close)  # 会话结束时关闭全部 MCP 子进程
+
+        # 有 MCP 工具暴露时，叠加 MCP_INVOKE 能力（规格 §3 权限模型）
+        principal = (
+            principal_with_mcp(base_principal.capabilities)
+            if mcp_assembly.exposed_tool_names
+            else base_principal.capabilities
+        )
+        from water_agent.runtime.governance.contracts import Principal
+        principal_obj = Principal(
+            subject_id=base_principal.subject_id,
+            capabilities=principal,
+            metadata=base_principal.metadata,
+        )
+
         registry = ToolRegistry(
-            principal=self.request_context.principal,
+            principal=principal_obj,
             trace=self.recorder,
         )
         registry.register(build_retrieve_clauses_tool(tool_retriever))
@@ -478,6 +508,11 @@ class AgenticSession:
         self.drawing_root_status = drawing_resolution
         if drawing_tool is not None:
             registry.register(drawing_tool)
+
+        # P4 Step 25：注册 MCP 桥接工具（装配产物 → ToolRegistry）
+        mcp_tool_names = register_mcp_tools(mcp_assembly, registry)
+        self.mcp_tool_names = mcp_tool_names  # 供 --json 报告
+
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
         # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
