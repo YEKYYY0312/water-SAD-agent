@@ -26,6 +26,7 @@ from water_agent.mcp.wiring import compute_manifest_hash, open_gateway_sessions,
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "data" / "mcp_servers.json"
 AUTOCAD_PY = Path("/Users/yaerken/autocad-mcp/.venv/bin/python")
+AUTOCAD_MCP_ROOT = Path("/Users/yaerken/autocad-mcp")
 
 
 @pytest.fixture(autouse=True)
@@ -69,14 +70,17 @@ class TestConfigWiring:
     def test_validate_dwg_version_accepts_none(self) -> None:
         import subprocess
 
+        if not AUTOCAD_PY.exists() or not (AUTOCAD_MCP_ROOT / "src").exists():
+            pytest.skip("autocad-mcp not available in this environment")
+
         code = (
-            "import sys; sys.path.insert(0, '/Users/yaerken/autocad-mcp/src'); "
+            f"import sys; sys.path.insert(0, '{AUTOCAD_MCP_ROOT / 'src'}'); "
             "from autocad_mcp.config import validate_dwg_version; "
             "print(validate_dwg_version(None)); print(validate_dwg_version('R2018')); "
             "print(validate_dwg_version('  acad2013  '))"
         )
         out = subprocess.check_output(
-            ["/Users/yaerken/autocad-mcp/.venv/bin/python", "-c", code], text=True
+            [str(AUTOCAD_PY), "-c", code], text=True
         )
         lines = [line.strip() for line in out.splitlines() if line.strip()]
         assert lines[0] == "ACAD2018"
@@ -194,6 +198,9 @@ class TestBridgeAndGuardrail:
         """Save_as_dwg with mocked odafc -> {format:DWG, version:ACAD2018} (ezdxf backend direct)."""
         import subprocess
 
+        if not AUTOCAD_PY.exists():
+            pytest.skip("autocad-mcp not available in this environment")
+
         code = """
 import sys, asyncio
 from unittest.mock import patch
@@ -216,7 +223,7 @@ async def main():
 asyncio.run(main())
 """
         out = subprocess.check_output(
-            ["/Users/yaerken/autocad-mcp/.venv/bin/python", "-c", code], text=True
+            [str(AUTOCAD_PY), "-c", code], text=True
         )
         assert "MOCKED_OK" in out
 
