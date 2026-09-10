@@ -108,6 +108,7 @@ class AnswerCacheService:
         recall_top_k: int,
         reranker: str | None = None,
         version_registry: Any = None,
+        mcp_server_manifest: str = "",
     ) -> None:
         self._cache = cache if cache is not None else default_answer_cache()
         self._corpus_version = combined_corpus_version(
@@ -117,6 +118,7 @@ class AnswerCacheService:
             top_k=top_k, recall_top_k=recall_top_k, reranker=reranker
         )
         self._version_registry = version_registry
+        self._mcp_server_manifest = mcp_server_manifest
 
     @property
     def corpus_version(self) -> str:
@@ -153,6 +155,7 @@ class AnswerCacheService:
             corpus_version=self._corpus_version,
             spec_version_digest=self._global_spec_digest(),
             retrieval_params=self._retrieval_params,
+            mcp_server_manifest=self._mcp_server_manifest,
         )
 
     def _global_spec_digest(self) -> str:

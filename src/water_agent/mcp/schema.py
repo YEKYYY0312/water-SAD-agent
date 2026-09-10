@@ -1,17 +1,22 @@
-"""MCP 工具 inputSchema → pydantic 参数模型 + 不可信描述安检（P4 Step 23）。
+"""MCP 工具 inputSchema → pydantic 参数模型 + 不可信描述安检（P4 Step 23/25）。
 
 schema 只支持**可确定性校验**的特性（规格 §4.3）：
 
 - 顶层 ``type == "object"`` + ``properties`` + 可选 ``required``；
-- 属性类型仅 ``string`` / ``integer`` / ``number`` / ``boolean``；
+- 属性类型仅 ``string`` / ``integer`` / ``number`` / ``boolean`` /
+  ``object``（自由 ``additionalProperties:true``）/ ``array``（自由 ``items``）；
 - 约束仅 ``minimum`` / ``maximum`` / ``minLength`` / ``maxLength`` /
   ``default`` / ``enum``（string 枚举）；
-- 其余特性（nested object/array、anyOf/oneOf/allOf、$ref、pattern…）→
+- 其余特性（oneOf/allOf、$ref、pattern…）→
   :class:`UnsupportedSchemaError`，该工具**不暴露**（fail closed，不猜语义）。
+- ``title`` / ``additionalProperties`` 仅为装饰性键，校验时忽略；
+- 可空形态 ``anyOf: [T, {"type":"null"}]``（FastMCP 为可选参数生成）→
+  归一化剥掉外层，直接用 ``T``。其他 anyOf/oneOf 仍拒绝——确定性优先。
 
-生成模型恒 ``extra="forbid"``：多传参数在 pydantic 层即被拒，与既有
-ToolSpec 纪律一致。``enum`` 用模型级校验，错误信息给出合法枚举值
-（防模型自造枚举值，Step 4 skill 的 enum 约束精神）。
+``object``（自由 dict）与 ``array``（自由 list）映射为宽松类型，**不深入**
+校验内部结构 —— 它们承载的是 ezdxf 头部无状态的 ``data``/``points`` 等
+"在哪里落笔"的自由参数，收敛到"能调"即可，安全仍由护栏与 ToolRegistry 兜底。
+生成模型恒 ``extra="forbid"``。
 
 工具描述（``tools/list`` 的 description 与 schema 内嵌 description）是
 **不可信文本**（工具投毒是 MCP 已公开攻击面）：:func:`ensure_description_safe`
@@ -32,18 +37,16 @@ from water_agent.mcp.errors import (
 )
 from water_agent.runtime.governance.rules import detect_injection, strip_invisible
 
-_SUPPORTED_TYPES = frozenset({"string", "integer", "number", "boolean"})
+_SUPPORTED_TYPES = frozenset({"string", "integer", "number", "boolean", "object", "array"})
+_FREE_OBJECT_TYPE = "object"
+_FREE_ARRAY_TYPE = "array"
 
-#: schema 里允许出现的键。任何未知键（哪怕语义可忽略，如 ``title``）
-#: 都判不支持 —— schema 语义靠猜是漏洞的形状。
 _ALLOWED_PROPERTY_KEYS = frozenset(
     {"type", "description", "minimum", "maximum", "minLength", "maxLength",
-     "default", "enum"}
+     "default", "enum", "title", "additionalProperties", "anyOf", "items"}
 )
-_ALLOWED_TOP_KEYS = frozenset({"type", "properties", "required"})
+_ALLOWED_TOP_KEYS = frozenset({"type", "properties", "required", "title", "additionalProperties"})
 
-#: server 自述进入 ToolSpec.description 的长度上限（ToolSpec 上限 1024，
-#: 骨架文案还要占额，给自述留 400 已足够语境；超出截断并标注）。
 _SERVER_DESC_MAX_CHARS = 400
 
 
@@ -69,17 +72,7 @@ def sanitize_description(description: str, *, max_chars: int = _SERVER_DESC_MAX_
 
 
 def ensure_description_safe(description: str, *, where: str = "工具描述") -> str:
-    """安检不可信描述：清洗 → 注入/泄漏检测。命中即抛，**不脱敏放行**。
-
-    返回清洗后的文本（供 ToolSpec.description 使用 —— 送进系统提示的必须是
-    清洗形态，而不是原文）。理由（决策记录 D2）：命中注入的描述若"脱敏后仍
-    暴露"，语义已被破坏（模型不知道工具干什么）；桥接层自补的说明又可能与
-    实际行为不符 —— 不如 fail closed。
-
-    Raises:
-        MCPError: ``code=MCP_DESCRIPTION_UNSAFE``；message 含 ``注入`` 便于
-            断言与排障，但**不含命中文本**（与护栏 trace 同纪律）。
-    """
+    """安检不可信描述：清洗 → 注入/泄漏检测。命中即抛，**不脱敏放行**。"""
     cleaned = sanitize_description(description)
     hits = detect_injection(cleaned)
     if hits:
@@ -92,20 +85,74 @@ def ensure_description_safe(description: str, *, where: str = "工具描述") ->
     return cleaned
 
 
+def _unwrap_nullable(schema: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """剥掉 FastMCP 的可空包装 ``anyOf: [T, {"type":"null"}]``。
+
+    只接受 **exactly** 可空形态：anyOf 长度 2 且其一为 ``{"type":"null"}``。
+    其他 anyOf（一选多、非 null）仍属不支持（fail closed）。
+    返回 (归一化后的 T 拷贝 + 外层 default/title/description 合并, was_nullable)。
+    """
+    if "anyOf" not in schema:
+        return dict(schema), False
+    allowed_outer = {"anyOf", "default", "title", "description"}
+    if set(schema.keys()) - allowed_outer:
+        raise UnsupportedSchemaError(
+            f"属性含 anyOf 但外层还有不支持的键 {sorted(set(schema.keys()) - allowed_outer)}"
+            "（只接受 anyOf 可空包装）"
+        )
+    any_of = schema["anyOf"]
+    if not isinstance(any_of, list) or len(any_of) != 2:
+        raise UnsupportedSchemaError("anyOf 只接受可空二选一形态（[T, {\"type\":\"null\"}]）")
+    branches = [b for b in any_of if isinstance(b, dict)]
+    if len(branches) != 2:
+        raise UnsupportedSchemaError("anyOf 分支必须是 object")
+    null_branch = next((b for b in branches if b.get("type") == "null" and set(b.keys()) <= {"type", "title"}), None)
+    if null_branch is None:
+        raise UnsupportedSchemaError("anyOf 只接受与 {\"type\":\"null\"} 的可空形态，其他 anyOf 不在支持子集")
+    typed_branch = next(b for b in branches if b is not null_branch)
+    merged: dict[str, Any] = dict(typed_branch)
+    if "default" in schema and "default" not in merged:
+        merged["default"] = schema["default"]
+    if "description" in schema and "description" not in merged:
+        merged["description"] = schema["description"]
+    if "title" in schema and "title" not in merged:
+        merged["title"] = schema["title"]
+    return merged, True
+
+
 def _validate_property_schema(name: str, schema: dict[str, Any]) -> None:
+    normalized, _ = _unwrap_nullable(schema)
+    schema = normalized
     unknown = set(schema) - _ALLOWED_PROPERTY_KEYS
     if unknown:
         raise UnsupportedSchemaError(
             f"属性 {name!r} 含不支持的 schema 键 {sorted(unknown)}"
-            "（schema 不在支持子集：只支持 type/description/minimum/maximum/"
-            "minLength/maxLength/default/enum）"
+            "（schema 不在支持子集）"
         )
     prop_type = schema.get("type")
     if prop_type not in _SUPPORTED_TYPES:
         raise UnsupportedSchemaError(
             f"属性 {name!r} 类型 {prop_type!r} 不在支持子集"
-            f"（仅支持 {sorted(_SUPPORTED_TYPES)}；nested/array 判不支持，不猜语义）"
+            f"（仅支持 {sorted(_SUPPORTED_TYPES)}）"
         )
+    if prop_type == _FREE_OBJECT_TYPE:
+        if "properties" in schema:
+            raise UnsupportedSchemaError(
+                f"属性 {name!r} 为 nested object（含 properties），不在支持子集"
+            )
+        if "additionalProperties" not in schema:
+            raise UnsupportedSchemaError(
+                f"属性 {name!r} 为 object 但缺 additionalProperties（只接受自由 object additionalProperties:true，不在支持子集）"
+            )
+        extra = set(schema) - {"type", "description", "title", "additionalProperties", "default"}
+        if extra:
+            raise UnsupportedSchemaError(f"自由 object 属性 {name!r} 含不支持的键 {sorted(extra)}")
+        return
+    if prop_type == _FREE_ARRAY_TYPE:
+        extra = set(schema) - {"type", "description", "title", "items", "default"}
+        if extra:
+            raise UnsupportedSchemaError(f"array 属性 {name!r} 含不支持的键 {sorted(extra)}")
+        return
     enum_values = schema.get("enum")
     if enum_values is not None:
         if prop_type != "string" or not isinstance(enum_values, list) or not enum_values:
@@ -176,8 +223,6 @@ def validate_input_schema(schema: Any) -> dict[str, Any]:
 
 
 class _EnumChecker:
-    """生成 enum 字段校验器（独立类避免闭包晚绑定陷阱）。"""
-
     def __init__(self, field_name: str, allowed: tuple[str, ...]) -> None:
         self.field_name = field_name
         self.allowed = allowed
@@ -194,12 +239,14 @@ class _EnumChecker:
 def _string_field(
     name: str, schema: dict[str, Any], required: bool
 ) -> tuple[tuple[Any, Any], _EnumChecker | None]:
+    schema, was_nullable = _unwrap_nullable(schema)
     raw_description = schema.get("description") or None
     description = sanitize_description(raw_description) if raw_description else None
     min_length = schema.get("minLength")
     max_length = schema.get("maxLength")
     enum_values = schema.get("enum")
     default = schema.get("default")
+    nullable = was_nullable or default is None
     if enum_values is not None:
         allowed = tuple(str(v) for v in enum_values)
         if default is not None and default not in allowed:
@@ -213,8 +260,10 @@ def _string_field(
         else:
             field_info = Field(description=description)
         return ((str, field_info), _EnumChecker(name, allowed))
-    if default is None and not required:
-        default = ""
+    if default is None and (not required or nullable):
+        default = "" if not nullable else None  # type: ignore[assignment]
+        if nullable:
+            return ((str | None, Field(description=description, default=None)), None)  # type: ignore[return-value]
     if default is not None:
         field_info = Field(
             description=description, default=default,
@@ -230,6 +279,7 @@ def _string_field(
 def _numeric_field(
     schema: dict[str, Any], required: bool, *, strict_int: bool
 ) -> tuple[Any, Any]:
+    schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
     description = sanitize_description(raw_description) if raw_description else None
     minimum = schema.get("minimum")
@@ -240,7 +290,10 @@ def _numeric_field(
         raise UnsupportedSchemaError("integer 属性的 default 必须是整数值")
     if default is not None and not isinstance(default, (int, float)):
         raise UnsupportedSchemaError(f"数值属性的 default 必须是数值，得到 {_type_name(default)}")
-    if default is None and not required:
+    nullable = was_nullable or default is None
+    if default is None and (not required or nullable):
+        if nullable:
+            return (field_type | None, Field(description=description, ge=minimum, le=maximum, default=None))  # type: ignore[return-value]
         default = 0
     if default is not None:
         field_info = Field(description=description, ge=minimum, le=maximum, default=default)
@@ -250,13 +303,16 @@ def _numeric_field(
 
 
 def _boolean_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
+    schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
     description = sanitize_description(raw_description) if raw_description else None
     default = schema.get("default")
     if default is not None and not isinstance(default, bool):
         raise UnsupportedSchemaError(f"boolean 属性的 default 必须是 bool，得到 {_type_name(default)}")
-    if default is None and not required:
-        default = False
+    if default is None and (not required or was_nullable):
+        default = False if not was_nullable else None  # type: ignore[assignment]
+        if was_nullable:
+            return (bool | None, Field(description=description, default=None))  # type: ignore[return-value]
     if default is not None:
         field_info = Field(description=description, default=default)
     else:
@@ -264,12 +320,26 @@ def _boolean_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
     return (bool, field_info)
 
 
-def build_args_model(tool_name: str, schema: Any) -> type[BaseModel]:
-    """把远程 inputSchema 编译为 pydantic 参数模型。
+def _free_object_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
+    schema, was_nullable = _unwrap_nullable(dict(schema))
+    raw_description = schema.get("description") or None
+    description = sanitize_description(raw_description) if raw_description else None
+    if was_nullable or not required:
+        return (dict | None, Field(description=description, default=None))  # type: ignore[return-value]
+    return (dict, Field(description=description))
 
-    Raises:
-        UnsupportedSchemaError: schema 含不支持的特性（调用方不暴露该工具）。
-    """
+
+def _free_array_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
+    schema, was_nullable = _unwrap_nullable(dict(schema))
+    raw_description = schema.get("description") or None
+    description = sanitize_description(raw_description) if raw_description else None
+    if was_nullable or not required:
+        return (list | None, Field(description=description, default=None))  # type: ignore[return-value]
+    return (list, Field(description=description))
+
+
+def build_args_model(tool_name: str, schema: Any) -> type[BaseModel]:
+    """把远程 inputSchema 编译为 pydantic 参数模型。"""
     validated = validate_input_schema(schema)
     properties = validated["properties"]
     required = set(validated.get("required", []))
@@ -277,8 +347,10 @@ def build_args_model(tool_name: str, schema: Any) -> type[BaseModel]:
     fields: dict[str, Any] = {}
     validators: dict[str, Any] = {}
     for name, prop_schema in properties.items():
-        prop_type = prop_schema.get("type")
-        is_required = name in required
+        normalized, was_nullable = _unwrap_nullable(dict(prop_schema))
+        prop_type = normalized.get("type")
+        # 如果是可空包装，从 required 集合中移除（anyOf nullable 语义修复）
+        is_required = name in required and not was_nullable
         if prop_type == "string":
             (annotation, field_info), checker = _string_field(str(name), prop_schema, is_required)
             if checker is not None:
@@ -287,8 +359,14 @@ def build_args_model(tool_name: str, schema: Any) -> type[BaseModel]:
             annotation, field_info = _numeric_field(prop_schema, is_required, strict_int=True)
         elif prop_type == "number":
             annotation, field_info = _numeric_field(prop_schema, is_required, strict_int=False)
-        else:
+        elif prop_type == "boolean":
             annotation, field_info = _boolean_field(prop_schema, is_required)
+        elif prop_type == "object":
+            annotation, field_info = _free_object_field(prop_schema, is_required)
+        elif prop_type == "array":
+            annotation, field_info = _free_array_field(prop_schema, is_required)
+        else:
+            raise UnsupportedSchemaError(f"属性 {name!r} 类型 {prop_type!r} 不在支持子集")
         fields[name] = (annotation, field_info)
 
     model = cast(
