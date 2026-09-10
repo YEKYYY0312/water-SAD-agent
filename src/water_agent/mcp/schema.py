@@ -246,7 +246,6 @@ def _string_field(
     max_length = schema.get("maxLength")
     enum_values = schema.get("enum")
     default = schema.get("default")
-    nullable = was_nullable or default is None
     if enum_values is not None:
         allowed = tuple(str(v) for v in enum_values)
         if default is not None and default not in allowed:
@@ -260,9 +259,9 @@ def _string_field(
         else:
             field_info = Field(description=description)
         return ((str, field_info), _EnumChecker(name, allowed))
-    if default is None and (not required or nullable):
-        default = "" if not nullable else None  # type: ignore[assignment]
-        if nullable:
+    if default is None and (not required or was_nullable):
+        default = "" if not was_nullable else None  # type: ignore[assignment]
+        if was_nullable:
             return ((str | None, Field(description=description, default=None)), None)  # type: ignore[return-value]
     if default is not None:
         field_info = Field(
@@ -290,9 +289,8 @@ def _numeric_field(
         raise UnsupportedSchemaError("integer 属性的 default 必须是整数值")
     if default is not None and not isinstance(default, (int, float)):
         raise UnsupportedSchemaError(f"数值属性的 default 必须是数值，得到 {_type_name(default)}")
-    nullable = was_nullable or default is None
-    if default is None and (not required or nullable):
-        if nullable:
+    if default is None and (not required or was_nullable):
+        if was_nullable:
             return (field_type | None, Field(description=description, ge=minimum, le=maximum, default=None))  # type: ignore[return-value]
         default = 0
     if default is not None:
