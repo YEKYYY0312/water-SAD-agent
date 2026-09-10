@@ -100,7 +100,10 @@ _MCP_CONFIG_PATH = REPO_ROOT / "data" / "mcp_servers.json"
 
 
 def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
-    """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。"""
+    """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。
+
+    文件不存在 = 功能关闭（返回 None）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
+    """
     global _MCP_ASSEMBLY_CACHE
 
     if not _MCP_CONFIG_PATH.exists():
@@ -118,14 +121,17 @@ def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
             return cached_assembly
 
     # 缓存未命中或配置已变化，重新装配
+    # 配置错误（MCP_CONFIG_INVALID / MCPError）必须上抛，不得静默降级为 None
+    from water_agent.mcp.errors import MCPError
+    from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
     try:
-        from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
         mcp_cfg = load_mcp_gateway()
         mcp_assembly = open_gateway_sessions(mcp_cfg)
         _MCP_ASSEMBLY_CACHE = (mcp_assembly, current_mtime)
         return mcp_assembly
-    except Exception:  # noqa: BLE001
-        return None
+    except MCPError:
+        # 配置/连接/协议错误：响亮失败，让调用方看到结构化错误
+        raise
 
 
 class RealComponentsError(RuntimeError):
