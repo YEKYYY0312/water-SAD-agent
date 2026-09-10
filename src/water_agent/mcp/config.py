@@ -30,6 +30,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -68,7 +69,7 @@ class MCPServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     server_id: str = Field(description="server 命名空间 id（本地工具名前缀来源）")
-    command: str = Field(min_length=1, description="可执行文件；list 形式 spawn，无 shell")
+    command: str = Field(min_length=1, description="可执行文件（配置可写 list，加载时归一化为 str+args）")
     args: tuple[str, ...] = Field(default=())
     transport: ServerTransport = ServerTransport.STDIO
     #: 内联环境变量（key=value，覆盖 env_file 的同名项）。显式给值才进子进程。
@@ -99,7 +100,14 @@ class MCPServerConfig(BaseModel):
 
     @field_validator("command")
     @classmethod
-    def _validate_command(cls, value: str) -> str:
+    def _validate_command(cls, value: str | list[str]) -> str:
+        # 归一化：list 形式取首元素作为 command（args 由 model_validator 处理）
+        if isinstance(value, list):
+            if not value:
+                raise ValueError("command list 不得为空")
+            value = value[0]
+        if not isinstance(value, str):
+            raise TypeError(f"command 必须是 str 或 list[str]，得到 {type(value).__name__}")
         if "\x00" in value or "\n" in value:
             raise ValueError("command 不得含 NUL 或换行")
         if value.strip() != value:
@@ -131,6 +139,23 @@ class MCPServerConfig(BaseModel):
                     f"env 的 key {name!r} 必须是大写环境变量名（如 PATH、HTTPS_PROXY）"
                 )
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_command_list(cls, data: Any) -> Any:
+        """归一化 command list 形式：[exec, ...args] → command=exec, args=(...args)。"""
+        if not isinstance(data, dict):
+            return data
+        cmd = data.get("command")
+        if isinstance(cmd, list) and cmd:
+            # list 形式：首元素是 command，剩余合并到 args
+            data = dict(data)
+            data["command"] = cmd[0]
+            existing_args = data.get("args", ())
+            if not isinstance(existing_args, (list, tuple)):
+                existing_args = ()
+            data["args"] = tuple(cmd[1:]) + tuple(existing_args)
+        return data
 
 
 class MCPGatewayConfig(BaseModel):
