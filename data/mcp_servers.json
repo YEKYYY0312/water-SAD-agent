@@ -1,5 +1,22 @@
 {
   "version": "p4-step23-2026-09-08",
   "confirmation_handler_ready": false,
-  "servers": []
+  "servers": [
+    {
+      "server_id": "autocad_mcp",
+      "command": "/Users/yaerken/autocad-mcp/.venv/bin/python",
+      "args": ["-m", "autocad_mcp.server"],
+      "transport": "stdio",
+      "allow": ["drawing", "entity", "layer", "block", "annotation", "pid", "view", "system"],
+      "human_confirmation": false
+    },
+    {
+      "server_id": "revit_python",
+      "command": "/Users/yaerken/revit-python/.venv/bin/python",
+      "args": ["-m", "revit_python.server"],
+      "transport": "stdio",
+      "allow": ["model", "element", "parameter", "view", "schedule", "export", "family"],
+      "human_confirmation": true
+    }
+  ]
 }
