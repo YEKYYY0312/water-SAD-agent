@@ -123,6 +123,11 @@ def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
         cached_assembly, cached_path, cached_mtime = _MCP_ASSEMBLY_CACHE
         if cached_path == str(config_path) and cached_mtime == current_mtime:
             return cached_assembly
+        # 配置已变化：关闭旧装配的子进程，避免资源泄漏
+        try:
+            cached_assembly.close()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001, S110
+            pass  # 关闭失败不阻塞重建，但已尽力清理
 
     # 缓存未命中或配置已变化，重新装配
     # 配置错误（MCP_CONFIG_INVALID / MCPError）必须上抛，不得静默降级为 None
@@ -136,6 +141,18 @@ def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
     except MCPError:
         # 配置/连接/协议错误：响亮失败，让调用方看到结构化错误
         raise
+
+
+def _cleanup_mcp_assembly_cache() -> None:
+    """清理模块级 MCP 装配缓存，关闭全部子进程（评测结束时调用）。"""
+    global _MCP_ASSEMBLY_CACHE
+    if _MCP_ASSEMBLY_CACHE is not None:
+        cached_assembly, _, _ = _MCP_ASSEMBLY_CACHE
+        try:
+            cached_assembly.close()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001, S110
+            pass
+        _MCP_ASSEMBLY_CACHE = None
 
 
 class RealComponentsError(RuntimeError):
@@ -1081,6 +1098,9 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, EvalLoadError, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
+    finally:
+        # P4 Step 25：评测结束时清理 MCP 装配缓存，关闭全部子进程
+        _cleanup_mcp_assembly_cache()
 
     output = {
         "ok": True,
