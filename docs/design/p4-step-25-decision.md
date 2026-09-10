@@ -59,9 +59,9 @@
 - `src/water_agent/mcp/config.py`（`command` list 归一）；
 - `src/water_agent/runtime/governance/cache.py` + `cache_service.py`（`mcp_server_manifest` 失效因子）；
 - `src/water_agent/cli.py`（`AgenticSession` 装配期接入 MCP 网关，`mcp_assembly` 存活期由 `ExitStack` 托、主体补发 `MCP_INVOKE`、摘要进 trace/`--json`）；
-- `src/water_agent/harness/runner.py`（`--variant real` agentic 路径同链路接入，摘要进每条用例 trace）；
+- `src/water_agent/harness/runner.py`（`--variant real` agentic 路径同链路接入，摘要进每条用例 trace；模块级缓存 `_MCP_ASSEMBLY_CACHE` 按配置路径+mtime 失效，配置变化时关闭旧装配避免资源泄漏，评测结束时 `_cleanup_mcp_assembly_cache()` 清理全部子进程）；
 - `data/mcp_servers.json`（模板：`autocad_mcp allow 8 + revit_python allow 7 + human_confirmation` 分流）；
-- `tests/test_mcp_wiring.py 19`（配置驱动、确认门、8 工具、save_as_dwg mock、护栏、投毒/unsupported/allowlist/capability fail closed、manifest hash、child_env 最小、DWG 版本小修）；
+- `tests/test_mcp_wiring.py` 包含 `TestManifestCacheInvalidation` 7 项缓存失效测试（配置驱动、确认门、8 工具、save_as_dwg mock、护栏、投毒/unsupported/allowlist/capability fail closed、manifest hash 完整性、child_env 最小、DWG 版本小修）；
 - `tests/test_mcp_behaviors.py` 的 `test_title_key_rejected` 随 D2 调整为"title 装饰性键可接受"（最小放松，见 D2）。
 
 验证（2026-09-10 实测，离线）：
