@@ -195,9 +195,8 @@ TOOL_MAP: dict[str, dict[str, Any]] = {t["name"]: t for t in TOOL_DEFS}
 
 
 def _send(obj: dict[str, Any]) -> None:
-    sys.stdout.write(
-        json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
-    )
+    from water_agent.mcp.protocol import encode_message
+    sys.stdout.write(encode_message(obj))
     sys.stdout.flush()
 
 
