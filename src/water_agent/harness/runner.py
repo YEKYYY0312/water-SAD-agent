@@ -737,7 +737,7 @@ class HarnessRunner:
                     # 先尝试注册 MCP 工具，只有成功注册后才发放能力（时序漏洞修复）
                     temp_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
                     tool_count = register_mcp_tools(mcp_assembly, temp_registry)
-                    if tool_count > 0:
+                    if tool_count:
                         # 只有成功注册工具后才更新主体能力
                         caps2 = frozenset(request_context.principal.capabilities) | {_Cap.MCP_INVOKE}
                         request_context = request_context.model_copy(update={"principal": request_context.principal.model_copy(update={"capabilities": caps2})})
