@@ -124,6 +124,7 @@ def _service(
     top_k: int = 5,
     recall_top_k: int = 20,
     reranker: str | None = None,
+    mcp_server_manifest: str = "",
 ) -> AnswerCacheService:
     return AnswerCacheService(
         cache=cache if cache is not None else InMemoryAnswerCache(),
@@ -133,6 +134,7 @@ def _service(
         recall_top_k=recall_top_k,
         reranker=reranker,
         version_registry=registry,
+        mcp_server_manifest=mcp_server_manifest,
     )
 
 
