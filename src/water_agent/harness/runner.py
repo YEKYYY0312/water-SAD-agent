@@ -95,29 +95,33 @@ DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
 EXIT_REAL_COMPONENTS_FAILED = 3
 
 # P4 Step 25 性能优化：模块级 MCP 装配缓存，避免评测时每条用例重复 I/O
-_MCP_ASSEMBLY_CACHE: tuple[object, float] | None = None  # (assembly, config_mtime)
-_MCP_CONFIG_PATH = REPO_ROOT / "data" / "mcp_servers.json"
+_MCP_ASSEMBLY_CACHE: tuple[object, str, float] | None = None  # (assembly, config_path, config_mtime)
 
 
 def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
     """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。
 
     文件不存在 = 功能关闭（返回 None）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
+    缓存键 = (实际读取的配置路径, mtime)，与 load_mcp_gateway() 的数据源一致。
     """
     global _MCP_ASSEMBLY_CACHE
 
-    if not _MCP_CONFIG_PATH.exists():
+    # 确定实际配置路径（与 load_mcp_gateway 逻辑一致：环境变量 → 默认路径）
+    from water_agent.mcp.config import default_config_path
+    config_path = default_config_path()
+
+    if not config_path.exists():
         return None
 
     try:
-        current_mtime = _MCP_CONFIG_PATH.stat().st_mtime
+        current_mtime = config_path.stat().st_mtime
     except OSError:
         return None
 
-    # 缓存命中且配置未变化
+    # 缓存命中且配置未变化（路径与 mtime 同时匹配）
     if _MCP_ASSEMBLY_CACHE is not None:
-        cached_assembly, cached_mtime = _MCP_ASSEMBLY_CACHE
-        if cached_mtime == current_mtime:
+        cached_assembly, cached_path, cached_mtime = _MCP_ASSEMBLY_CACHE
+        if cached_path == str(config_path) and cached_mtime == current_mtime:
             return cached_assembly
 
     # 缓存未命中或配置已变化，重新装配
@@ -127,7 +131,7 @@ def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
     try:
         mcp_cfg = load_mcp_gateway()
         mcp_assembly = open_gateway_sessions(mcp_cfg)
-        _MCP_ASSEMBLY_CACHE = (mcp_assembly, current_mtime)
+        _MCP_ASSEMBLY_CACHE = (mcp_assembly, str(config_path), current_mtime)
         return mcp_assembly
     except MCPError:
         # 配置/连接/协议错误：响亮失败，让调用方看到结构化错误
