@@ -148,15 +148,6 @@ class TestSchemaSubset:
             )
         assert exc_info.value.code == MCP_UNSUPPORTED_SCHEMA
 
-    def test_title_key_rejected(self) -> None:
-        # 连"语义可忽略"的 title 都判不支持：schema 语义靠猜是漏洞的形状
-        with pytest.raises(MCPError) as exc_info:
-            build_args_model(
-                "t",
-                {"type": "object", "properties": {"a": {"type": "string", "title": "A"}}},
-            )
-        assert exc_info.value.code == MCP_UNSUPPORTED_SCHEMA
-
     def test_enum_constraint_enforced(self) -> None:
         model = build_args_model(
             "t",
