@@ -87,6 +87,7 @@ def _cache_service(
     *,
     cache: InMemoryAnswerCache | None = None,
     registry: object | None = None,
+    mcp_server_manifest: str = "",
 ) -> AnswerCacheService:
     return AnswerCacheService(
         cache=cache if cache is not None else InMemoryAnswerCache(),
@@ -96,6 +97,7 @@ def _cache_service(
         recall_top_k=20,
         reranker=None,
         version_registry=registry if registry is not None else _KnownRegistry(),
+        mcp_server_manifest=mcp_server_manifest,
     )
 
 

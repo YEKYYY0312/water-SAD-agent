@@ -107,6 +107,10 @@ def _load_clauses() -> list[dict[str, Any]]:
                         continue
                     obj = json.loads(line)
                     if "spec_id" in obj and "article" in obj:
+                        # P4 Step 25 性能优化：预计算 bigram 避免每次检索重复计算
+                        text = f"{obj.get('title', '')} {obj.get('text', '')} {obj.get('article', '')}".lower()
+                        obj["_bigrams"] = {text[i : i + 2] for i in range(len(text) - 1)} if len(text) > 1 else set()
+                        obj["_text_lower"] = text
                         clauses.append(obj)
             except (OSError, json.JSONDecodeError) as exc:
                 print(f"[specs_server] 跳过 {filepath}: {exc}", file=sys.stderr)
@@ -125,11 +129,12 @@ def _score(query: str, clause: dict[str, Any]) -> int:
     q = query.lower().strip()
     if not q:
         return 0
-    text = f"{clause.get('title', '')} {clause.get('text', '')} {clause.get('article', '')}".lower()
+    # 使用预计算的 bigram 和 text_lower（性能优化）
+    text = clause.get("_text_lower", "")
     if len(q) < 2:
         return 5 if q in text else 0
     q_grams = {q[i : i + 2] for i in range(len(q) - 1)}
-    t_grams = {text[i : i + 2] for i in range(len(text) - 1)}
+    t_grams = clause.get("_bigrams", set())
     overlap = len(q_grams & t_grams)
     return overlap + (5 if q in text else 0)
 
@@ -233,7 +238,8 @@ _DISPATCH: dict[str, Any] = {
 
 
 def _send(obj: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
+    from water_agent.mcp.protocol import encode_message
+    sys.stdout.write(encode_message(obj))
     sys.stdout.flush()
 
 

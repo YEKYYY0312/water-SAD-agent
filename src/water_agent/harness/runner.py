@@ -94,6 +94,39 @@ DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
 #   0 全部通过或全部 SKIP；1 有用例失败；2 评测集加载问题；3 有 Key 但真实组件构建失败
 EXIT_REAL_COMPONENTS_FAILED = 3
 
+# P4 Step 25 性能优化：模块级 MCP 装配缓存，避免评测时每条用例重复 I/O
+_MCP_ASSEMBLY_CACHE: tuple[object, float] | None = None  # (assembly, config_mtime)
+_MCP_CONFIG_PATH = REPO_ROOT / "data" / "mcp_servers.json"
+
+
+def _get_or_create_mcp_assembly(trace: object | None = None) -> object | None:
+    """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。"""
+    global _MCP_ASSEMBLY_CACHE
+
+    if not _MCP_CONFIG_PATH.exists():
+        return None
+
+    try:
+        current_mtime = _MCP_CONFIG_PATH.stat().st_mtime
+    except OSError:
+        return None
+
+    # 缓存命中且配置未变化
+    if _MCP_ASSEMBLY_CACHE is not None:
+        cached_assembly, cached_mtime = _MCP_ASSEMBLY_CACHE
+        if cached_mtime == current_mtime:
+            return cached_assembly
+
+    # 缓存未命中或配置已变化，重新装配
+    try:
+        from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
+        mcp_cfg = load_mcp_gateway()
+        mcp_assembly = open_gateway_sessions(mcp_cfg)
+        _MCP_ASSEMBLY_CACHE = (mcp_assembly, current_mtime)
+        return mcp_assembly
+    except Exception:  # noqa: BLE001
+        return None
+
 
 class RealComponentsError(RuntimeError):
     """有 Key 但真实组件（索引/embedding/模型/judge）构建失败——是失败，不是 SKIP。"""
@@ -678,17 +711,54 @@ class HarnessRunner:
             self._real_chat_model.request_context = request_context
         if hasattr(self._real_chat_model, "gateway"):
             self._real_chat_model.gateway = gateway
-        registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-        registry.register(build_retrieve_clauses_tool(retriever))
-        registry.register(build_cite_clauses_tool())
-        registry.register(calc_velocity_spec)
-        registry.register(material_stats_spec)
-        # P3 Step 20：与 CLI 同一条策略（共用 maybe_build_read_drawing_tool）——
-        # DRAWING_ROOT 不可用就不暴露图纸工具。评测环境通常没配 DRAWING_ROOT，
-        # 此时工具集与 P2 一致，既有用例不受影响。
+        # 先创建带本地工具的基础 registry（异常恢复路径保留本地工具）
+        base_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
+        base_registry.register(build_retrieve_clauses_tool(retriever))
+        base_registry.register(build_cite_clauses_tool())
+        base_registry.register(calc_velocity_spec)
+        base_registry.register(material_stats_spec)
         drawing_tool, _ = maybe_build_read_drawing_tool()
         if drawing_tool is not None:
-            registry.register(drawing_tool)
+            base_registry.register(drawing_tool)
+
+        registry = base_registry  # 默认使用基础 registry
+        # P4 Step 25：MCP 网关装配（装配期单入口，manifest hash 进 trace；单台故障不拖垮其余）。
+        # 性能优化：使用模块级缓存避免每条用例重复 I/O
+        mcp_assembly = _get_or_create_mcp_assembly(trace=recorder)
+        try:
+            from water_agent.mcp.wiring import register_mcp_tools
+            from water_agent.runtime.governance.contracts import Capability as _Cap
+            if mcp_assembly is not None:
+                try:
+                    recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.summary())  # type: ignore[arg-type]
+                except Exception:  # noqa: BLE001, S110
+                    pass
+                if mcp_assembly.sessions:  # type: ignore[attr-defined]
+                    # 先尝试注册 MCP 工具，只有成功注册后才发放能力（时序漏洞修复）
+                    temp_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
+                    tool_count = register_mcp_tools(mcp_assembly, temp_registry)
+                    if tool_count > 0:
+                        # 只有成功注册工具后才更新主体能力
+                        caps2 = frozenset(request_context.principal.capabilities) | {_Cap.MCP_INVOKE}
+                        request_context = request_context.model_copy(update={"principal": request_context.principal.model_copy(update={"capabilities": caps2})})
+                        # 主体能力更新后重建 registry（护栏按新主体校验），再把所有工具注进去
+                        new_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
+                        new_registry.register(build_retrieve_clauses_tool(retriever))
+                        new_registry.register(build_cite_clauses_tool())
+                        new_registry.register(calc_velocity_spec)
+                        new_registry.register(material_stats_spec)
+                        drawing_tool2, _ = maybe_build_read_drawing_tool()
+                        if drawing_tool2 is not None:
+                            new_registry.register(drawing_tool2)
+                        register_mcp_tools(mcp_assembly, new_registry)
+                        # 只有全部成功后才切换到新 registry（异常恢复时保留 base_registry）
+                        registry = new_registry
+        except Exception as exc:  # noqa: BLE001
+            # 异常时 registry 仍是 base_registry（带本地工具）
+            try:
+                recorder.record(node="mcp", event="mcp_assembly_error", data={"error": str(exc)[:400]})
+            except Exception:  # noqa: BLE001, S110
+                pass
         tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
 
         started = time.perf_counter()
