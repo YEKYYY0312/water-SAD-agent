@@ -330,17 +330,44 @@ class PlannedEntity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False)
 
     entity_id: str = Field(min_length=1)
+    #: 图元直接取值的上游产物。P0 图元均来自 DesignPackage，不能由模型自报来源。
+    source_artifact_id: str = Field(min_length=1, max_length=64)
     segment_id: str | None = None
     kind: Literal["line", "polyline", "text", "mtext"]
     layer: str = Field(min_length=1)
     points: list[tuple[float, float]] = Field(default_factory=list)
     text: str = ""
+    #: 图元级设计快照。对有 segment_id 的图元必须完整，供跨产物逐项对账。
+    system: Literal["water_supply", "drainage", "fire_protection"] | None = None
+    dn_mm: int | None = None
+    material: str | None = None
+
+    @field_validator("source_artifact_id")
+    @classmethod
+    def _validate_source_artifact_id(cls, v: str) -> str:
+        if not _ARTIFACT_ID_RE.match(v):
+            raise ValueError(f"source_artifact_id must match {_ARTIFACT_ID_RE.pattern!r}")
+        return v
+
+    @field_validator("dn_mm")
+    @classmethod
+    def _validate_dn(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            raise ValueError("dn_mm must be >0 when provided")
+        return v
 
     @model_validator(mode="after")
     def _check_finite(self) -> PlannedEntity:
         for x, y in self.points:
             if not math.isfinite(x) or not math.isfinite(y):
                 raise ValueError(f"points must be finite, got {(x, y)!r}")
+        if self.segment_id is None:
+            if any(value is not None for value in (self.system, self.dn_mm, self.material)):
+                raise ValueError("entities without segment_id cannot carry segment design fields")
+        elif self.system is None or self.dn_mm is None or not self.material:
+            raise ValueError(
+                "entities with segment_id require system, dn_mm and material from the source artifact"
+            )
         return self
 
 
@@ -354,6 +381,9 @@ class DrawingPlan(BaseModel):
     source_design_artifact_id: str = Field(min_length=1)
     source_calc_artifact_id: str = Field(min_length=1)
     integration_conflicts: list[str] = Field(default_factory=list)
+    missing_inputs: list[str] = Field(default_factory=list)
+    #: Drawing Agent 复用既有 docgen/materials 的真实输出或结构化受阻信息。
+    output_adaptations: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("insunits")
     @classmethod
@@ -361,6 +391,16 @@ class DrawingPlan(BaseModel):
         if v == 0:
             raise ValueError("insunits must be explicit, 0 (unitless) is forbidden")
         return v
+
+    @model_validator(mode="after")
+    def _validate_entity_sources(self) -> DrawingPlan:
+        for entity in self.entities:
+            if entity.source_artifact_id != self.source_design_artifact_id:
+                raise ValueError(
+                    "PlannedEntity.source_artifact_id must equal "
+                    "DrawingPlan.source_design_artifact_id"
+                )
+        return self
 
 
 class DrawingPackage(BaseModel):
@@ -371,6 +411,9 @@ class DrawingPackage(BaseModel):
     staged_file_id: str | None = None
     final_file_id: str | None = None
     roundtrip_review: dict[str, Any] | None = None
+    staged_file_verified: bool = False
+    p3_pipeline_executed: bool = False
+    unresolved_items: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
