@@ -17,12 +17,8 @@ from water_agent.harness.multi_agent_metrics import compute_multi_agent_metrics,
 
 try:
     from water_agent.multi_agent.agents.design import build_design_package, run_design_agent
-    from water_agent.multi_agent.agents.drawing import build_drawing_package
     from water_agent.multi_agent.agents.hydraulic import run_hydraulic_agent
-    from water_agent.multi_agent.drawing_executor import (
-        render_drawing_plan_to_staging,
-        verify_roundtrip,
-    )
+    from water_agent.multi_agent.drawing_executor import stage_drawing_package
 except Exception:  # noqa: BLE001
     run_hydraulic_agent = None  # type: ignore[assignment]
     run_design_agent = None  # type: ignore[assignment]
@@ -151,7 +147,6 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
         drawing_env = None
         drawing_pkg_env = None
         roundtrip: dict[str, Any] | None = None
-        staged_path: str | None = None
 
         if case_id == "ma-p0-06":
             # insunits unknown -> simulate not_checked
@@ -208,23 +203,14 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
 
             plan_obj = _DP4.model_validate(drawing_env.payload)
             if not plan_obj.integration_conflicts:
-                os.makedirs(staging_dir, exist_ok=True)
                 file_id = f"dxf-{case_id.replace('-','')}"
                 try:
-                    staged_path = render_drawing_plan_to_staging(plan_obj, staging_dir=staging_dir, file_id=file_id)
-                    drawing_pkg_env = build_drawing_package(drawing_env, staged_file_id=file_id, preview_status="staged")
-                    # verify roundtrip
-                    rt = verify_roundtrip(staged_path, plan_obj)
-                    # attach roundtrip to package
-                    from water_agent.multi_agent.contracts import DrawingPackage as _DPkg
-
-                    pkg = _DPkg.model_validate(drawing_pkg_env.payload)
-                    pkg.roundtrip_review = rt
-                    new_payload2 = pkg.model_dump()
-                    new_hash2 = _cph(new_payload2)
-                    drawing_pkg_env = drawing_pkg_env.model_copy(update={"payload": new_payload2, "payload_hash": new_hash2})
+                    drawing_pkg_env = stage_drawing_package(
+                        drawing_env, staging_dir=staging_dir, file_id=file_id
+                    )
+                    rt = drawing_pkg_env.payload.get("roundtrip_review")
                     roundtrip = rt
-                    if rt.get("roundtrip_segment_recall", 0) < 1.0 and case_id == "ma-p0-04":
+                    if isinstance(rt, dict) and rt.get("roundtrip_segment_recall", 0) < 1.0 and case_id == "ma-p0-04":
                         detectors.append({"detector_id": "provenance_gap", "case_id": case_id})
                         trace_events.append(_sanitized_trace(case_id, "provenance_gap"))
                 except Exception as exc:  # noqa: BLE001
