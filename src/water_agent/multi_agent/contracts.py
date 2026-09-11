@@ -213,11 +213,17 @@ class CalcCase(BaseModel):
     outputs: dict[str, float] = Field(default_factory=dict)
     tool_invocation_id: str = Field(min_length=1)
     assumptions: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    status: Literal["verified", "missing_inputs", "failed"] = "verified"
 
     @model_validator(mode="after")
     def _check_finite(self) -> CalcCase:
         _check_finite_value(self.inputs)
         _check_finite_value(self.outputs)
+        if self.status == "verified" and not self.outputs:
+            raise ValueError("verified calc case must contain outputs")
+        if self.status != "verified" and self.outputs:
+            raise ValueError("failed or missing-input calc case must not contain outputs")
         return self
 
 

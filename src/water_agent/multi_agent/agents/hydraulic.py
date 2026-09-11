@@ -6,8 +6,6 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
-
 from water_agent.multi_agent.contracts import (
     ArtifactEnvelope,
     CalcCase,
@@ -16,29 +14,9 @@ from water_agent.multi_agent.contracts import (
     ProjectBrief,
     compute_payload_hash,
 )
-from water_agent.tools.hydraulics import run_calc
+from water_agent.tools.hydraulics import CalcResult, run_calc
 
 _SCHEMA_VERSION = "p4.5-2026-09-10"
-
-_FormulaLiteral = Literal[
-    "velocity",
-    "head_loss_darcy_weisbach",
-    "head_loss_hazen_williams",
-    "head_loss_shevelev",
-    "diameter",
-    "slope_manning",
-    "pump_head",
-]
-
-
-class _FormulaCheck(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    formula: _FormulaLiteral
-
-
-def _validate_formula(formula: str) -> None:
-    _FormulaCheck.model_validate({"formula": formula})
-
 
 def _tool_invocation_id(formula: str, inputs: dict[str, Any]) -> str:
     canonical = json.dumps(
@@ -51,58 +29,96 @@ def _tool_invocation_id(formula: str, inputs: dict[str, Any]) -> str:
     return f"hyd-{digest}"
 
 
-def _case_calc_id(case: HydraulicCaseRequest, project_id: str) -> str:
-    _ = project_id
-    return case.case_id
+def _case_calc_id(
+    case: HydraulicCaseRequest,
+    project_id: str,
+    supersedes_artifact_id: str | None,
+) -> str:
+    """Keep first-run IDs readable; revisions get immutable, input-bound IDs."""
+    if not supersedes_artifact_id:
+        return case.case_id
+    canonical = json.dumps(
+        {
+            "project_id": project_id,
+            "supersedes_artifact_id": supersedes_artifact_id,
+            "case_id": case.case_id,
+            "formula": case.formula,
+            "inputs": case.inputs,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    suffix = hashlib.sha256(canonical).hexdigest()[:12]
+    return f"{case.case_id}-{suffix}"
 
 
 def run_hydraulic_cases(
     cases: list[HydraulicCaseRequest],
     *,
     supersedes_artifact_id: str | None = None,
+    project_id: str = "",
 ) -> CalcPackage:
     calc_cases: list[CalcCase] = []
     missing_all: list[str] = []
     errors_all: list[str] = []
 
     for req in cases:
-        _validate_formula(req.formula)
-        tool_id = _tool_invocation_id(req.formula, req.inputs)
-        result = run_calc(req.formula, dict(req.inputs))
+        inputs_snapshot = dict(req.inputs)
+        tool_id = _tool_invocation_id(req.formula, inputs_snapshot)
+        calc_case_id = _case_calc_id(req, project_id, supersedes_artifact_id)
+        try:
+            result = run_calc(req.formula, inputs_snapshot)
+            if not isinstance(result, CalcResult):
+                raise TypeError(f"工具返回类型错误: {type(result).__name__}")
+        except Exception as exc:  # noqa: BLE001 - normalize tool failures at the agent boundary
+            result = CalcResult(
+                ok=False,
+                errors=[f"水力计算工具异常: {type(exc).__name__}: {exc}"],
+            )
+
         if result.ok:
-            cc = CalcCase(
-                calc_case_id=_case_calc_id(req, ""),
-                formula=req.formula,
-                inputs=dict(req.inputs),
-                outputs=dict(result.values),
-                tool_invocation_id=tool_id,
-                assumptions=list(result.assumptions),
-            )
-            calc_cases.append(cc)
-        elif result.missing_inputs:
-            cc = CalcCase(
-                calc_case_id=_case_calc_id(req, ""),
-                formula=req.formula,
-                inputs=dict(req.inputs),
-                outputs={},
-                tool_invocation_id=tool_id,
-                assumptions=list(result.assumptions),
-            )
-            calc_cases.append(cc)
+            try:
+                calc_cases.append(
+                    CalcCase(
+                        calc_case_id=calc_case_id,
+                        formula=req.formula,
+                        inputs=inputs_snapshot,
+                        outputs=dict(result.values),
+                        tool_invocation_id=tool_id,
+                        assumptions=list(result.assumptions),
+                        errors=[],
+                        status="verified",
+                    )
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001 - normalize malformed tool results
+                result = CalcResult(
+                    ok=False,
+                    errors=[f"水力计算结果无效: {type(exc).__name__}: {exc}"],
+                )
+
+        case_errors = list(result.errors)
+        if result.missing_inputs:
+            case_status: Literal["verified", "missing_inputs", "failed"] = "missing_inputs"
             missing_all.extend(result.missing_inputs)
-            if result.errors:
-                errors_all.extend(result.errors)
         else:
-            cc = CalcCase(
-                calc_case_id=_case_calc_id(req, ""),
+            case_status = "failed"
+            if not case_errors:
+                case_errors.append("水力计算失败")
+            errors_all.extend(case_errors)
+        calc_cases.append(
+            CalcCase(
+                calc_case_id=calc_case_id,
                 formula=req.formula,
-                inputs=dict(req.inputs),
+                inputs=inputs_snapshot,
                 outputs={},
                 tool_invocation_id=tool_id,
                 assumptions=list(result.assumptions),
+                errors=case_errors,
+                status=case_status,
             )
-            calc_cases.append(cc)
-            errors_all.extend(result.errors)
+        )
 
     missing_unique = sorted(set(missing_all))
     pkg = CalcPackage(
@@ -122,11 +138,12 @@ def run_hydraulic_agent(
     pkg = run_hydraulic_cases(
         list(brief.hydraulic_cases),
         supersedes_artifact_id=supersedes_artifact_id,
+        project_id=brief.project_id,
     )
 
     if pkg.errors:
         status: Literal["ready", "missing_inputs", "blocked", "failed"] = "blocked"
-    elif pkg.missing_inputs:
+    elif pkg.missing_inputs or not pkg.cases:
         status = "missing_inputs"
     else:
         status = "ready"
