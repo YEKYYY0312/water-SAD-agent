@@ -485,9 +485,10 @@ class AgenticSession:
         )
         from water_agent.runtime.governance.contracts import Principal
         principal_obj = Principal(
-            subject_id=base_principal.subject_id,
+            kind=base_principal.kind,
+            subject=base_principal.subject,
             capabilities=principal,
-            metadata=base_principal.metadata,
+            auth_domain=base_principal.auth_domain,
         )
 
         registry = ToolRegistry(
