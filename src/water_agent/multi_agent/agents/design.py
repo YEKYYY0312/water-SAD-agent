@@ -116,7 +116,11 @@ def build_design_package(
     retrieved_source_ids: list[str] | None = None,
     prev_design: DesignPackage | None = None,
 ) -> DesignPackage:
-    active_ids = {c.calc_case_id for c in calc_package.cases}
+    # Failed/missing cases remain in CalcPackage for provenance, but cannot
+    # support a verified design segment.
+    active_ids = {
+        c.calc_case_id for c in calc_package.cases if c.status == "verified" and c.outputs
+    }
     inferred_source_ids = _infer_source_ids(brief, retrieved_source_ids)
 
     dn_mm = _infer_dn_mm(brief)
