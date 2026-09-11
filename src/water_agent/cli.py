@@ -31,6 +31,12 @@ from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.mcp.wiring import (
+    load_mcp_gateway,
+    open_gateway_sessions,
+    principal_with_mcp,
+    register_mcp_tools,
+)
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
 from water_agent.prompting.runtime_context import (
@@ -64,12 +70,6 @@ from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
-from water_agent.mcp.wiring import (
-    load_mcp_gateway,
-    open_gateway_sessions,
-    principal_with_mcp,
-    register_mcp_tools,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
@@ -944,9 +944,8 @@ def _resolve_flow(args: argparse.Namespace) -> str:
     env_flow = __import__("os").getenv("WATER_AGENT_FLOW", "")
     if env_flow:
         env_norm = env_flow.strip().lower().replace("_", "-")
-        if env_norm in ("multi-agent", "multiagent"):
-            if flow == "qa":
-                return "multi-agent"
+        if env_norm in ("multi-agent", "multiagent") and flow == "qa":
+            return "multi-agent"
     # argparse already normalizes; also accept underscore variant passed programmatically
     if isinstance(flow, str):
         flow = flow.replace("_", "-")
@@ -954,48 +953,73 @@ def _resolve_flow(args: argparse.Namespace) -> str:
 
 
 def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
-    """--flow multi-agent：离线确定性流水线（hydraulic→design→drawing→review），无网络/无真实CAD。"""
-    import os as _os
+    """``--flow multi-agent``：真实 P4.5 图，审批前只生成 staging 草图。"""
     import tempfile as _tf
 
-    from water_agent.harness.multi_agent_eval import run_one_case
+    from langgraph.types import Command
 
-    q = query or "multi-agent demo"
-    suite_case: dict[str, Any] = {
-        "case_id": "cli-multi-agent",
-        "title": "CLI multi-agent run",
-        "retrieved_source_ids": ["GB50015-2019 3.2.1"],
-        "expected": {},
-        "project_brief": {
-            "project_id": "proj-cli-ma",
-            "request": q,
-            "systems": ["water_supply"],
-            "unit_system": "SI",
-            "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
-            "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
-            "spatial_constraints": [{"kind": "material", "value": "PE"}],
-            "required_outputs": ["drawing"],
-            "user_constraints": ["material: PE", "DN150"],
-        },
-    }
-    staging = _tf.mkdtemp(prefix="ma-cli-staging-")
-    final = _tf.mkdtemp(prefix="ma-cli-final-")
-    result = run_one_case(suite_case, staging_dir=staging, final_dir=final)
+    from water_agent.multi_agent.orchestrator import (
+        build_orchestrator_graph,
+        default_multi_agent_state,
+    )
+
+    session_id = args.resume or new_session_id()
+    config = {"configurable": {"thread_id": session_id}}
+    ui = sys.stderr if args.json else sys.stdout
+    with ExitStack() as stack:
+        saver = _build_chat_checkpointer(Path(args.session_dir), stack)
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        if not isinstance(saver, SqliteSaver):
+            print(json.dumps({"ok": False, "error": "multi-agent 审批恢复需要 SqliteSaver"}, ensure_ascii=False), file=sys.stderr)
+            return 2
+        app = build_orchestrator_graph(checkpointer=saver)
+        snapshot = app.get_state(config) if args.resume else None
+        if snapshot is not None and snapshot.next:
+            result: dict[str, Any] = {"__interrupt__": [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())], **dict(snapshot.values)}
+        else:
+            if not query:
+                print("请提供项目描述，或使用 --resume 恢复待审批的 multi-agent 会话。", file=sys.stderr)
+                return 2
+            staging = _tf.mkdtemp(prefix="ma-cli-staging-")
+            final = _tf.mkdtemp(prefix="ma-cli-final-")
+            save_session_meta(session_id, session_dir=args.session_dir, query=query, flow="multi-agent")
+            result = app.invoke(
+                default_multi_agent_state(
+                    project_brief={
+                        "project_id": "proj-cli-ma", "request": query, "systems": ["water_supply"], "unit_system": "SI",
+                        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+                        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+                        "spatial_constraints": [{"kind": "material", "value": "PE"}], "required_outputs": ["drawing"],
+                        "user_constraints": ["material: PE", "DN150"],
+                    },
+                    retrieved_source_ids=["GB50015-2019 3.2.1"], staging_dir=staging, final_dir=final,
+                    output_file_id="cli-drawing",
+                ),
+                config=config,
+            )
+
+        while result.get("__interrupt__"):
+            request = result["__interrupt__"][0].value
+            print(f"待批准最终包：{request['final_package_hash']}", file=ui)
+            try:
+                answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n审批已挂起，稍后使用 --resume {session_id} 恢复。", file=ui)
+                return 0
+            if answer in {"y", "yes", "是"}:
+                decision: dict[str, Any] = {"approved": True}
+            else:
+                decision = {"approved": False, "reason": _read_cli_input("拒绝原因: ", ui).strip()}
+            result = app.invoke(Command(resume=decision), config=config)
+
     payload = {
-        "ok": bool(result.get("passed")),
-        "flow": "multi-agent",
-        "query": q,
-        "status": result.get("status"),
-        "review_decision": result.get("review_decision"),
-        "passed": result.get("passed"),
-        "staging_dir": staging,
-        "final_dir": final,
+        "ok": result.get("status") == "succeeded", "flow": "multi-agent", "session_id": session_id,
+        "status": result.get("status"), "errors": result.get("errors", []),
+        "release_checks": result.get("release_checks", {}), "exported_file_path": result.get("exported_file_path"),
     }
-    if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
-    else:
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if result.get("passed") else json.dumps(payload, ensure_ascii=False))
-    return 0 if result.get("passed") else 1
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
+    return 0 if payload["ok"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
