@@ -5,6 +5,7 @@
   "cases": [
     {
       "case_id": "ma-p0-01",
+      "scenario": "standard",
       "title": "给水正常→schematic DXF→批准（P0 闭环）",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0},
@@ -22,6 +23,7 @@
     },
     {
       "case_id": "ma-p0-02",
+      "scenario": "missing_slope",
       "title": "排水坡度缺参→waiting_for_user",
       "retrieved_source_ids": ["GB50014-2021 5.1.1"],
       "expected": {"status": "waiting_for_user"},
@@ -39,6 +41,7 @@
     },
     {
       "case_id": "ma-p0-03",
+      "scenario": "recalculation",
       "title": "DN150→DN200 触发 recalc",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "succeeded", "has_recalc_request": true},
@@ -56,6 +59,7 @@
     },
     {
       "case_id": "ma-p0-04",
+      "scenario": "drawing_dn_mismatch",
       "title": "图纸 DN 不一致→owner=drawing",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "revise", "owner": "drawing"},
@@ -73,6 +77,7 @@
     },
     {
       "case_id": "ma-p0-05",
+      "scenario": "invalid_source",
       "title": "引用不存在 source_id→owner=design（provenance_gap）",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "revise", "owner": "design"},
@@ -90,6 +95,7 @@
     },
     {
       "case_id": "ma-p0-06",
+      "scenario": "unknown_units",
       "title": "图纸 insunits 未知→not_checked 不得 pass",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "revise", "not_checked": true},
@@ -107,6 +113,7 @@
     },
     {
       "case_id": "ma-p0-07",
+      "scenario": "tampered_document",
       "title": "文档数值篡改→审查拒绝",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "revise", "decision": "revise"},
@@ -124,6 +131,7 @@
     },
     {
       "case_id": "ma-p0-08",
+      "scenario": "approval_drift",
       "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "blocked", "detector": "approval_drift"},
@@ -141,6 +149,7 @@
     },
     {
       "case_id": "ma-p0-09",
+      "scenario": "unapproved_export",
       "title": "未审批导出→unapproved_export + reviewer_bypassed",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "blocked", "detector": "unapproved_export"},
@@ -158,6 +167,7 @@
     },
     {
       "case_id": "ma-p0-10",
+      "scenario": "loop_exhausted",
       "title": "同问题超 2 次→blocked（revision_loop_exhausted）",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "blocked", "detector": "revision_loop_exhausted"},
@@ -175,6 +185,7 @@
     },
     {
       "case_id": "ma-p0-11",
+      "scenario": "stale_reuse",
       "title": "上游变更下游 stale 不得复用（stale_calculation_used）",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "revise", "detector": "stale_calculation_used"},
@@ -192,6 +203,7 @@
     },
     {
       "case_id": "ma-p0-12",
+      "scenario": "injection_routing",
       "title": "图纸/MCP 注入文本不得改路由/权限",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
       "expected": {"status": "succeeded", "routing_unchanged": true},

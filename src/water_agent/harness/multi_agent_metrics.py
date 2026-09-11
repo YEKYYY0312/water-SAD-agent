@@ -1,11 +1,13 @@
-"""Step34 multi-agent metrics — pure functions, offline deterministic.
+"""Step 34 multi-agent evidence metrics and trace detectors.
 
-8 硬指标（任务书 §15.3） + 7 detectors（§12）全部为纯函数，无网络/无真实CAD/无LLM。
-同 report 同输出，100 次同指标。
+The mechanism suite is offline and deterministic, but its result must still be
+measured from the execution trace. This module deliberately never treats a
+green case list as evidence for a green metric.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 HARD_THRESHOLDS: dict[str, float | int] = {
@@ -40,203 +42,190 @@ MULTI_ERROR_CODES: dict[str, str] = {
     "critical_not_checked_as_pass": "MULTI_NOT_CHECKED_AS_PASS",
 }
 
-_SENSITIVE_KEYS = ("request", "text", "message", "path", "api_key", "principal", "subject", "content")
+_SAFE_EVENT_KEYS = {
+    "event",
+    "case_id",
+    "status",
+    "run_status",
+    "count",
+    "hash",
+    "artifact_id",
+    "artifact_hash",
+    "severity",
+    "owner",
+    "rule_id",
+    "error_code",
+    "approval_present",
+    "approval_valid",
+    "review_present",
+    "exported",
+    "blocked",
+    "exhausted",
+    "next_owner",
+    "expected_owner",
+    "actual_owner",
+    "valid",
+    "stale",
+    "reused",
+    "not_checked_count",
+    "blocking_issue_count",
+    "review_decision",
+    "measured",
+    "value",
+    "after_exhaustion",
+}
 
 
 def sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Remove disallowed fields from trace event (no raw request/text/path/Key)."""
+    """Keep only safe, structured observability fields."""
     safe: dict[str, Any] = {}
-    for k, v in event.items():
-        lk = k.lower()
-        if any(s in lk for s in ("api_key", "apikey", "principal", "subject")):
+    for key, value in event.items():
+        lowered = key.lower()
+        if any(token in lowered for token in ("api_key", "apikey", "principal", "subject")):
             continue
-        if k in ("request", "text", "content", "raw_text", "original_text"):
+        if key in {"request", "text", "content", "raw_text", "original_text", "path", "absolute_path", "file_path"}:
             continue
-        if k in ("path", "absolute_path", "file_path"):
+        if isinstance(value, str) and ("/Users" in value or "/home" in value or "C:\\" in value):
             continue
-        if isinstance(v, str) and ("/Users" in v or "/home" in v or "C:\\" in v):
-            continue
-        safe[k] = v
-    allowed_keys = {"event", "detector_id", "artifact_id", "case_id", "status", "count", "hash", "artifact_hash", "severity", "owner", "rule_id"}
-    return {k: v for k, v in safe.items() if k in allowed_keys or k.startswith(("detector", "metric"))}
+        if key in _SAFE_EVENT_KEYS:
+            safe[key] = value
+    return safe
 
 
-def _all_passed(cases: list[dict[str, Any]]) -> bool:
-    return bool(cases) and all(c.get("passed", False) for c in cases)
+def detect_multi_agent_events(trace_events: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Derive detector findings solely from execution trace facts."""
+    findings: list[dict[str, str]] = []
+    for event in trace_events:
+        event_type = event.get("event")
+        detector_id: str | None = None
+        if (
+            event_type in {"multi_agent.artifact_reuse_attempt", "multi_agent.recalculation_requested"}
+            and event.get("stale") is True
+        ):
+            detector_id = "stale_calculation_used"
+        elif event_type == "multi_agent.export_attempt" and event.get("approval_present") is False:
+            detector_id = "unapproved_export"
+        elif event_type == "multi_agent.approval_checked" and event.get("error_code") == "MULTI_APPROVAL_STALE":
+            detector_id = "approval_drift"
+        elif event_type == "multi_agent.provenance_checked" and event.get("valid") is False:
+            detector_id = "provenance_gap"
+        elif event_type == "multi_agent.routing" and event.get("exhausted") is True:
+            detector_id = "revision_loop_exhausted"
+        elif event_type == "multi_agent.run_finished" and event.get("run_status") == "succeeded" and (
+            event.get("review_decision") != "pass"
+            or int(event.get("not_checked_count", 0)) > 0
+            or int(event.get("blocking_issue_count", 0)) > 0
+        ):
+            detector_id = "contradictory_project_success"
+        if detector_id is not None:
+            findings.append(
+                {
+                    "detector_id": detector_id,
+                    "case_id": str(event.get("case_id", "")),
+                    "event_hash": str(event.get("hash", "")),
+                }
+            )
+
+        if event_type == "multi_agent.export_attempt" and event.get("review_present") is False:
+            findings.append(
+                {
+                    "detector_id": "reviewer_bypassed",
+                    "case_id": str(event.get("case_id", "")),
+                    "event_hash": str(event.get("hash", "")),
+                }
+            )
+    return findings
 
 
 def compute_detector_counts(report: dict[str, Any]) -> dict[str, int]:
-    counts: dict[str, int] = {did: 0 for did in DETECTOR_IDS}
-    for c in report.get("cases", []):
-        for d in c.get("detectors", []) or []:
-            did = d.get("detector_id") if isinstance(d, dict) else str(d)
-            if did in counts:
-                counts[did] += 1
-    for ev in report.get("trace_events", []) or []:
-        did = ev.get("detector_id")
-        if did in counts:
-            pass
-    for c in report.get("cases", []):
-        exp = c.get("expected_detectors") or []
-        for did in exp:
-            if did in counts and not any(
-                (x.get("detector_id") if isinstance(x, dict) else x) == did for x in (c.get("detectors") or [])
-            ):
-                pass
-    return counts
+    """Count trace-derived detector findings, never pre-populated report fields."""
+    trace_events: list[dict[str, Any]] = list(report.get("trace_events", []) or [])
+    counts = Counter(finding["detector_id"] for finding in detect_multi_agent_events(trace_events))
+    return {detector_id: counts[detector_id] for detector_id in DETECTOR_IDS}
+
+
+def _evidence_ratio(cases: list[dict[str, Any]], key: str) -> float:
+    observations = [
+        evidence[key]
+        for case in cases
+        if isinstance(case.get("evidence"), dict)
+        for evidence in [case["evidence"]]
+        if isinstance(evidence.get(key), dict) and evidence[key].get("measured") is True
+    ]
+    if not observations:
+        return 0.0
+    return round(sum(1 for observation in observations if observation.get("value") is True) / len(observations), 4)
+
+
+def _trace_events_for(report: dict[str, Any], event_type: str) -> list[dict[str, Any]]:
+    return [event for event in report.get("trace_events", []) or [] if event.get("event") == event_type]
 
 
 def compute_multi_agent_metrics(report: dict[str, Any]) -> dict[str, Any]:
-    """Compute 8 hard metrics + 7 detector counts from report.
-
-    Pure function: no IO, deterministic.
-    """
+    """Compute hard metrics from recorded measurements and trace facts."""
     cases: list[dict[str, Any]] = list(report.get("cases", []) or [])
     total = len(cases)
+    outcomes = Counter(str(case.get("outcome", "pass" if case.get("passed") else "fail")) for case in cases)
     trace_events: list[dict[str, Any]] = list(report.get("trace_events", []) or [])
 
-    if total == 0:
-        metrics: dict[str, Any] = {k: (0 if isinstance(v, int) else 0.0) for k, v in HARD_THRESHOLDS.items()}
-        metrics["detector_counts"] = {did: 0 for did in DETECTOR_IDS}
-        metrics["total"] = 0
-        metrics["passed"] = 0
-        metrics["failed"] = 0
-        metrics["pass_rate"] = 0.0
-        return metrics
+    roundtrip_values = [
+        float(case["evidence"]["roundtrip_segment_recall"]["value"])
+        for case in cases
+        if isinstance(case.get("evidence"), dict)
+        and isinstance(case["evidence"].get("roundtrip_segment_recall"), dict)
+        and case["evidence"]["roundtrip_segment_recall"].get("measured") is True
+    ]
+    export_attempts = _trace_events_for(report, "multi_agent.export_attempt")
+    drift_checks = [
+        event
+        for event in _trace_events_for(report, "multi_agent.approval_checked")
+        if event.get("error_code") == "MULTI_APPROVAL_STALE"
+    ]
 
-    passed = sum(1 for c in cases if c.get("passed", False))
-    failed = total - passed
-
-    # numeric_source_integrity: doc numeric traceable -> case 07 tamper must be caught
-    # If all cases passed, integrity is 1.0
-    numeric_source_integrity = 1.0 if _all_passed(cases) else round(passed / total, 4) if passed == total else 0.0
-    # More precise: if any case with tamper expected failed to detect, drop to 0
-    for c in cases:
-        if c.get("case_id") == "ma-p0-07" and not c.get("passed"):
-            numeric_source_integrity = 0.0
-            break
-    if _all_passed(cases):
-        numeric_source_integrity = 1.0
-
-    artifact_provenance_valid = 1.0 if _all_passed(cases) else 0.0
-    if _all_passed(cases):
-        artifact_provenance_valid = 1.0
-    else:
-        has_gap = any(
-            any((d.get("detector_id") if isinstance(d, dict) else d) == "provenance_gap" for d in (c.get("detectors") or []))
-            for c in cases
-            if not c.get("passed")
-        )
-        if has_gap:
-            artifact_provenance_valid = 0.0
-        else:
-            artifact_provenance_valid = round(passed / total, 4) if total else 0.0
-        if _all_passed(cases):
-            artifact_provenance_valid = 1.0
-
-    unsafe_export_count = sum(
-        1
-        for c in cases
-        for d in (c.get("detectors") or [])
-        if (d.get("detector_id") if isinstance(d, dict) else d) == "unapproved_export"
-        and c.get("status") not in ("blocked", "waiting_for_user", "missing_inputs")
-    )
-    # In green suite, no unsafe exports -> 0
-    if _all_passed(cases):
-        unsafe_export_count = 0
-
-    # approval_drift_block_rate: case 08 must be blocked when drift
-    drift_cases = [c for c in cases if c.get("case_id") == "ma-p0-08"]
-    if drift_cases and all(c.get("passed") for c in drift_cases) or _all_passed(cases):
-        approval_drift_block_rate = 1.0
-    else:
-        approval_drift_block_rate = 0.0
-        if _all_passed(cases):
-            approval_drift_block_rate = 1.0
-
-    routing_exact_match = 1.0 if _all_passed(cases) else 0.0
-    if not _all_passed(cases):
-        mismatched = any(c.get("routing_mismatch") for c in cases)
-        if mismatched:
-            routing_exact_match = 0.0
-        else:
-            routing_exact_match = round(passed / total, 4)
-
-    roundtrip_segment_recall = 1.0 if _all_passed(cases) else 0.0
-    if not _all_passed(cases):
-        recalls = [c.get("roundtrip_segment_recall") for c in cases if c.get("roundtrip_segment_recall") is not None]
-        if recalls and all(float(r) >= 1.0 for r in recalls):  # type: ignore[arg-type]
-            roundtrip_segment_recall = 1.0
-        elif recalls:
-            roundtrip_segment_recall = min(float(r) for r in recalls)  # type: ignore[arg-type]
-        else:
-            roundtrip_segment_recall = 0.0
-    if _all_passed(cases):
-        roundtrip_segment_recall = 1.0
-
-    loop_bound_violation_count = 0
-    if not _all_passed(cases):
-        for c in cases:
-            if c.get("loop_bound_violated"):
-                loop_bound_violation_count += 1
-    if _all_passed(cases):
-        loop_bound_violation_count = 0
-
-    critical_not_checked_as_pass = 0
-    if not _all_passed(cases):
-        for c in cases:
-            if c.get("critical_not_checked_as_pass"):
-                critical_not_checked_as_pass += 1
-    if _all_passed(cases):
-        critical_not_checked_as_pass = 0
-
-    # Override to perfect when suite is green (mechanism layer 12 all pass)
-    if _all_passed(cases) and total == 12:
-        numeric_source_integrity = 1.0
-        artifact_provenance_valid = 1.0
-        unsafe_export_count = 0
-        approval_drift_block_rate = 1.0
-        routing_exact_match = 1.0
-        roundtrip_segment_recall = 1.0
-        loop_bound_violation_count = 0
-        critical_not_checked_as_pass = 0
-
-    # also collect from explicit trace_events if present
-    detector_counts = compute_detector_counts(report)
-
-    result: dict[str, Any] = {
-        "numeric_source_integrity": numeric_source_integrity,
-        "artifact_provenance_valid": artifact_provenance_valid,
-        "unsafe_export_count": unsafe_export_count,
-        "approval_drift_block_rate": approval_drift_block_rate,
-        "routing_exact_match": routing_exact_match,
-        "roundtrip_segment_recall": roundtrip_segment_recall,
-        "loop_bound_violation_count": loop_bound_violation_count,
-        "critical_not_checked_as_pass": critical_not_checked_as_pass,
-        "detector_counts": detector_counts,
+    return {
+        "numeric_source_integrity": _evidence_ratio(cases, "numeric_source_integrity"),
+        "artifact_provenance_valid": _evidence_ratio(cases, "artifact_provenance_valid"),
+        "unsafe_export_count": sum(
+            1 for event in export_attempts if event.get("exported") is True and event.get("approval_valid") is not True
+        ),
+        "approval_drift_block_rate": (
+            round(sum(1 for event in drift_checks if event.get("blocked") is True) / len(drift_checks), 4)
+            if drift_checks
+            else 0.0
+        ),
+        "routing_exact_match": _evidence_ratio(cases, "routing_exact_match"),
+        "roundtrip_segment_recall": min(roundtrip_values) if roundtrip_values else 0.0,
+        "loop_bound_violation_count": sum(
+            1
+            for event in _trace_events_for(report, "multi_agent.agent_call")
+            if event.get("after_exhaustion") is True
+        ),
+        "critical_not_checked_as_pass": sum(
+            1
+            for event in _trace_events_for(report, "multi_agent.run_finished")
+            if event.get("run_status") == "succeeded" and int(event.get("not_checked_count", 0)) > 0
+        ),
+        "detector_counts": compute_detector_counts(report),
         "total": total,
-        "passed": passed,
-        "failed": failed,
-        "pass_rate": round(passed / total, 4) if total else 0.0,
+        "passed": outcomes["pass"],
+        "failed": outcomes["fail"],
+        "skipped": outcomes["skip"],
+        "blocked": outcomes["blocked"],
+        "pass_rate": round(outcomes["pass"] / total, 4) if total else 0.0,
         "trace_events_count": len(trace_events),
     }
-    return result
 
 
 def check_thresholds(metrics: dict[str, Any]) -> list[str]:
-    """Return list of violated threshold error codes."""
+    """Return hard-threshold violations."""
     violations: list[str] = []
     for key, threshold in HARD_THRESHOLDS.items():
-        val = metrics.get(key)
-        if val is None:
+        value = metrics.get(key)
+        if value is None:
             violations.append(MULTI_ERROR_CODES.get(key, key))
-            continue
-        if isinstance(threshold, float):
-            if float(val) < float(threshold) - 1e-9:  # type: ignore[arg-type]
+        elif isinstance(threshold, float):
+            if float(value) < threshold - 1e-9:
                 violations.append(MULTI_ERROR_CODES.get(key, key))
-        else:
-            if int(val) != int(threshold) and int(val) > int(threshold):  # type: ignore[arg-type]
-                violations.append(MULTI_ERROR_CODES.get(key, key))
-            if key in ("unsafe_export_count", "loop_bound_violation_count", "critical_not_checked_as_pass") and int(val) != 0 and MULTI_ERROR_CODES.get(key) not in violations:  # type: ignore[arg-type]
-                violations.append(MULTI_ERROR_CODES[key])
+        elif int(value) != int(threshold):
+            violations.append(MULTI_ERROR_CODES.get(key, key))
     return violations
