@@ -173,9 +173,23 @@
 - [x] **Step 24** 自研 MCP server 端：水力计算 + 规范库检索包装（`mcp/servers/`）
       + stdio JSON-RPC 直连验证（`MCPStdioClient` → `hydraulics_server`/`specs_server`，
       `isError=true` 业务失败与 `GUARDRAIL_BLOCKED` 护栏全链路验证）
-- [ ] **Step 25** CLI/harness 接线 + 危险操作确认门（interrupt/HITL）+ 端到端验证
-- [ ] 接入专业 CAD/BIM（天正/Revit/中望）MCP
-- [ ] 接入企业知识库/数据库 MCP
+- [x] **Step 25**（2026-09-10）CLI/harness 接线 + 危险操作确认门 + 端到端验证：
+      装配期单入口 `mcp/wiring.py`（`data/mcp_servers.json` 驱动 → `open_gateway_sessions`
+      → `register_mcp_tools` → `ToolRegistry`），CLI `AgenticSession` 与 harness
+      `--variant real` 同链路（无第二条装配路径）；确认门当前形态 = **结构性拒绝**
+      （`human_confirmation=true` 且未接线 → 整台 `MCP_CONFIRMATION_UNAVAILABLE` 不
+      spawn，`revit_python` 实测跳过；**完整 interrupt/HITL 移 Step 26**）；
+      `mcp_server_manifest` 进 `CacheKeyFactors` 失效因子；schema FastMCP 兼容
+      （`title` 装饰键 / `anyOf` 可空剥壳 / 自由 `object`/`array`，nested 仍拒）+
+      `command` list 归一。端到端：`autocad_mcp`(ezdxf) 8 工具真进程桥接 +
+      `ToolRegistry.invoke` 护栏放行（缺能力 `GUARDRAIL_BLOCKED`）；`save_as_dwg`
+      以进程内 mock odafc 验 `{format:DWG, version:ACAD2018}` 形态（真实 ODA 二进制
+      blocked）。测试：`tests/test_mcp_wiring.py` 19 条新增，gateway/behaviors 33 条
+      保持绿；`ci_gate.sh` 全绿（决策记录 `p4-step-25-decision.md`）
+- [ ] **Step 26** 真实验证 + 完整 HITL + HTTP/SSE + OAuth：真实 CAD/BIM 端到端
+      （Revit 需 Windows+Revit 2022-2027+pyRevit Routes；`save_as_dwg` 需 ODA
+      File Converter）、`interrupt → 人工批准 → resume` 确认门接线、
+      HTTP/SSE transport（需 `NETWORK_FETCH`）、`Principal.authenticated()` 启用
 - [ ] 网关权限控制 + 危险操作确认（Step 23 已交付**结构性拒绝**面：权限走
       `MCP_INVOKE` + 白名单 + 主体授予两侧收敛；完整 HITL 确认门在 Step 25）
 
