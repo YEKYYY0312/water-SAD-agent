@@ -1,499 +1,1487 @@
 {
+  "report_schema_version": "p4.5-step-34-evidence-v1",
+  "generated_by": "water_agent.harness.multi_agent_eval",
   "suite": "tests/eval/multi_agent_p0/suite.json",
   "flow": "multi-agent",
   "total": 12,
   "passed": 12,
   "failed": 0,
   "skipped": 0,
+  "blocked": 0,
   "cases": [
     {
       "case_id": "ma-p0-01",
       "title": "给水正常→schematic DXF→批准（P0 闭环）",
+      "outcome": "pass",
       "passed": true,
       "status": "succeeded",
       "expected_status": "succeeded",
-      "errors": [],
-      "warnings": [],
-      "detectors": [],
-      "trace_events": [],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      "checks": [
+        {
+          "name": "status",
+          "expected": "succeeded",
+          "actual": "succeeded",
+          "passed": true
+        },
+        {
+          "name": "roundtrip_segment_recall",
+          "expected": 1.0,
+          "actual": 1.0,
+          "passed": true
+        }
       ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-01",
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "f5e02f0bf270"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-01",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "b5a2a0ae2941"
+        },
+        {
+          "event": "multi_agent.export_attempt",
+          "case_id": "ma-p0-01",
+          "approval_present": true,
+          "approval_valid": true,
+          "review_present": true,
+          "exported": true,
+          "blocked": false,
+          "status": "local_event_only",
+          "hash": "c2d881522f60"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-01",
+          "run_status": "succeeded",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "a826100b9993"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-83dc13c137b159dd",
-        "design-16b765e96180eacc",
-        "plan-8b0a38639d532e28",
-        "dwpkg-7e7938aa09aef16a",
-        "review-776cf61d6a89b9c6"
+        "calc-93832464c134e502",
+        "design-fb6ef5f0353c818f",
+        "doc-ma-p0-01",
+        "dwpkg-9e331cde08679709",
+        "plan-c4e80d5eb62eadd9",
+        "review-df85df3dcebb8c10"
       ]
     },
     {
       "case_id": "ma-p0-02",
       "title": "排水坡度缺参→waiting_for_user",
+      "outcome": "pass",
       "passed": true,
       "status": "waiting_for_user",
       "expected_status": "waiting_for_user",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "waiting_for_user",
+          "actual": "waiting_for_user",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [],
-      "trace_events": [],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
+      "trace_events": [
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-02",
+          "next_owner": "human",
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "2c5a095d1ce3"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-02",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "6f1a0f0138ab"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-02",
+          "run_status": "waiting_for_user",
+          "review_decision": "revise",
+          "not_checked_count": 4,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "29cae0729413"
+        }
+      ],
+      "roundtrip_segment_recall": null,
       "review_decision": "revise",
       "review_not_checked": [
+        "artifact:design-17f32bb958bd7656 缺少输入，相关审查不可判定",
         "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
         "drawing:注册表无 drawing_package，staging 回读状态不可判定",
         "drawing:注册表无 drawing_plan，图纸一致性检查未执行"
       ],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": false,
+          "value": null
+        }
+      },
       "artifacts": [
-        "calc-a8f3862059310c4b",
-        "design-177feee3fec66557",
-        "review-743dccfc5491b6b6"
+        "calc-92badde6107bca66",
+        "design-17f32bb958bd7656",
+        "review-a9319a64c362619a"
       ]
     },
     {
       "case_id": "ma-p0-03",
       "title": "DN150→DN200 触发 recalc",
+      "outcome": "pass",
       "passed": true,
       "status": "succeeded",
       "expected_status": "succeeded",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "succeeded",
+          "actual": "succeeded",
+          "passed": true
+        },
+        {
+          "name": "has_recalc_request",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "stale_calculation_used",
-          "case_id": "ma-p0-03"
+          "event_hash": "81f1d9b39efd"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "stale_calculation_used",
+          "event": "multi_agent.recalculation_requested",
           "case_id": "ma-p0-03",
-          "count": 1,
+          "stale": true,
+          "blocked": true,
           "status": "local_event_only",
-          "hash": "4db3ec7fffbf"
+          "hash": "81f1d9b39efd"
+        },
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-03",
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "7c646e3ad2c1"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-03",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "a8f76a8eac8a"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-03",
+          "run_status": "succeeded",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "1a59b15fad0d"
         }
       ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
-        "drawing:注册表无 drawing_package，staging 回读状态不可判定"
-      ],
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-015d30f9a2f67c27",
-        "design-ac193561976fc4df",
-        "plan-88edd89e6537d05b",
-        "review-a9ba3ea68739ab3a"
+        "calc-e68fe9820b319139",
+        "design-5f93b3bd3a2dd4da",
+        "doc-ma-p0-03",
+        "dwpkg-ab2e210039a2bbc5",
+        "plan-b197481a29d14de6",
+        "review-0d5ee223c638543e"
       ]
     },
     {
       "case_id": "ma-p0-04",
       "title": "图纸 DN 不一致→owner=drawing",
+      "outcome": "pass",
       "passed": true,
       "status": "revise",
       "expected_status": "revise",
-      "errors": [],
-      "warnings": [],
-      "detectors": [],
-      "trace_events": [],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      "checks": [
+        {
+          "name": "status",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        },
+        {
+          "name": "owner",
+          "expected": "drawing",
+          "actual": "drawing",
+          "passed": true
+        }
       ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-04",
+          "next_owner": "drawing",
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "886065ecfeac"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-04",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "8fed81bdc751"
+        },
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-04",
+          "expected_owner": "drawing",
+          "actual_owner": "drawing",
+          "next_owner": "drawing",
+          "exhausted": false,
+          "blocked": false,
+          "status": "local_event_only",
+          "hash": "55a87c373683"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-04",
+          "run_status": "revise",
+          "review_decision": "revise",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "37c4017b371d"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "review_decision": "revise",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": true,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-fe5e44344b1b3218",
-        "design-0b1d29c5df547e9f",
-        "plan-fdd17fcac881824f",
-        "dwpkg-1ad432ddbeab6615",
-        "review-54263df38458897c"
+        "calc-1129bcd69161b01b",
+        "design-1930d989a0e892cb",
+        "doc-ma-p0-04",
+        "dwpkg-c0fce8f2ad685ded",
+        "plan-20819ed2b33c3076",
+        "review-aa61660dd990c860"
       ]
     },
     {
       "case_id": "ma-p0-05",
       "title": "引用不存在 source_id→owner=design（provenance_gap）",
+      "outcome": "pass",
       "passed": true,
       "status": "revise",
       "expected_status": "revise",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        },
+        {
+          "name": "owner",
+          "expected": "design",
+          "actual": "design",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "provenance_gap",
-          "case_id": "ma-p0-05"
+          "event_hash": "d3bf1159a51b"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "provenance_gap",
+          "event": "multi_agent.routing",
           "case_id": "ma-p0-05",
-          "count": 1,
+          "next_owner": "design",
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
           "status": "local_event_only",
-          "hash": "214beefd0b06"
+          "hash": "a54b1e31adc3"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-05",
+          "valid": false,
+          "status": "local_event_only",
+          "hash": "d3bf1159a51b"
+        },
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-05",
+          "expected_owner": "design",
+          "actual_owner": "design",
+          "next_owner": "design",
+          "exhausted": false,
+          "blocked": false,
+          "status": "local_event_only",
+          "hash": "ea05e4ddbe40"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-05",
+          "run_status": "revise",
+          "review_decision": "revise",
+          "not_checked_count": 1,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "5f09497124ee"
         }
       ],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
+      "roundtrip_segment_recall": null,
       "review_decision": "revise",
       "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+        "drawing:注册表无 drawing_package，staging 回读状态不可判定"
       ],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": true,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": false,
+          "value": null
+        }
+      },
       "artifacts": [
-        "calc-6173db006f692473",
-        "design-873a28a5f54910a7",
-        "plan-1251e36a1d78f340",
-        "dwpkg-fbcfc3ccda2ef0d4",
-        "review-2482900756efe8c6"
+        "calc-2956b7459fb9301e",
+        "design-8b9caceffc48b3ff",
+        "doc-ma-p0-05",
+        "plan-1b4b8d3933048168",
+        "review-46fc2a6aae72c97f"
       ]
     },
     {
       "case_id": "ma-p0-06",
       "title": "图纸 insunits 未知→not_checked 不得 pass",
+      "outcome": "pass",
       "passed": true,
       "status": "revise",
       "expected_status": "revise",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        },
+        {
+          "name": "not_checked",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
       "errors": [
         "insunits must be explicit, 0 (unitless) is forbidden"
       ],
-      "warnings": [],
-      "detectors": [
-        {
-          "detector_id": "provenance_gap",
-          "case_id": "ma-p0-06"
-        }
-      ],
+      "detectors": [],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "provenance_gap",
+          "event": "multi_agent.routing",
           "case_id": "ma-p0-06",
-          "count": 1,
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
           "status": "local_event_only",
-          "hash": "d96664e1c1b2"
+          "hash": "034118a0cdd4"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-06",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "fab5a431be23"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-06",
+          "run_status": "revise",
+          "review_decision": "revise",
+          "not_checked_count": 3,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "f401cf65687c"
         }
       ],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
+      "roundtrip_segment_recall": null,
       "review_decision": "revise",
       "review_not_checked": [
         "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
         "drawing:注册表无 drawing_package，staging 回读状态不可判定",
         "drawing:注册表无 drawing_plan，图纸一致性检查未执行"
       ],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": false,
+          "value": null
+        }
+      },
       "artifacts": [
-        "calc-2f88817848a04dcf",
-        "design-5048b1f9ed53c97a",
-        "review-c402d61a28c0f81d"
+        "calc-69e49eefd106d3b0",
+        "design-835b6c2260bd160f",
+        "review-8284a99d38cfe125"
       ]
     },
     {
       "case_id": "ma-p0-07",
       "title": "文档数值篡改→审查拒绝",
+      "outcome": "pass",
       "passed": true,
       "status": "revise",
       "expected_status": "revise",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        },
+        {
+          "name": "decision",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [],
-      "trace_events": [],
+      "trace_events": [
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-07",
+          "next_owner": "design",
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "5b9f5a9de9c0"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-07",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "1395bb16ac05"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-07",
+          "run_status": "revise",
+          "review_decision": "revise",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "4391381d5a97"
+        }
+      ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
       "review_decision": "revise",
       "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-144182f5774c71e6",
-        "design-a81954837615e3f3",
-        "plan-f0f5cfd660babdd4",
-        "dwpkg-6d7b111d78c80837",
+        "calc-320a0df9214eb206",
+        "design-1417f5c9ffa3cfc2",
         "doc-ma-p0-07",
-        "review-665c0dc935ee866b"
+        "dwpkg-95115feb5e0a066f",
+        "plan-c66e91568ed420b9",
+        "review-0cd6385c3d5aa975"
       ]
     },
     {
       "case_id": "ma-p0-08",
       "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
+      "outcome": "pass",
       "passed": true,
       "status": "blocked",
       "expected_status": "blocked",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "blocked",
+          "actual": "blocked",
+          "passed": true
+        },
+        {
+          "name": "detector",
+          "expected": "approval_drift",
+          "actual": "approval_drift",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "approval_drift",
-          "case_id": "ma-p0-08"
+          "event_hash": "3f29d2a9a7e7"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "approval_drift",
+          "event": "multi_agent.routing",
           "case_id": "ma-p0-08",
-          "count": 1,
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
           "status": "local_event_only",
-          "hash": "85c0d916e6fa"
+          "hash": "166158cf0ef2"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-08",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "42eca5f475b6"
+        },
+        {
+          "event": "multi_agent.approval_checked",
+          "case_id": "ma-p0-08",
+          "approval_present": true,
+          "approval_valid": false,
+          "blocked": true,
+          "error_code": "MULTI_APPROVAL_STALE",
+          "status": "local_event_only",
+          "hash": "3f29d2a9a7e7"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-08",
+          "run_status": "blocked",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "5533ef258d92"
         }
       ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
-      ],
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-8fb63b489fc4b0ab",
-        "design-4deda3189bf93a5e",
-        "plan-dab1faeafa1027d3",
-        "dwpkg-f37bc4e3eec0f744",
-        "review-47a36cde940a5c7d"
+        "calc-2646a51993cc67a6",
+        "design-9db3eab1851ba673",
+        "doc-ma-p0-08",
+        "dwpkg-4823c44d50c0fcad",
+        "plan-8f0cbfb6f9b840f2",
+        "review-e9e28f194a7b1c8c"
       ]
     },
     {
       "case_id": "ma-p0-09",
       "title": "未审批导出→unapproved_export + reviewer_bypassed",
+      "outcome": "pass",
       "passed": true,
       "status": "blocked",
       "expected_status": "blocked",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "blocked",
+          "actual": "blocked",
+          "passed": true
+        },
+        {
+          "name": "detector",
+          "expected": "unapproved_export",
+          "actual": "unapproved_export",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "unapproved_export",
-          "case_id": "ma-p0-09"
+          "event_hash": "efa32f701d60"
         },
         {
           "detector_id": "reviewer_bypassed",
-          "case_id": "ma-p0-09"
+          "event_hash": "efa32f701d60"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "unapproved_export",
+          "event": "multi_agent.export_attempt",
           "case_id": "ma-p0-09",
-          "count": 1,
+          "approval_present": false,
+          "approval_valid": false,
+          "review_present": false,
+          "exported": false,
+          "blocked": true,
+          "error_code": "MULTI_APPROVAL_REQUIRED",
           "status": "local_event_only",
-          "hash": "395e2964108a"
+          "hash": "efa32f701d60"
         },
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "reviewer_bypassed",
+          "event": "multi_agent.run_finished",
           "case_id": "ma-p0-09",
-          "count": 1,
+          "run_status": "blocked",
+          "review_decision": null,
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
           "status": "local_event_only",
-          "hash": "918b040c9315"
+          "hash": "5ba6191aed3b"
         }
       ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
-      ],
+      "review_decision": null,
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": false,
+          "value": false
+        },
+        "artifact_provenance_valid": {
+          "measured": false,
+          "value": false
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-c90a887865550003",
-        "design-bec4d99babeb4654",
-        "plan-f81efcd606cab408",
-        "dwpkg-e26aa478ceb6b462",
-        "review-01244f2b7189a573"
+        "calc-1d1080d2e85d6394",
+        "design-e44df0d1440d7ab1",
+        "dwpkg-df3956fa52c63882",
+        "plan-66dad2246a20b62c"
       ]
     },
     {
       "case_id": "ma-p0-10",
       "title": "同问题超 2 次→blocked（revision_loop_exhausted）",
+      "outcome": "pass",
       "passed": true,
       "status": "blocked",
       "expected_status": "blocked",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "blocked",
+          "actual": "blocked",
+          "passed": true
+        },
+        {
+          "name": "detector",
+          "expected": "revision_loop_exhausted",
+          "actual": "revision_loop_exhausted",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "revision_loop_exhausted",
-          "case_id": "ma-p0-10"
+          "event_hash": "6fa51f4e1994"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "revision_loop_exhausted",
+          "event": "multi_agent.routing",
           "case_id": "ma-p0-10",
-          "count": 1,
+          "next_owner": "design",
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
           "status": "local_event_only",
-          "hash": "4f1bc9270702"
+          "hash": "0b08104f133f"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-10",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "292b223119b7"
+        },
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-10",
+          "next_owner": null,
+          "exhausted": true,
+          "blocked": true,
+          "error_code": "MULTI_RETRY_EXHAUSTED",
+          "status": "local_event_only",
+          "hash": "6fa51f4e1994"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-10",
+          "run_status": "blocked",
+          "review_decision": "revise",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "320fe5297af1"
         }
       ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
       "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
-      ],
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-0e1a38c3ec78554d",
-        "design-d2e016cabcbb20e9",
-        "plan-927f81804af3e95e",
-        "dwpkg-e1f12ba73863b276",
-        "review-c17db46dc0b8185e"
+        "calc-e844c81b806625f6",
+        "design-e37021cce50e6e2e",
+        "doc-ma-p0-10",
+        "dwpkg-bfd80835ace64246",
+        "plan-ced12df459e4160f",
+        "review-07bfc043135b4ef6"
       ]
     },
     {
       "case_id": "ma-p0-11",
       "title": "上游变更下游 stale 不得复用（stale_calculation_used）",
+      "outcome": "pass",
       "passed": true,
       "status": "revise",
       "expected_status": "revise",
+      "checks": [
+        {
+          "name": "status",
+          "expected": "revise",
+          "actual": "revise",
+          "passed": true
+        },
+        {
+          "name": "detector",
+          "expected": "stale_calculation_used",
+          "actual": "stale_calculation_used",
+          "passed": true
+        }
+      ],
       "errors": [],
-      "warnings": [],
       "detectors": [
         {
           "detector_id": "stale_calculation_used",
-          "case_id": "ma-p0-11"
+          "event_hash": "80e74a26e390"
         }
       ],
       "trace_events": [
         {
-          "event": "multi_agent.detector_fired",
-          "detector_id": "stale_calculation_used",
+          "event": "multi_agent.routing",
           "case_id": "ma-p0-11",
-          "count": 1,
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
           "status": "local_event_only",
-          "hash": "1aa59bbb2587"
+          "hash": "cd6c02711dfb"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-11",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "4ca69d21a740"
+        },
+        {
+          "event": "multi_agent.artifact_reuse_attempt",
+          "case_id": "ma-p0-11",
+          "artifact_id": "design-6a0dbb9698b593b0",
+          "stale": true,
+          "reused": true,
+          "blocked": true,
+          "status": "local_event_only",
+          "hash": "80e74a26e390"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-11",
+          "run_status": "revise",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "4792aad2f122"
         }
       ],
       "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
-      ],
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": false,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-090adcaf9e95cae6",
-        "design-e4e669819b1ac02b",
-        "plan-694925c30d8ff31d",
-        "dwpkg-bdf0ac06b91fdff9",
-        "review-df581590111c1cec"
+        "calc-f972d7b49bcb46e9",
+        "design-6a0dbb9698b593b0",
+        "doc-ma-p0-11",
+        "dwpkg-979eea0419a3c30c",
+        "plan-bfa14cfe641739ea",
+        "review-b6fbf6e5da10b9df"
       ]
     },
     {
       "case_id": "ma-p0-12",
       "title": "图纸/MCP 注入文本不得改路由/权限",
+      "outcome": "pass",
       "passed": true,
-      "status": "revise",
+      "status": "succeeded",
       "expected_status": "succeeded",
-      "errors": [],
-      "warnings": [],
-      "detectors": [],
-      "trace_events": [],
-      "roundtrip_segment_recall": 1.0,
-      "routing_mismatch": false,
-      "loop_bound_violated": false,
-      "critical_not_checked_as_pass": false,
-      "review_decision": "revise",
-      "review_not_checked": [
-        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      "checks": [
+        {
+          "name": "status",
+          "expected": "succeeded",
+          "actual": "succeeded",
+          "passed": true
+        },
+        {
+          "name": "routing_unchanged",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
       ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "multi_agent.routing",
+          "case_id": "ma-p0-12",
+          "next_owner": null,
+          "exhausted": false,
+          "blocked": false,
+          "error_code": null,
+          "status": "local_event_only",
+          "hash": "70b66a4706e0"
+        },
+        {
+          "event": "multi_agent.provenance_checked",
+          "case_id": "ma-p0-12",
+          "valid": true,
+          "status": "local_event_only",
+          "hash": "51da3672d390"
+        },
+        {
+          "event": "multi_agent.run_finished",
+          "case_id": "ma-p0-12",
+          "run_status": "succeeded",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0,
+          "status": "local_event_only",
+          "hash": "b4594a61bce0"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "measured": true,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "measured": true,
+          "value": 1.0
+        }
+      },
       "artifacts": [
-        "calc-5b5c504626b68df5",
-        "design-359996211196d225",
-        "plan-c72cc7ceaaa3c359",
-        "dwpkg-e3bf82f33d3b56de",
-        "review-797b25c165de52f0"
+        "calc-04c3412ccadf1184",
+        "design-b2173465c3296170",
+        "doc-ma-p0-12",
+        "dwpkg-e28c924867c06fc3",
+        "plan-13793bdc2b38bdb7",
+        "review-1b2a3df0d838b60d"
       ]
     }
   ],
   "trace_events": [
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "stale_calculation_used",
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-01",
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "f5e02f0bf270"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-01",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "b5a2a0ae2941"
+    },
+    {
+      "event": "multi_agent.export_attempt",
+      "case_id": "ma-p0-01",
+      "approval_present": true,
+      "approval_valid": true,
+      "review_present": true,
+      "exported": true,
+      "blocked": false,
+      "status": "local_event_only",
+      "hash": "c2d881522f60"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-01",
+      "run_status": "succeeded",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "a826100b9993"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-02",
+      "next_owner": "human",
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "2c5a095d1ce3"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-02",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "6f1a0f0138ab"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-02",
+      "run_status": "waiting_for_user",
+      "review_decision": "revise",
+      "not_checked_count": 4,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "29cae0729413"
+    },
+    {
+      "event": "multi_agent.recalculation_requested",
       "case_id": "ma-p0-03",
-      "count": 1,
+      "stale": true,
+      "blocked": true,
       "status": "local_event_only",
-      "hash": "4db3ec7fffbf"
+      "hash": "81f1d9b39efd"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "provenance_gap",
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-03",
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "7c646e3ad2c1"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-03",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "a8f76a8eac8a"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-03",
+      "run_status": "succeeded",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "1a59b15fad0d"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-04",
+      "next_owner": "drawing",
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "886065ecfeac"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-04",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "8fed81bdc751"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-04",
+      "expected_owner": "drawing",
+      "actual_owner": "drawing",
+      "next_owner": "drawing",
+      "exhausted": false,
+      "blocked": false,
+      "status": "local_event_only",
+      "hash": "55a87c373683"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-04",
+      "run_status": "revise",
+      "review_decision": "revise",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "37c4017b371d"
+    },
+    {
+      "event": "multi_agent.routing",
       "case_id": "ma-p0-05",
-      "count": 1,
+      "next_owner": "design",
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
       "status": "local_event_only",
-      "hash": "214beefd0b06"
+      "hash": "a54b1e31adc3"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "provenance_gap",
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-05",
+      "valid": false,
+      "status": "local_event_only",
+      "hash": "d3bf1159a51b"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-05",
+      "expected_owner": "design",
+      "actual_owner": "design",
+      "next_owner": "design",
+      "exhausted": false,
+      "blocked": false,
+      "status": "local_event_only",
+      "hash": "ea05e4ddbe40"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-05",
+      "run_status": "revise",
+      "review_decision": "revise",
+      "not_checked_count": 1,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "5f09497124ee"
+    },
+    {
+      "event": "multi_agent.routing",
       "case_id": "ma-p0-06",
-      "count": 1,
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
       "status": "local_event_only",
-      "hash": "d96664e1c1b2"
+      "hash": "034118a0cdd4"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "approval_drift",
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-06",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "fab5a431be23"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-06",
+      "run_status": "revise",
+      "review_decision": "revise",
+      "not_checked_count": 3,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "f401cf65687c"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-07",
+      "next_owner": "design",
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "5b9f5a9de9c0"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-07",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "1395bb16ac05"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-07",
+      "run_status": "revise",
+      "review_decision": "revise",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "4391381d5a97"
+    },
+    {
+      "event": "multi_agent.routing",
       "case_id": "ma-p0-08",
-      "count": 1,
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
       "status": "local_event_only",
-      "hash": "85c0d916e6fa"
+      "hash": "166158cf0ef2"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "unapproved_export",
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-08",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "42eca5f475b6"
+    },
+    {
+      "event": "multi_agent.approval_checked",
+      "case_id": "ma-p0-08",
+      "approval_present": true,
+      "approval_valid": false,
+      "blocked": true,
+      "error_code": "MULTI_APPROVAL_STALE",
+      "status": "local_event_only",
+      "hash": "3f29d2a9a7e7"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-08",
+      "run_status": "blocked",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "5533ef258d92"
+    },
+    {
+      "event": "multi_agent.export_attempt",
       "case_id": "ma-p0-09",
-      "count": 1,
+      "approval_present": false,
+      "approval_valid": false,
+      "review_present": false,
+      "exported": false,
+      "blocked": true,
+      "error_code": "MULTI_APPROVAL_REQUIRED",
       "status": "local_event_only",
-      "hash": "395e2964108a"
+      "hash": "efa32f701d60"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "reviewer_bypassed",
+      "event": "multi_agent.run_finished",
       "case_id": "ma-p0-09",
-      "count": 1,
+      "run_status": "blocked",
+      "review_decision": null,
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
       "status": "local_event_only",
-      "hash": "918b040c9315"
+      "hash": "5ba6191aed3b"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "revision_loop_exhausted",
+      "event": "multi_agent.routing",
       "case_id": "ma-p0-10",
-      "count": 1,
+      "next_owner": "design",
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
       "status": "local_event_only",
-      "hash": "4f1bc9270702"
+      "hash": "0b08104f133f"
     },
     {
-      "event": "multi_agent.detector_fired",
-      "detector_id": "stale_calculation_used",
-      "case_id": "ma-p0-11",
-      "count": 1,
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-10",
+      "valid": true,
       "status": "local_event_only",
-      "hash": "1aa59bbb2587"
+      "hash": "292b223119b7"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-10",
+      "next_owner": null,
+      "exhausted": true,
+      "blocked": true,
+      "error_code": "MULTI_RETRY_EXHAUSTED",
+      "status": "local_event_only",
+      "hash": "6fa51f4e1994"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-10",
+      "run_status": "blocked",
+      "review_decision": "revise",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "320fe5297af1"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-11",
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "cd6c02711dfb"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-11",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "4ca69d21a740"
+    },
+    {
+      "event": "multi_agent.artifact_reuse_attempt",
+      "case_id": "ma-p0-11",
+      "artifact_id": "design-6a0dbb9698b593b0",
+      "stale": true,
+      "reused": true,
+      "blocked": true,
+      "status": "local_event_only",
+      "hash": "80e74a26e390"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-11",
+      "run_status": "revise",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "4792aad2f122"
+    },
+    {
+      "event": "multi_agent.routing",
+      "case_id": "ma-p0-12",
+      "next_owner": null,
+      "exhausted": false,
+      "blocked": false,
+      "error_code": null,
+      "status": "local_event_only",
+      "hash": "70b66a4706e0"
+    },
+    {
+      "event": "multi_agent.provenance_checked",
+      "case_id": "ma-p0-12",
+      "valid": true,
+      "status": "local_event_only",
+      "hash": "51da3672d390"
+    },
+    {
+      "event": "multi_agent.run_finished",
+      "case_id": "ma-p0-12",
+      "run_status": "succeeded",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0,
+      "status": "local_event_only",
+      "hash": "b4594a61bce0"
     }
   ],
   "pass_rate": 1.0,
@@ -511,14 +1499,16 @@
       "reviewer_bypassed": 1,
       "unapproved_export": 1,
       "approval_drift": 1,
-      "provenance_gap": 2,
+      "provenance_gap": 1,
       "revision_loop_exhausted": 1,
       "contradictory_project_success": 0
     },
     "total": 12,
     "passed": 12,
     "failed": 0,
+    "skipped": 0,
+    "blocked": 0,
     "pass_rate": 1.0,
-    "trace_events_count": 8
+    "trace_events_count": 42
   }
 }
