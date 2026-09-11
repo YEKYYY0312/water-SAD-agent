@@ -75,6 +75,30 @@ def compute_payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def compute_artifact_collection_hash(
+    artifact_hashes: list[str],
+    *,
+    artifact_ids: list[str] | None = None,
+) -> str:
+    """Hash the final artifact set using the same canonical JSON rules.
+
+    When ids are available they are paired with their payload hashes, so the
+    binding covers both identity and content.  Legacy callers may provide only
+    hashes; those are sorted to make the set ordering-independent.
+    """
+    if artifact_ids is not None:
+        if len(artifact_ids) != len(artifact_hashes):
+            raise ValueError("artifact_ids and artifact_hashes must have equal length")
+        items = sorted(
+            ({"artifact_id": aid, "payload_hash": ah} for aid, ah in zip(artifact_ids, artifact_hashes)),
+            key=lambda item: item["artifact_id"],
+        )
+        payload: dict[str, Any] = {"artifacts": items}
+    else:
+        payload = {"artifact_hashes": sorted(artifact_hashes)}
+    return compute_payload_hash(payload)
+
+
 # ---------------------------------------------------------------------------
 # ProjectBrief
 # ---------------------------------------------------------------------------
@@ -185,6 +209,22 @@ class ArtifactEnvelope(BaseModel):
         if not _PAYLOAD_HASH_RE.match(v):
             raise ValueError("payload_hash must be 64 hex chars")
         return v
+
+    @model_validator(mode="after")
+    def _verify_payload_integrity(self) -> ArtifactEnvelope:
+        _check_finite_value(self.payload)
+        expected = compute_payload_hash(self.payload)
+        if self.payload_hash != expected:
+            raise ValueError(
+                f"{MULTI_PROVENANCE_INVALID}: payload_hash does not match canonical payload"
+            )
+        # A model-supplied success status cannot override deterministic
+        # validation signals carried by the structured payload.
+        if self.status == "ready" and (
+            bool(self.payload.get("errors")) or bool(self.payload.get("missing_inputs"))
+        ):
+            raise ValueError("status=ready conflicts with payload errors or missing_inputs")
+        return self
 
 
 def envelope_hash(envelope: ArtifactEnvelope) -> str:
@@ -448,8 +488,18 @@ class ApprovalRecord(BaseModel):
 
     approved: bool
     reason: str = Field(min_length=1)
+    artifact_ids: list[str] = Field(default_factory=list)
     artifact_hashes: list[str] = Field(default_factory=list)
+    artifact_collection_hash: str | None = None
     approved_at: str = Field(min_length=1)
+
+    @field_validator("artifact_ids")
+    @classmethod
+    def _validate_artifact_ids(cls, v: list[str]) -> list[str]:
+        for artifact_id in v:
+            if not _ARTIFACT_ID_RE.match(artifact_id):
+                raise ValueError(f"artifact_id must match {_ARTIFACT_ID_RE.pattern!r}")
+        return v
 
     @field_validator("artifact_hashes")
     @classmethod
@@ -458,6 +508,22 @@ class ApprovalRecord(BaseModel):
             if not _PAYLOAD_HASH_RE.match(h):
                 raise ValueError(f"artifact_hash must be 64 hex, got {h!r}")
         return v
+
+    @model_validator(mode="after")
+    def _bind_collection_hash(self) -> ApprovalRecord:
+        if self.artifact_ids and len(self.artifact_ids) != len(self.artifact_hashes):
+            raise ValueError("artifact_ids and artifact_hashes must have equal length")
+        if len(set(self.artifact_ids)) != len(self.artifact_ids):
+            raise ValueError("artifact_ids must be unique")
+        expected = compute_artifact_collection_hash(
+            list(self.artifact_hashes),
+            artifact_ids=list(self.artifact_ids) if self.artifact_ids else None,
+        )
+        if self.artifact_collection_hash is None:
+            self.artifact_collection_hash = expected
+        elif self.artifact_collection_hash != expected:
+            raise ValueError(f"{MULTI_APPROVAL_STALE}: artifact collection hash mismatch")
+        return self
 
 
 class FinalProjectPackage(BaseModel):
@@ -477,3 +543,17 @@ class FinalProjectPackage(BaseModel):
         if not _PAYLOAD_HASH_RE.match(v):
             raise ValueError("release_manifest_hash must be 64 hex")
         return v
+
+    @model_validator(mode="after")
+    def _validate_approval_ids(self) -> FinalProjectPackage:
+        declared = [
+            self.calc_artifact_id,
+            self.design_artifact_id,
+            self.document_artifact_id,
+            self.drawing_artifact_id,
+            self.review_artifact_id,
+        ]
+        expected = sorted(item for item in declared if item is not None)
+        if self.approval_record.artifact_ids and sorted(self.approval_record.artifact_ids) != expected:
+            raise ValueError(f"{MULTI_APPROVAL_STALE}: approval artifact_ids do not match final package")
+        return self
