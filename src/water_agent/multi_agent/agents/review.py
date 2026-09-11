@@ -105,6 +105,21 @@ def _calc_case_values(registry: dict[str, ArtifactEnvelope]) -> dict[str, float]
     return values
 
 
+def _superseded_calc_artifact_ids(
+    registry: dict[str, ArtifactEnvelope],
+) -> set[str]:
+    """Return calc artifacts explicitly replaced by a newer CalcPackage."""
+    superseded: set[str] = set()
+    for env in _envelopes_of_type(registry, "calc_package"):
+        try:
+            package = CalcPackage.model_validate(env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            continue
+        if package.supersedes_artifact_id:
+            superseded.add(package.supersedes_artifact_id)
+    return superseded
+
+
 # ---------------------------------------------------------------------------
 # E. hash integrity
 # ---------------------------------------------------------------------------
@@ -151,6 +166,7 @@ def check_cross_artifact_consistency(
     """
     issues: list[ReviewIssue] = []
     active_calc_ids = _active_calc_ids(registry)
+    superseded_calc_ids = _superseded_calc_artifact_ids(registry)
 
     for artifact_id in sorted(registry):
         env = registry[artifact_id]
@@ -176,7 +192,31 @@ def check_cross_artifact_consistency(
         except (ValidationError, ValueError, TypeError, KeyError):
             continue
         declared_sources = set(env.citation_ids)
+        stale_parent_ids = sorted(
+            parent_id
+            for parent_id in env.parent_artifact_ids
+            if parent_id in superseded_calc_ids
+        )
         for seg in design_pkg.segments:
+            for calc_artifact_id in stale_parent_ids:
+                issues.append(
+                    ReviewIssue(
+                        issue_id=(
+                            f"rev-stale-artifact-{env.artifact_id}-"
+                            f"{seg.segment_id}-{calc_artifact_id}"
+                        ),
+                        rule_id="stale_calculation_used",
+                        severity="error",
+                        owner="hydraulic",
+                        artifact_id=env.artifact_id,
+                        object_ref=seg.segment_id,
+                        message=(
+                            f"segment {seg.segment_id} 仍依赖已被替代的计算产物 "
+                            f"{calc_artifact_id}，必须重算并重建设计"
+                        ),
+                        evidence_ids=[calc_artifact_id],
+                    )
+                )
             for case_id in seg.calc_case_ids:
                 if case_id in active_calc_ids:
                     continue
@@ -214,6 +254,31 @@ def check_cross_artifact_consistency(
                             evidence_ids=[],
                         )
                     )
+    for env in _envelopes_of_type(registry, "drawing_plan"):
+        try:
+            plan = DrawingPlan.model_validate(env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            continue
+        if plan.source_calc_artifact_id not in superseded_calc_ids:
+            continue
+        issues.append(
+            ReviewIssue(
+                issue_id=(
+                    f"rev-stale-drawing-{env.artifact_id}-"
+                    f"{plan.source_calc_artifact_id}"
+                ),
+                rule_id="stale_calculation_used",
+                severity="error",
+                owner="hydraulic",
+                artifact_id=env.artifact_id,
+                object_ref=plan.drawing_id,
+                message=(
+                    f"DrawingPlan {plan.drawing_id} 仍引用已被替代的计算产物 "
+                    f"{plan.source_calc_artifact_id}，必须重算并重建图纸"
+                ),
+                evidence_ids=[plan.source_calc_artifact_id],
+            )
+        )
     return issues
 
 
@@ -581,6 +646,10 @@ def check_drawing_consistency(
                 "回读召回率不可判定（staging 回读未执行 ≠ 通过）"
             )
             continue
+        if roundtrip.get("pipes_reviewed") == 0:
+            not_checked.append(
+                f"drawing:{pkg_env.artifact_id} 未执行任何管段审查（pipes_reviewed == 0）"
+            )
         recall = roundtrip.get("roundtrip_segment_recall")
         if not isinstance(recall, (int, float)) or isinstance(recall, bool):
             not_checked.append(
@@ -685,6 +754,93 @@ def decide_review_decision(
     return "pass"
 
 
+def check_review_inputs(
+    registry: dict[str, ArtifactEnvelope],
+) -> tuple[list[ReviewIssue], list[str]]:
+    """Expose upstream conflicts and missing inputs without treating them as pass.
+
+    The structured package fields remain the source of truth.  The monitor only
+    records them; it does not repair them or infer replacements.
+    """
+    issues: list[ReviewIssue] = []
+    not_checked: list[str] = []
+
+    if not registry:
+        not_checked.append("review:无可审查产物，审查未执行")
+
+    for artifact_id in sorted(registry):
+        env = registry[artifact_id]
+        if env.status == "missing_inputs":
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-missing-inputs-{artifact_id}",
+                    rule_id="review_missing_inputs",
+                    severity="info",
+                    owner="human",
+                    artifact_id=artifact_id,
+                    object_ref="status",
+                    message=f"{artifact_id} 状态为 missing_inputs，需补充输入后才能完成审查",
+                    evidence_ids=[],
+                )
+            )
+            not_checked.append(f"artifact:{artifact_id} 缺少输入，相关审查不可判定")
+
+        if env.artifact_type != "drawing_plan":
+            continue
+        try:
+            plan = DrawingPlan.model_validate(env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            continue
+        for index, conflict in enumerate(plan.integration_conflicts):
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-drawing-conflict-{artifact_id}-{index}",
+                    rule_id="drawing_integration_conflict",
+                    severity="error",
+                    owner="drawing",
+                    artifact_id=artifact_id,
+                    object_ref=f"integration_conflicts[{index}]",
+                    message=f"DrawingPlan 集成冲突：{conflict}",
+                    evidence_ids=[
+                        plan.source_design_artifact_id,
+                        plan.source_calc_artifact_id,
+                    ],
+                )
+            )
+        for index, missing in enumerate(plan.missing_inputs):
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-drawing-missing-{artifact_id}-{index}",
+                    rule_id="drawing_missing_inputs",
+                    severity="info",
+                    owner="human",
+                    artifact_id=artifact_id,
+                    object_ref=f"missing_inputs[{index}]",
+                    message=f"DrawingPlan 缺少输入：{missing}",
+                    evidence_ids=[],
+                )
+            )
+            not_checked.append(
+                f"drawing:{artifact_id} 缺少输入（missing_inputs[{index}]），图纸审查不可判定"
+            )
+    return issues, not_checked
+
+
+def _review_envelope_status(
+    package: ReviewPackage,
+) -> Literal["ready", "missing_inputs", "blocked", "failed"]:
+    """Map only structured review evidence to the envelope status contract."""
+    if package.decision == "blocked":
+        return "blocked"
+    if package.decision == "pass":
+        return "ready"
+    if package.not_checked and not any(
+        issue.severity in {"error", "blocking"} for issue in package.issues
+    ):
+        return "missing_inputs"
+    return "failed"
+
+
 def build_review_package(
     registry: dict[str, ArtifactEnvelope],
     *,
@@ -701,6 +857,9 @@ def build_review_package(
     issues: list[ReviewIssue] = []
     not_checked: list[str] = []
 
+    input_issues, input_not_checked = check_review_inputs(registry)
+    issues.extend(input_issues)
+    not_checked.extend(input_not_checked)
     issues.extend(check_hash_integrity(registry))
     issues.extend(check_cross_artifact_consistency(registry))
 
@@ -731,14 +890,11 @@ def build_review_package(
     issues.extend(doc_issues)
     not_checked.extend(doc_not_checked)
 
-    # Review, approval and export all bind directly to the canonical payload
-    # hash.  Do not wrap it in a second artifact-id hash with a different
-    # contract; identity is tracked by the registry key/parent links.
+    # Review and approval share the exact canonical payload-hash contract.
+    # Identity remains in registry keys and parent links; do not create a second
+    # review-specific hash vocabulary here.
     ordered_artifact_ids = sorted(registry)
-    reviewed_hashes = [
-        compute_payload_hash(registry[artifact_id].payload)
-        for artifact_id in ordered_artifact_ids
-    ]
+    reviewed_hashes = [registry[artifact_id].payload_hash for artifact_id in ordered_artifact_ids]
 
     decision = decide_review_decision(issues, not_checked)
     pkg = ReviewPackage(
@@ -783,6 +939,6 @@ def run_review_agent(
         citation_ids=[],
         assumptions=[],
         warnings=[],
-        status="ready",
+        status=_review_envelope_status(pkg),
     )
     return envelope
