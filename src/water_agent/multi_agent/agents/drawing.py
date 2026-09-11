@@ -104,6 +104,8 @@ def _build_output_adaptations(
     calc_pkg: CalcPackage,
     *,
     drawing_id: str,
+    integration_conflicts: list[str],
+    missing_inputs: list[str],
 ) -> dict[str, object]:
     """Adapt existing docgen/materials implementations without reimplementing either.
 
@@ -112,44 +114,81 @@ def _build_output_adaptations(
     protection segment), expose that limitation as ``blocked`` instead of
     returning a partial total as if it covered the entire design.
     """
-    from water_agent.docgen.templates import render_docgen_doc
+    from water_agent.docgen.templates import check_docgen_self_check, render_docgen_doc
     from water_agent.materials.core import PipeRun, aggregate_materials
 
-    material_table = aggregate_materials(
-        [
-            PipeRun(
-                segment_id=segment.segment_id,
-                system=segment.system,
-                dn_mm=segment.dn_mm or -1,
-                length_m=segment.length_m or 0.0,
-                material=segment.material or "",
-            )
-            for segment in design_pkg.segments
-        ]
-    )
-    material_output = material_table.to_dict()
-    material_status = "ready" if material_table.ok else "blocked"
+    material_missing: list[str] = []
+    for segment in design_pkg.segments:
+        if segment.length_m is None:
+            material_missing.append(f"segment {segment.segment_id}: missing length_m")
+        if segment.dn_mm is None:
+            material_missing.append(f"segment {segment.segment_id}: missing dn_mm")
+        if not segment.material:
+            material_missing.append(f"segment {segment.segment_id}: missing material")
+
+    material_rows: list[dict[str, object]] | None = None
+    if material_missing:
+        material_output: dict[str, object] | None = None
+        material_status = "missing_inputs"
+        material_unresolved = material_missing
+    else:
+        material_table = aggregate_materials(
+            [
+                PipeRun(
+                    segment_id=segment.segment_id,
+                    system=segment.system,
+                    dn_mm=segment.dn_mm,
+                    length_m=segment.length_m,
+                    material=segment.material,
+                )
+                for segment in design_pkg.segments
+                if segment.dn_mm is not None
+                and segment.length_m is not None
+                and segment.material is not None
+            ]
+        )
+        material_output = material_table.to_dict()
+        material_status = "ready" if material_table.ok else "blocked"
+        material_unresolved = list(material_table.errors)
+        if material_table.ok:
+            material_rows = [row.to_dict() for row in material_table.rows]
 
     calc_values: dict[str, float] = {}
-    for case in calc_pkg.cases:
+    for case_index, case in enumerate(calc_pkg.cases, start=1):
+        case_token = re.sub(r"[^a-z0-9_]+", "_", case.calc_case_id.lower()).strip("_")
         for key, value in case.outputs.items():
-            calc_values[f"{case.calc_case_id}.{key}"] = value
+            key_token = re.sub(r"[^a-z0-9_]+", "_", key.lower()).strip("_")
+            calc_values[f"case_{case_index}_{case_token}_{key_token}"] = value
     citations = sorted({source_id for segment in design_pkg.segments for source_id in segment.source_ids})
     rendered = render_docgen_doc(
         query=f"DrawingPlan {drawing_id}",
         doc_type="design_note",
         calc_result=calc_values,
         citations=citations,
-        material_rows=material_table.to_dict()["rows"] if material_table.ok else None,
+        material_rows=material_rows,
     )
+    docgen_problems = check_docgen_self_check(rendered, calc_result=calc_values)
+    if integration_conflicts:
+        document_status = "blocked"
+        document_unresolved = list(integration_conflicts)
+    elif missing_inputs:
+        document_status = "missing_inputs"
+        document_unresolved = list(missing_inputs)
+    elif docgen_problems:
+        document_status = "failed"
+        document_unresolved = docgen_problems
+    else:
+        document_status = "ready"
+        document_unresolved = []
     document_output = {
-        "status": "ready",
+        "status": document_status,
+        "unresolved_items": document_unresolved,
         "input": {
             "query": f"DrawingPlan {drawing_id}",
             "doc_type": "design_note",
             "calc_result": calc_values,
             "citations": citations,
-            "material_rows": material_table.to_dict()["rows"] if material_table.ok else None,
+            "material_rows": material_rows,
         },
         "rendered": {
             "doc_type": rendered.doc_type,
@@ -167,7 +206,7 @@ def _build_output_adaptations(
         "materials": {
             "status": material_status,
             "result": material_output,
-            "unresolved_items": list(material_table.errors),
+            "unresolved_items": material_unresolved,
         },
         "docgen": document_output,
     }
@@ -237,6 +276,7 @@ def build_drawing_plan(
                     system=seg.system,
                     dn_mm=seg.dn_mm,
                     material=seg.material,
+                    length_m=seg.length_m,
                 )
             )
             dn_str = f"DN{seg.dn_mm}" if seg.dn_mm is not None else "DN?"
@@ -259,6 +299,7 @@ def build_drawing_plan(
                     system=seg.system,
                     dn_mm=seg.dn_mm,
                     material=seg.material,
+                    length_m=seg.length_m,
                 )
             )
 
@@ -272,7 +313,11 @@ def build_drawing_plan(
         integration_conflicts=conflicts,
         missing_inputs=missing_inputs,
         output_adaptations=_build_output_adaptations(
-            design_package, calc_package, drawing_id=drawing_id
+            design_package,
+            calc_package,
+            drawing_id=drawing_id,
+            integration_conflicts=conflicts,
+            missing_inputs=missing_inputs,
         ),
     )
     return plan
@@ -370,6 +415,7 @@ def build_drawing_package(
         plan_artifact_id=plan_envelope.artifact_id,
         preview_status="unresolved",
         staged_file_id=fid,
+        staged_content_sha256=None,
         final_file_id=None,
         roundtrip_review=None,
         staged_file_verified=False,

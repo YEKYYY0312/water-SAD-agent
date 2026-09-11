@@ -80,20 +80,75 @@ def compute_artifact_collection_hash(
     artifact_hashes: list[str],
     *,
     artifact_ids: list[str] | None = None,
+    artifact_revisions: list[int] | None = None,
+    artifact_parent_artifact_ids: list[list[str]] | None = None,
 ) -> str:
     """Hash the final artifact set using the same canonical JSON rules.
 
-    When ids are available they are paired with their payload hashes, so the
-    binding covers both identity and content.  Legacy callers may provide only
-    hashes; those are sorted to make the set ordering-independent.
+    When ids are available they are paired with their payload hashes.  Runtime
+    approval records additionally provide each envelope's revision and parent
+    ids, so metadata-only drift cannot silently reuse an approval.  Legacy
+    callers may provide only hashes (or ids plus hashes); those forms remain
+    ordering-independent for persisted pre-Step-33 records.
     """
-    if artifact_ids is not None:
-        if len(artifact_ids) != len(artifact_hashes):
-            raise ValueError("artifact_ids and artifact_hashes must have equal length")
-        items = sorted(
-            ({"artifact_id": aid, "payload_hash": ah} for aid, ah in zip(artifact_ids, artifact_hashes)),
-            key=lambda item: item["artifact_id"],
+    for payload_hash in artifact_hashes:
+        if not _PAYLOAD_HASH_RE.match(payload_hash):
+            raise ValueError(f"artifact hash must be 64 hex, got {payload_hash!r}")
+    if (artifact_revisions is None) != (artifact_parent_artifact_ids is None):
+        raise ValueError(
+            "artifact_revisions and artifact_parent_artifact_ids must be supplied together"
         )
+    if artifact_ids is not None and len(artifact_ids) != len(artifact_hashes):
+        raise ValueError("artifact_ids and artifact_hashes must have equal length")
+    if artifact_ids is not None:
+        if len(set(artifact_ids)) != len(artifact_ids):
+            raise ValueError("artifact_ids must be unique")
+        for artifact_id in artifact_ids:
+            if not _ARTIFACT_ID_RE.match(artifact_id):
+                raise ValueError(f"artifact_id must match {_ARTIFACT_ID_RE.pattern!r}")
+    if artifact_revisions is not None:
+        if len(artifact_revisions) != len(artifact_hashes):
+            raise ValueError("artifact_revisions and artifact_hashes must have equal length")
+        if artifact_parent_artifact_ids is None or len(
+            artifact_parent_artifact_ids
+        ) != len(artifact_hashes):
+            raise ValueError(
+                "artifact_parent_artifact_ids and artifact_hashes must have equal length"
+            )
+        if artifact_ids is None:
+            raise ValueError("artifact_ids are required when envelope metadata is supplied")
+        for revision in artifact_revisions:
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                raise ValueError("artifact_revisions must contain positive integers")
+        for parent_ids in artifact_parent_artifact_ids:
+            for parent_id in parent_ids:
+                if not _ARTIFACT_ID_RE.match(parent_id):
+                    raise ValueError(
+                        f"parent artifact_id must match {_ARTIFACT_ID_RE.pattern!r}"
+                    )
+
+    if artifact_ids is not None:
+        if artifact_revisions is not None and artifact_parent_artifact_ids is not None:
+            items: list[dict[str, Any]] = [
+                {
+                    "artifact_id": aid,
+                    "payload_hash": payload_hash,
+                    "revision": revision,
+                    "parent_artifact_ids": sorted(parent_ids),
+                }
+                for aid, payload_hash, revision, parent_ids in zip(
+                    artifact_ids,
+                    artifact_hashes,
+                    artifact_revisions,
+                    artifact_parent_artifact_ids,
+                )
+            ]
+        else:
+            items = [
+                {"artifact_id": aid, "payload_hash": payload_hash}
+                for aid, payload_hash in zip(artifact_ids, artifact_hashes)
+            ]
+        items.sort(key=lambda item: item["artifact_id"])
         payload: dict[str, Any] = {"artifacts": items}
     else:
         payload = {"artifact_hashes": sorted(artifact_hashes)}
@@ -411,6 +466,7 @@ class PlannedEntity(BaseModel):
     system: Literal["water_supply", "drainage", "fire_protection"] | None = None
     dn_mm: int | None = None
     material: str | None = None
+    length_m: float | None = None
 
     @field_validator("source_artifact_id")
     @classmethod
@@ -426,13 +482,25 @@ class PlannedEntity(BaseModel):
             raise ValueError("dn_mm must be >0 when provided")
         return v
 
+    @field_validator("length_m")
+    @classmethod
+    def _validate_length_m(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("length_m must be finite and >0 when provided")
+        return v
+
     @model_validator(mode="after")
     def _check_finite(self) -> PlannedEntity:
         for x, y in self.points:
             if not math.isfinite(x) or not math.isfinite(y):
                 raise ValueError(f"points must be finite, got {(x, y)!r}")
         if self.segment_id is None:
-            if any(value is not None for value in (self.system, self.dn_mm, self.material)):
+            if any(
+                value is not None
+                for value in (self.system, self.dn_mm, self.material, self.length_m)
+            ):
                 raise ValueError("entities without segment_id cannot carry segment design fields")
         elif self.system is None or self.dn_mm is None or not self.material:
             raise ValueError(
@@ -479,11 +547,22 @@ class DrawingPackage(BaseModel):
     plan_artifact_id: str = Field(min_length=1)
     preview_status: str = Field(min_length=1)
     staged_file_id: str | None = None
+    staged_content_sha256: str | None = None
     final_file_id: str | None = None
     roundtrip_review: dict[str, Any] | None = None
     staged_file_verified: bool = False
     p3_pipeline_executed: bool = False
     unresolved_items: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_staged_content_binding(self) -> DrawingPackage:
+        if self.staged_content_sha256 is not None and not _PAYLOAD_HASH_RE.match(
+            self.staged_content_sha256
+        ):
+            raise ValueError("staged_content_sha256 must be 64 hex")
+        if not self.staged_file_verified and self.staged_content_sha256 is not None:
+            raise ValueError("unverified staged drawing cannot carry staged_content_sha256")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +599,8 @@ class ApprovalRecord(BaseModel):
     reason: str = Field(min_length=1)
     artifact_ids: list[str] = Field(default_factory=list)
     artifact_hashes: list[str] = Field(default_factory=list)
+    artifact_revisions: list[int] = Field(default_factory=list)
+    artifact_parent_artifact_ids: list[list[str]] = Field(default_factory=list)
     artifact_collection_hash: str | None = None
     # Step 33 binds a human decision to the complete release manifest. Keep
     # this optional for pre-Step-33 persisted records; release_gate rejects a
@@ -550,9 +631,30 @@ class ApprovalRecord(BaseModel):
             raise ValueError("artifact_ids and artifact_hashes must have equal length")
         if len(set(self.artifact_ids)) != len(self.artifact_ids):
             raise ValueError("artifact_ids must be unique")
+        has_revisions = bool(self.artifact_revisions)
+        has_parents = bool(self.artifact_parent_artifact_ids)
+        if has_revisions != has_parents:
+            raise ValueError(
+                "artifact_revisions and artifact_parent_artifact_ids must be supplied together"
+            )
+        if has_revisions:
+            if not self.artifact_ids:
+                raise ValueError("artifact_ids are required for envelope metadata binding")
+            if len(self.artifact_revisions) != len(self.artifact_ids):
+                raise ValueError("artifact_revisions and artifact_ids must have equal length")
+            if len(self.artifact_parent_artifact_ids) != len(self.artifact_ids):
+                raise ValueError(
+                    "artifact_parent_artifact_ids and artifact_ids must have equal length"
+                )
         expected = compute_artifact_collection_hash(
             list(self.artifact_hashes),
             artifact_ids=list(self.artifact_ids) if self.artifact_ids else None,
+            artifact_revisions=(list(self.artifact_revisions) if has_revisions else None),
+            artifact_parent_artifact_ids=(
+                [list(parent_ids) for parent_ids in self.artifact_parent_artifact_ids]
+                if has_parents
+                else None
+            ),
         )
         if self.artifact_collection_hash is None:
             self.artifact_collection_hash = expected
@@ -579,6 +681,7 @@ class FinalProjectPackage(BaseModel):
     calc_artifact_id: str = Field(min_length=1)
     design_artifact_id: str = Field(min_length=1)
     document_artifact_id: str | None = None
+    drawing_plan_artifact_id: str = Field(min_length=1)
     drawing_artifact_id: str | None = None
     review_artifact_id: str = Field(min_length=1)
     approval_record: ApprovalRecord
@@ -597,14 +700,25 @@ class FinalProjectPackage(BaseModel):
             self.calc_artifact_id,
             self.design_artifact_id,
             self.document_artifact_id,
+            self.drawing_plan_artifact_id,
             self.drawing_artifact_id,
             self.review_artifact_id,
         ]
         expected = sorted(item for item in declared if item is not None)
-        if self.approval_record.artifact_ids and sorted(self.approval_record.artifact_ids) != expected:
+        if sorted(self.approval_record.artifact_ids) != expected:
             raise ValueError(f"{MULTI_APPROVAL_STALE}: approval artifact_ids do not match final package")
-        if self.approval_record.final_package_hash is not None and (
-            self.approval_record.final_package_hash != self.release_manifest_hash
-        ):
+        if len(self.approval_record.artifact_revisions) != len(expected) or len(
+            self.approval_record.artifact_parent_artifact_ids
+        ) != len(expected):
+            raise ValueError(
+                f"{MULTI_APPROVAL_STALE}: approval envelope metadata binding is required"
+            )
+        if self.approval_record.final_package_hash is None:
+            raise ValueError(f"{MULTI_APPROVAL_STALE}: approval final package hash is required")
+        if self.approval_record.final_package_hash != self.release_manifest_hash:
             raise ValueError(f"{MULTI_APPROVAL_STALE}: approval final package hash does not match")
+        if self.approval_record.artifact_collection_hash != self.release_manifest_hash:
+            raise ValueError(
+                f"{MULTI_APPROVAL_STALE}: approval artifact collection hash does not match"
+            )
         return self

@@ -38,6 +38,8 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from water_agent.docgen import numeric_preservation_problems
+from water_agent.multi_agent.agents.drawing import _build_output_adaptations
 from water_agent.multi_agent.contracts import (
     MULTI_PROVENANCE_INVALID,
     ArtifactEnvelope,
@@ -77,32 +79,130 @@ def _envelopes_of_type(
     return [env for env in registry.values() if env.artifact_type == artifact_type]
 
 
-def _active_calc_ids(registry: dict[str, ArtifactEnvelope]) -> set[str]:
-    """当前注册表所有 CalcPackage 声明的 calc_case_id 全集。"""
-    ids: set[str] = set()
-    for env in _envelopes_of_type(registry, "calc_package"):
-        try:
-            pkg = CalcPackage.model_validate(env.payload)
-        except (ValidationError, ValueError, TypeError, KeyError):
-            continue
-        for case in pkg.cases:
-            ids.add(case.calc_case_id)
-    return ids
+def _case_output_key(case_index: int, case_id: str, output_key: str) -> str:
+    """Keep the same case-bound key shape as the shared docgen adaptation."""
+    case_token = re.sub(r"[^a-z0-9_]+", "_", case_id.lower()).strip("_")
+    key_token = re.sub(r"[^a-z0-9_]+", "_", output_key.lower()).strip("_")
+    return f"case_{case_index}_{case_token}_{key_token}"
 
 
-def _calc_case_values(registry: dict[str, ArtifactEnvelope]) -> dict[str, float]:
-    """全部 calc_case 输出的扁平化数值映射（文档数值对账的权威来源）。"""
+def _calc_case_values(
+    registry: dict[str, ArtifactEnvelope],
+    *,
+    calc_artifact_ids: set[str] | None = None,
+) -> dict[str, float]:
+    """Return case-bound outputs from the explicitly selected CalcPackages.
+
+    The composite key is audit metadata only.  Keeping the artifact, case and
+    output names in it prevents two active cases that both emit
+    ``velocity_mps`` from overwriting one another before document validation.
+    """
     values: dict[str, float] = {}
-    for env in _envelopes_of_type(registry, "calc_package"):
+    selected_ids = (
+        set(calc_artifact_ids)
+        if calc_artifact_ids is not None
+        else {
+            env.artifact_id
+            for env in _envelopes_of_type(registry, "calc_package")
+            if env.artifact_id not in _superseded_calc_artifact_ids(registry)
+        }
+    )
+    for artifact_id in sorted(selected_ids):
+        env = registry.get(artifact_id)
+        if env is None or env.artifact_type != "calc_package":
+            continue
         try:
             pkg = CalcPackage.model_validate(env.payload)
         except (ValidationError, ValueError, TypeError, KeyError):
             continue
-        for case in pkg.cases:
+        for case_index, case in enumerate(pkg.cases, start=1):
             for key, value in case.outputs.items():
                 if isinstance(value, (int, float)) and math.isfinite(float(value)):
-                    values[key] = float(value)
+                    values[_case_output_key(case_index, case.calc_case_id, key)] = float(value)
     return values
+
+
+def _design_calc_artifact_ids(
+    registry: dict[str, ArtifactEnvelope],
+    design_env: ArtifactEnvelope,
+) -> set[str]:
+    """Resolve calculation inputs only through the DesignPackage parent edge."""
+    return {
+        parent_id
+        for parent_id in design_env.parent_artifact_ids
+        if (parent := registry.get(parent_id)) is not None
+        and parent.artifact_type == "calc_package"
+    }
+
+
+def _document_dependencies(
+    registry: dict[str, ArtifactEnvelope],
+    doc_env: ArtifactEnvelope,
+) -> tuple[ArtifactEnvelope | None, ArtifactEnvelope | None, ArtifactEnvelope | None, list[str]]:
+    """Resolve the document's Calc/Design/DrawingPlan lineage without guessing."""
+    messages: list[str] = []
+    parents = [registry[parent_id] for parent_id in doc_env.parent_artifact_ids if parent_id in registry]
+
+    def exactly_one(artifact_type: str) -> ArtifactEnvelope | None:
+        matches = [env for env in parents if env.artifact_type == artifact_type]
+        if len(matches) != 1:
+            messages.append(
+                f"document:{doc_env.artifact_id} parent 中 {artifact_type} 数量为 {len(matches)}，"
+                "活动依赖无法唯一解析"
+            )
+            return None
+        return matches[0]
+
+    calc_env = exactly_one("calc_package")
+    design_env = exactly_one("design_package")
+    plan_env = exactly_one("drawing_plan")
+    if calc_env is None or design_env is None or plan_env is None:
+        return calc_env, design_env, plan_env, messages
+
+    try:
+        plan = DrawingPlan.model_validate(plan_env.payload)
+    except (ValidationError, ValueError, TypeError, KeyError):
+        messages.append(
+            f"document:{doc_env.artifact_id} 的 DrawingPlan 无法解析，活动依赖不可审计"
+        )
+        return calc_env, design_env, None, messages
+    if plan.source_calc_artifact_id != calc_env.artifact_id:
+        messages.append(
+            f"document:{doc_env.artifact_id} 的 CalcPackage parent 与 DrawingPlan source 不一致"
+        )
+    if plan.source_design_artifact_id != design_env.artifact_id:
+        messages.append(
+            f"document:{doc_env.artifact_id} 的 DesignPackage parent 与 DrawingPlan source 不一致"
+        )
+    if calc_env.artifact_id not in _design_calc_artifact_ids(registry, design_env):
+        messages.append(
+            f"document:{doc_env.artifact_id} 的活动 CalcPackage 不是 DesignPackage 的计算父产物"
+        )
+    return calc_env, design_env, plan_env, messages
+
+
+def _reviewed_artifacts(
+    registry: dict[str, ArtifactEnvelope],
+    doc_env: ArtifactEnvelope,
+) -> tuple[dict[str, ArtifactEnvelope], list[str]]:
+    """Resolve the complete release-review input set from explicit lineage."""
+    calc_env, design_env, plan_env, messages = _document_dependencies(registry, doc_env)
+    if messages or calc_env is None or design_env is None or plan_env is None:
+        return {}, messages
+
+    drawing_matches: list[ArtifactEnvelope] = []
+    for env in _envelopes_of_type(registry, "drawing_package"):
+        if env.payload.get("plan_artifact_id") == plan_env.artifact_id:
+            drawing_matches.append(env)
+    if len(drawing_matches) != 1:
+        messages.append(
+            f"drawing_plan:{plan_env.artifact_id} 对应 drawing_package 数量为 "
+            f"{len(drawing_matches)}，活动审查集合无法唯一解析"
+        )
+        return {}, messages
+
+    active = (calc_env, design_env, plan_env, drawing_matches[0], doc_env)
+    return {env.artifact_id: env for env in active}, []
 
 
 def _superseded_calc_artifact_ids(
@@ -118,6 +218,14 @@ def _superseded_calc_artifact_ids(
         if package.supersedes_artifact_id:
             superseded.add(package.supersedes_artifact_id)
     return superseded
+
+
+def _active_calc_artifact_ids_for_design(
+    registry: dict[str, ArtifactEnvelope],
+    design_env: ArtifactEnvelope,
+) -> set[str]:
+    """Return only CalcPackages explicitly parented by this DesignPackage."""
+    return _design_calc_artifact_ids(registry, design_env)
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +273,6 @@ def check_cross_artifact_consistency(
       （error, design）。
     """
     issues: list[ReviewIssue] = []
-    active_calc_ids = _active_calc_ids(registry)
     superseded_calc_ids = _superseded_calc_artifact_ids(registry)
 
     for artifact_id in sorted(registry):
@@ -191,6 +298,20 @@ def check_cross_artifact_consistency(
             design_pkg = DesignPackage.model_validate(env.payload)
         except (ValidationError, ValueError, TypeError, KeyError):
             continue
+        active_calc_ids: set[str] = set()
+        for calc_artifact_id in _design_calc_artifact_ids(registry, env):
+            calc_env = registry.get(calc_artifact_id)
+            if calc_env is None:
+                continue
+            try:
+                calc_pkg = CalcPackage.model_validate(calc_env.payload)
+            except (ValidationError, ValueError, TypeError, KeyError):
+                continue
+            active_calc_ids.update(
+                case.calc_case_id
+                for case in calc_pkg.cases
+                if case.status == "verified" and case.outputs
+            )
         for source_id in design_pkg.invalid_citation_ids:
             issues.append(
                 ReviewIssue(
@@ -303,26 +424,28 @@ def check_cross_artifact_consistency(
 # ---------------------------------------------------------------------------
 
 
-def _numbers_in_text(text: str) -> set[str]:
-    """提取正文数字的 :g 刻度字符串集合（含整型形态）。"""
-    found: set[str] = set()
-    for token in re.findall(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", text):
-        try:
-            value = float(token)
-        except ValueError:
+def _document_section_text(payload: dict[str, Any]) -> str:
+    sections = payload.get("sections")
+    if not isinstance(sections, list):
+        return ""
+    lines: list[str] = []
+    for section in sections:
+        if not isinstance(section, dict):
             continue
-        if not math.isfinite(value):
+        section_lines = section.get("lines")
+        if not isinstance(section_lines, list):
             continue
-        found.add(_fmt(value))
-        if value.is_integer():
-            found.add(str(int(value)))
-    return found
+        lines.extend(str(line) for line in section_lines)
+    return "\n".join(lines)
 
 
 def _check_document(
     doc_payload: dict[str, Any],
     calc_values_by_case: dict[str, float],
     artifact_id: str,
+    *,
+    trusted_base_payload: dict[str, Any] | None = None,
+    allowed_dn_values: set[int] | None = None,
 ) -> tuple[list[ReviewIssue], list[str]]:
     """A 文档一致检查（docgen self-check 口径的只读复检，不新增第二套模板）。
 
@@ -348,7 +471,6 @@ def _check_document(
         if value.is_integer():
             known_from_calc.add(str(int(value)))
 
-    doc_numbers: set[str] = set()
     for value in calc_values.values():
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             issues.append(
@@ -379,9 +501,6 @@ def _check_document(
                 )
             )
             continue
-        doc_numbers.add(_fmt(numeric))
-        if numeric.is_integer():
-            doc_numbers.add(str(int(numeric)))
         if _fmt(numeric) not in known_from_calc and str(int(numeric)) not in known_from_calc:
             issues.append(
                 ReviewIssue(
@@ -419,7 +538,6 @@ def _check_document(
         heading = str(section.get("heading", ""))
         for line in section.get("lines", []) or []:
             text = str(line)
-            doc_numbers |= _numbers_in_text(text)
             for spec_match in _SPEC_TOKEN_RE.finditer(text):
                 tail = text[spec_match.end():]
                 article_match = _ARTICLE_TOKEN_RE.match(tail.lstrip())
@@ -440,11 +558,61 @@ def _check_document(
                         )
                     )
 
-    # 正文数字白名单 = calc_values ∪ 章节原文数字（程序化渲染的备注/标题可作白名单，
-    # 与 docgen quality.numeric_preservation_problems 同一口径）。
-    for token in sorted(doc_numbers):
-        if token in known_from_calc or token in doc_numbers:
-            continue
+    trusted_calc_values = calc_values
+    trusted_base_text = ""
+    if trusted_base_payload is not None:
+        base_calc_values = trusted_base_payload.get("calc_values")
+        if isinstance(base_calc_values, dict) and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in base_calc_values.values()
+        ):
+            trusted_calc_values = {
+                str(key): float(value)
+                for key, value in base_calc_values.items()
+                if math.isfinite(float(value))
+            }
+        trusted_base_text = _document_section_text(trusted_base_payload)
+
+    current_text = _document_section_text(doc_payload)
+    if allowed_dn_values is not None:
+        for index, match in enumerate(_DN_RE.finditer(current_text)):
+            dn_mm = int(match.group(1))
+            if dn_mm in allowed_dn_values:
+                continue
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-doc-dn-{artifact_id}-{index}",
+                    rule_id="doc_dn_untraceable",
+                    severity="error",
+                    owner="design",
+                    artifact_id=artifact_id,
+                    object_ref="sections",
+                    message=(
+                        f"正文 DN{dn_mm} 不在活动 DesignPackage 的管径集合中，"
+                        "无法溯源至明确设计字段"
+                    ),
+                    evidence_ids=[],
+                )
+            )
+    for index, problem in enumerate(
+        numeric_preservation_problems(
+            current_text,
+            trusted_calc_values,
+            base_text=trusted_base_text,
+        )
+    ):
+        issues.append(
+            ReviewIssue(
+                issue_id=f"rev-doc-numeric-{artifact_id}-{index}",
+                rule_id="doc_numeric_preservation",
+                severity="error",
+                owner="design",
+                artifact_id=artifact_id,
+                object_ref="sections",
+                message=problem,
+                evidence_ids=[],
+            )
+        )
     return issues, not_checked
 
 
@@ -474,8 +642,63 @@ def check_document_consistency(
             ),
         ]
         return [], not_checked
-    calc_values_by_case = _calc_case_values(registry)
-    return _check_document(doc_envs[0].payload, calc_values_by_case, doc_envs[0].artifact_id)
+    doc_env = doc_envs[0]
+    trusted_base_payload: dict[str, Any] | None = None
+    allowed_dn_values: set[int] | None = None
+    dependency_messages: list[str] = []
+    calc_env, design_env, plan_env, dependency_messages = _document_dependencies(
+        registry, doc_env
+    )
+    calc_artifact_ids: set[str] | None = None
+    if calc_env is not None and design_env is not None and plan_env is not None and not dependency_messages:
+        try:
+            calc_pkg = CalcPackage.model_validate(calc_env.payload)
+            design_pkg = DesignPackage.model_validate(design_env.payload)
+            plan = DrawingPlan.model_validate(plan_env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            dependency_messages.append(
+                f"document:{doc_env.artifact_id} 活动依赖 payload 无法解析，正文底稿无法重建"
+            )
+        else:
+            adaptations = _build_output_adaptations(
+                design_pkg,
+                calc_pkg,
+                drawing_id=plan.drawing_id,
+                integration_conflicts=plan.integration_conflicts,
+                missing_inputs=plan.missing_inputs,
+            )
+            docgen = adaptations.get("docgen")
+            rendered = docgen.get("rendered") if isinstance(docgen, dict) else None
+            if isinstance(rendered, dict):
+                trusted_base_payload = rendered
+            else:
+                dependency_messages.append(
+                    f"document:{doc_env.artifact_id} 既有 docgen 模板未产生可审查底稿"
+                )
+            calc_artifact_ids = {calc_env.artifact_id}
+            allowed_dn_values = {
+                segment.dn_mm
+                for segment in design_pkg.segments
+                if segment.dn_mm is not None
+            }
+
+    # Legacy standalone document fixtures have no lineage. Keep their prior
+    # registry-wide numeric check, while production documents with explicit
+    # parents must resolve the active dependency chain without guessing.
+    calc_values_by_case = _calc_case_values(
+        registry,
+        calc_artifact_ids=calc_artifact_ids,
+    )
+    issues, not_checked = _check_document(
+        doc_env.payload,
+        calc_values_by_case,
+        doc_env.artifact_id,
+        trusted_base_payload=trusted_base_payload,
+        allowed_dn_values=allowed_dn_values,
+    )
+    if doc_env.parent_artifact_ids:
+        not_checked.extend(dependency_messages)
+    return issues, not_checked
 
 
 # ---------------------------------------------------------------------------
@@ -909,8 +1132,28 @@ def build_review_package(
     # Review and approval share the exact canonical payload-hash contract.
     # Identity remains in registry keys and parent links; do not create a second
     # review-specific hash vocabulary here.
-    ordered_artifact_ids = sorted(registry)
-    reviewed_hashes = [registry[artifact_id].payload_hash for artifact_id in ordered_artifact_ids]
+    selected_doc: ArtifactEnvelope | None = None
+    if document_artifact_id is not None:
+        candidate = registry.get(document_artifact_id)
+        if candidate is not None and candidate.artifact_type == "document":
+            selected_doc = candidate
+    else:
+        documents = _envelopes_of_type(registry, "document")
+        if len(documents) == 1:
+            selected_doc = documents[0]
+
+    reviewed_registry = registry
+    if selected_doc is not None and selected_doc.parent_artifact_ids:
+        active_registry, lineage_messages = _reviewed_artifacts(registry, selected_doc)
+        if active_registry:
+            reviewed_registry = active_registry
+        else:
+            reviewed_registry = {}
+            not_checked.extend(lineage_messages)
+    ordered_artifact_ids = sorted(reviewed_registry)
+    reviewed_hashes = [
+        reviewed_registry[artifact_id].payload_hash for artifact_id in ordered_artifact_ids
+    ]
 
     decision = decide_review_decision(issues, not_checked)
     pkg = ReviewPackage(
