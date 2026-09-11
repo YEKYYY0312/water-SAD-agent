@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -28,7 +29,7 @@ from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_mo
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
-from water_agent.graphs.calc import build_calc_graph, detect_intent
+from water_agent.graphs.calc import build_calc_graph, detect_intent, parse_calc_query
 from water_agent.graphs.rag import build_rag_graph
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.wiring import (
@@ -953,12 +954,165 @@ def _resolve_flow(args: argparse.Namespace) -> str:
     return flow
 
 
+def _multi_agent_systems_from_query(query: str) -> list[str]:
+    """Extract only explicitly named systems; generic ``给排水`` stays ambiguous."""
+    searchable = query.replace("给排水", "")
+    systems: list[str] = []
+    for system, pattern in (
+        ("water_supply", r"给水|water[_ -]?supply"),
+        ("drainage", r"排水|污水|drainage"),
+        ("fire_protection", r"消防|fire[_ -]?protection"),
+    ):
+        if re.search(pattern, searchable, re.IGNORECASE):
+            systems.append(system)
+    return systems
+
+
+def _multi_agent_named_value(query: str, names: str) -> str | None:
+    match = re.search(
+        rf"(?:{names})\s*(?:[:=：]|为)\s*([A-Za-z0-9_\-一-鿿]+)",
+        query,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def _multi_agent_required_outputs(query: str) -> list[str]:
+    match = re.search(
+        r"(?:输出|交付|required_outputs?)\s*(?:[:=：]|为)\s*([^。；;]+)",
+        query,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return []
+    clause = match.group(1)
+    outputs: list[str] = []
+    for output, pattern in (
+        ("calculation_book", r"计算书|calculation[_ -]?book"),
+        ("design_note", r"设计说明|design[_ -]?note"),
+        ("drawing", r"图纸|drawing|dxf"),
+    ):
+        if re.search(pattern, clause, re.IGNORECASE):
+            outputs.append(output)
+    return outputs
+
+
+def _multi_agent_si_units_are_explicit(query: str, params: dict[str, Any]) -> bool:
+    """Accept SI only when declared directly or encoded by every parsed value's unit."""
+    if re.search(r"(?:单位\s*(?:[:=：]|为)\s*SI\b|SI\s*单位|国际单位制)", query, re.IGNORECASE):
+        return True
+    numeric_keys = {
+        key
+        for key, value in params.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    if not numeric_keys:
+        return False
+    evidence_patterns = {
+        "diameter_mm": r"\bDN\s*\d+(?:\.\d+)?\b",
+        "flow_lps": r"(?:Q\s*=|流量\s*)\s*\d+(?:\.\d+)?\s*L\s*/\s*s",
+        "length_m": r"(?:\bL\s*=|管长\s*)\s*\d+(?:\.\d+)?\s*m\b",
+        "velocity_mps": r"(?:\bv\s*=|流速\s*)\s*\d+(?:\.\d+)?\s*m\s*/\s*s",
+        "fill_ratio": r"h\s*/\s*d\s*=\s*\d+(?:\.\d+)?",
+        "manning_n": r"\bn\s*=\s*\d+(?:\.\d+)?",
+        "friction_factor": r"\bf\s*=\s*\d+(?:\.\d+)?",
+        "hazen_williams_c": r"\bC\s*=\s*\d+(?:\.\d+)?",
+        "static_head_m": r"几何(?:扬程)?\s*\d+(?:\.\d+)?\s*(?:m|米)\b",
+        "friction_head_m": r"沿程\s*\d+(?:\.\d+)?\s*(?:m|米)\b",
+        "local_head_m": r"局部\s*\d+(?:\.\d+)?\s*(?:m|米)\b",
+        "residual_head_m": r"剩余\s*\d+(?:\.\d+)?\s*(?:m|米)\b",
+    }
+    return all(
+        key in evidence_patterns and re.search(evidence_patterns[key], query, re.IGNORECASE)
+        for key in numeric_keys
+    )
+
+
+def _parse_multi_agent_project_brief(
+    query: str,
+    *,
+    project_id: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Build a ProjectBrief only from deterministic, explicitly evidenced input fields."""
+    from water_agent.multi_agent.contracts import ProjectBrief
+
+    outcome = parse_calc_query(query)
+    systems = _multi_agent_systems_from_query(query)
+    params = dict(outcome.params)
+    if len(systems) == 1:
+        params["scenario"] = systems[0]
+
+    start_node = _multi_agent_named_value(query, r"起点|start(?:_node(?:_id)?)?")
+    end_node = _multi_agent_named_value(query, r"终点|终止点|end(?:_node(?:_id)?)?")
+    length_m = params.get("length_m")
+    material = _multi_agent_named_value(query, r"材质|material")
+    required_outputs = _multi_agent_required_outputs(query)
+
+    missing: list[str] = []
+    if not systems:
+        missing.append("systems")
+    if not _multi_agent_si_units_are_explicit(query, params):
+        missing.append("unit_system")
+    if outcome.formula is None:
+        missing.extend(["hydraulic_cases[0].formula", "hydraulic_cases[0].inputs"])
+    else:
+        missing.extend(
+            f"hydraulic_cases[0].inputs.{field}" for field in outcome.missing_inputs
+        )
+    if start_node is None:
+        missing.append("topology[0].start_node_id")
+    if end_node is None:
+        missing.append("topology[0].end_node_id")
+    if not isinstance(length_m, (int, float)) or isinstance(length_m, bool):
+        missing.append("topology[0].length_m")
+    if material is None:
+        missing.append("spatial_constraints.material")
+    if not required_outputs:
+        missing.append("required_outputs")
+    if len(systems) > 1:
+        missing.append("hydraulic_cases[0].inputs.scenario")
+    if missing:
+        return None, list(dict.fromkeys(missing))
+
+    assert outcome.formula is not None
+    assert start_node is not None and end_node is not None
+    assert isinstance(length_m, (int, float)) and not isinstance(length_m, bool)
+    assert material is not None
+    brief = ProjectBrief.model_validate(
+        {
+            "project_id": project_id,
+            "request": query,
+            "systems": systems,
+            "unit_system": "SI",
+            "hydraulic_cases": [
+                {
+                    "case_id": "case-cli-1",
+                    "formula": outcome.formula,
+                    "inputs": params,
+                }
+            ],
+            "topology": [
+                {
+                    "start_node_id": start_node,
+                    "end_node_id": end_node,
+                    "length_m": float(length_m),
+                }
+            ],
+            "spatial_constraints": [{"kind": "material", "value": material}],
+            "required_outputs": required_outputs,
+            "user_constraints": [],
+        }
+    )
+    return brief.model_dump(mode="json"), []
+
+
 def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
     """``--flow multi-agent``：真实 P4.5 图，审批前只生成 staging 草图。"""
     import tempfile as _tf
 
     from langgraph.types import Command
 
+    from water_agent.multi_agent.contracts import MULTI_MISSING_INPUTS
     from water_agent.multi_agent.orchestrator import (
         build_orchestrator_graph,
         default_multi_agent_state,
@@ -967,6 +1121,30 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
     session_id = args.resume or new_session_id()
     config = {"configurable": {"thread_id": session_id}}
     ui = sys.stderr if args.json else sys.stdout
+    parsed_brief: dict[str, Any] | None = None
+    if not args.resume:
+        if not query:
+            print("请提供项目描述，或使用 --resume 恢复待审批的 multi-agent 会话。", file=sys.stderr)
+            return 2
+        parsed_brief, missing_inputs = _parse_multi_agent_project_brief(
+            query,
+            project_id=f"proj-cli-{session_id}",
+        )
+        if missing_inputs:
+            payload: dict[str, Any] = {
+                "ok": False,
+                "flow": "multi-agent",
+                "session_id": session_id,
+                "status": "missing_inputs",
+                "waiting": True,
+                "error_code": MULTI_MISSING_INPUTS,
+                "missing_inputs": missing_inputs,
+                "errors": [MULTI_MISSING_INPUTS],
+                "release_checks": {},
+                "exported_file_path": None,
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
+            return 1
     with ExitStack() as stack:
         saver = _build_chat_checkpointer(Path(args.session_dir), stack)
         from langgraph.checkpoint.sqlite import SqliteSaver
@@ -979,22 +1157,14 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         if snapshot is not None and snapshot.next:
             result: dict[str, Any] = {"__interrupt__": [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())], **dict(snapshot.values)}
         else:
-            if not query:
-                print("请提供项目描述，或使用 --resume 恢复待审批的 multi-agent 会话。", file=sys.stderr)
-                return 2
+            assert parsed_brief is not None
             staging = _tf.mkdtemp(prefix="ma-cli-staging-")
             final = _tf.mkdtemp(prefix="ma-cli-final-")
             save_session_meta(session_id, session_dir=args.session_dir, query=query, flow="multi-agent")
             result = app.invoke(
                 default_multi_agent_state(
-                    project_brief={
-                        "project_id": "proj-cli-ma", "request": query, "systems": ["water_supply"], "unit_system": "SI",
-                        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
-                        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
-                        "spatial_constraints": [{"kind": "material", "value": "PE"}], "required_outputs": ["drawing"],
-                        "user_constraints": ["material: PE", "DN150"],
-                    },
-                    retrieved_source_ids=["GB50015-2019 3.2.1"], staging_dir=staging, final_dir=final,
+                    project_brief=parsed_brief,
+                    retrieved_source_ids=[], staging_dir=staging, final_dir=final,
                     output_file_id="cli-drawing",
                 ),
                 config=config,
@@ -1018,6 +1188,10 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         "ok": result.get("status") == "succeeded", "flow": "multi-agent", "session_id": session_id,
         "status": result.get("status"), "errors": result.get("errors", []),
         "release_checks": result.get("release_checks", {}), "exported_file_path": result.get("exported_file_path"),
+        "waiting": result.get("status") in {"waiting", "missing_inputs"},
+        "missing_inputs": result.get("missing_inputs", []),
+        "project_brief": result.get("project_brief"),
+        "retrieved_source_ids": result.get("retrieved_source_ids", []),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
     return 0 if payload["ok"] else 1

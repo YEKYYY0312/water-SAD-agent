@@ -30,6 +30,15 @@ def _stable_segment_id(project_id: str, start: str, end: str, system: str) -> st
 
 
 def _infer_dn_mm(brief: ProjectBrief) -> int | None:
+    for constraint in brief.spatial_constraints:
+        if constraint.kind.lower() not in {"diameter_mm", "dn_mm"}:
+            continue
+        try:
+            value = float(constraint.value)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value.is_integer():
+            return int(value)
     for c in brief.hydraulic_cases:
         v = c.inputs.get("diameter_mm")
         if isinstance(v, (int, float)):
@@ -155,16 +164,28 @@ def _add_recalculation_request(
     segment_id: str,
     reason: str,
     fields: set[str],
+    formula: str | None = None,
+    source_calc_case_id: str | None = None,
+    input_updates: dict[str, float | str] | None = None,
 ) -> None:
     cleaned_fields = sorted({field.strip() for field in fields if field.strip()})
     if not cleaned_fields:
         return
-    request = {
+    request: dict[str, Any] = {
         "reason": reason,
         "fields": cleaned_fields,
         "segment_id": segment_id,
-        "suggested_formula": _suggested_formula(set(cleaned_fields)),
     }
+    if formula is not None and source_calc_case_id is not None and input_updates:
+        request.update(
+            {
+                "formula": formula,
+                "source_calc_case_id": source_calc_case_id,
+                "input_updates": dict(input_updates),
+            }
+        )
+    else:
+        request["suggested_formula"] = _suggested_formula(set(cleaned_fields))
     if request not in requests:
         requests.append(request)
 
@@ -235,7 +256,8 @@ def build_design_package(
                 seg_unresolved.append(f"segment {sid}: fire hazard level / sprinkler selection unresolved")
 
             # A segment is verified only when every referenced case comes from
-            # the active, successful calculation set.
+            # the active, successful calculation set and its explicit inputs
+            # still match the selected design values.
             hydraulic_status: Literal["verified", "not_verified", "recalc_required"]
             if not calc_ids:
                 hydraulic_status = "not_verified"
@@ -243,13 +265,25 @@ def build_design_package(
                 inconsistent = False
                 for cc in calc_package.cases:
                     if cc.calc_case_id in calc_ids:
+                        input_updates: dict[str, float | str] = {}
                         d = cc.inputs.get("diameter_mm")
                         if d is not None and dn_mm is not None:
                             try:
                                 if int(d) != int(dn_mm):
                                     inconsistent = True
+                                    input_updates["diameter_mm"] = float(dn_mm)
                             except (ValueError, TypeError):
                                 pass
+                        if input_updates:
+                            _add_recalculation_request(
+                                recalc_requests,
+                                segment_id=sid,
+                                reason="hydraulic_input_changed",
+                                fields=set(input_updates),
+                                formula=cc.formula,
+                                source_calc_case_id=cc.calc_case_id,
+                                input_updates=input_updates,
+                            )
                 hydraulic_status = "recalc_required" if inconsistent else "verified"
 
             # unresolved for slope when drainage and slope missing
@@ -291,22 +325,51 @@ def build_design_package(
                 if seg.hydraulic_status == "verified":
                     seg.hydraulic_status = "recalc_required"
                 continue
-            fields: list[str] = []
+            fields: dict[str, float | str | None] = {}
             if old.dn_mm != seg.dn_mm:
-                fields.extend(["diameter_mm", "velocity_mps"])
+                fields["diameter_mm"] = float(seg.dn_mm) if seg.dn_mm is not None else None
             if old.length_m != seg.length_m:
-                fields.append("length_m")
+                fields["length_m"] = seg.length_m
             if old.slope != seg.slope:
-                fields.append("slope")
-            if old.material != seg.material:
-                fields.append("material")
+                fields["slope"] = seg.slope
             if fields:
-                _add_recalculation_request(
-                    recalc_requests,
-                    segment_id=seg.segment_id,
-                    reason="hydraulic_input_changed",
-                    fields=set(fields),
-                )
+                existing_fields = {
+                    field
+                    for request in recalc_requests
+                    if request.get("segment_id") == seg.segment_id
+                    for field in request.get("fields", [])
+                    if isinstance(field, str)
+                }
+                pending_fields = set(fields) - existing_fields
+                if pending_fields:
+                    source_cases = [
+                        case
+                        for case in calc_package.cases
+                        if case.calc_case_id in seg.calc_case_ids
+                    ]
+                    updates = {
+                        field: value
+                        for field, value in fields.items()
+                        if field in pending_fields and value is not None
+                    }
+                    if len(source_cases) == 1 and updates:
+                        source = source_cases[0]
+                        _add_recalculation_request(
+                            recalc_requests,
+                            segment_id=seg.segment_id,
+                            reason="hydraulic_input_changed",
+                            fields=pending_fields,
+                            formula=source.formula,
+                            source_calc_case_id=source.calc_case_id,
+                            input_updates=updates,
+                        )
+                    else:
+                        _add_recalculation_request(
+                            recalc_requests,
+                            segment_id=seg.segment_id,
+                            reason="hydraulic_input_changed",
+                            fields=pending_fields,
+                        )
                 if seg.hydraulic_status == "verified":
                     seg.hydraulic_status = "recalc_required"
 

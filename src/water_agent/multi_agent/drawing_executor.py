@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,21 @@ from water_agent.multi_agent.contracts import (
 _FILE_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 DXF_VERSION = "R2010"
 _SCHEMA_VERSION = "p4.5-2026-09-10"
+
+# P3 serializes mapped metre lengths to six decimal places.  One micrometre
+# therefore absorbs DXF floating-point/unit-conversion noise without accepting
+# a meaningful engineering length change.
+ROUNDTRIP_LENGTH_ABS_TOL_M = 1e-6
+_FILE_HASH_CHUNK_BYTES = 1024 * 1024
+
+
+def compute_file_sha256(path: str | Path) -> str:
+    """Return the observed SHA-256 of a staged/final file without exposing its path."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(_FILE_HASH_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def render_drawing_plan_to_staging(plan: DrawingPlan, *, staging_dir: str, file_id: str) -> str:
@@ -157,6 +173,8 @@ def verify_roundtrip(staged_path: str, plan: DrawingPlan) -> dict[str, Any]:
             "layer": exp_layer,
             "text": ent.text or "",
             "entity_id": ent.entity_id,
+            "length_m": ent.length_m,
+            "length_entity_id": ent.entity_id,
         }
 
     for ent in plan.entities:
@@ -171,7 +189,12 @@ def verify_roundtrip(staged_path: str, plan: DrawingPlan) -> dict[str, Any]:
                 "layer": ent.layer,
                 "text": "",
                 "entity_id": ent.entity_id,
+                "length_m": ent.length_m,
+                "length_entity_id": ent.entity_id,
             }
+        elif ent.kind in ("line", "polyline"):
+            expected_by_seg[seg]["length_m"] = ent.length_m
+            expected_by_seg[seg]["length_entity_id"] = ent.entity_id
 
     extracted_texts: list[str] = []
     extracted_layers: list[str] = []
@@ -181,9 +204,53 @@ def verify_roundtrip(staged_path: str, plan: DrawingPlan) -> dict[str, Any]:
                 extracted_texts.append(e.text)
                 extracted_layers.append(e.layer)
 
+    text_segment_by_handle: dict[str, str] = {}
+    expected_segment_ids = set(expected_by_seg)
+    if extraction is not None:
+        for entity in extraction.entities:
+            if not entity.text:
+                continue
+            tokens = set(entity.text.split())
+            matches = sorted(expected_segment_ids & tokens)
+            if len(matches) == 1:
+                text_segment_by_handle[entity.handle] = matches[0]
+
+    mapped_by_segment: dict[str, list[Any]] = {}
+    unmatched_pipes: list[Any] = []
+    if mapping is not None:
+        for pipe in mapping.pipes:
+            candidates = {
+                text_segment_by_handle[handle]
+                for handle in pipe.evidence_handles
+                if handle in text_segment_by_handle
+            }
+            if len(candidates) == 1:
+                mapped_by_segment.setdefault(next(iter(candidates)), []).append(pipe)
+            else:
+                unmatched_pipes.append(pipe)
+
+    unmatched_segments = {
+        segment_id
+        for segment_id in expected_by_seg
+        if segment_id not in mapped_by_segment
+    }
+    for layer in sorted({pipe.layer for pipe in unmatched_pipes}):
+        layer_pipes = [pipe for pipe in unmatched_pipes if pipe.layer == layer]
+        layer_segments = [
+            segment_id
+            for segment_id in sorted(unmatched_segments)
+            if expected_by_seg[segment_id].get("layer") == layer
+        ]
+        if len(layer_pipes) == 1 and len(layer_segments) == 1:
+            segment_id = layer_segments[0]
+            mapped_by_segment[segment_id] = layer_pipes
+            unmatched_segments.remove(segment_id)
+
     mismatches: list[dict[str, Any]] = []
     recalled = 0
     total = len(expected_by_seg)
+    unit_known = bool(mapping.unit_known) if mapping is not None else False
+    mapped_lengths_m = [pipe.length_m for pipe in mapping.pipes] if mapping is not None else []
 
     for seg_id, exp in expected_by_seg.items():
         found = False
@@ -259,14 +326,37 @@ def verify_roundtrip(staged_path: str, plan: DrawingPlan) -> dict[str, Any]:
                         "actual": actual_layer,
                     }
                 )
+        expected_length = exp.get("length_m")
+        if unit_known and isinstance(expected_length, (int, float)):
+            mapped_pipes = mapped_by_segment.get(seg_id, [])
+            actual_lengths = [
+                pipe.length_m
+                for pipe in mapped_pipes
+                if pipe.length_m is not None
+            ]
+            actual_length = sum(actual_lengths) if actual_lengths else None
+            if actual_length is None or not math.isclose(
+                float(actual_length),
+                float(expected_length),
+                rel_tol=0.0,
+                abs_tol=ROUNDTRIP_LENGTH_ABS_TOL_M,
+            ):
+                has_mismatch = True
+                mismatches.append(
+                    {
+                        "entity_id": exp.get("length_entity_id", exp["entity_id"]),
+                        "segment_id": seg_id,
+                        "field": "length_m",
+                        "expected": float(expected_length),
+                        "actual": None if actual_length is None else float(actual_length),
+                    }
+                )
         if not has_mismatch:
             recalled += 1
 
     roundtrip_segment_recall = (recalled / total) if total > 0 else 0.0
     insunits_ok = extraction.insunits == plan.insunits if extraction is not None else False
     entity_count_match = len(extraction.entities) if extraction is not None else 0
-    unit_known = bool(mapping.unit_known) if mapping is not None else False
-    mapped_lengths_m = [pipe.length_m for pipe in mapping.pipes] if mapping is not None else []
 
     roundtrip_review: dict[str, Any] = {
         "roundtrip_segment_recall": roundtrip_segment_recall,
@@ -290,6 +380,7 @@ def _package_envelope(
     plan_envelope: ArtifactEnvelope,
     *,
     staged_file_id: str | None,
+    staged_content_sha256: str | None,
     preview_status: str,
     roundtrip_review: dict[str, Any] | None,
     staged_file_verified: bool,
@@ -301,6 +392,7 @@ def _package_envelope(
         plan_artifact_id=plan_envelope.artifact_id,
         preview_status=preview_status,
         staged_file_id=staged_file_id,
+        staged_content_sha256=staged_content_sha256,
         final_file_id=None,
         roundtrip_review=roundtrip_review,
         staged_file_verified=staged_file_verified,
@@ -352,6 +444,7 @@ def verify_staged_drawing_package(
         return _package_envelope(
             plan_envelope,
             staged_file_id=None,
+            staged_content_sha256=None,
             preview_status="blocked",
             roundtrip_review=None,
             staged_file_verified=False,
@@ -360,9 +453,17 @@ def verify_staged_drawing_package(
             status="blocked" if plan.integration_conflicts or plan_envelope.status == "blocked" else "missing_inputs",
         )
 
-    report = verify_roundtrip(str(staged_path), plan)
+    staged = Path(staged_path)
+    digest_before: str | None = None
+    if staged.is_file():
+        try:
+            digest_before = compute_file_sha256(staged)
+        except OSError:
+            digest_before = None
+
+    report = verify_roundtrip(str(staged), plan)
     unresolved: list[str] = []
-    if not Path(staged_path).is_file():
+    if not staged.is_file():
         unresolved.append("staged DXF file does not exist")
     if not report.get("extraction_ok"):
         unresolved.append("staged DXF could not be read by P3 read_drawing")
@@ -378,9 +479,21 @@ def verify_staged_drawing_package(
     if report.get("mismatches"):
         unresolved.append("staged DXF differs from DrawingPlan")
 
+    digest_after: str | None = None
+    if staged.is_file():
+        try:
+            digest_after = compute_file_sha256(staged)
+        except OSError:
+            unresolved.append("staged DXF content hash could not be computed")
+    if digest_before is not None and digest_after is not None and digest_before != digest_after:
+        unresolved.append("staged DXF changed during verification")
+    if digest_after is None:
+        unresolved.append("staged DXF content hash is unavailable")
+
     return _package_envelope(
         plan_envelope,
         staged_file_id=staged_file_id if not unresolved else None,
+        staged_content_sha256=digest_after if not unresolved else None,
         preview_status="staged" if not unresolved else "blocked",
         roundtrip_review=report,
         staged_file_verified=not unresolved,
@@ -412,6 +525,7 @@ def stage_drawing_package(
         return _package_envelope(
             plan_envelope,
             staged_file_id=None,
+            staged_content_sha256=None,
             preview_status="failed",
             roundtrip_review=None,
             staged_file_verified=False,

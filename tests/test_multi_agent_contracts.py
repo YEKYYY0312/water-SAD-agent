@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import pytest
 from pydantic import ValidationError
 
@@ -15,12 +13,13 @@ from water_agent.multi_agent.contracts import (
     CalcPackage,
     DesignPackage,
     DesignPipeSegment,
-    DrawingPackage,
     DrawingPlan,
+    FinalProjectPackage,
     PlannedEntity,
     ProjectBrief,
     ReviewIssue,
     ReviewPackage,
+    compute_artifact_collection_hash,
     compute_payload_hash,
     envelope_hash,
     verify_envelope_hash,
@@ -29,6 +28,7 @@ from water_agent.multi_agent.provenance import (
     is_approval_stale,
     stale_propagation,
     superseded_chain,
+    validate_approval_binding,
     validate_provenance,
 )
 
@@ -332,6 +332,76 @@ def test_same_payload_100_times_hash_same() -> None:
         assert compute_payload_hash(payload) == h
 
 
+def test_artifact_collection_hash_binds_revision_and_parents() -> None:
+    kwargs = {
+        "artifact_hashes": ["a" * 64],
+        "artifact_ids": ["doc-1"],
+        "artifact_revisions": [1],
+        "artifact_parent_artifact_ids": [["design-1"]],
+    }
+    original = compute_artifact_collection_hash(**kwargs)
+    assert original != compute_artifact_collection_hash(
+        **{**kwargs, "artifact_revisions": [2]}
+    )
+    assert original != compute_artifact_collection_hash(
+        **{**kwargs, "artifact_parent_artifact_ids": [["design-2"]]}
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"artifact_revisions": []},
+        {"artifact_parent_artifact_ids": []},
+        {"artifact_revisions": [1, 2]},
+        {"artifact_parent_artifact_ids": [[], []]},
+    ],
+)
+def test_artifact_collection_hash_rejects_metadata_length_mismatch(
+    overrides: dict,
+) -> None:
+    kwargs = {
+        "artifact_hashes": ["a" * 64],
+        "artifact_ids": ["doc-1"],
+        "artifact_revisions": [1],
+        "artifact_parent_artifact_ids": [[]],
+    }
+    with pytest.raises(ValueError):
+        compute_artifact_collection_hash(**{**kwargs, **overrides})
+
+
+def test_final_project_package_rejects_missing_final_package_hash() -> None:
+    artifact_ids = [
+        "calc-1",
+        "design-1",
+        "doc-1",
+        "plan-1",
+        "drawing-1",
+        "review-1",
+    ]
+    approval = ApprovalRecord(
+        approved=True,
+        reason="approved",
+        artifact_ids=artifact_ids,
+        artifact_hashes=[chr(ord("a") + index) * 64 for index in range(len(artifact_ids))],
+        artifact_revisions=[1] * len(artifact_ids),
+        artifact_parent_artifact_ids=[[] for _ in artifact_ids],
+        approved_at="2026-09-11T00:00:00Z",
+    )
+
+    with pytest.raises(ValidationError, match="MULTI_APPROVAL_STALE"):
+        FinalProjectPackage(
+            calc_artifact_id="calc-1",
+            design_artifact_id="design-1",
+            document_artifact_id="doc-1",
+            drawing_plan_artifact_id="plan-1",
+            drawing_artifact_id="drawing-1",
+            review_artifact_id="review-1",
+            approval_record=approval,
+            release_manifest_hash=approval.artifact_collection_hash,
+        )
+
+
 def test_verify_envelope_hash_fails_when_tampered() -> None:
     payload = {"a": 1}
     env = _envelope(payload, artifact_type="calc_package")
@@ -622,3 +692,73 @@ def test_superseded_chain_and_cycle_detection() -> None:
     registry_cycle = {"calc-a": env_a_cycle, "calc-b": env_b}
     with pytest.raises(ValueError, match="cycle"):
         superseded_chain(pkg_cycle, registry_cycle)
+
+
+def test_artifact_envelope_rejects_payload_hash_mismatch_at_construction() -> None:
+    with pytest.raises(ValidationError, match="MULTI_PROVENANCE_INVALID"):
+        ArtifactEnvelope(
+            artifact_id="tampered-001",
+            artifact_type="document",
+            schema_version="v1",
+            producer="orchestrator",
+            revision=1,
+            payload_hash="0" * 64,
+            payload={"text": "changed"},
+            status="ready",
+        )
+
+
+def test_artifact_envelope_rejects_model_metadata_field() -> None:
+    with pytest.raises(ValidationError):
+        ArtifactEnvelope(  # type: ignore[call-arg]
+            artifact_id="meta-001",
+            artifact_type="document",
+            schema_version="v1",
+            producer="orchestrator",
+            revision=1,
+            payload_hash=compute_payload_hash({}),
+            payload={},
+            status="ready",
+            metadata={"status": "approved"},
+        )
+
+
+def test_stale_propagation_walks_artifact_id_dependency_chain() -> None:
+    calc = _envelope({}, artifact_id="calc-old", artifact_type="calc_package")
+    design = _envelope({}, artifact_id="design-1", artifact_type="design_package", parent_ids=["calc-old"])
+    plan = _envelope({}, artifact_id="plan-1", artifact_type="drawing_plan", parent_ids=["design-1"])
+    review = _envelope({}, artifact_id="review-1", artifact_type="review_package", parent_ids=["plan-1"])
+    new_calc = _envelope({}, artifact_id="calc-new", artifact_type="calc_package", parent_ids=["calc-old"], revision=2)
+    affected = stale_propagation(new_calc, {e.artifact_id: e for e in (calc, design, plan, review)})
+    assert affected == {
+        "design_package": ["design-1"],
+        "drawing_plan": ["plan-1"],
+        "review_package": ["review-1"],
+    }
+
+
+def test_approval_collection_hash_mismatch_rejected() -> None:
+    with pytest.raises(ValidationError, match="MULTI_APPROVAL_STALE"):
+        ApprovalRecord(
+            approved=True,
+            reason="ok",
+            artifact_ids=["a"],
+            artifact_hashes=["a" * 64],
+            artifact_collection_hash="b" * 64,
+            approved_at="2026-09-11T00:00:00Z",
+        )
+
+
+def test_approval_binding_uses_canonical_payload_hash() -> None:
+    payload = {"stable": [1, 2, 3]}
+    env = _envelope(payload, artifact_id="doc-1", artifact_type="document", producer="orchestrator")
+    approval = ApprovalRecord(
+        approved=True,
+        reason="ok",
+        artifact_ids=[env.artifact_id],
+        artifact_hashes=[env.payload_hash],
+        approved_at="2026-09-11T00:00:00Z",
+    )
+    assert validate_approval_binding(approval, {env.artifact_id: env}) is True
+    changed = env.model_copy(update={"payload": {"stable": [1, 2, 4]}})
+    assert validate_approval_binding(approval, {changed.artifact_id: changed}) is False

@@ -68,3 +68,31 @@ def test_successful_export_requires_all_release_checks(tmp_path) -> None:
         assert Path(result["exported_file_path"]).is_file()
     finally:
         conn.close()
+
+
+def test_staged_dxf_replaced_after_interrupt_is_blocked_before_export(tmp_path) -> None:
+    import ezdxf
+
+    conn = sqlite3.connect(tmp_path / "state.sqlite", check_same_thread=False)
+    try:
+        app = build_orchestrator_graph(
+            checkpointer=SqliteSaver(conn, serde=default_checkpoint_serde())
+        )
+        config = {"configurable": {"thread_id": "staged-dxf-drift"}}
+        paused = app.invoke(_state(tmp_path), config=config)
+        assert paused["__interrupt__"]
+
+        staged = tmp_path / "staging" / "export-drawing.dxf"
+        doc = ezdxf.readfile(staged)
+        line = next(entity for entity in doc.modelspace() if entity.dxftype() == "LINE")
+        line.dxf.end = (1.0, 0.0, 0.0)
+        doc.saveas(staged)
+
+        result = app.invoke(Command(resume={"approved": True}), config=config)
+
+        assert result["status"] == "blocked"
+        assert "MULTI_APPROVAL_STALE" in result["errors"]
+        assert result["exported_file_path"] is None
+        assert not (tmp_path / "final" / "export-drawing.dxf").exists()
+    finally:
+        conn.close()

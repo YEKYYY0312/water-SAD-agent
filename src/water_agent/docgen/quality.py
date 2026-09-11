@@ -127,8 +127,9 @@ def numeric_preservation_problems(
 
     for line in polished_text.splitlines():
         stripped = line.lstrip()
-        key_value_match = _KEY_VALUE_LINE_RE.search(stripped)
-        if key_value_match:
+        body = _STRUCTURAL_PREFIX_RE.sub("", stripped, count=1)
+        key_value_matches = list(_KEY_VALUE_LINE_RE.finditer(body))
+        for key_value_match in key_value_matches:
             key, raw_value = key_value_match.group(1), key_value_match.group(2)
             value = float(raw_value)
             if key not in calc_values:
@@ -137,10 +138,16 @@ def numeric_preservation_problems(
             # 保护。这里与程序化展示刻度比较，避免把模板自身的合法格式化误判为改数。
             elif not _within_tolerance(value, float(_fmt(calc_values[key]))):
                 problems.append(f"数值被改写：{key} = {raw_value}，底座原值 {calc_values[key]!r}")
-            continue
 
-        body = _STRUCTURAL_PREFIX_RE.sub("", stripped, count=1)
-        for match in _BARE_NUMBER_RE.finditer(body):
+        # A legal template assignment does not exempt the rest of the same
+        # line. Mask only the validated ``key=value`` spans, then scan every
+        # remaining number against the existing docgen whitelist.
+        bare_body = list(body)
+        for key_value_match in key_value_matches:
+            bare_body[key_value_match.start() : key_value_match.end()] = " " * (
+                key_value_match.end() - key_value_match.start()
+            )
+        for match in _BARE_NUMBER_RE.finditer("".join(bare_body)):
             raw = match.group(1)
             try:
                 number = float(raw)

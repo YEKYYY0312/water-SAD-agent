@@ -27,10 +27,14 @@ def verify_envelope_hash(envelope: ArtifactEnvelope) -> bool:
     return envelope.payload_hash == compute_payload_hash(envelope.payload)
 
 
-def _collect_calc_case_ids(registry: dict[str, ArtifactEnvelope]) -> set[str]:
+def _collect_calc_case_ids(
+    registry: dict[str, ArtifactEnvelope],
+    artifact_ids: set[str],
+) -> set[str]:
     ids: set[str] = set()
-    for env in registry.values():
-        if env.artifact_type != "calc_package":
+    for artifact_id in artifact_ids:
+        env = registry.get(artifact_id)
+        if env is None or env.artifact_type != "calc_package":
             continue
         try:
             pkg = CalcPackage.model_validate(env.payload)
@@ -41,10 +45,14 @@ def _collect_calc_case_ids(registry: dict[str, ArtifactEnvelope]) -> set[str]:
     return ids
 
 
-def _collect_segment_ids(registry: dict[str, ArtifactEnvelope]) -> set[str]:
+def _collect_segment_ids(
+    registry: dict[str, ArtifactEnvelope],
+    artifact_ids: set[str],
+) -> set[str]:
     ids: set[str] = set()
-    for env in registry.values():
-        if env.artifact_type != "design_package":
+    for artifact_id in artifact_ids:
+        env = registry.get(artifact_id)
+        if env is None or env.artifact_type != "design_package":
             continue
         try:
             pkg = DesignPackage.model_validate(env.payload)
@@ -69,7 +77,10 @@ def validate_provenance(
     if "segments" in payload and isinstance(payload["segments"], list):
         try:
             pkg = DesignPackage.model_validate(payload)
-            calc_ids = _collect_calc_case_ids(registry)
+            calc_ids = _collect_calc_case_ids(
+                registry,
+                set(envelope.parent_artifact_ids),
+            )
             for seg in pkg.segments:
                 for cid in seg.calc_case_ids:
                     if cid not in calc_ids:
@@ -85,12 +96,24 @@ def validate_provenance(
     if "entities" in payload and isinstance(payload["entities"], list):
         try:
             plan = DrawingPlan.model_validate(payload)
-            segment_ids = _collect_segment_ids(registry)
+            expected_parents = {
+                plan.source_design_artifact_id,
+                plan.source_calc_artifact_id,
+            }
+            if (
+                len(envelope.parent_artifact_ids) != len(expected_parents)
+                or set(envelope.parent_artifact_ids) != expected_parents
+            ):
+                errors.add(MULTI_PROVENANCE_INVALID)
+            segment_ids = _collect_segment_ids(
+                registry,
+                {plan.source_design_artifact_id},
+            )
             for ent in plan.entities:
                 if ent.segment_id is not None and ent.segment_id not in segment_ids:
                     errors.add(MULTI_PROVENANCE_INVALID)
                     break
-                if ent.source_artifact_id not in registry:
+                if ent.source_artifact_id != plan.source_design_artifact_id:
                     errors.add(MULTI_PROVENANCE_INVALID)
                     break
             for key in ("source_design_artifact_id", "source_calc_artifact_id"):
@@ -103,8 +126,11 @@ def validate_provenance(
                 errors.add(MULTI_PROVENANCE_INVALID)
     if "plan_artifact_id" in payload and isinstance(payload["plan_artifact_id"], str):
         ref = payload["plan_artifact_id"]
-        if ref and ref not in registry and envelope.artifact_type == "drawing_package":
-            errors.add(MULTI_PROVENANCE_INVALID)
+        if envelope.artifact_type == "drawing_package":
+            if ref and ref not in registry:
+                errors.add(MULTI_PROVENANCE_INVALID)
+            if envelope.parent_artifact_ids != [ref]:
+                errors.add(MULTI_PROVENANCE_INVALID)
     if errors:
         return sorted(errors)
     return []
@@ -165,11 +191,22 @@ def is_approval_stale(
     if isinstance(current_hashes, dict):
         current_ids = sorted(current_hashes)
         current_payload_hashes = [compute_payload_hash(current_hashes[aid].payload) for aid in current_ids]
-        if approval.artifact_ids and approval.artifact_ids != current_ids:
+        if approval.artifact_ids and sorted(approval.artifact_ids) != current_ids:
             return True
+        metadata_bound = bool(approval.artifact_revisions)
         expected_collection = compute_artifact_collection_hash(
             current_payload_hashes,
             artifact_ids=current_ids if approval.artifact_ids else None,
+            artifact_revisions=(
+                [current_hashes[aid].revision for aid in current_ids]
+                if metadata_bound
+                else None
+            ),
+            artifact_parent_artifact_ids=(
+                [list(current_hashes[aid].parent_artifact_ids) for aid in current_ids]
+                if metadata_bound
+                else None
+            ),
         )
         if approval.artifact_collection_hash != expected_collection:
             return True
