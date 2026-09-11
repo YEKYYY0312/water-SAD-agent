@@ -191,6 +191,22 @@ def check_cross_artifact_consistency(
             design_pkg = DesignPackage.model_validate(env.payload)
         except (ValidationError, ValueError, TypeError, KeyError):
             continue
+        for source_id in design_pkg.invalid_citation_ids:
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-invalid-source-{env.artifact_id}-{source_id}",
+                    rule_id="review_source_untracked",
+                    severity="error",
+                    owner="design",
+                    artifact_id=env.artifact_id,
+                    object_ref=source_id,
+                    message=(
+                        f"design requested source_id {source_id!r} but retrieval/citation validation "
+                        "did not make it available"
+                    ),
+                    evidence_ids=[],
+                )
+            )
         declared_sources = set(env.citation_ids)
         stale_parent_ids = sorted(
             parent_id
