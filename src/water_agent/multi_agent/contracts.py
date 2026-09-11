@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -520,7 +521,12 @@ class ApprovalRecord(BaseModel):
     artifact_ids: list[str] = Field(default_factory=list)
     artifact_hashes: list[str] = Field(default_factory=list)
     artifact_collection_hash: str | None = None
+    # Step 33 binds a human decision to the complete release manifest. Keep
+    # this optional for pre-Step-33 persisted records; release_gate rejects a
+    # record that does not carry it.
+    final_package_hash: str | None = None
     approved_at: str = Field(min_length=1)
+    expires_at: str | None = None
 
     @field_validator("artifact_ids")
     @classmethod
@@ -552,6 +558,18 @@ class ApprovalRecord(BaseModel):
             self.artifact_collection_hash = expected
         elif self.artifact_collection_hash != expected:
             raise ValueError(f"{MULTI_APPROVAL_STALE}: artifact collection hash mismatch")
+        if self.final_package_hash is not None:
+            if not _PAYLOAD_HASH_RE.match(self.final_package_hash):
+                raise ValueError("final_package_hash must be 64 hex")
+            if self.final_package_hash != expected:
+                raise ValueError(f"{MULTI_APPROVAL_STALE}: final package hash mismatch")
+        for name, value in (("approved_at", self.approved_at), ("expires_at", self.expires_at)):
+            if value is None:
+                continue
+            try:
+                datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(f"{name} must be an ISO-8601 timestamp") from exc
         return self
 
 
@@ -585,4 +603,8 @@ class FinalProjectPackage(BaseModel):
         expected = sorted(item for item in declared if item is not None)
         if self.approval_record.artifact_ids and sorted(self.approval_record.artifact_ids) != expected:
             raise ValueError(f"{MULTI_APPROVAL_STALE}: approval artifact_ids do not match final package")
+        if self.approval_record.final_package_hash is not None and (
+            self.approval_record.final_package_hash != self.release_manifest_hash
+        ):
+            raise ValueError(f"{MULTI_APPROVAL_STALE}: approval final package hash does not match")
         return self
