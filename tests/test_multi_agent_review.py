@@ -21,6 +21,7 @@ from water_agent.multi_agent.agents.review import (
 )
 from water_agent.multi_agent.contracts import (
     MULTI_PROVENANCE_INVALID,
+    ApprovalRecord,
     ArtifactEnvelope,
     CalcCase,
     CalcPackage,
@@ -35,6 +36,7 @@ from water_agent.multi_agent.contracts import (
     TopologyEdge,
     compute_payload_hash,
 )
+from water_agent.multi_agent.provenance import validate_approval_binding
 
 
 def _payload_hash(payload: dict) -> str:
@@ -191,6 +193,34 @@ def test_cross_artifact_clean_no_stale_no_untracked() -> None:
     issues = check_cross_artifact_consistency(registry)
     assert [i for i in issues if i.rule_id == "stale_calculation_used"] == []
     assert [i for i in issues if i.rule_id == "review_source_untracked"] == []
+
+
+def test_superseded_calc_cannot_be_reused_by_design_or_drawing() -> None:
+    old_calc = _hyd_calc_env(150)
+    replacement = _envelope(
+        CalcPackage(cases=[], missing_inputs=[], errors=[], supersedes_artifact_id=old_calc.artifact_id).model_dump(),
+        artifact_id="calc-replacement-001",
+        artifact_type="calc_package",
+        parent_ids=[old_calc.artifact_id],
+        revision=2,
+    )
+    design = _design_env(150).model_copy(update={"parent_artifact_ids": [old_calc.artifact_id]})
+    plan = run_drawing_agent(design, old_calc, drawing_id="drawing-stale-001", insunits=4)
+    registry = {
+        old_calc.artifact_id: old_calc,
+        replacement.artifact_id: replacement,
+        design.artifact_id: design,
+        plan.artifact_id: plan,
+    }
+    stale = [
+        issue
+        for issue in check_cross_artifact_consistency(registry)
+        if issue.rule_id == "stale_calculation_used"
+    ]
+    assert {issue.artifact_id for issue in stale} == {design.artifact_id, plan.artifact_id}
+    assert all(issue.owner == "hydraulic" for issue in stale)
+    assert all(issue.evidence_ids == [old_calc.artifact_id] for issue in stale)
+    assert run_review_agent(registry, review_id="rev-stale-001").status == "failed"
 
 
 def test_provenance_invalid_blocking_human_via_cross_check() -> None:
@@ -428,6 +458,69 @@ def test_drawing_package_recall_below_one_error() -> None:
     assert rt[0].owner == "drawing"
 
 
+def test_drawing_package_zero_pipes_is_not_checked() -> None:
+    calc_env = _hyd_calc_env(150)
+    design_env = _design_env(150)
+    design_pkg = DesignPackage.model_validate(design_env.payload)
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-zero-pipes-001", insunits=4)
+    package = DrawingPackage(
+        plan_artifact_id=plan_env.artifact_id,
+        preview_status="staged",
+        staged_file_id="staging-zero-pipes-001",
+        roundtrip_review={"pipes_reviewed": 0, "roundtrip_segment_recall": 1.0, "mismatches": []},
+        staged_file_verified=True,
+        p3_pipeline_executed=True,
+    )
+    package_env = _envelope(
+        package.model_dump(), artifact_id="dwpkg-zero-pipes-001", artifact_type="drawing_package"
+    )
+    _, not_checked = check_drawing_consistency(
+        {
+            calc_env.artifact_id: calc_env,
+            design_env.artifact_id: design_env,
+            plan_env.artifact_id: plan_env,
+            package_env.artifact_id: package_env,
+        },
+        design_pkg,
+        design_artifact_id=design_env.artifact_id,
+    )
+    assert any("未执行任何管段审查" in item for item in not_checked)
+
+
+def test_drawing_conflict_and_missing_inputs_remain_traceable_review_evidence() -> None:
+    calc_env = _hyd_calc_env(150)
+    design_env = _design_env(150)
+    plan = DrawingPlan(
+        drawing_id="drawing-conflict-001",
+        drawing_class="schematic",
+        insunits=4,
+        entities=[],
+        source_design_artifact_id=design_env.artifact_id,
+        source_calc_artifact_id=calc_env.artifact_id,
+        integration_conflicts=["DN differs from the selected calculation"],
+        missing_inputs=["site coordinates"],
+    )
+    plan_env = _envelope(
+        plan.model_dump(),
+        artifact_id="plan-conflict-001",
+        artifact_type="drawing_plan",
+        producer="drawing",
+        status="missing_inputs",
+    )
+    package, _ = build_review_package(
+        {
+            calc_env.artifact_id: calc_env,
+            design_env.artifact_id: design_env,
+            plan_env.artifact_id: plan_env,
+        },
+        review_id="rev-conflict-001",
+    )
+    assert any(issue.rule_id == "drawing_integration_conflict" for issue in package.issues)
+    assert any(issue.rule_id == "drawing_missing_inputs" for issue in package.issues)
+    assert any("缺少输入" in item for item in package.not_checked)
+    assert all(issue.artifact_id or issue.rule_id for issue in package.issues)
+
+
 def test_drawing_no_plan_not_checked_not_pass() -> None:
     design_env = _design_env(150)
     design_pkg = DesignPackage.model_validate(design_env.payload)
@@ -599,6 +692,16 @@ def test_build_review_package_blocking_on_hash_tamper() -> None:
     assert any(i.rule_id == "review_hash_mismatch" and i.severity == "blocking" for i in pkg.issues)
 
 
+def test_run_review_agent_blocking_evidence_sets_blocked_status() -> None:
+    calc_env = _hyd_calc_env(150)
+    tampered = calc_env.model_copy(update={"payload": {"tampered": True}})
+    envelope = run_review_agent(
+        {tampered.artifact_id: tampered}, review_id="rev-blocked-status-001"
+    )
+    assert envelope.status == "blocked"
+    assert ReviewPackage.model_validate(envelope.payload).decision == "blocked"
+
+
 def test_build_review_package_read_only_free_text_does_not_flip_decision() -> None:
     calc_env = _hyd_calc_env(150)
     design_env = _design_env(150)
@@ -659,6 +762,40 @@ def test_run_review_agent_envelope_shape_and_hash() -> None:
     assert ReviewPackage.model_validate(env.payload).decision == "pass"
     assert len(env.parent_artifact_ids) == len(registry)
     assert env.status == "ready"
+
+
+def test_review_hashes_share_approval_payload_hash_contract() -> None:
+    calc_env = _hyd_calc_env(150)
+    design_env = _design_env(150)
+    registry = {design_env.artifact_id: design_env, calc_env.artifact_id: calc_env}
+    package, _ = build_review_package(registry, review_id="rev-approval-hashes-001")
+    artifact_ids = sorted(registry)
+    assert package.reviewed_artifact_hashes == [registry[artifact_id].payload_hash for artifact_id in artifact_ids]
+    approval = ApprovalRecord(
+        approved=True,
+        reason="hashes reviewed",
+        artifact_ids=artifact_ids,
+        artifact_hashes=package.reviewed_artifact_hashes,
+        approved_at="2026-09-11T00:00:00Z",
+    )
+    assert validate_approval_binding(approval, registry) is True
+
+
+def test_run_review_agent_empty_or_not_checked_is_missing_inputs() -> None:
+    empty = run_review_agent({}, review_id="rev-empty-001")
+    empty_package = ReviewPackage.model_validate(empty.payload)
+    assert empty.status == "missing_inputs"
+    assert empty_package.decision == "revise"
+    assert any("无可审查产物" in item for item in empty_package.not_checked)
+
+    calc_env = _hyd_calc_env(150)
+    partial = run_review_agent(
+        {calc_env.artifact_id: calc_env}, review_id="rev-not-checked-001"
+    )
+    partial_package = ReviewPackage.model_validate(partial.payload)
+    assert partial.status == "missing_inputs"
+    assert partial_package.decision == "revise"
+    assert partial_package.not_checked
 
 
 def test_run_review_agent_invalid_review_id_rejected() -> None:
