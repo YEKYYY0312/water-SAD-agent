@@ -438,6 +438,48 @@ def check_drawing_consistency(
         annotated: set[str] = set()
         segment_ids = [seg.segment_id for seg in design_pkg.segments]
         for entity in plan.entities:
+            if entity.segment_id is None or entity.segment_id not in segment_ids:
+                continue
+            segment = next(s for s in design_pkg.segments if s.segment_id == entity.segment_id)
+            for field, actual, expected in (
+                ("DN", entity.dn_mm, segment.dn_mm),
+                ("material", entity.material, segment.material),
+                ("system", entity.system, segment.system),
+            ):
+                if actual == expected:
+                    continue
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"rev-plan-{field}-{entity.entity_id}",
+                        rule_id=f"drawing_plan_{field.lower()}_mismatch",
+                        severity="error",
+                        owner="drawing",
+                        artifact_id=plan_env.artifact_id,
+                        object_ref=entity.entity_id,
+                        message=(
+                            f"DrawingPlan entity {entity.entity_id} {field}={actual!r} "
+                            f"与 DesignPackage segment {segment.segment_id} 的 {expected!r} 不一致"
+                        ),
+                        evidence_ids=[design_artifact_id],
+                    )
+                )
+            if entity.source_artifact_id != design_artifact_id:
+                issues.append(
+                    ReviewIssue(
+                        issue_id=f"rev-plan-source-{entity.entity_id}",
+                        rule_id="drawing_entity_source_mismatch",
+                        severity="error",
+                        owner="drawing",
+                        artifact_id=plan_env.artifact_id,
+                        object_ref=entity.entity_id,
+                        message=(
+                            f"DrawingPlan entity {entity.entity_id} source_artifact_id "
+                            "does not reference the reviewed DesignPackage"
+                        ),
+                        evidence_ids=[design_artifact_id],
+                    )
+                )
+        for entity in plan.entities:
             if not entity.text:
                 continue
             matched_segment: str | None = None
@@ -503,6 +545,32 @@ def check_drawing_consistency(
     for pkg_env in packages:
         staged_file_id = pkg_env.payload.get("staged_file_id")
         roundtrip = pkg_env.payload.get("roundtrip_review")
+        if pkg_env.payload.get("staged_file_verified") is not True:
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-staged-unverified-{pkg_env.artifact_id}",
+                    rule_id="drawing_staged_file_unverified",
+                    severity="error",
+                    owner="drawing",
+                    artifact_id=pkg_env.artifact_id,
+                    object_ref="staged_file_verified",
+                    message="DrawingPackage has no verified readable staging DXF",
+                    evidence_ids=[],
+                )
+            )
+        if pkg_env.payload.get("p3_pipeline_executed") is not True:
+            issues.append(
+                ReviewIssue(
+                    issue_id=f"rev-p3-not-run-{pkg_env.artifact_id}",
+                    rule_id="drawing_p3_pipeline_not_executed",
+                    severity="error",
+                    owner="drawing",
+                    artifact_id=pkg_env.artifact_id,
+                    object_ref="p3_pipeline_executed",
+                    message="DrawingPackage did not complete read_drawing → map_pipes → review_drawing",
+                    evidence_ids=[],
+                )
+            )
         if not isinstance(staged_file_id, str) or not staged_file_id:
             not_checked.append(
                 f"drawing:{pkg_env.artifact_id} staged_file_id 缺失，staging 回读未执行"

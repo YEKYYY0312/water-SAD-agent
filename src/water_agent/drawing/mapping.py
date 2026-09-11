@@ -220,8 +220,8 @@ def parse_material(text: str) -> str | None:
     return None
 
 
-def _unit_scale(insunits: int | None) -> float | None:
-    """`$INSUNITS` → 每单位米数；未知或不支持的单位返回 None（不猜）。"""
+def metres_per_drawing_unit(insunits: int | None) -> float | None:
+    """`$INSUNITS` → 每图纸单位的米数；未知或不支持时不猜。"""
     if insunits is None:
         return None
     return _INSUNITS_TO_METRE.get(insunits)
@@ -247,7 +247,7 @@ def map_pipes(extraction: DrawingExtraction) -> MappingResult:
         )
         return result
 
-    scale = _unit_scale(extraction.insunits) if extraction.unit_known else None
+    scale = metres_per_drawing_unit(extraction.insunits) if extraction.unit_known else None
     if scale is None:
         # 规格 §5.2：这里是硬性的 missing_inputs，不是 assumption。
         # assumption 的语义是"我算了但你要核对"，这里是"我拒绝算"。

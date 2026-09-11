@@ -336,9 +336,9 @@ def test_drawing_dn_mismatch_error_drawing() -> None:
         drawing_class="schematic",
         insunits=4,
         entities=[
-            PlannedEntity(entity_id="e1", segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
-            PlannedEntity(entity_id="e2", segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text=""),
-            PlannedEntity(entity_id="e3", segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN999 {seg.material} water_supply"),
+            PlannedEntity(entity_id="e1", source_artifact_id=design_env.artifact_id, segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
+            PlannedEntity(entity_id="e2", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text="", system=seg.system, dn_mm=seg.dn_mm, material=seg.material),
+            PlannedEntity(entity_id="e3", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN999 {seg.material} water_supply", system=seg.system, dn_mm=999, material=seg.material),
         ],
         source_design_artifact_id=design_env.artifact_id,
         source_calc_artifact_id=calc_env.artifact_id,
@@ -362,9 +362,9 @@ def test_drawing_material_missing_error_drawing() -> None:
         drawing_class="schematic",
         insunits=4,
         entities=[
-            PlannedEntity(entity_id="e1", segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
-            PlannedEntity(entity_id="e2", segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text=""),
-            PlannedEntity(entity_id="e3", segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN{seg.dn_mm} water_supply"),
+            PlannedEntity(entity_id="e1", source_artifact_id=design_env.artifact_id, segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
+            PlannedEntity(entity_id="e2", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text="", system=seg.system, dn_mm=seg.dn_mm, material=seg.material),
+            PlannedEntity(entity_id="e3", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN{seg.dn_mm} water_supply", system=seg.system, dn_mm=seg.dn_mm, material=seg.material),
         ],
         source_design_artifact_id=design_env.artifact_id,
         source_calc_artifact_id=calc_env.artifact_id,
@@ -387,7 +387,7 @@ def test_drawing_segment_missing_error_drawing() -> None:
         drawing_class="schematic",
         insunits=4,
         entities=[
-            PlannedEntity(entity_id="e1", segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
+            PlannedEntity(entity_id="e1", source_artifact_id=design_env.artifact_id, segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC — NOT FOR CONSTRUCTION"),
         ],
         source_design_artifact_id=design_env.artifact_id,
         source_calc_artifact_id=calc_env.artifact_id,
@@ -410,16 +410,16 @@ def test_drawing_package_recall_below_one_error() -> None:
         drawing_class="schematic",
         insunits=4,
         entities=[
-            PlannedEntity(entity_id="e1", segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC"),
-            PlannedEntity(entity_id="e2", segment_id=design_pkg.segments[0].segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text=""),
-            PlannedEntity(entity_id="e3", segment_id=design_pkg.segments[0].segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{design_pkg.segments[0].segment_id} DN{design_pkg.segments[0].dn_mm} PE water_supply"),
+            PlannedEntity(entity_id="e1", source_artifact_id=design_env.artifact_id, segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC"),
+            PlannedEntity(entity_id="e2", source_artifact_id=design_env.artifact_id, segment_id=design_pkg.segments[0].segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text="", system=design_pkg.segments[0].system, dn_mm=design_pkg.segments[0].dn_mm, material=design_pkg.segments[0].material),
+            PlannedEntity(entity_id="e3", source_artifact_id=design_env.artifact_id, segment_id=design_pkg.segments[0].segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{design_pkg.segments[0].segment_id} DN{design_pkg.segments[0].dn_mm} PE water_supply", system=design_pkg.segments[0].system, dn_mm=design_pkg.segments[0].dn_mm, material=design_pkg.segments[0].material),
         ],
         source_design_artifact_id=design_env.artifact_id,
         source_calc_artifact_id=calc_env.artifact_id,
         integration_conflicts=[],
     )
     plan_env = _envelope(plan.model_dump(), artifact_id="plan-rt-001", artifact_type="drawing_plan")
-    pkg = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-drawing-rt-001", roundtrip_review={"roundtrip_segment_recall": 0.5, "mismatches": []})
+    pkg = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-drawing-rt-001", roundtrip_review={"roundtrip_segment_recall": 0.5, "mismatches": []}, staged_file_verified=True, p3_pipeline_executed=True)
     pkg_env = _envelope(pkg.model_dump(), artifact_id="dwpkg-rt-001", artifact_type="drawing_package")
     registry = {calc_env.artifact_id: calc_env, design_env.artifact_id: design_env, plan_env.artifact_id: plan_env, pkg_env.artifact_id: pkg_env}
     issues, _ = check_drawing_consistency(registry, design_pkg, design_artifact_id=design_env.artifact_id)
@@ -541,6 +541,8 @@ def test_build_review_package_pass_when_clean_schematic() -> None:
         preview_status="staged",
         staged_file_id="staging-clean-001",
         roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []},
+        staged_file_verified=True,
+        p3_pipeline_executed=True,
     )
     pkg_env2 = _envelope(pkg_with_rt.model_dump(), artifact_id="dwpkg-clean-001", artifact_type="drawing_package")
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
@@ -569,9 +571,9 @@ def test_build_review_package_revise_on_dn_mismatch_via_registry() -> None:
         drawing_class="schematic",
         insunits=4,
         entities=[
-            PlannedEntity(entity_id="e1", segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC"),
-            PlannedEntity(entity_id="e2", segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text=""),
-            PlannedEntity(entity_id="e3", segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN999 PE water_supply"),
+            PlannedEntity(entity_id="e1", source_artifact_id=design_env.artifact_id, segment_id=None, kind="mtext", layer="0", points=[(0, -10)], text="SCHEMATIC"),
+            PlannedEntity(entity_id="e2", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="line", layer="WS-PIPE", points=[(0, 0), (10, 0)], text="", system=seg.system, dn_mm=seg.dn_mm, material=seg.material),
+            PlannedEntity(entity_id="e3", source_artifact_id=design_env.artifact_id, segment_id=seg.segment_id, kind="text", layer="WS-PIPE", points=[(5, 3)], text=f"{seg.segment_id} DN999 PE water_supply", system=seg.system, dn_mm=999, material="PE"),
         ],
         source_design_artifact_id=design_env.artifact_id,
         source_calc_artifact_id=calc_env.artifact_id,
@@ -624,7 +626,7 @@ def test_build_review_package_determinism_100_times() -> None:
     calc_env = _hyd_calc_env(150)
     design_env = _design_env(150)
     plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-det-001", insunits=4)
-    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-det-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []})
+    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-det-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []}, staged_file_verified=True, p3_pipeline_executed=True)
     pkg_env = _envelope(pkg_rt.model_dump(), artifact_id="dwpkg-det-001", artifact_type="drawing_package")
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
     doc_env = _envelope(doc_payload, artifact_id="doc-det-001", artifact_type="document")
@@ -645,7 +647,7 @@ def test_run_review_agent_envelope_shape_and_hash() -> None:
     calc_env = _hyd_calc_env(150)
     design_env = _design_env(150)
     plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-env-001", insunits=4)
-    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-env-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []})
+    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-env-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []}, staged_file_verified=True, p3_pipeline_executed=True)
     pkg_env = _envelope(pkg_rt.model_dump(), artifact_id="dwpkg-env-001", artifact_type="drawing_package")
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
     doc_env = _envelope(doc_payload, artifact_id="doc-env-001", artifact_type="document")
@@ -688,7 +690,7 @@ def test_offline_no_llm() -> None:
     calc_env = _hyd_calc_env(150)
     design_env = _design_env(150)
     plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-off-001", insunits=4)
-    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-off-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []})
+    pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-off-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []}, staged_file_verified=True, p3_pipeline_executed=True)
     pkg_env = _envelope(pkg_rt.model_dump(), artifact_id="dwpkg-off-001", artifact_type="drawing_package")
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
     doc_env = _envelope(doc_payload, artifact_id="doc-off-001", artifact_type="document")
