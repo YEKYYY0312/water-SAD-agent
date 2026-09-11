@@ -139,21 +139,32 @@ def test_recalc_required_on_diameter_change() -> None:
     assert prev_pkg.segments[0].dn_mm == 150
 
     brief_new = _brief(
-        hydraulic_cases=[HydraulicCaseRequest(case_id="case-vel-1", formula="velocity", inputs={"flow_lps": 10, "diameter_mm": 200})],
+        hydraulic_cases=[HydraulicCaseRequest(case_id="case-vel-1", formula="velocity", inputs={"flow_lps": 10, "diameter_mm": 150})],
         topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
         user_constraints=["material: PE"],
-        spatial_constraints=[{"kind": "material", "value": "PE"}],
+        spatial_constraints=[
+            {"kind": "material", "value": "PE"},
+            {"kind": "diameter_mm", "value": 200},
+        ],
     )
-    calc_env_new = _calc_env(200)
-    # use same calc id set but diameter changed in brief, should trigger recalc
-    # pass prev_design to run_design_agent
-    env_new = run_design_agent(brief_new, calc_env_new, retrieved_source_ids=["SRC 1.1"], prev_design=prev_pkg)
+    env_new = run_design_agent(
+        brief_new,
+        calc_env,
+        retrieved_source_ids=["SRC 1.1"],
+        prev_design=prev_pkg,
+    )
     pkg_new = DesignPackage.model_validate(env_new.payload)
-    assert len(pkg_new.recalculation_requests) >= 1
-    req = pkg_new.recalculation_requests[0]
-    assert "diameter_mm" in req["fields"]
-    assert "velocity_mps" in req["fields"]
-    assert req["segment_id"] == pkg_new.segments[0].segment_id
+    assert pkg_new.segments[0].dn_mm == 200
+    assert pkg_new.recalculation_requests == [
+        {
+            "reason": "hydraulic_input_changed",
+            "fields": ["diameter_mm"],
+            "segment_id": pkg_new.segments[0].segment_id,
+            "formula": "velocity",
+            "source_calc_case_id": "case-vel-1",
+            "input_updates": {"diameter_mm": 200.0},
+        }
+    ]
 
 
 def test_unresolved_items_missing_material() -> None:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import re
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -36,6 +38,8 @@ from water_agent.multi_agent.contracts import (
     TopologyEdge,
     compute_payload_hash,
 )
+from water_agent.multi_agent.drawing_executor import stage_drawing_package
+from water_agent.multi_agent.orchestrator import _document_from_plan
 from water_agent.multi_agent.provenance import validate_approval_binding
 
 
@@ -234,6 +238,55 @@ def test_provenance_invalid_blocking_human_via_cross_check() -> None:
     assert prov[0].severity == "blocking"
 
 
+def test_real_drawing_package_parent_drift_blocks_review() -> None:
+    calc_env = _hyd_calc_env(150)
+    design_env = _design_env(150)
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id="drawing-parent-drift-001",
+        insunits=4,
+    )
+    with TemporaryDirectory() as tmp:
+        drawing_env = stage_drawing_package(
+            plan_env,
+            staging_dir=tmp,
+            file_id="drawing-parent-drift-001",
+        )
+    document_env = _document_from_plan(plan_env, calc_env, design_env)
+    clean_registry = {
+        envelope.artifact_id: envelope
+        for envelope in (calc_env, design_env, plan_env, drawing_env, document_env)
+    }
+    clean = run_review_agent(
+        clean_registry,
+        review_id="review-parent-clean-001",
+        document_artifact_id=document_env.artifact_id,
+    )
+    assert ReviewPackage.model_validate(clean.payload).decision == "pass"
+
+    drifted_drawing = drawing_env.model_copy(
+        update={"parent_artifact_ids": [calc_env.artifact_id]}
+    )
+    drifted_registry = dict(clean_registry)
+    drifted_registry[drawing_env.artifact_id] = drifted_drawing
+    reviewed = run_review_agent(
+        drifted_registry,
+        review_id="review-parent-drift-001",
+        document_artifact_id=document_env.artifact_id,
+    )
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert reviewed.status == "blocked"
+    assert package.decision == "blocked"
+    assert any(
+        issue.rule_id == MULTI_PROVENANCE_INVALID
+        and issue.artifact_id == drawing_env.artifact_id
+        and issue.owner == "human"
+        for issue in package.issues
+    )
+
+
 # ---------------------------------------------------------------------------
 # document consistency — not_checked + citation + value
 # ---------------------------------------------------------------------------
@@ -340,6 +393,166 @@ def test_document_value_mismatch_error_design() -> None:
     val_issues = [i for i in issues if i.rule_id == "doc_value_mismatch"]
     assert len(val_issues) == 1
     assert val_issues[0].owner == "design"
+
+
+def test_real_document_inline_numeric_tamper_is_rejected_after_rehash() -> None:
+    brief = ProjectBrief(
+        project_id="proj-doc-tamper-001",
+        request="生成明确给水管段的设计说明",
+        systems=["water_supply"],
+        unit_system="SI",
+        hydraulic_cases=[
+            HydraulicCaseRequest(
+                case_id="case-doc-tamper-001",
+                formula="velocity",
+                inputs={"flow_lps": 10, "diameter_mm": 150},
+            )
+        ],
+        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        spatial_constraints=[],
+        required_outputs=["design_note", "drawing"],
+        user_constraints=["material: PE"],
+    )
+    calc_env = run_hydraulic_agent(brief)
+    design_env = run_design_agent(
+        brief,
+        calc_env,
+        retrieved_source_ids=["GB50015-2019 3.2.1"],
+    )
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id="drawing-doc-tamper-001",
+        insunits=4,
+    )
+    with TemporaryDirectory() as tmp:
+        drawing_env = stage_drawing_package(
+            plan_env,
+            staging_dir=tmp,
+            file_id="drawing-doc-tamper-001",
+        )
+    document_env = _document_from_plan(plan_env, calc_env, design_env)
+    clean_registry = {
+        env.artifact_id: env
+        for env in (calc_env, design_env, plan_env, drawing_env, document_env)
+    }
+    clean_review = run_review_agent(
+        clean_registry,
+        review_id="rev-doc-clean-001",
+        document_artifact_id=document_env.artifact_id,
+    )
+    assert ReviewPackage.model_validate(clean_review.payload).decision == "pass"
+
+    tampered_payload = copy.deepcopy(document_env.payload)
+    assignment_location = next(
+        (
+            (section_index, line_index)
+            for section_index, section in enumerate(tampered_payload["sections"])
+            for line_index, line in enumerate(section["lines"])
+            if "=" in line
+        ),
+        None,
+    )
+    assert assignment_location is not None
+    section_index, line_index = assignment_location
+    tampered_payload["sections"][section_index]["lines"][line_index] += (
+        "; 另报设计流量 9999 L/s"
+    )
+    tampered_document = document_env.model_copy(
+        update={
+            "payload": tampered_payload,
+            "payload_hash": compute_payload_hash(tampered_payload),
+        }
+    )
+    tampered_registry = dict(clean_registry)
+    tampered_registry[tampered_document.artifact_id] = tampered_document
+
+    reviewed = run_review_agent(
+        tampered_registry,
+        review_id="rev-doc-tampered-001",
+        document_artifact_id=tampered_document.artifact_id,
+    )
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert package.decision == "revise"
+    assert reviewed.status == "failed"
+    assert any(
+        issue.owner == "design"
+        and issue.severity == "error"
+        and issue.rule_id == "doc_numeric_preservation"
+        and "9999" in issue.message
+        for issue in package.issues
+    )
+    assert all(issue.rule_id != "review_hash_mismatch" for issue in package.issues)
+
+
+def test_real_document_dn_tamper_is_rejected_after_rehash() -> None:
+    brief = ProjectBrief(
+        project_id="proj-doc-dn-tamper-001",
+        request="生成明确给水管段的设计说明",
+        systems=["water_supply"],
+        unit_system="SI",
+        hydraulic_cases=[
+            HydraulicCaseRequest(
+                case_id="case-doc-dn-tamper-001",
+                formula="velocity",
+                inputs={"flow_lps": 10, "diameter_mm": 150},
+            )
+        ],
+        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        spatial_constraints=[],
+        required_outputs=["design_note", "drawing"],
+        user_constraints=["material: PE"],
+    )
+    calc_env = run_hydraulic_agent(brief)
+    design_env = run_design_agent(
+        brief,
+        calc_env,
+        retrieved_source_ids=["GB50015-2019 3.2.1"],
+    )
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id="drawing-doc-dn-tamper-001",
+        insunits=4,
+    )
+    with TemporaryDirectory() as tmp:
+        drawing_env = stage_drawing_package(
+            plan_env,
+            staging_dir=tmp,
+            file_id="drawing-doc-dn-tamper-001",
+        )
+    document_env = _document_from_plan(plan_env, calc_env, design_env)
+    tampered_payload = copy.deepcopy(document_env.payload)
+    for section in tampered_payload["sections"]:
+        section["lines"] = [line.replace("DN150", "DN9999") for line in section["lines"]]
+    tampered_document = document_env.model_copy(
+        update={
+            "payload": tampered_payload,
+            "payload_hash": compute_payload_hash(tampered_payload),
+        }
+    )
+    registry = {
+        env.artifact_id: env
+        for env in (calc_env, design_env, plan_env, drawing_env, tampered_document)
+    }
+
+    reviewed = run_review_agent(
+        registry,
+        review_id="rev-doc-dn-tampered-001",
+        document_artifact_id=tampered_document.artifact_id,
+    )
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert package.decision == "revise"
+    assert any(
+        issue.owner == "design"
+        and issue.severity == "error"
+        and issue.rule_id == "doc_dn_untraceable"
+        and "DN9999" in issue.message
+        for issue in package.issues
+    )
+    assert all(issue.rule_id != "review_hash_mismatch" for issue in package.issues)
 
 
 def test_document_explicit_id_not_found_not_checked() -> None:
@@ -637,7 +850,12 @@ def test_build_review_package_pass_when_clean_schematic() -> None:
         staged_file_verified=True,
         p3_pipeline_executed=True,
     )
-    pkg_env2 = _envelope(pkg_with_rt.model_dump(), artifact_id="dwpkg-clean-001", artifact_type="drawing_package")
+    pkg_env2 = _envelope(
+        pkg_with_rt.model_dump(),
+        artifact_id="dwpkg-clean-001",
+        artifact_type="drawing_package",
+        parent_ids=[plan_env.artifact_id],
+    )
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
     doc_env = _envelope(doc_payload, artifact_id="doc-clean-001", artifact_type="document")
     registry = {
@@ -672,7 +890,12 @@ def test_build_review_package_revise_on_dn_mismatch_via_registry() -> None:
         source_calc_artifact_id=calc_env.artifact_id,
         integration_conflicts=[],
     )
-    plan_env = _envelope(plan.model_dump(), artifact_id="plan-dn-rev-001", artifact_type="drawing_plan")
+    plan_env = _envelope(
+        plan.model_dump(),
+        artifact_id="plan-dn-rev-001",
+        artifact_type="drawing_plan",
+        parent_ids=[design_env.artifact_id, calc_env.artifact_id],
+    )
     registry = {calc_env.artifact_id: calc_env, design_env.artifact_id: design_env, plan_env.artifact_id: plan_env}
     pkg, _ = build_review_package(registry, review_id="rev-dn-001")
     assert pkg.decision == "revise"
@@ -751,7 +974,12 @@ def test_run_review_agent_envelope_shape_and_hash() -> None:
     design_env = _design_env(150)
     plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-env-001", insunits=4)
     pkg_rt = DrawingPackage(plan_artifact_id=plan_env.artifact_id, preview_status="staged", staged_file_id="staging-env-001", roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []}, staged_file_verified=True, p3_pipeline_executed=True)
-    pkg_env = _envelope(pkg_rt.model_dump(), artifact_id="dwpkg-env-001", artifact_type="drawing_package")
+    pkg_env = _envelope(
+        pkg_rt.model_dump(),
+        artifact_id="dwpkg-env-001",
+        artifact_type="drawing_package",
+        parent_ids=[plan_env.artifact_id],
+    )
     doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
     doc_env = _envelope(doc_payload, artifact_id="doc-env-001", artifact_type="document")
     registry = {calc_env.artifact_id: calc_env, design_env.artifact_id: design_env, plan_env.artifact_id: plan_env, pkg_env.artifact_id: pkg_env, doc_env.artifact_id: doc_env}
@@ -779,6 +1007,56 @@ def test_review_hashes_share_approval_payload_hash_contract() -> None:
         approved_at="2026-09-11T00:00:00Z",
     )
     assert validate_approval_binding(approval, registry) is True
+
+
+def test_review_hashes_bind_only_the_explicit_active_document_lineage() -> None:
+    old_calc = _hyd_calc_env(150)
+    brief = ProjectBrief(
+        project_id="proj-review-active-hashes-001",
+        request="DN200 重算后审查活动产物",
+        systems=["water_supply"],
+        unit_system="SI",
+        hydraulic_cases=[
+            HydraulicCaseRequest(
+                case_id="case-review-active-hashes-001",
+                formula="velocity",
+                inputs={"flow_lps": 10, "diameter_mm": 200},
+            )
+        ],
+        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        spatial_constraints=[],
+        required_outputs=["design_note", "drawing"],
+        user_constraints=["material: PE"],
+    )
+    active_calc = run_hydraulic_agent(brief, supersedes_artifact_id=old_calc.artifact_id)
+    design_env = run_design_agent(brief, active_calc, retrieved_source_ids=[])
+    plan_env = run_drawing_agent(
+        design_env,
+        active_calc,
+        drawing_id="drawing-review-active-hashes-001",
+        insunits=4,
+    )
+    with TemporaryDirectory() as tmp:
+        drawing_env = stage_drawing_package(
+            plan_env,
+            staging_dir=tmp,
+            file_id="drawing-review-active-hashes-001",
+        )
+    document_env = _document_from_plan(plan_env, active_calc, design_env)
+    active_artifacts = (active_calc, design_env, plan_env, drawing_env, document_env)
+    registry = {env.artifact_id: env for env in (old_calc, *active_artifacts)}
+
+    package, _ = build_review_package(
+        registry,
+        review_id="rev-active-hashes-001",
+        document_artifact_id=document_env.artifact_id,
+    )
+
+    assert package.reviewed_artifact_hashes == [
+        registry[artifact_id].payload_hash
+        for artifact_id in sorted(env.artifact_id for env in active_artifacts)
+    ]
+    assert old_calc.payload_hash not in package.reviewed_artifact_hashes
 
 
 def test_run_review_agent_empty_or_not_checked_is_missing_inputs() -> None:
