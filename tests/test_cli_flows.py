@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -162,3 +163,108 @@ class TestDocgenCalcBookEndToEnd:
         assert "拒绝原因" not in captured.out
         payload = json.loads(captured.out)
         assert payload["ok"] is True or payload["status"] == "succeeded"
+
+
+class TestMultiAgentCli:
+    def test_plain_language_returns_field_level_missing_inputs_without_staging(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """普通需求描述不能被替换成固定 DN150/PE/10m 工况。"""
+        import tempfile
+
+        def _unexpected_staging(*_args, **_kwargs):
+            raise AssertionError("missing ProjectBrief must not create staging directories")
+
+        def _unexpected_approval(_prompt: str = "") -> str:
+            raise AssertionError("missing ProjectBrief must not request approval")
+
+        monkeypatch.setattr(tempfile, "mkdtemp", _unexpected_staging)
+        monkeypatch.setattr("builtins.input", _unexpected_approval)
+
+        code = main(
+            [
+                "--flow",
+                "multi-agent",
+                "--json",
+                "--session-dir",
+                str(tmp_path / "sessions"),
+                "请帮我做一个给排水项目方案",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert code == 1
+        payload = json.loads(captured.out)
+        assert payload["status"] == "missing_inputs"
+        assert payload["waiting"] is True
+        assert payload["error_code"] == "MULTI_MISSING_INPUTS"
+        assert {
+            "systems",
+            "unit_system",
+            "hydraulic_cases[0].formula",
+            "topology[0].start_node_id",
+            "topology[0].end_node_id",
+            "topology[0].length_m",
+            "spatial_constraints.material",
+            "required_outputs",
+        } <= set(payload["missing_inputs"])
+        serialized = json.dumps(payload, ensure_ascii=False)
+        assert "DN150" not in serialized
+        assert '"PE"' not in serialized
+        assert '"flow_lps": 10' not in serialized
+
+    def test_explicit_natural_language_brief_uses_observed_values_in_real_release(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """完整显式输入走真实 interrupt/resume/export，发布值必须来自输入。"""
+        import ezdxf
+
+        _feed(monkeypatch, ["y"])
+        code = main(
+            [
+                "--flow",
+                "multi-agent",
+                "--json",
+                "--session-dir",
+                str(tmp_path / "sessions"),
+                "给水系统，Q=12 L/s，DN200，L=25m，材质=steel，起点=n10，终点=n11，输出=图纸，求流速",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        payload = json.loads(captured.out)
+        assert payload["status"] == "succeeded"
+        assert payload["waiting"] is False
+        brief = payload["project_brief"]
+        assert brief["systems"] == ["water_supply"]
+        assert brief["unit_system"] == "SI"
+        assert brief["hydraulic_cases"][0]["formula"] == "velocity"
+        assert brief["hydraulic_cases"][0]["inputs"]["flow_lps"] == 12
+        assert brief["hydraulic_cases"][0]["inputs"]["diameter_mm"] == 200
+        assert brief["topology"] == [
+            {"start_node_id": "n10", "end_node_id": "n11", "length_m": 25.0}
+        ]
+        assert brief["spatial_constraints"] == [{"kind": "material", "value": "steel"}]
+        assert brief["required_outputs"] == ["drawing"]
+        assert payload["retrieved_source_ids"] == []
+
+        drawing_path = Path(payload["exported_file_path"])
+        assert drawing_path.is_file()
+        drawing = ezdxf.readfile(drawing_path)
+        lines = [entity for entity in drawing.modelspace() if entity.dxftype() == "LINE"]
+        assert len(lines) == 1
+        start, end = lines[0].dxf.start, lines[0].dxf.end
+        assert math.dist((start.x, start.y), (end.x, end.y)) == pytest.approx(25_000.0)
+        labels = [
+            entity.dxf.text
+            for entity in drawing.modelspace()
+            if entity.dxftype() == "TEXT"
+        ]
+        assert any("DN200 steel water_supply" in label for label in labels)

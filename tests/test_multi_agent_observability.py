@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from water_agent.harness.multi_agent_eval import run_one_case, run_suite
-from water_agent.harness.multi_agent_metrics import DETECTOR_IDS, sanitize_event
+from water_agent.harness.multi_agent_metrics import (
+    DETECTOR_IDS,
+    detect_multi_agent_events,
+    sanitize_event,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SUITE_DIR = REPO_ROOT / "tests" / "eval" / "multi_agent_p0"
@@ -30,19 +37,31 @@ def _detectors_for(case_id: str) -> list[str]:
 
 def test_stale_positive() -> None:
     assert "stale_calculation_used" in _detectors_for("ma-p0-11")
-    assert "stale_calculation_used" in _detectors_for("ma-p0-03")
+
+
+def test_successful_structured_recalculation_is_not_stale_use() -> None:
+    assert "stale_calculation_used" not in _detectors_for("ma-p0-03")
 
 
 def test_stale_negative_normal_case() -> None:
     assert "stale_calculation_used" not in _detectors_for("ma-p0-01")
 
 
-def test_reviewer_bypassed_positive() -> None:
-    assert "reviewer_bypassed" in _detectors_for("ma-p0-09")
+def test_unapproved_release_still_uses_real_reviewer() -> None:
+    assert "reviewer_bypassed" not in _detectors_for("ma-p0-09")
 
 
 def test_unapproved_export_positive() -> None:
-    assert "unapproved_export" in _detectors_for("ma-p0-09")
+    with tempfile.TemporaryDirectory() as td:
+        result = run_one_case(
+            _case("ma-p0-09"),
+            staging_dir=os.path.join(td, "s"),
+            final_dir=os.path.join(td, "f"),
+        )
+    assert any(event.get("event") == "export_attempt" for event in result["trace_events"])
+    assert "unapproved_export" in {
+        detector["detector_id"] for detector in result["detectors"]
+    }
 
 
 def test_approval_drift_positive() -> None:
@@ -53,8 +72,29 @@ def test_provenance_gap_positive() -> None:
     assert "provenance_gap" in _detectors_for("ma-p0-05")
 
 
-def test_revision_loop_exhausted_positive() -> None:
-    assert "revision_loop_exhausted" in _detectors_for("ma-p0-10")
+def test_safe_revision_loop_exhaustion_is_not_a_bound_violation() -> None:
+    assert "revision_loop_exhausted" not in _detectors_for("ma-p0-10")
+
+
+def test_revision_loop_detector_requires_agent_call_after_exhaustion() -> None:
+    findings = detect_multi_agent_events(
+        [
+            {
+                "event": "route_selected",
+                "trace_id": "ma-p0-10",
+                "exhausted": True,
+                "blocked": True,
+            },
+            {
+                "event": "agent_call",
+                "trace_id": "ma-p0-10",
+                "after_exhaustion": True,
+            },
+        ]
+    )
+    assert [finding["detector_id"] for finding in findings] == [
+        "revision_loop_exhausted"
+    ]
 
 
 def test_detector_negative_when_not_triggered() -> None:
@@ -81,8 +121,79 @@ def test_events_no_raw_text_path_key_and_local_only(tmp_path: Path) -> None:
                 assert "/Users" not in v
                 assert "/home" not in v
                 assert "C:\\" not in v
-        # local_event_only marker
-        assert ev.get("status") == "local_event_only"
+        assert ev.get("delivery") == "local_event_only"
+
+
+def test_harness_does_not_emit_non_orchestrator_trace_events(tmp_path: Path) -> None:
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "r.json"
+        report = run_suite(
+            SUITE_DIR,
+            out_path=out,
+            staging_dir=Path(td) / "s",
+            final_dir=Path(td) / "f",
+        )
+
+    assert report["trace_events"]
+    assert all(
+        event.get("source") == "multi_agent_orchestrator"
+        for event in report["trace_events"]
+    )
+    for case in report["cases"]:
+        assert case["trace_events"]
+        assert {
+            event.get("trace_id") for event in case["trace_events"]
+        } == {case["case_id"]}
+
+
+def test_production_trace_id_survives_interrupt_resume_and_is_sanitized(
+    tmp_path: Path,
+) -> None:
+    result = run_one_case(
+        _case("ma-p0-01"),
+        staging_dir=str(tmp_path / "staging"),
+        final_dir=str(tmp_path / "final"),
+    )
+
+    assert result["interrupt_observed"] is True
+    assert result["resume_observed"] is True
+    assert result["trace_events"]
+    assert {
+        event.get("trace_id") for event in result["trace_events"]
+    } == {"ma-p0-01"}
+    assert all(
+        sanitize_event(event).get("trace_id") == "ma-p0-01"
+        for event in result["trace_events"]
+    )
+
+
+@pytest.mark.parametrize(
+    "external_trace_id",
+    ["sk-secret-example-token", "local:thread-123"],
+)
+def test_external_or_sensitive_trace_id_is_internalized_before_production_trace(
+    tmp_path: Path,
+    external_trace_id: str,
+) -> None:
+    case = _case("ma-p0-01")
+    case["_trace_id_input"] = external_trace_id
+
+    result = run_one_case(
+        case,
+        staging_dir=str(tmp_path / "staging"),
+        final_dir=str(tmp_path / "final"),
+    )
+
+    assert result["interrupt_observed"] is True
+    trace_ids = {event.get("trace_id") for event in result["trace_events"]}
+    assert len(trace_ids) == 1
+    internal_trace_id = next(iter(trace_ids))
+    assert isinstance(internal_trace_id, str)
+    assert re.fullmatch(r"ma-[0-9a-f]{24}", internal_trace_id)
+    assert external_trace_id not in str(result["trace_events"])
+    assert sanitize_event(
+        {"event": "run_started", "trace_id": external_trace_id}
+    )["trace_id"] == internal_trace_id
 
 
 def test_contradictory_project_success_not_falsely_fired() -> None:

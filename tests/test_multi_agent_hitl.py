@@ -36,11 +36,18 @@ def test_approval_hash_binding_invalidates_after_artifact_change() -> None:
         reason="human approved reviewed package",
         artifact_ids=[artifact.artifact_id],
         artifact_hashes=[artifact.payload_hash],
+        artifact_revisions=[artifact.revision],
+        artifact_parent_artifact_ids=[artifact.parent_artifact_ids],
         approved_at="2026-09-11T00:00:00Z",
     )
 
     assert is_approval_valid(approval, [artifact.payload_hash])
     assert not is_approval_valid(approval, ["f" * 64])
+    assert is_approval_valid(approval, {artifact.artifact_id: artifact})
+    assert not is_approval_valid(
+        approval,
+        {artifact.artifact_id: artifact.model_copy(update={"revision": 2})},
+    )
 
 
 def test_sqlite_resume_revalidates_hash_and_rejects_drift(tmp_path) -> None:
@@ -74,5 +81,61 @@ def test_sqlite_resume_revalidates_hash_and_rejects_drift(tmp_path) -> None:
         result = app2.invoke(Command(resume={"approved": True}), config=config)
         assert result["status"] == "blocked"
         assert "MULTI_APPROVAL_STALE" in result["errors"]
+    finally:
+        conn2.close()
+
+
+def test_sqlite_resume_rejects_drawing_plan_drift(tmp_path) -> None:
+    import sqlite3
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.types import Command
+
+    from water_agent.multi_agent.contracts import DrawingPlan
+    from water_agent.multi_agent.orchestrator import (
+        build_orchestrator_graph,
+        default_multi_agent_state,
+    )
+    from water_agent.session import default_checkpoint_serde
+
+    db = tmp_path / "state-plan.sqlite"
+    config = {"configurable": {"thread_id": "resume-drawing-plan-drift"}}
+    conn1 = sqlite3.connect(db, check_same_thread=False)
+    app1 = build_orchestrator_graph(
+        checkpointer=SqliteSaver(conn1, serde=default_checkpoint_serde())
+    )
+    paused = app1.invoke(
+        default_multi_agent_state(
+            project_brief=_step33_brief(),
+            retrieved_source_ids=["GB50015-2019 3.2.1"],
+            staging_dir=str(tmp_path / "staging-plan"),
+            final_dir=str(tmp_path / "final-plan"),
+        ),
+        config=config,
+    )
+    assert paused["__interrupt__"]
+    plan_id = paused["active_artifact_ids"]["drawing_plan"]
+    plan_envelope = ArtifactEnvelope.model_validate(paused["artifacts"][plan_id])
+    plan = DrawingPlan.model_validate(plan_envelope.payload)
+    plan.integration_conflicts.append("changed after approval interrupt")
+    payload = plan.model_dump(mode="python")
+    altered = plan_envelope.model_copy(
+        update={"payload": payload, "payload_hash": compute_payload_hash(payload)}
+    )
+    app1.update_state(
+        config,
+        {"artifacts": {**paused["artifacts"], plan_id: altered.model_dump(mode="json")}},
+    )
+    conn1.close()
+
+    conn2 = sqlite3.connect(db, check_same_thread=False)
+    try:
+        app2 = build_orchestrator_graph(
+            checkpointer=SqliteSaver(conn2, serde=default_checkpoint_serde())
+        )
+        result = app2.invoke(Command(resume={"approved": True}), config=config)
+        assert result["status"] == "blocked"
+        assert "MULTI_APPROVAL_STALE" in result["errors"]
+        assert not (tmp_path / "final-plan" / "project-drawing.dxf").exists()
     finally:
         conn2.close()

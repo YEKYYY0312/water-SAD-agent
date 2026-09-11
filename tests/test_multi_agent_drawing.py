@@ -25,6 +25,7 @@ from water_agent.multi_agent.contracts import (
     compute_payload_hash,
 )
 from water_agent.multi_agent.drawing_executor import (
+    ROUNDTRIP_LENGTH_ABS_TOL_M,
     render_drawing_plan_to_staging,
     stage_drawing_package,
     verify_roundtrip,
@@ -193,6 +194,39 @@ def test_missing_length_returns_missing_inputs_without_default_candidate() -> No
     assert [entity for entity in plan.entities if entity.segment_id is not None] == []
 
 
+@pytest.mark.parametrize("field", ["length_m", "dn_mm", "material"])
+def test_output_adaptations_preserve_missing_fields_without_sentinel_values(field: str) -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    setattr(design.segments[0], field, None)
+    calc_env = _envelope(calc.model_dump(), f"calc-missing-{field}", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(),
+        f"design-missing-{field}",
+        "design_package",
+        "design",
+        parent_ids=[calc_env.artifact_id],
+    )
+
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id=f"drawing-missing-{field}",
+        insunits=4,
+    )
+    plan = DrawingPlan.model_validate(plan_env.payload)
+    materials = plan.output_adaptations["materials"]
+    docgen = plan.output_adaptations["docgen"]
+
+    assert plan_env.status == "missing_inputs"
+    assert materials["status"] == "missing_inputs"
+    assert materials["result"] is None
+    assert any(field in item for item in materials["unresolved_items"])
+    assert "得到 0.0" not in str(materials)
+    assert "得到 -1" not in str(materials)
+    assert docgen["status"] == "missing_inputs"
+
+
 def test_unknown_unit_keeps_mapped_lengths_none() -> None:
     calc = _calc_pkg()
     design = _design_pkg(calc)
@@ -219,6 +253,126 @@ def test_unknown_unit_keeps_mapped_lengths_none() -> None:
     assert all(length is None for length in result["mapped_lengths_m"])
     assert pkg_env.status == "blocked"
     assert "staged DXF unit is unknown; mapped length_m remains None" in pkg_env.payload["unresolved_items"]
+
+
+def test_staged_dxf_length_tamper_reduces_recall_and_blocks_package() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    design.segments = [design.segments[0]]
+    calc_env = _envelope(calc.model_dump(), "calc-length-tamper", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(),
+        "design-length-tamper",
+        "design_package",
+        "design",
+        parent_ids=[calc_env.artifact_id],
+    )
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id="drawing-length-tamper",
+        insunits=4,
+    )
+    plan = DrawingPlan.model_validate(plan_env.payload)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = render_drawing_plan_to_staging(
+            plan,
+            staging_dir=tmp,
+            file_id="drawing-length-tamper",
+        )
+        import ezdxf
+
+        doc = ezdxf.readfile(staged)
+        line = next(entity for entity in doc.modelspace() if entity.dxftype() == "LINE")
+        line.dxf.end = (float(line.dxf.start.x) + 1.0, float(line.dxf.start.y), 0.0)
+        doc.saveas(staged)
+
+        report = verify_roundtrip(staged, plan)
+        package_env = verify_staged_drawing_package(
+            plan_env,
+            staged_path=staged,
+            staged_file_id="drawing-length-tamper",
+        )
+
+    length_mismatches = [item for item in report["mismatches"] if item["field"] == "length_m"]
+    assert report["roundtrip_segment_recall"] == 0.0
+    assert report["recalled_segments"] == 0
+    assert length_mismatches == [
+        {
+            "entity_id": next(
+                entity.entity_id
+                for entity in plan.entities
+                if entity.segment_id == "seg-ws-001" and entity.kind in ("line", "polyline")
+            ),
+            "segment_id": "seg-ws-001",
+            "field": "length_m",
+            "expected": 10.0,
+            "actual": 0.001,
+        }
+    ]
+    assert package_env.status == "blocked"
+    assert package_env.payload["staged_file_id"] is None
+    assert package_env.payload["staged_file_verified"] is False
+
+
+@pytest.mark.parametrize(
+    ("tolerance_factor", "expected_status"),
+    [(0.5, "ready"), (2.0, "blocked")],
+)
+def test_staged_dxf_length_tolerance_boundary(
+    tolerance_factor: float,
+    expected_status: str,
+) -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    design.segments = [design.segments[0]]
+    calc_env = _envelope(calc.model_dump(), "calc-length-tolerance", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(),
+        "design-length-tolerance",
+        "design_package",
+        "design",
+        parent_ids=[calc_env.artifact_id],
+    )
+    plan_env = run_drawing_agent(
+        design_env,
+        calc_env,
+        drawing_id="drawing-length-tolerance",
+        insunits=4,
+    )
+    plan = DrawingPlan.model_validate(plan_env.payload)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = render_drawing_plan_to_staging(
+            plan,
+            staging_dir=tmp,
+            file_id=f"length-tolerance-{str(tolerance_factor).replace('.', '-')}",
+        )
+        import ezdxf
+
+        doc = ezdxf.readfile(staged)
+        line = next(entity for entity in doc.modelspace() if entity.dxftype() == "LINE")
+        delta_drawing_units = tolerance_factor * ROUNDTRIP_LENGTH_ABS_TOL_M / 0.001
+        line.dxf.end = (
+            float(line.dxf.end.x) + delta_drawing_units,
+            float(line.dxf.end.y),
+            0.0,
+        )
+        doc.saveas(staged)
+        package_env = verify_staged_drawing_package(
+            plan_env,
+            staged_path=staged,
+            staged_file_id=f"length-tolerance-{str(tolerance_factor).replace('.', '-')}",
+        )
+
+    assert package_env.status == expected_status
+    roundtrip_review = package_env.payload["roundtrip_review"]
+    mismatches = roundtrip_review["mismatches"]
+    assert any(item["field"] == "length_m" for item in mismatches) is (expected_status == "blocked")
+    assert roundtrip_review["roundtrip_segment_recall"] == (
+        0.0 if expected_status == "blocked" else 1.0
+    )
 
 
 def test_nonexistent_staged_file_is_blocked() -> None:
