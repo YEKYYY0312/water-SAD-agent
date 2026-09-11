@@ -106,6 +106,26 @@ else
     fi
 fi
 
+step "multi_agent_p0 合成机制层（12 用例，8 硬指标全绿）"
+MA_HEAD="data/eval/reports/multi_agent_p0_head.json"
+MA_BASE="data/eval/multi_agent_p0_main.json"
+if ! $PY -m water_agent.harness.multi_agent_eval tests/eval/multi_agent_p0 --out "$MA_HEAD" > /tmp/ci_gate_multi.log 2>&1; then
+    tail -20 /tmp/ci_gate_multi.log
+    fail "multi_agent_p0 harness"
+else
+    tail -8 /tmp/ci_gate_multi.log
+    if [ -f "$MA_BASE" ]; then
+        if ! $PY scripts/compare_multi_agent_p0.py --head "$MA_HEAD" --base "$MA_BASE" > /tmp/ci_gate_multi_cmp.log 2>&1; then
+            cat /tmp/ci_gate_multi_cmp.log
+            fail "multi_agent_p0 基线对比"
+        else
+            cat /tmp/ci_gate_multi_cmp.log
+        fi
+    else
+        echo "multi_agent_p0 无 main 基线（首次运行）；固化：cp $MA_HEAD $MA_BASE"
+    fi
+fi
+
 step "基线对比（compare_baseline.py，阈值见 THRESHOLDS）"
 if [ -f data/eval/baseline.json ]; then
     if ! $PY scripts/compare_baseline.py data/eval/baseline.json > /tmp/ci_gate_baseline.log 2>&1; then

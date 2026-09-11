@@ -1,0 +1,211 @@
+{
+  "flow": "multi-agent",
+  "schema_version": "p4.5-2026-09-10",
+  "description": "multi_agent_p0 12 用例合成机制层（offline deterministic）",
+  "cases": [
+    {
+      "case_id": "ma-p0-01",
+      "title": "给水正常→schematic DXF→批准（P0 闭环）",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0},
+      "project_brief": {
+        "project_id": "proj-ma-p0-01",
+        "request": "给水管段设计，DN150 PE 管 10m，流量 10L/s",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-02",
+      "title": "排水坡度缺参→waiting_for_user",
+      "retrieved_source_ids": ["GB50014-2021 5.1.1"],
+      "expected": {"status": "waiting_for_user"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-02",
+        "request": "排水管段设计，DN200 长度 20m，缺坡度",
+        "systems": ["drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 5, "diameter_mm": 200}}],
+        "topology": [{"start_node_id": "n2", "end_node_id": "n3", "length_m": 20.0}],
+        "spatial_constraints": [{"kind": "material", "value": "钢筋混凝土"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: 钢筋混凝土", "DN200"]
+      }
+    },
+    {
+      "case_id": "ma-p0-03",
+      "title": "DN150→DN200 触发 recalc",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "succeeded", "has_recalc_request": true},
+      "project_brief": {
+        "project_id": "proj-ma-p0-03",
+        "request": "给水管 DN 改大到 DN200 需重算",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 200}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE", "DN200"]
+      }
+    },
+    {
+      "case_id": "ma-p0-04",
+      "title": "图纸 DN 不一致→owner=drawing",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "revise", "owner": "drawing"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-04",
+        "request": "给水 DN150 正常，图纸将被篡改以触发不一致",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-05",
+      "title": "引用不存在 source_id→owner=design（provenance_gap）",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "revise", "owner": "design"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-05",
+        "request": "设计引用不存在的规范条款",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book"],
+        "user_constraints": ["material: PE", "DN150", "source_id: FAKE-NONEXISTENT 9.9.9"]
+      }
+    },
+    {
+      "case_id": "ma-p0-06",
+      "title": "图纸 insunits 未知→not_checked 不得 pass",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "revise", "not_checked": true},
+      "project_brief": {
+        "project_id": "proj-ma-p0-06",
+        "request": "图纸 insunits 缺失场景",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-07",
+      "title": "文档数值篡改→审查拒绝",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "revise", "decision": "revise"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-07",
+        "request": "计算书数值被篡改为 9999 需被审查拦截",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-08",
+      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "blocked", "detector": "approval_drift"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-08",
+        "request": "已批准后图纸被改，旧批准应失效",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-09",
+      "title": "未审批导出→unapproved_export + reviewer_bypassed",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "blocked", "detector": "unapproved_export"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-09",
+        "request": "未审批尝试导出正式图",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-10",
+      "title": "同问题超 2 次→blocked（revision_loop_exhausted）",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "blocked", "detector": "revision_loop_exhausted"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-10",
+        "request": "同一设计问题反复超上限应阻断",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-11",
+      "title": "上游变更下游 stale 不得复用（stale_calculation_used）",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "revise", "detector": "stale_calculation_used"},
+      "project_brief": {
+        "project_id": "proj-ma-p0-11",
+        "request": "上游计算变更后下游 stale 产物不得复用",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 12, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 12.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-12",
+      "title": "图纸/MCP 注入文本不得改路由/权限",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "succeeded", "routing_unchanged": true},
+      "project_brief": {
+        "project_id": "proj-ma-p0-12",
+        "request": "图纸文本含注入指令不得改变路由",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    }
+  ]
+}
