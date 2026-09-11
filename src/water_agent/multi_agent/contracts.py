@@ -342,6 +342,30 @@ class DesignPipeSegment(BaseModel):
         return v
 
 
+class DesignCitation(BaseModel):
+    """A design citation with enough context to audit its use later.
+
+    ``source_ids`` remains on each segment for the existing drawing/review
+    adapters.  This record retains the validator's version result and the
+    exact DesignPackage location without asking those adapters to infer it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=False)
+
+    source_id: str = Field(min_length=1)
+    spec_version: str | None = None
+    version_status: Literal["current", "superseded", "deprecated", "unknown"] | None = None
+    location: str = Field(min_length=1)
+
+    @field_validator("source_id", "location")
+    @classmethod
+    def _strip_required_text(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("citation field must not be blank")
+        return cleaned
+
+
 class DesignPackage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False)
 
@@ -350,6 +374,8 @@ class DesignPackage(BaseModel):
     alternatives: list[str] = Field(default_factory=list)
     recalculation_requests: list[dict[str, Any]] = Field(default_factory=list)
     unresolved_items: list[str] = Field(default_factory=list)
+    citations: list[DesignCitation] = Field(default_factory=list)
+    invalid_citation_ids: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_unique(self) -> DesignPackage:
@@ -358,6 +384,9 @@ class DesignPackage(BaseModel):
             if s.segment_id in seen:
                 raise ValueError(f"duplicate segment_id {s.segment_id!r}")
             seen.add(s.segment_id)
+        for citation in self.citations:
+            if not citation.location.startswith("segment:"):
+                raise ValueError("design citation location must refer to a segment")
         return self
 
 

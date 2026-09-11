@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import math
-
 import pytest
 from pydantic import ValidationError
 
+from water_agent.domain.citation import CitationClaim
 from water_agent.multi_agent.agents.design import build_design_package, run_design_agent
 from water_agent.multi_agent.agents.hydraulic import run_hydraulic_agent
 from water_agent.multi_agent.contracts import (
+    ArtifactEnvelope,
+    CalcCase,
     CalcPackage,
     DesignPackage,
     DesignPipeSegment,
@@ -18,7 +19,6 @@ from water_agent.multi_agent.contracts import (
     TopologyEdge,
     compute_payload_hash,
 )
-from water_agent.multi_agent.provenance import validate_provenance
 
 
 def _brief(
@@ -38,7 +38,7 @@ def _brief(
     return ProjectBrief(
         project_id=project_id,
         request="design test",
-        systems=systems or ["water_supply"],  # type: ignore[arg-type]
+        systems=systems if systems is not None else ["water_supply"],  # type: ignore[arg-type]
         unit_system="SI",
         hydraulic_cases=hydraulic_cases or [],
         topology=topology or [],
@@ -205,13 +205,127 @@ def test_source_id_must_be_retrieved() -> None:
         spatial_constraints=[{"kind": "material", "value": "PE"}],
     )
     env = run_design_agent(brief, calc_env, retrieved_source_ids=["GB50015-2019 3.2.1"])
-    assert env.status in ("blocked", "failed")
-    # provenance should also be invalid when registry checked? source check is via status
+    assert env.status == "blocked"
     pkg = DesignPackage.model_validate(env.payload)
-    assert pkg.segments[0].source_ids == ["NOT_RETRIEVED 9.9.9"]
-    # validate_provenance checks parent only, but our status already blocked; ensure registry check for empty source not needed
-    # also check that retrieved set mismatch is reported in warnings/errors
-    assert any("source_id" in w or "source" in w.lower() for w in env.warnings + pkg.unresolved_items) or env.status == "blocked"
+    assert pkg.segments[0].source_ids == []
+    assert pkg.invalid_citation_ids == ["NOT_RETRIEVED 9.9.9"]
+    assert env.citation_ids == []
+    assert any("invalid citation" in warning for warning in env.warnings)
+
+
+def test_validated_citation_retains_version_status_and_location() -> None:
+    calc_env = _calc_env(150)
+    brief = _brief(
+        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        user_constraints=["material: PE", "DN150", "source_id: GB50015-2019 3.2.1"],
+    )
+    env = run_design_agent(
+        brief,
+        calc_env,
+        validated_citations=[
+            CitationClaim(
+                source_id="GB50015-2019 3.2.1",
+                spec_version="2019",
+                version_status="unknown",
+                declared_by="citation_validator",
+            )
+        ],
+    )
+    pkg = DesignPackage.model_validate(env.payload)
+    assert env.status == "ready"
+    assert pkg.segments[0].source_ids == ["GB50015-2019 3.2.1"]
+    assert pkg.citations[0].source_id == "GB50015-2019 3.2.1"
+    assert pkg.citations[0].spec_version == "2019"
+    assert pkg.citations[0].version_status == "unknown"
+    assert pkg.citations[0].location == f"segment:{pkg.segments[0].segment_id}:source_ids"
+
+
+def test_old_calc_case_cannot_support_verified_status() -> None:
+    calc_env = _calc_env(150)
+    brief = _hyd_brief(150)
+    env = run_design_agent(
+        brief,
+        calc_env,
+        retrieved_source_ids=["SRC 1.1"],
+        active_calc_case_ids={"case-current"},
+    )
+    pkg = DesignPackage.model_validate(env.payload)
+    assert env.status == "blocked"
+    assert pkg.segments[0].calc_case_ids == []
+    assert pkg.segments[0].hydraulic_status == "not_verified"
+
+
+def test_failed_calc_case_cannot_be_marked_verified() -> None:
+    failed = CalcPackage(
+        cases=[
+            CalcCase(
+                calc_case_id="case-failed",
+                formula="velocity",
+                inputs={"flow_lps": 10.0, "diameter_mm": 150.0},
+                outputs={},
+                tool_invocation_id="tool-failed",
+                errors=["tool failed"],
+                status="failed",
+            )
+        ],
+        errors=["tool failed"],
+    )
+    payload = failed.model_dump()
+    calc_env = ArtifactEnvelope(
+        artifact_id="calc-failed-001",
+        artifact_type="calc_package",
+        schema_version="p4.5-2026-09-10",
+        producer="hydraulic",
+        revision=1,
+        parent_artifact_ids=[],
+        payload_hash=compute_payload_hash(payload),
+        payload=payload,
+        citation_ids=[],
+        assumptions=[],
+        warnings=[],
+        status="blocked",
+    )
+    env = run_design_agent(_hyd_brief(150), calc_env, retrieved_source_ids=["SRC 1.1"])
+    pkg = DesignPackage.model_validate(env.payload)
+    assert env.status == "blocked"
+    assert pkg.segments[0].hydraulic_status == "not_verified"
+    assert pkg.segments[0].calc_case_ids == []
+
+
+def test_empty_systems_stays_unresolved_without_water_supply_default() -> None:
+    calc_env = _calc_env(150)
+    brief = _brief(
+        systems=[],
+        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        user_constraints=["material: PE", "DN150"],
+    )
+    env = run_design_agent(brief, calc_env, retrieved_source_ids=["SRC 1.1"])
+    pkg = DesignPackage.model_validate(env.payload)
+    assert env.status == "missing_inputs"
+    assert pkg.segments == []
+    assert "missing system: brief.systems empty" in pkg.unresolved_items
+    assert "water_supply" not in " ".join(pkg.decisions)
+
+
+def test_new_hydraulic_input_always_creates_recalculation_request() -> None:
+    calc_env = _calc_env(150)
+    env = run_design_agent(
+        _hyd_brief(150),
+        calc_env,
+        retrieved_source_ids=["SRC 1.1"],
+        recalc_trigger_fields={"flow_lps", "roughness_mm"},
+    )
+    pkg = DesignPackage.model_validate(env.payload)
+    assert env.status == "blocked"
+    assert pkg.segments[0].hydraulic_status == "recalc_required"
+    assert pkg.recalculation_requests == [
+        {
+            "reason": "hydraulic_input_changed",
+            "fields": ["flow_lps", "roughness_mm"],
+            "segment_id": pkg.segments[0].segment_id,
+            "suggested_formula": "velocity",
+        }
+    ]
 
 
 def test_fire_protection_system_allowed() -> None:
@@ -295,20 +409,24 @@ def test_deterministic_segment_id_and_hash() -> None:
     calc_env = _calc_env(150)
     brief = _brief(
         hydraulic_cases=[HydraulicCaseRequest(case_id="case-vel-1", formula="velocity", inputs={"flow_lps": 10, "diameter_mm": 150})],
-        topology=[TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0)],
+        topology=[
+            TopologyEdge(start_node_id="n1", end_node_id="n2", length_m=10.0),
+            TopologyEdge(start_node_id="n2", end_node_id="n3", length_m=8.0),
+        ],
         user_constraints=["material: PE"],
         spatial_constraints=[{"kind": "material", "value": "PE"}],
     )
     hashes: set[str] = set()
-    seg_sets: set[str] = set()
+    segment_id_sets: set[tuple[str, ...]] = set()
     for _ in range(100):
         env = run_design_agent(brief, calc_env, retrieved_source_ids=["SRC 1.1"])
         hashes.add(env.payload_hash)
         pkg = DesignPackage.model_validate(env.payload)
-        seg_sets.add(pkg.segments[0].segment_id)
+        segment_id_sets.add(tuple(segment.segment_id for segment in pkg.segments))
+        assert len({segment.segment_id for segment in pkg.segments}) == len(pkg.segments)
         assert env.payload_hash == compute_payload_hash(env.payload)
     assert len(hashes) == 1
-    assert len(seg_sets) == 1
+    assert len(segment_id_sets) == 1
 
 
 def test_tool_view_no_calc_mcp() -> None:
@@ -321,10 +439,7 @@ def test_tool_view_no_calc_mcp() -> None:
     # check no file write / hydraulic compute imports
     assert "hydraulics.run_calc" not in src
     assert "run_calc" not in src
-    assert "write" not in src.lower() or "write" in src.lower() and False  # placeholder
-    # more precise: no open( write path
-    assert "open(" not in src or "open(" in src and False  # ensure no file write
-    # if above would fail due to substring, use explicit
+    assert "write" not in src.lower()
     assert "open(" not in src
     # ensure no material_stats misuse? design allowed read-only precheck but must not import calc
     # we already checked calc_velocity; also ensure no ToolRegistry full exposure
@@ -345,6 +460,7 @@ def test_offline_no_llm() -> None:
     assert env.payload_hash == compute_payload_hash(env.payload)
     import water_agent.multi_agent.agents.design as mod
 
-    src = open(mod.__file__, encoding="utf-8").read()
+    with open(mod.__file__, encoding="utf-8") as handle:
+        src = handle.read()
     assert "ProviderGateway" not in src
     assert "GovernedChatModel" not in src
