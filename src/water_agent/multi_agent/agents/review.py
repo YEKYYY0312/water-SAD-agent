@@ -731,12 +731,14 @@ def build_review_package(
     issues.extend(doc_issues)
     not_checked.extend(doc_not_checked)
 
-    reviewed_hashes = sorted(
-        compute_payload_hash(
-            {"artifact_id": artifact_id, "payload_hash": registry[artifact_id].payload_hash}
-        )
-        for artifact_id in registry
-    )
+    # Review, approval and export all bind directly to the canonical payload
+    # hash.  Do not wrap it in a second artifact-id hash with a different
+    # contract; identity is tracked by the registry key/parent links.
+    ordered_artifact_ids = sorted(registry)
+    reviewed_hashes = [
+        compute_payload_hash(registry[artifact_id].payload)
+        for artifact_id in ordered_artifact_ids
+    ]
 
     decision = decide_review_decision(issues, not_checked)
     pkg = ReviewPackage(

@@ -7,12 +7,14 @@ from typing import Any
 from pydantic import ValidationError
 
 from water_agent.multi_agent.contracts import (
+    MULTI_APPROVAL_STALE,
     MULTI_PROVENANCE_INVALID,
     ApprovalRecord,
     ArtifactEnvelope,
     CalcPackage,
     DesignPackage,
     DrawingPlan,
+    compute_artifact_collection_hash,
     compute_payload_hash,
 )
 
@@ -119,25 +121,87 @@ def stale_propagation(
     new_artifact: ArtifactEnvelope,
     active: dict[str, ArtifactEnvelope],
 ) -> dict[str, list[str]]:
-    affected = _STALE_RULES.get(new_artifact.artifact_type, [])
+    # Registries are keyed by artifact_id.  Walk descendants by parent ids so
+    # multi-hop dependencies are invalidated transitively.
+    roots = {new_artifact.artifact_id, *new_artifact.parent_artifact_ids}
+    stale_ids: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for key, env in active.items():
+            artifact_id = env.artifact_id or key
+            if artifact_id in roots or artifact_id in stale_ids:
+                continue
+            if any(parent in roots or parent in stale_ids for parent in env.parent_artifact_ids):
+                stale_ids.add(artifact_id)
+                changed = True
+
     result: dict[str, list[str]] = {}
-    for atype in affected:
-        env = active.get(atype)
-        if env is not None:
-            result[atype] = [env.artifact_id]
+    for key, env in active.items():
+        artifact_id = env.artifact_id or key
+        if artifact_id in stale_ids:
+            result.setdefault(env.artifact_type, []).append(artifact_id)
+
+    # Keep compatibility with the original fixtures that keyed the registry by
+    # artifact type and omitted parent links.  Real registries use the graph.
+    if not result:
+        for atype in _STALE_RULES.get(new_artifact.artifact_type, []):
+            matches = [
+                env.artifact_id
+                for key, env in active.items()
+                if key == atype or env.artifact_type == atype
+            ]
+            if matches:
+                result[atype] = sorted(set(matches))
+    for ids in result.values():
+        ids.sort()
     return result
 
 
 def is_approval_stale(
     approval: ApprovalRecord,
-    current_hashes: list[str],
+    current_hashes: list[str] | dict[str, ArtifactEnvelope],
 ) -> bool:
+    if isinstance(current_hashes, dict):
+        current_ids = sorted(current_hashes)
+        current_payload_hashes = [compute_payload_hash(current_hashes[aid].payload) for aid in current_ids]
+        if approval.artifact_ids and approval.artifact_ids != current_ids:
+            return True
+        expected_collection = compute_artifact_collection_hash(
+            current_payload_hashes,
+            artifact_ids=current_ids if approval.artifact_ids else None,
+        )
+        if approval.artifact_collection_hash != expected_collection:
+            return True
+        current_hashes = current_payload_hashes
+    else:
+        expected_collection = compute_artifact_collection_hash(list(current_hashes))
+        if approval.artifact_collection_hash != expected_collection:
+            return True
     approved_hashes: list[str] = list(approval.artifact_hashes)
     if len(approved_hashes) != len(current_hashes):
         return True
     if set(approved_hashes) != set(current_hashes):
         return True
     return sorted(approved_hashes) != sorted(current_hashes)
+
+
+def validate_approval_binding(
+    approval: ApprovalRecord,
+    artifacts: dict[str, ArtifactEnvelope] | list[ArtifactEnvelope],
+) -> bool:
+    """Return whether approval is bound to the current final artifacts."""
+    collection = artifacts if isinstance(artifacts, dict) else {e.artifact_id: e for e in artifacts}
+    return not is_approval_stale(approval, collection)
+
+
+def assert_approval_binding(
+    approval: ApprovalRecord,
+    artifacts: dict[str, ArtifactEnvelope] | list[ArtifactEnvelope],
+) -> None:
+    """Raise a stable error when an approval no longer matches its artifacts."""
+    if not validate_approval_binding(approval, artifacts):
+        raise ValueError(f"{MULTI_APPROVAL_STALE}: approval is stale or mismatched")
 
 
 def superseded_chain(
