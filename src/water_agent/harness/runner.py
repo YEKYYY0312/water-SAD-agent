@@ -131,16 +131,11 @@ def _get_or_create_mcp_assembly() -> object | None:
 
     # 缓存未命中或配置已变化，重新装配
     # 配置错误（MCP_CONFIG_INVALID / MCPError）必须上抛，不得静默降级为 None
-    from water_agent.mcp.errors import MCPError
     from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
-    try:
-        mcp_cfg = load_mcp_gateway()
-        mcp_assembly = open_gateway_sessions(mcp_cfg)
-        _MCP_ASSEMBLY_CACHE = (mcp_assembly, str(config_path), current_mtime)
-        return mcp_assembly
-    except MCPError:
-        # 配置/连接/协议错误：响亮失败，让调用方看到结构化错误
-        raise
+    mcp_cfg = load_mcp_gateway()
+    mcp_assembly = open_gateway_sessions(mcp_cfg)
+    _MCP_ASSEMBLY_CACHE = (mcp_assembly, str(config_path), current_mtime)
+    return mcp_assembly
 
 
 def _cleanup_mcp_assembly_cache() -> None:
