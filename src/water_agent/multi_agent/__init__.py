@@ -14,6 +14,7 @@ from water_agent.multi_agent.contracts import (
     MULTI_RECALC_REQUIRED,
     MULTI_RETRY_EXHAUSTED,
     MULTI_REVIEW_REJECTED,
+    compute_artifact_collection_hash,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "MULTI_RECALC_REQUIRED",
     "MULTI_RETRY_EXHAUSTED",
     "MULTI_REVIEW_REJECTED",
+    "compute_artifact_collection_hash",
 ]

@@ -6,13 +6,27 @@ import re
 import shutil
 from pathlib import Path
 
+from water_agent.multi_agent.contracts import ApprovalRecord, ArtifactEnvelope
+from water_agent.multi_agent.provenance import assert_approval_binding
+
 _FILE_ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
 
-def assemble_export_path(*, file_id: str, staging_dir: str, final_dir: str) -> str:
+def assemble_export_path(
+    *,
+    file_id: str,
+    staging_dir: str,
+    final_dir: str,
+    approval: ApprovalRecord | None = None,
+    artifacts: dict[str, ArtifactEnvelope] | list[ArtifactEnvelope] | None = None,
+) -> str:
     """Map file_id to real paths — no model-provided path accepted."""
     if not _FILE_ID_RE.match(file_id):
         raise ValueError(f"file_id must match {_FILE_ID_RE.pattern!r}")
+    if approval is not None:
+        if artifacts is None:
+            raise ValueError("artifacts are required when approval is supplied")
+        assert_approval_binding(approval, artifacts)
     staging = Path(staging_dir) / f"{file_id}.dxf"
     if not staging.exists():
         raise FileNotFoundError(f"staged file not found: {staging}")
