@@ -459,7 +459,7 @@ def test_source_id_empty_provenance_invalid() -> None:
 
 
 def test_segment_id_mismatch_in_drawing_provenance_invalid() -> None:
-    calc_env, registry = _calc_registry()
+    calc_env, _registry = _calc_registry()
     # Create design with seg-1
     design = DesignPackage(
         segments=[
@@ -484,7 +484,20 @@ def test_segment_id_mismatch_in_drawing_provenance_invalid() -> None:
         drawing_id="d1",
         drawing_class="schematic",
         insunits=4,
-        entities=[PlannedEntity(entity_id="e1", segment_id="nonexistent-seg", kind="line", layer="WATER", points=[(0, 0), (1, 1)], text="")],
+        entities=[
+            PlannedEntity(
+                entity_id="e1",
+                source_artifact_id="design-001",
+                segment_id="nonexistent-seg",
+                kind="line",
+                layer="WATER",
+                points=[(0, 0), (1, 1)],
+                text="",
+                system="water_supply",
+                dn_mm=150,
+                material="PE",
+            )
+        ],
         source_design_artifact_id="design-001",
         source_calc_artifact_id="calc-001",
         integration_conflicts=[],

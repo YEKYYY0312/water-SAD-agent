@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
-import re
 import tempfile
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from water_agent.multi_agent.agents.drawing import build_drawing_package, build_drawing_plan, run_drawing_agent
+from water_agent.multi_agent.agents.drawing import (
+    build_drawing_package,
+    build_drawing_plan,
+    run_drawing_agent,
+)
 from water_agent.multi_agent.contracts import (
     ArtifactEnvelope,
     CalcCase,
@@ -22,7 +24,12 @@ from water_agent.multi_agent.contracts import (
     PlannedEntity,
     compute_payload_hash,
 )
-from water_agent.multi_agent.drawing_executor import render_drawing_plan_to_staging, verify_roundtrip
+from water_agent.multi_agent.drawing_executor import (
+    render_drawing_plan_to_staging,
+    stage_drawing_package,
+    verify_roundtrip,
+    verify_staged_drawing_package,
+)
 from water_agent.multi_agent.provenance import stale_propagation, validate_provenance
 
 
@@ -92,6 +99,11 @@ def test_drawing_plan_injects_design_fields() -> None:
         if seg.material is not None and seg.material in ("PE", "钢筋混凝土"):
             assert seg.material in txt
         assert seg.system in txt
+        for entity in related:
+            assert entity.source_artifact_id == design_env.artifact_id
+            assert entity.system == seg.system
+            assert entity.dn_mm == seg.dn_mm
+            assert entity.material == seg.material
         if seg.system == "fire_protection" and seg.hydraulic_status == "not_verified":
             assert "(NOT VERIFIED)" in txt
         for e in related:
@@ -162,6 +174,139 @@ def test_integration_conflicts_blocks_formal() -> None:
     plan3 = DrawingPlan.model_validate(plan_env3.payload)
     assert any("recalculation_requests" in c for c in plan3.integration_conflicts)
     assert plan_env3.status == "blocked"
+
+
+def test_missing_length_returns_missing_inputs_without_default_candidate() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    design.segments[0].length_m = None
+    calc_env = _envelope(calc.model_dump(), "calc-missing-length", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-missing-length", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-missing-length", insunits=4)
+
+    plan = DrawingPlan.model_validate(plan_env.payload)
+    assert plan_env.status == "missing_inputs"
+    assert "segment seg-ws-001: missing length_m" in plan.missing_inputs
+    assert [entity for entity in plan.entities if entity.segment_id is not None] == []
+
+
+def test_unknown_unit_keeps_mapped_lengths_none() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    calc_env = _envelope(calc.model_dump(), "calc-unit-unknown", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-unit-unknown", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-unit-unknown", insunits=4)
+    plan = DrawingPlan.model_validate(plan_env.payload)
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = render_drawing_plan_to_staging(plan, staging_dir=tmp, file_id="unit-unknown")
+        import ezdxf
+
+        doc = ezdxf.readfile(staged)
+        doc.header["$INSUNITS"] = 0
+        doc.saveas(staged)
+        result = verify_roundtrip(staged, plan)
+        pkg_env = verify_staged_drawing_package(
+            plan_env, staged_path=staged, staged_file_id="unit-unknown"
+        )
+
+    assert result["unit_known"] is False
+    assert result["mapped_lengths_m"]
+    assert all(length is None for length in result["mapped_lengths_m"])
+    assert pkg_env.status == "blocked"
+    assert "staged DXF unit is unknown; mapped length_m remains None" in pkg_env.payload["unresolved_items"]
+
+
+def test_nonexistent_staged_file_is_blocked() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    calc_env = _envelope(calc.model_dump(), "calc-no-file", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-no-file", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-no-file", insunits=4)
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg_env = verify_staged_drawing_package(
+            plan_env, staged_path=Path(tmp) / "does-not-exist.dxf", staged_file_id="does-not-exist"
+        )
+
+    assert pkg_env.status == "blocked"
+    assert pkg_env.payload["staged_file_id"] is None
+    assert pkg_env.payload["staged_file_verified"] is False
+    assert pkg_env.payload["roundtrip_review"]["errors"] == ["staged_file_missing"]
+
+
+def test_roundtrip_failure_cannot_be_ready() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    calc_env = _envelope(calc.model_dump(), "calc-rt-fail", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-rt-fail", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-rt-fail", insunits=4)
+    plan = DrawingPlan.model_validate(plan_env.payload)
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = render_drawing_plan_to_staging(plan, staging_dir=tmp, file_id="roundtrip-fail")
+        import ezdxf
+
+        doc = ezdxf.readfile(staged)
+        for entity in doc.modelspace():
+            if entity.dxftype() == "TEXT" and "DN150" in str(entity.dxf.text or ""):
+                entity.dxf.text = str(entity.dxf.text).replace("DN150", "DN999")
+                break
+        doc.saveas(staged)
+        pkg_env = verify_staged_drawing_package(
+            plan_env, staged_path=staged, staged_file_id="roundtrip-fail"
+        )
+
+    assert pkg_env.status == "blocked"
+    assert pkg_env.payload["staged_file_id"] is None
+    assert pkg_env.payload["roundtrip_review"]["roundtrip_segment_recall"] != 1.0
+
+
+def test_staged_plan_checks_all_design_fields() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    calc_env = _envelope(calc.model_dump(), "calc-fields", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-fields", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-fields", insunits=4)
+    plan = DrawingPlan.model_validate(plan_env.payload)
+    label = next(entity for entity in plan.entities if entity.segment_id == "seg-ws-001" and entity.kind == "text")
+    label.text = "seg-ws-001 DN999 PVC-U drainage"
+    mutated_payload = plan.model_dump()
+    mutated_env = plan_env.model_copy(
+        update={"payload": mutated_payload, "payload_hash": compute_payload_hash(mutated_payload)}
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg_env = stage_drawing_package(mutated_env, staging_dir=tmp, file_id="field-mismatch")
+
+    assert pkg_env.status == "blocked"
+    fields = {item["field"] for item in pkg_env.payload["roundtrip_review"]["mismatches"]}
+    assert {"DN", "material", "system"} <= fields
+
+
+def test_upstream_conflict_does_not_render_formal_candidate() -> None:
+    calc = _calc_pkg()
+    design = _design_pkg(calc)
+    design.segments[0].calc_case_ids = ["obsolete-case"]
+    calc_env = _envelope(calc.model_dump(), "calc-upstream-conflict", "calc_package", "hydraulic")
+    design_env = _envelope(
+        design.model_dump(), "design-upstream-conflict", "design_package", "design", parent_ids=[calc_env.artifact_id]
+    )
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-upstream-conflict", insunits=4)
+    with tempfile.TemporaryDirectory() as tmp:
+        pkg_env = stage_drawing_package(plan_env, staging_dir=tmp, file_id="should-not-exist")
+        assert not (Path(tmp) / "should-not-exist.dxf").exists()
+
+    assert plan_env.status == "blocked"
+    assert pkg_env.status == "blocked"
+    assert pkg_env.payload["staged_file_id"] is None
 
 
 def test_path_not_in_schema() -> None:

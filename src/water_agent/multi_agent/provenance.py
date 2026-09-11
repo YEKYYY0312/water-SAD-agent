@@ -88,6 +88,9 @@ def validate_provenance(
                 if ent.segment_id is not None and ent.segment_id not in segment_ids:
                     errors.add(MULTI_PROVENANCE_INVALID)
                     break
+                if ent.source_artifact_id not in registry:
+                    errors.add(MULTI_PROVENANCE_INVALID)
+                    break
             for key in ("source_design_artifact_id", "source_calc_artifact_id"):
                 ref = payload.get(key)
                 if isinstance(ref, str) and ref and ref not in registry:
