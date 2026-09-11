@@ -149,7 +149,8 @@ def test_offline_no_llm() -> None:
     # ensure no gateway import inside hydraulic module
     import water_agent.multi_agent.agents.hydraulic as mod
 
-    source = open(mod.__file__, encoding="utf-8").read()
+    with open(mod.__file__, encoding="utf-8") as source_file:
+        source = source_file.read()
     assert "ProviderGateway" not in source
     assert "retrieve_clauses" not in source
     assert "cite_clauses" not in source
@@ -168,18 +169,16 @@ def test_finite_rejection() -> None:
 
 
 def test_extra_forbid_and_unknown_formula() -> None:
-    # HydraulicCaseRequest accepts any string; agent layer enforces 7-formula enum (09-hydraulics §6)
+    # Unknown formulas are normalized into a structured failed CalcPackage.
     req_any = HydraulicCaseRequest(case_id="c-unk-1", formula="unknown_formula", inputs={"flow_lps": 10})
     assert req_any.formula == "unknown_formula"
-    with pytest.raises(ValidationError):
-        run_hydraulic_cases([req_any])
-    with pytest.raises(ValidationError):
-        run_hydraulic_agent(_brief([req_any]))
-    req = HydraulicCaseRequest(case_id="c-unk-2", formula="unknown_formula", inputs={"flow_lps": 10})
-    with pytest.raises(ValidationError):
-        run_hydraulic_cases([req])
-    with pytest.raises(ValidationError):
-        run_hydraulic_agent(_brief([req]))
+    pkg = run_hydraulic_cases([req_any])
+    assert pkg.cases[0].status == "failed"
+    assert pkg.cases[0].outputs == {}
+    assert pkg.cases[0].errors
+    env = run_hydraulic_agent(_brief([req_any]))
+    assert env.status == "blocked"
+    assert env.payload["errors"]
     # extra forbid on ProjectBrief
     with pytest.raises(ValidationError):
         ProjectBrief(  # type: ignore[call-arg]
@@ -218,3 +217,49 @@ def test_illegal_fill_ratio_and_zero_flow() -> None:
     req2 = HydraulicCaseRequest(case_id="c-illegal-3", formula="velocity", inputs={"flow_lps": 0, "diameter_mm": 100})
     env2 = run_hydraulic_agent(_brief([req2]))
     assert env2.status in ("blocked", "failed")
+
+
+def test_tool_exception_is_structured(monkeypatch: pytest.MonkeyPatch) -> None:
+    def explode(formula: str, inputs: dict[str, object]) -> object:
+        raise RuntimeError("simulated tool failure")
+
+    monkeypatch.setattr("water_agent.multi_agent.agents.hydraulic.run_calc", explode)
+    req = HydraulicCaseRequest(case_id="c-tool-error", formula="velocity", inputs={"flow_lps": 10, "diameter_mm": 100})
+    env = run_hydraulic_agent(_brief([req]))
+    case = env.payload["cases"][0]
+    assert env.status == "blocked"
+    assert case["status"] == "failed"
+    assert case["outputs"] == {}
+    assert case["tool_invocation_id"].startswith("hyd-")
+    assert "simulated tool failure" in case["errors"][0]
+
+
+def test_revision_uses_new_calc_case_id() -> None:
+    old = run_hydraulic_agent(
+        _brief(
+            [
+                HydraulicCaseRequest(
+                    case_id="c-revision",
+                    formula="velocity",
+                    inputs={"flow_lps": 10, "diameter_mm": 100},
+                )
+            ],
+            project_id="proj-revision",
+        )
+    )
+    new = run_hydraulic_agent(
+        _brief(
+            [
+                HydraulicCaseRequest(
+                    case_id="c-revision",
+                    formula="velocity",
+                    inputs={"flow_lps": 10, "diameter_mm": 150},
+                )
+            ],
+            project_id="proj-revision",
+        ),
+        supersedes_artifact_id=old.artifact_id,
+    )
+    assert old.payload["cases"][0]["calc_case_id"] == "c-revision"
+    assert new.payload["cases"][0]["calc_case_id"] != old.payload["cases"][0]["calc_case_id"]
+    assert new.payload["cases"][0]["inputs"]["diameter_mm"] == 150.0
