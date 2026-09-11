@@ -119,9 +119,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--flow",
-        choices=["qa", "docgen"],
+        choices=["qa", "docgen", "multi-agent"],
         default="qa",
-        help="qa 问答（默认）；docgen 计算书生成：gather→draft→人审(interrupt)→finalize，--resume 恢复挂起审批",
+        help="qa 问答（默认）；docgen 计算书生成：gather→draft→人审(interrupt)→finalize，--resume 恢复挂起审批；multi-agent P4.5 协同流水线（显式启用）",
     )
     p.add_argument(
         "--doc-type",
@@ -939,10 +939,78 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             print("错误:", "; ".join(payload["errors"]))
     return 0 if status == "succeeded" else 1
 
+def _resolve_flow(args: argparse.Namespace) -> str:
+    flow = getattr(args, "flow", "qa")
+    env_flow = __import__("os").getenv("WATER_AGENT_FLOW", "")
+    if env_flow:
+        env_norm = env_flow.strip().lower().replace("_", "-")
+        if env_norm in ("multi-agent", "multiagent"):
+            if flow == "qa":
+                return "multi-agent"
+    # argparse already normalizes; also accept underscore variant passed programmatically
+    if isinstance(flow, str):
+        flow = flow.replace("_", "-")
+    return flow
+
+
+def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
+    """--flow multi-agent：离线确定性流水线（hydraulic→design→drawing→review），无网络/无真实CAD。"""
+    import os as _os
+    import tempfile as _tf
+
+    from water_agent.harness.multi_agent_eval import run_one_case
+
+    q = query or "multi-agent demo"
+    suite_case: dict[str, Any] = {
+        "case_id": "cli-multi-agent",
+        "title": "CLI multi-agent run",
+        "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+        "expected": {},
+        "project_brief": {
+            "project_id": "proj-cli-ma",
+            "request": q,
+            "systems": ["water_supply"],
+            "unit_system": "SI",
+            "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+            "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+            "spatial_constraints": [{"kind": "material", "value": "PE"}],
+            "required_outputs": ["drawing"],
+            "user_constraints": ["material: PE", "DN150"],
+        },
+    }
+    staging = _tf.mkdtemp(prefix="ma-cli-staging-")
+    final = _tf.mkdtemp(prefix="ma-cli-final-")
+    result = run_one_case(suite_case, staging_dir=staging, final_dir=final)
+    payload = {
+        "ok": bool(result.get("passed")),
+        "flow": "multi-agent",
+        "query": q,
+        "status": result.get("status"),
+        "review_decision": result.get("review_decision"),
+        "passed": result.get("passed"),
+        "staging_dir": staging,
+        "final_dir": final,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if result.get("passed") else json.dumps(payload, ensure_ascii=False))
+    return 0 if result.get("passed") else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # D5 特性开关：WATER_AGENT_FLOW 环境变量等价于 --flow multi-agent
+    args.flow = _resolve_flow(args)  # type: ignore[attr-defined]
     query = (args.query or "").strip()
+
+    if getattr(args, "flow", "qa") == "multi-agent":
+        try:
+            return run_multi_agent_flow(args, query)
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+            return 2
 
     if getattr(args, "flow", "qa") == "docgen":
         try:

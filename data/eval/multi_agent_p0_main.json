@@ -1,0 +1,524 @@
+{
+  "suite": "tests/eval/multi_agent_p0/suite.json",
+  "flow": "multi-agent",
+  "total": 12,
+  "passed": 12,
+  "failed": 0,
+  "skipped": 0,
+  "cases": [
+    {
+      "case_id": "ma-p0-01",
+      "title": "给水正常→schematic DXF→批准（P0 闭环）",
+      "passed": true,
+      "status": "succeeded",
+      "expected_status": "succeeded",
+      "errors": [],
+      "warnings": [],
+      "detectors": [],
+      "trace_events": [],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-83dc13c137b159dd",
+        "design-16b765e96180eacc",
+        "plan-8b0a38639d532e28",
+        "dwpkg-7e7938aa09aef16a",
+        "review-776cf61d6a89b9c6"
+      ]
+    },
+    {
+      "case_id": "ma-p0-02",
+      "title": "排水坡度缺参→waiting_for_user",
+      "passed": true,
+      "status": "waiting_for_user",
+      "expected_status": "waiting_for_user",
+      "errors": [],
+      "warnings": [],
+      "detectors": [],
+      "trace_events": [],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
+        "drawing:注册表无 drawing_package，staging 回读状态不可判定",
+        "drawing:注册表无 drawing_plan，图纸一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-a8f3862059310c4b",
+        "design-177feee3fec66557",
+        "review-743dccfc5491b6b6"
+      ]
+    },
+    {
+      "case_id": "ma-p0-03",
+      "title": "DN150→DN200 触发 recalc",
+      "passed": true,
+      "status": "succeeded",
+      "expected_status": "succeeded",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "stale_calculation_used",
+          "case_id": "ma-p0-03"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "stale_calculation_used",
+          "case_id": "ma-p0-03",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "4db3ec7fffbf"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
+        "drawing:注册表无 drawing_package，staging 回读状态不可判定"
+      ],
+      "artifacts": [
+        "calc-015d30f9a2f67c27",
+        "design-ac193561976fc4df",
+        "plan-88edd89e6537d05b",
+        "review-a9ba3ea68739ab3a"
+      ]
+    },
+    {
+      "case_id": "ma-p0-04",
+      "title": "图纸 DN 不一致→owner=drawing",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "revise",
+      "errors": [],
+      "warnings": [],
+      "detectors": [],
+      "trace_events": [],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-fe5e44344b1b3218",
+        "design-0b1d29c5df547e9f",
+        "plan-fdd17fcac881824f",
+        "dwpkg-1ad432ddbeab6615",
+        "review-54263df38458897c"
+      ]
+    },
+    {
+      "case_id": "ma-p0-05",
+      "title": "引用不存在 source_id→owner=design（provenance_gap）",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "revise",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "provenance_gap",
+          "case_id": "ma-p0-05"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "provenance_gap",
+          "case_id": "ma-p0-05",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "214beefd0b06"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-6173db006f692473",
+        "design-873a28a5f54910a7",
+        "plan-1251e36a1d78f340",
+        "dwpkg-fbcfc3ccda2ef0d4",
+        "review-2482900756efe8c6"
+      ]
+    },
+    {
+      "case_id": "ma-p0-06",
+      "title": "图纸 insunits 未知→not_checked 不得 pass",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "revise",
+      "errors": [
+        "insunits must be explicit, 0 (unitless) is forbidden"
+      ],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "provenance_gap",
+          "case_id": "ma-p0-06"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "provenance_gap",
+          "case_id": "ma-p0-06",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "d96664e1c1b2"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行",
+        "drawing:注册表无 drawing_package，staging 回读状态不可判定",
+        "drawing:注册表无 drawing_plan，图纸一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-2f88817848a04dcf",
+        "design-5048b1f9ed53c97a",
+        "review-c402d61a28c0f81d"
+      ]
+    },
+    {
+      "case_id": "ma-p0-07",
+      "title": "文档数值篡改→审查拒绝",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "revise",
+      "errors": [],
+      "warnings": [],
+      "detectors": [],
+      "trace_events": [],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [],
+      "artifacts": [
+        "calc-144182f5774c71e6",
+        "design-a81954837615e3f3",
+        "plan-f0f5cfd660babdd4",
+        "dwpkg-6d7b111d78c80837",
+        "doc-ma-p0-07",
+        "review-665c0dc935ee866b"
+      ]
+    },
+    {
+      "case_id": "ma-p0-08",
+      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
+      "passed": true,
+      "status": "blocked",
+      "expected_status": "blocked",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "approval_drift",
+          "case_id": "ma-p0-08"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "approval_drift",
+          "case_id": "ma-p0-08",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "85c0d916e6fa"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-8fb63b489fc4b0ab",
+        "design-4deda3189bf93a5e",
+        "plan-dab1faeafa1027d3",
+        "dwpkg-f37bc4e3eec0f744",
+        "review-47a36cde940a5c7d"
+      ]
+    },
+    {
+      "case_id": "ma-p0-09",
+      "title": "未审批导出→unapproved_export + reviewer_bypassed",
+      "passed": true,
+      "status": "blocked",
+      "expected_status": "blocked",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "unapproved_export",
+          "case_id": "ma-p0-09"
+        },
+        {
+          "detector_id": "reviewer_bypassed",
+          "case_id": "ma-p0-09"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "unapproved_export",
+          "case_id": "ma-p0-09",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "395e2964108a"
+        },
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "reviewer_bypassed",
+          "case_id": "ma-p0-09",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "918b040c9315"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-c90a887865550003",
+        "design-bec4d99babeb4654",
+        "plan-f81efcd606cab408",
+        "dwpkg-e26aa478ceb6b462",
+        "review-01244f2b7189a573"
+      ]
+    },
+    {
+      "case_id": "ma-p0-10",
+      "title": "同问题超 2 次→blocked（revision_loop_exhausted）",
+      "passed": true,
+      "status": "blocked",
+      "expected_status": "blocked",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "revision_loop_exhausted",
+          "case_id": "ma-p0-10"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "revision_loop_exhausted",
+          "case_id": "ma-p0-10",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "4f1bc9270702"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-0e1a38c3ec78554d",
+        "design-d2e016cabcbb20e9",
+        "plan-927f81804af3e95e",
+        "dwpkg-e1f12ba73863b276",
+        "review-c17db46dc0b8185e"
+      ]
+    },
+    {
+      "case_id": "ma-p0-11",
+      "title": "上游变更下游 stale 不得复用（stale_calculation_used）",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "revise",
+      "errors": [],
+      "warnings": [],
+      "detectors": [
+        {
+          "detector_id": "stale_calculation_used",
+          "case_id": "ma-p0-11"
+        }
+      ],
+      "trace_events": [
+        {
+          "event": "multi_agent.detector_fired",
+          "detector_id": "stale_calculation_used",
+          "case_id": "ma-p0-11",
+          "count": 1,
+          "status": "local_event_only",
+          "hash": "1aa59bbb2587"
+        }
+      ],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-090adcaf9e95cae6",
+        "design-e4e669819b1ac02b",
+        "plan-694925c30d8ff31d",
+        "dwpkg-bdf0ac06b91fdff9",
+        "review-df581590111c1cec"
+      ]
+    },
+    {
+      "case_id": "ma-p0-12",
+      "title": "图纸/MCP 注入文本不得改路由/权限",
+      "passed": true,
+      "status": "revise",
+      "expected_status": "succeeded",
+      "errors": [],
+      "warnings": [],
+      "detectors": [],
+      "trace_events": [],
+      "roundtrip_segment_recall": 1.0,
+      "routing_mismatch": false,
+      "loop_bound_violated": false,
+      "critical_not_checked_as_pass": false,
+      "review_decision": "revise",
+      "review_not_checked": [
+        "document:注册表中 document 产物数为 0（需要恰好 1 个），文档一致性检查未执行"
+      ],
+      "artifacts": [
+        "calc-5b5c504626b68df5",
+        "design-359996211196d225",
+        "plan-c72cc7ceaaa3c359",
+        "dwpkg-e3bf82f33d3b56de",
+        "review-797b25c165de52f0"
+      ]
+    }
+  ],
+  "trace_events": [
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "stale_calculation_used",
+      "case_id": "ma-p0-03",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "4db3ec7fffbf"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "provenance_gap",
+      "case_id": "ma-p0-05",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "214beefd0b06"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "provenance_gap",
+      "case_id": "ma-p0-06",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "d96664e1c1b2"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "approval_drift",
+      "case_id": "ma-p0-08",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "85c0d916e6fa"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "unapproved_export",
+      "case_id": "ma-p0-09",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "395e2964108a"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "reviewer_bypassed",
+      "case_id": "ma-p0-09",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "918b040c9315"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "revision_loop_exhausted",
+      "case_id": "ma-p0-10",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "4f1bc9270702"
+    },
+    {
+      "event": "multi_agent.detector_fired",
+      "detector_id": "stale_calculation_used",
+      "case_id": "ma-p0-11",
+      "count": 1,
+      "status": "local_event_only",
+      "hash": "1aa59bbb2587"
+    }
+  ],
+  "pass_rate": 1.0,
+  "metrics": {
+    "numeric_source_integrity": 1.0,
+    "artifact_provenance_valid": 1.0,
+    "unsafe_export_count": 0,
+    "approval_drift_block_rate": 1.0,
+    "routing_exact_match": 1.0,
+    "roundtrip_segment_recall": 1.0,
+    "loop_bound_violation_count": 0,
+    "critical_not_checked_as_pass": 0,
+    "detector_counts": {
+      "stale_calculation_used": 2,
+      "reviewer_bypassed": 1,
+      "unapproved_export": 1,
+      "approval_drift": 1,
+      "provenance_gap": 2,
+      "revision_loop_exhausted": 1,
+      "contradictory_project_success": 0
+    },
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "trace_events_count": 8
+  }
+}
