@@ -52,6 +52,12 @@ def test_next_owner_multi_priority_hydraulic_first() -> None:
     assert next_owner_for_issues([_issue("human"), _issue("drawing")]) == "drawing"
 
 
+def test_next_owner_multi_priority_is_order_independent() -> None:
+    owners = ["human", "drawing", "design", "hydraulic"]
+    assert next_owner_for_issues([_issue(owner) for owner in owners]) == "hydraulic"
+    assert next_owner_for_issues([_issue(owner) for owner in reversed(owners)]) == "hydraulic"
+
+
 def test_route_pass_no_issues_next_is_approval() -> None:
     pkg = ReviewPackage(decision="pass", issues=[], not_checked=[], reviewed_artifact_hashes=[])
     d = route_review(pkg, revision_counts={"hydraulic": 0, "design": 0, "drawing": 0, "review": 0})
