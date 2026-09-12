@@ -92,3 +92,17 @@ def test_capabilities_do_not_treat_a_missing_secret_file_as_a_configured_model(
 
     assert response.status_code == 200
     assert response.json()["data"]["real_llm"] is False
+
+
+def test_capabilities_do_not_treat_an_empty_secret_file_as_a_configured_model(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    secret_file = tmp_path / "empty-secret-file"
+    secret_file.touch()
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY_FILE", str(secret_file))
+
+    response = _client(tmp_path).get("/api/system/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["real_llm"] is False
