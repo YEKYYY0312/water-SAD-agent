@@ -52,5 +52,14 @@ cursor/
 # Env
 .env.local
 
+# Compose secrets (the setup note is safe to track)
+secrets/*
+!secrets/README.md
+
+# React build dependencies and generated static assets
+web/app/node_modules/
+web/app/dist/
+*.tsbuildinfo
+
 # Workbuddy AI memory (sensitive / ephemeral)
 .workbuddy-ai/

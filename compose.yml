@@ -1,0 +1,99 @@
+name: water-agent
+
+services:
+  postgres:
+    image: postgres:18.2-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: water_agent
+      POSTGRES_USER: water_agent
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    build:
+      context: .
+    command: ["python", "-m", "water_agent.webapp.lifecycle", "migrate-placeholder"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+
+  bootstrap-admin:
+    build:
+      context: .
+    command: ["python", "-m", "water_agent.webapp.lifecycle", "bootstrap-admin-placeholder"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs: [/tmp]
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      bootstrap-admin:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - app_uploads:/var/lib/water-agent/uploads
+      - app_exports:/var/lib/water-agent/exports
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live'); urllib.request.urlopen('http://127.0.0.1:8000/health/ready')\"",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  reverse-proxy:
+    image: caddy:2.11.1-alpine
+    profiles: [production]
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    command: ["caddy", "reverse-proxy", "--from", ":80", "--to", "app:8000"]
+    read_only: true
+    tmpfs: [/config, /data]
+
+  local-model:
+    image: alpine:3.22.2
+    profiles: [local-model]
+    command:
+      [
+        "sh",
+        "-c",
+        "echo 'Step 46 local-model integration is not implemented; no model endpoint is exposed.'; tail -f /dev/null",
+      ]
+    read_only: true
+    tmpfs: [/tmp]
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+
+volumes:
+  postgres_data:
+  app_uploads:
+  app_exports:
