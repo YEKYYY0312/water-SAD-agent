@@ -1,8 +1,8 @@
 """P5 Step 37: authentication audit event sink.
 
 All audit events are written to structured logs (stdout JSON lines) and to an
-in-memory list for test inspection.  Step 38 will additionally persist them to
-a PostgreSQL table.
+in-memory list for test inspection.  Step 38 does not add an audit table;
+durable audit retention remains a separate deployment concern.
 
 Contract: audit entries NEVER contain passwords, password hashes, session
 secrets, CSRF tokens, full usernames in failure paths, or API keys.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("water_agent.auth.audit")
@@ -21,7 +21,7 @@ _events: list[dict[str, Any]] = []
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _emit(event_type: str, data: dict[str, Any]) -> None:

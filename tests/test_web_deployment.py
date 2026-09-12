@@ -17,6 +17,8 @@ def test_compose_declares_the_required_default_and_optional_services() -> None:
     assert "profiles: [local-model]" in compose
     assert "local-model:" in compose
     assert "postgres_data:" in compose
+    assert "postgres_data:/var/lib/postgresql" in compose
+    assert "postgres_data:/var/lib/postgresql/data" not in compose
     assert "/health/live" in compose
     assert "/health/ready" in compose
 

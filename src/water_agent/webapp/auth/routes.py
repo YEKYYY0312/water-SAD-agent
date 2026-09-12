@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -36,7 +36,7 @@ from water_agent.webapp.auth.dependencies import (
     require_authenticated,
     require_password_changed,
 )
-from water_agent.webapp.auth.models import UserRecord, UserRole
+from water_agent.webapp.auth.models import UserRole
 from water_agent.webapp.auth.password import (
     MIN_PASSWORD_LENGTH,
     PasswordTooShortError,
@@ -315,7 +315,7 @@ async def deactivate_user(
     admin_user, _ = auth
     user_store = get_user_store()
     try:
-        target = user_store.get_by_id(user_id)
+        user_store.get_by_id(user_id)
     except UserNotFoundError:
         return JSONResponse(
             status_code=404,
@@ -377,13 +377,7 @@ async def reset_password(
             status_code=422,
             content=_err("AUTH_WEAK_PASSWORD", f"Password must be at least {MIN_PASSWORD_LENGTH} characters"),
         )
-    user_store.update_password_hash(user_id, new_hash)
-    # Re-set must_change_password for admin-initiated resets.
-    # update_password_hash clears the flag (used for self-service change);
-    # admin resets always force a re-login change.
-    record = user_store.get_by_id(user_id)
-    with user_store._lock:
-        user_store._by_id[user_id] = record.model_copy(update={"must_change_password": True})
+    user_store.reset_password_hash(user_id, new_hash)
 
     audit.audit_password_changed(user_id=str(user_id), actor_user_id=str(admin_user.user_id))
     return JSONResponse(status_code=200, content=_ok({"reset": True}))

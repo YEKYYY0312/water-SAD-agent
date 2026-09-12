@@ -1,25 +1,41 @@
-"""P5 Step 37: lifecycle commands for Compose.
+"""P5 Step 38: migration and bootstrap lifecycle commands for Compose.
 
 Step 37 replaces the Step 36 bootstrap placeholder with a real bootstrap-admin
 command that reads the initial admin password from /run/secrets/admin_password.
-The migrate placeholder is retained until Step 38 delivers schema migrations.
+Migration failures are surfaced as a non-zero process exit; Compose therefore
+never starts the app against a partially migrated schema.
 """
 from __future__ import annotations
 
 import argparse
 import sys
 
+from alembic.config import Config
+from alembic.util import CommandError
+from sqlalchemy.exc import SQLAlchemyError
+
+from alembic import command
+
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="P5 Step 37 lifecycle commands")
+    parser = argparse.ArgumentParser(description="P5 Step 38 lifecycle commands")
     parser.add_argument(
         "action",
-        choices=("migrate-placeholder", "bootstrap-admin"),
+        choices=("migrate", "migrate-placeholder", "bootstrap-admin"),
     )
     action = parser.parse_args().action
 
     if action == "migrate-placeholder":
-        print("Step 37: no database migrations are defined; Step 38 owns schema migration.")
+        print("Step 38: use 'migrate'; the placeholder is retained only for old local scripts.")
+        return 0
+
+    if action == "migrate":
+        try:
+            command.upgrade(Config("alembic.ini"), "head")
+        except (OSError, RuntimeError, SQLAlchemyError, CommandError):
+            print("database migration failed", file=sys.stderr)
+            return 1
+        print("database migration complete")
         return 0
 
     # bootstrap-admin: real implementation

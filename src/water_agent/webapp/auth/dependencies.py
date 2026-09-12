@@ -11,9 +11,7 @@ URL parameters, or model output.
 """
 from __future__ import annotations
 
-from uuid import UUID
-
-from fastapi import Cookie, HTTPException, Request
+from fastapi import Cookie, HTTPException
 
 from water_agent.runtime.governance.contracts import Capability, Principal
 from water_agent.webapp.auth.models import UserRecord, UserRole
@@ -107,7 +105,7 @@ def require_admin(
     wa_session: str | None = Cookie(default=None),
 ) -> tuple[UserRecord, Principal]:
     """FastAPI dependency: require an active admin session."""
-    user, session_id = _resolve_session(wa_session)
+    user, _ = _resolve_session(wa_session)
     if user.role is not UserRole.ADMIN:
         raise HTTPException(
             status_code=403,
@@ -123,7 +121,7 @@ def require_password_changed(
 
     Use this on every endpoint EXCEPT /api/auth/change-pass.
     """
-    user, session_id = _resolve_session(wa_session)
+    user, _ = _resolve_session(wa_session)
     if user.must_change_password:
         raise HTTPException(
             status_code=403,
