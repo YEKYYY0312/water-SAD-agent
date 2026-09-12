@@ -43,6 +43,7 @@ from water_agent.storage.models import (
     MemoryRecordRow,
     MemoryUsageRow,
     ProjectMembership,
+    User,
 )
 
 
@@ -301,6 +302,161 @@ class MemoryRepository:
             )
         return record
 
+    def authorize_create_scope(
+        self,
+        *,
+        actor_user_id: UUID | str,
+        scope_type: MemoryScopeType,
+        project_id: UUID | str | None,
+    ) -> None:
+        """Authorize the requested write scope before inspecting candidate content."""
+
+        actor = str(_as_uuid(actor_user_id))
+        with self._transaction() as session:
+            if scope_type is MemoryScopeType.USER:
+                if project_id is not None:
+                    raise MemoryScopeDeniedError("user-scoped memory cannot target a project")
+                found = session.execute(select(User.user_id).where(User.user_id == actor)).first()
+                if found is None:
+                    raise MemoryScopeDeniedError()
+                return
+            if scope_type is not MemoryScopeType.PROJECT or project_id is None:
+                raise MemoryScopeDeniedError("project-scoped memory requires a project")
+            membership = session.execute(
+                select(ProjectMembership.project_id).where(
+                    ProjectMembership.project_id == str(_as_uuid(project_id)),
+                    ProjectMembership.user_id == actor,
+                    ProjectMembership.role.in_(("owner", "member")),
+                )
+            ).first()
+            if membership is None:
+                raise MemoryScopeDeniedError()
+
+    def find_active_by_key(
+        self,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        scope_type: MemoryScopeType,
+        project_id: UUID | str | None,
+        kind: MemoryKind,
+        semantic_key: str,
+    ) -> MemoryRecord | None:
+        """Return the authorized active key occupant, if one exists."""
+
+        tenant_key = str(_as_uuid(tenant_id))
+        actor = str(_as_uuid(actor_user_id))
+        conditions = [
+            MemoryRecordRow.tenant_id == tenant_key,
+            MemoryRecordRow.scope_type == scope_type.value,
+            MemoryRecordRow.kind == kind.value,
+            MemoryRecordRow.semantic_key == semantic_key,
+            MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+            self._write_access_clause(actor),
+        ]
+        if scope_type is MemoryScopeType.USER:
+            conditions.extend(
+                [
+                    MemoryRecordRow.owner_user_id == actor,
+                    MemoryRecordRow.project_id.is_(None),
+                ]
+            )
+        else:
+            if project_id is None:
+                raise MemoryScopeDeniedError("project-scoped memory requires a project")
+            conditions.append(MemoryRecordRow.project_id == str(_as_uuid(project_id)))
+        with self._transaction() as session:
+            row = session.execute(select(MemoryRecordRow).where(*conditions)).scalar_one_or_none()
+            return None if row is None else self._record(row)
+
+    def create_quarantined(
+        self,
+        record: MemoryRecord,
+        *,
+        actor_user_id: UUID | str,
+        attempted_content_hash: str,
+        rule_ids: tuple[str, ...],
+    ) -> MemoryRecord:
+        """Persist only metadata for a confirmed unsafe candidate."""
+
+        if record.status is not MemoryStatus.QUARANTINED or record.content:
+            raise ValueError("quarantine persistence requires an empty quarantined record")
+        actor = str(_as_uuid(actor_user_id))
+        reason = f"rules={','.join(sorted(set(rule_ids)))}"
+        with self._transaction() as session:
+            self._require_create_access(session, record, actor)
+            session.add(self._row(record))
+            session.flush()
+            session.add(
+                self._event(
+                    memory=record,
+                    event_type=MemoryEventType.QUARANTINED,
+                    operator=actor,
+                    before=None,
+                    after=attempted_content_hash,
+                    reason=reason,
+                )
+            )
+        return record
+
+    def reaffirm(
+        self,
+        memory_id: UUID | str,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        expected_revision: int,
+        source_thread_id: UUID | str | None = None,
+        source_message_id: UUID | str | None = None,
+        reason: str = "",
+    ) -> MemoryRecord:
+        """Append a reaffirm event without duplicating or revising the active record."""
+
+        memory_key = str(_as_uuid(memory_id))
+        tenant_key = str(_as_uuid(tenant_id))
+        actor = str(_as_uuid(actor_user_id))
+        with self._transaction() as session:
+            row = self._load_for_write(session, memory_key, tenant_key, actor)
+            self._ensure_mutable(row)
+            if row.revision != expected_revision:
+                raise MemoryRevisionConflictError()
+            memory = self._record(row)
+            event_memory = memory.model_copy(
+                update={
+                    "source_thread_id": (
+                        _as_uuid(source_thread_id) if source_thread_id is not None else None
+                    ),
+                    "source_message_id": (
+                        _as_uuid(source_message_id) if source_message_id is not None else None
+                    ),
+                }
+            )
+            digest = content_hash(memory.content)
+            session.add(
+                self._event(
+                    memory=event_memory,
+                    event_type=MemoryEventType.REAFFIRMED,
+                    operator=actor,
+                    before=digest,
+                    after=digest,
+                    reason=reason,
+                )
+            )
+            return memory
+
+    def get_for_write(
+        self,
+        memory_id: UUID | str,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+    ) -> MemoryRecord:
+        memory_key = str(_as_uuid(memory_id))
+        tenant_key = str(_as_uuid(tenant_id))
+        actor = str(_as_uuid(actor_user_id))
+        with self._transaction() as session:
+            return self._record(self._load_for_write(session, memory_key, tenant_key, actor))
+
     def get_for_user(
         self,
         memory_id: UUID | str,
@@ -503,11 +659,13 @@ class MemoryRepository:
         session: Session, memory_id: str, tenant_id: str, actor_user_id: str
     ) -> MemoryRecordRow:
         row = session.execute(
-            select(MemoryRecordRow).where(
+            select(MemoryRecordRow)
+            .where(
                 MemoryRecordRow.memory_id == memory_id,
                 MemoryRecordRow.tenant_id == tenant_id,
                 MemoryRepository._read_access_clause(actor_user_id),
             )
+            .with_for_update()
         ).scalar_one_or_none()
         if row is None:
             MemoryRepository._missing_or_denied(session, memory_id, tenant_id, operation="write")
