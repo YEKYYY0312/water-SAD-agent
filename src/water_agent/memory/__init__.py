@@ -1,5 +1,6 @@
-"""P5 Step 39 explicit long-term memory primitives."""
+"""P5 scoped long-term memory storage and explicit write application services."""
 
+from water_agent.memory.commands import adapt_remember_command
 from water_agent.memory.contracts import (
     ALLOWED_STATUS_TRANSITIONS,
     MEMORY_ERROR_CODES,
@@ -9,41 +10,74 @@ from water_agent.memory.contracts import (
     MemoryEventType,
     MemoryExpiredError,
     MemoryForgottenError,
+    MemoryInjectionBlockedError,
     MemoryKind,
     MemoryKindInvalidError,
     MemoryNotFoundError,
     MemoryOrigin,
+    MemoryPiiBlockedError,
     MemoryRecord,
     MemoryRevisionConflictError,
     MemoryScopeDeniedError,
     MemoryScopeType,
+    MemorySecretBlockedError,
     MemoryStatus,
     MemoryStoreUnavailableError,
     MemoryUsage,
 )
 from water_agent.memory.repository import MemoryRepository
 from water_agent.memory.service import MemoryService
+from water_agent.memory.write_contracts import (
+    CandidateDisposition,
+    CandidateOperation,
+    ConflictPreview,
+    ConflictResolution,
+    MemoryCandidate,
+    MemoryConfirmation,
+    MemoryValueBasis,
+    MemoryWriteAction,
+    MemoryWriteResult,
+    RememberCommand,
+)
+from water_agent.memory.write_guard import MemoryWriteGuard
+from water_agent.memory.write_service import ExplicitMemoryWriteService
 
 __all__ = [
     "ALLOWED_STATUS_TRANSITIONS",
     "MEMORY_ERROR_CODES",
+    "CandidateDisposition",
+    "CandidateOperation",
+    "ConflictPreview",
+    "ConflictResolution",
+    "ExplicitMemoryWriteService",
+    "MemoryCandidate",
+    "MemoryConfirmation",
     "MemoryConflictRequiresConfirmationError",
     "MemoryError",
     "MemoryEvent",
     "MemoryEventType",
     "MemoryExpiredError",
     "MemoryForgottenError",
+    "MemoryInjectionBlockedError",
     "MemoryKind",
     "MemoryKindInvalidError",
     "MemoryNotFoundError",
     "MemoryOrigin",
+    "MemoryPiiBlockedError",
     "MemoryRecord",
     "MemoryRepository",
     "MemoryRevisionConflictError",
     "MemoryScopeDeniedError",
     "MemoryScopeType",
+    "MemorySecretBlockedError",
     "MemoryService",
     "MemoryStatus",
     "MemoryStoreUnavailableError",
     "MemoryUsage",
+    "MemoryValueBasis",
+    "MemoryWriteAction",
+    "MemoryWriteGuard",
+    "MemoryWriteResult",
+    "RememberCommand",
+    "adapt_remember_command",
 ]

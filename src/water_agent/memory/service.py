@@ -81,6 +81,115 @@ class MemoryService:
             raise ValueError("active memory content must not be empty")
         return self.repository.create(memory, actor_user_id=actor, reason=reason)
 
+    def authorize_create_scope(
+        self,
+        *,
+        actor_user_id: UUID | str,
+        scope_type: MemoryScopeType,
+        project_id: UUID | str | None,
+    ) -> None:
+        self.repository.authorize_create_scope(
+            actor_user_id=actor_user_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
+
+    def find_active_by_key(
+        self,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        scope_type: MemoryScopeType,
+        project_id: UUID | str | None,
+        kind: MemoryKind,
+        semantic_key: str,
+    ) -> MemoryRecord | None:
+        return self.repository.find_active_by_key(
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            kind=kind,
+            semantic_key=semantic_key,
+        )
+
+    def create_quarantined_memory(
+        self,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        scope_type: MemoryScopeType,
+        kind: MemoryKind,
+        semantic_key: str,
+        attempted_content_hash: str,
+        rule_ids: tuple[str, ...],
+        origin: MemoryOrigin,
+        project_id: UUID | str | None = None,
+        source_thread_id: UUID | str | None = None,
+        source_message_id: UUID | str | None = None,
+    ) -> MemoryRecord:
+        actor = _as_uuid(actor_user_id)
+        now = _utc_now()
+        memory = MemoryRecord(
+            memory_id=uuid4(),
+            tenant_id=_as_uuid(tenant_id),
+            owner_user_id=actor,
+            scope_type=scope_type,
+            project_id=_as_uuid(project_id) if project_id is not None else None,
+            kind=kind,
+            semantic_key=semantic_key,
+            content="",
+            status=MemoryStatus.QUARANTINED,
+            origin=origin,
+            source_thread_id=(_as_uuid(source_thread_id) if source_thread_id is not None else None),
+            source_message_id=(
+                _as_uuid(source_message_id) if source_message_id is not None else None
+            ),
+            revision=1,
+            created_at=now,
+            updated_at=now,
+        )
+        return self.repository.create_quarantined(
+            memory,
+            actor_user_id=actor,
+            attempted_content_hash=attempted_content_hash,
+            rule_ids=rule_ids,
+        )
+
+    def get_memory_for_write(
+        self,
+        memory_id: UUID | str,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+    ) -> MemoryRecord:
+        return self.repository.get_for_write(
+            memory_id,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+        )
+
+    def reaffirm_memory(
+        self,
+        memory_id: UUID | str,
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        expected_revision: int,
+        source_thread_id: UUID | str | None = None,
+        source_message_id: UUID | str | None = None,
+        reason: str = "",
+    ) -> MemoryRecord:
+        return self.repository.reaffirm(
+            memory_id,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            expected_revision=expected_revision,
+            source_thread_id=source_thread_id,
+            source_message_id=source_message_id,
+            reason=reason,
+        )
+
     def get_memory(
         self,
         memory_id: UUID | str,
