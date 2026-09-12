@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, inspect, text
 
-from water_agent.storage.database import CHECKPOINT_MIGRATION_HEAD, Database
+from water_agent.storage.database import CHECKPOINT_MIGRATION_HEAD, MIGRATION_HEAD, Database
 from water_agent.storage.models import Base
 from water_agent.storage.repository import (
     ProjectRepository,
@@ -112,7 +112,7 @@ def test_alembic_migration_executes_against_isolated_sqlite(tmp_path: Path, monk
     tables = set(inspect(engine).get_table_names())
     assert {"alembic_version", "users", "web_sessions", "checkpoints"} <= tables
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0001_step38"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == MIGRATION_HEAD
     assert Database(url=f"sqlite:///{db_path}").ready()
 
 
