@@ -191,3 +191,115 @@ def test_assert_approval_binding_rejects_envelope_metadata_drift(
     assert changed.payload_hash == original.payload_hash
     with pytest.raises(ValueError, match="MULTI_APPROVAL_STALE"):
         assert_approval_binding(approval, [changed])
+
+
+def test_drawing_plan_source_design_artifact_id_must_point_to_design_package() -> None:
+    """DrawingPlan.source_design_artifact_id 指向 calc_package 时必须返回 MULTI_PROVENANCE_INVALID。"""
+    from water_agent.multi_agent.contracts import DrawingPlan, PlannedEntity
+
+    calc_env = _env("calc-1", "calc_package")
+    # 错误：DrawingPlan.source_design_artifact_id 指向 calc_package 而非 design_package
+    plan = DrawingPlan(
+        drawing_id="plan-wrong-source-design",
+        drawing_class="schematic",
+        insunits=4,
+        entities=[
+            PlannedEntity(
+                entity_id="e1",
+                source_artifact_id="calc-1",
+                segment_id="seg-1",
+                kind="line",
+                layer="water",
+                points=[(0.0, 0.0), (10.0, 0.0)],
+                system="water_supply",
+                dn_mm=150,
+                material="PE",
+                length_m=10.0,
+            )
+        ],
+        source_design_artifact_id="calc-1",  # 错误：指向 calc_package
+        source_calc_artifact_id="calc-1",
+        integration_conflicts=[],
+    )
+    plan_env = _env(
+        "plan-wrong-source-design",
+        "drawing_plan",
+        parent_ids=["calc-1", "calc-1"],  # 按 DrawingPlan 约定需要两个父节点
+        payload=plan.model_dump(mode="python"),
+    )
+    registry = {calc_env.artifact_id: calc_env, plan_env.artifact_id: plan_env}
+
+    errors = validate_provenance(plan_env, registry)
+
+    assert MULTI_PROVENANCE_INVALID in errors, (
+        f"Expected MULTI_PROVENANCE_INVALID when DrawingPlan.source_design_artifact_id "
+        f"points to calc_package, got errors={errors}"
+    )
+
+
+def test_drawing_plan_source_calc_artifact_id_must_point_to_calc_package() -> None:
+    """DrawingPlan.source_calc_artifact_id 指向 design_package 时必须返回 MULTI_PROVENANCE_INVALID。"""
+    from water_agent.multi_agent.contracts import DrawingPlan, PlannedEntity
+
+    design_env = _env("design-1", "design_package")
+    # 错误：DrawingPlan.source_calc_artifact_id 指向 design_package 而非 calc_package
+    plan = DrawingPlan(
+        drawing_id="plan-wrong-source-calc",
+        drawing_class="schematic",
+        insunits=4,
+        entities=[
+            PlannedEntity(
+                entity_id="e1",
+                source_artifact_id="design-1",
+                segment_id="seg-1",
+                kind="line",
+                layer="water",
+                points=[(0.0, 0.0), (10.0, 0.0)],
+                system="water_supply",
+                dn_mm=150,
+                material="PE",
+                length_m=10.0,
+            )
+        ],
+        source_design_artifact_id="design-1",
+        source_calc_artifact_id="design-1",  # 错误：指向 design_package
+        integration_conflicts=[],
+    )
+    plan_env = _env(
+        "plan-wrong-source-calc",
+        "drawing_plan",
+        parent_ids=["design-1", "design-1"],  # 按 DrawingPlan 约定需要两个父节点
+        payload=plan.model_dump(mode="python"),
+    )
+    registry = {design_env.artifact_id: design_env, plan_env.artifact_id: plan_env}
+
+    errors = validate_provenance(plan_env, registry)
+
+    assert MULTI_PROVENANCE_INVALID in errors, (
+        f"Expected MULTI_PROVENANCE_INVALID when DrawingPlan.source_calc_artifact_id "
+        f"points to design_package, got errors={errors}"
+    )
+
+
+def test_drawing_package_plan_artifact_id_must_point_to_drawing_plan() -> None:
+    """DrawingPackage.plan_artifact_id 指向 calc_package 时必须返回 MULTI_PROVENANCE_INVALID。"""
+    calc_env = _env("calc-1", "calc_package")
+    # 错误：DrawingPackage.plan_artifact_id 指向 calc_package 而非 drawing_plan
+    package = DrawingPackage(
+        plan_artifact_id="calc-1",  # 错误：指向 calc_package
+        preview_status="blocked",
+    )
+    package_env = _env(
+        "package-wrong-plan",
+        "drawing_package",
+        parent_ids=["calc-1"],
+        payload=package.model_dump(mode="python"),
+    )
+    registry = {calc_env.artifact_id: calc_env, package_env.artifact_id: package_env}
+
+    errors = validate_provenance(package_env, registry)
+
+    assert MULTI_PROVENANCE_INVALID in errors, (
+        f"Expected MULTI_PROVENANCE_INVALID when DrawingPackage.plan_artifact_id "
+        f"points to calc_package, got errors={errors}"
+    )

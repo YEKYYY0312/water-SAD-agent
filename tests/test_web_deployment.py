@@ -24,6 +24,8 @@ def test_compose_declares_the_required_default_and_optional_services() -> None:
 def test_container_uses_a_non_root_runtime_user_and_a_multistage_build() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
+    assert "node:26.8.1-bookworm-slim@sha256:" in dockerfile
+    assert "python:3.12.14-slim-bookworm@sha256:" in dockerfile
     assert "AS frontend" in dockerfile
     assert "AS python-build" in dockerfile
     assert "USER wateragent" in dockerfile
@@ -47,3 +49,18 @@ def test_docker_context_excludes_secrets_and_non_publishable_runtime_data() -> N
         "web/app/dist/",
     ):
         assert pattern in excluded
+
+
+def test_production_proxy_requires_a_domain_and_sets_http_boundaries() -> None:
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    caddyfile = (REPO_ROOT / "deploy" / "Caddyfile").read_text(encoding="utf-8")
+
+    assert "caddy:2.11.1-alpine@sha256:" in compose
+    assert "WEB_DOMAIN: ${WEB_DOMAIN:-}" in compose
+    assert 'test -n "$$WEB_DOMAIN"' in compose
+    assert '"80:80"' in compose
+    assert '"443:443"' in compose
+    assert "request_body" in caddyfile
+    assert "max_size 16MB" in caddyfile
+    assert "Content-Security-Policy" in caddyfile
+    assert "Strict-Transport-Security" in caddyfile
