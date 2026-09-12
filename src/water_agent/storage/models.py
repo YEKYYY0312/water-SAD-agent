@@ -1,15 +1,28 @@
-"""SQLAlchemy metadata for Step 38 business records.
+"""SQLAlchemy metadata for P5 business and memory records.
 
-Long-term memory tables intentionally do not appear here; they belong to
-Step 39.  Checkpoint tables are included because Alembic is the sole schema
-change entrypoint for both business and LangGraph persistence.
+Checkpoint and long-term memory tables are included because Alembic is the
+sole schema change entrypoint for both business and LangGraph persistence.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, MetaData, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Text,
+    false,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -101,6 +114,148 @@ class Run(Base):
     )
 
 
+class MemoryRecordRow(Base):
+    __tablename__ = "memory_records"
+
+    memory_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    scope_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    semantic_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tombstone: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('user', 'project')",
+            name="ck_memory_records_scope_type",
+        ),
+        CheckConstraint(
+            "(scope_type = 'user' AND project_id IS NULL) OR "
+            "(scope_type = 'project' AND project_id IS NOT NULL)",
+            name="ck_memory_records_scope_project",
+        ),
+        CheckConstraint(
+            "kind IN ('user_preference', 'project_fact', 'project_decision', 'workflow_note')",
+            name="ck_memory_records_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'user_preference' AND scope_type = 'user') OR "
+            "(kind IN ('project_fact', 'project_decision') AND scope_type = 'project') OR "
+            "kind = 'workflow_note'",
+            name="ck_memory_records_kind_scope",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'superseded', 'expired', 'forgotten', 'quarantined')",
+            name="ck_memory_records_status",
+        ),
+        CheckConstraint(
+            "origin IN ('explicit_user', 'approved_import')",
+            name="ck_memory_records_origin",
+        ),
+        CheckConstraint("revision > 0", name="ck_memory_records_revision_positive"),
+        CheckConstraint(
+            "(status = 'forgotten' AND tombstone = TRUE) OR "
+            "(status <> 'forgotten' AND tombstone = FALSE)",
+            name="ck_memory_records_tombstone_status",
+        ),
+        CheckConstraint(
+            "(status IN ('active', 'superseded', 'expired') AND content IS NOT NULL "
+            "AND length(trim(content)) > 0) OR "
+            "(status IN ('forgotten', 'quarantined') AND (content IS NULL OR content = ''))",
+            name="ck_memory_records_body_status",
+        ),
+        Index("ix_memory_records_tenant_id", "tenant_id"),
+        Index("ix_memory_records_project_id", "project_id"),
+        Index(
+            "uq_memory_records_active_user_key",
+            "tenant_id",
+            "owner_user_id",
+            "kind",
+            "semantic_key",
+            unique=True,
+            sqlite_where=text("scope_type = 'user' AND status = 'active'"),
+            postgresql_where=text("scope_type = 'user' AND status = 'active'"),
+        ),
+        Index(
+            "uq_memory_records_active_project_key",
+            "tenant_id",
+            "project_id",
+            "kind",
+            "semantic_key",
+            unique=True,
+            sqlite_where=text("scope_type = 'project' AND status = 'active'"),
+            postgresql_where=text("scope_type = 'project' AND status = 'active'"),
+        ),
+    )
+
+
+class MemoryEventRow(Base):
+    __tablename__ = "memory_events"
+
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    memory_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("memory_records.memory_id", ondelete="CASCADE"), nullable=False
+    )
+    actor_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    before_content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    after_content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reason: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('created', 'reaffirmed', 'corrected', 'superseded', "
+            "'expired', 'forgotten', 'quarantined', 'recalled')",
+            name="ck_memory_events_event_type",
+        ),
+        CheckConstraint("revision > 0", name="ck_memory_events_revision_positive"),
+        Index("ix_memory_events_memory_id", "memory_id"),
+    )
+
+
+class MemoryUsageRow(Base):
+    __tablename__ = "memory_usage"
+
+    usage_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    memory_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("memory_records.memory_id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    source_thread_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_memory_usage_memory_id", "memory_id"),
+        Index("ix_memory_usage_tenant_user", "tenant_id", "user_id"),
+    )
+
+
 class CheckpointMigration(Base):
     __tablename__ = "checkpoint_migrations"
 
@@ -157,6 +312,9 @@ __all__ = [
     "CheckpointBlob",
     "CheckpointMigration",
     "CheckpointWrite",
+    "MemoryEventRow",
+    "MemoryRecordRow",
+    "MemoryUsageRow",
     "Project",
     "ProjectMembership",
     "Run",
