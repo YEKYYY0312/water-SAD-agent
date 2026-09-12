@@ -30,8 +30,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
         run: .venv/bin/python -m water_agent.webapp.lifecycle migrate
-      - name: Run Step 38 tests
+      - name: Run Step 38 and Step 39 tests
         env:
           P5_TEST_DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
           DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
-        run: .venv/bin/pytest -q tests/test_p5_step38_storage.py
+        run: .venv/bin/pytest -q tests/test_p5_step38_storage.py tests/test_memory_contracts.py tests/test_memory_store.py
