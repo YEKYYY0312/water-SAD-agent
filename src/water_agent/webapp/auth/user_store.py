@@ -10,6 +10,7 @@ A production PostgreSQL store provides real ACID semantics.
 from __future__ import annotations
 
 import threading
+from typing import Protocol
 from uuid import UUID
 
 from water_agent.webapp.auth.models import UserRecord, UserRole
@@ -22,6 +23,32 @@ class UserNotFoundError(KeyError):
 
 class UsernameTakenError(ValueError):
     pass
+
+
+class UserStoreProtocol(Protocol):
+    def get_by_id(self, user_id: UUID) -> UserRecord: ...
+
+    def get_by_username(self, username: str) -> UserRecord: ...
+
+    def has_admin(self) -> bool: ...
+
+    def list_users(self) -> list[UserRecord]: ...
+
+    def create_user(
+        self,
+        username: str,
+        plaintext_password: str,
+        role: UserRole,
+        must_change_password: bool = False,
+    ) -> UserRecord: ...
+
+    def update_password_hash(self, user_id: UUID, new_hash: str) -> None: ...
+
+    def reset_password_hash(self, user_id: UUID, new_hash: str) -> None: ...
+
+    def set_must_change_password(self, user_id: UUID, value: bool) -> None: ...
+
+    def set_active(self, user_id: UUID, *, active: bool) -> None: ...
 
 
 class UserStore:
@@ -86,6 +113,18 @@ class UserStore:
             )
             self._by_id[user_id] = updated
 
+    def reset_password_hash(self, user_id: UUID, new_hash: str) -> None:
+        with self._lock:
+            record = self.get_by_id(user_id)
+            self._by_id[user_id] = record.model_copy(
+                update={"password_hash": new_hash, "must_change_password": True}
+            )
+
+    def set_must_change_password(self, user_id: UUID, value: bool) -> None:
+        with self._lock:
+            record = self.get_by_id(user_id)
+            self._by_id[user_id] = record.model_copy(update={"must_change_password": value})
+
     def set_active(self, user_id: UUID, *, active: bool) -> None:
         with self._lock:
             record = self.get_by_id(user_id)
@@ -94,9 +133,15 @@ class UserStore:
 
 
 # Module-level singleton; Step 38 will replace with a DB-backed instance.
-_store = UserStore()
+_store: UserStoreProtocol = UserStore()
 
 
-def get_user_store() -> UserStore:
+def get_user_store() -> UserStoreProtocol:
     """Return the active user store (FastAPI dependency-injection target)."""
     return _store
+
+
+def set_user_store(store: UserStoreProtocol) -> None:
+    """Replace the process-local store during Web app assembly/tests."""
+    global _store
+    _store = store

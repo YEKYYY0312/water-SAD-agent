@@ -6,7 +6,7 @@ The data shapes here define the stable contract so routes stay unchanged at migr
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------

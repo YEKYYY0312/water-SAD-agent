@@ -1,7 +1,8 @@
 """P5 Step 37: login rate limiting (in-memory, per-username bucket).
 
 Counts failed login attempts per username within a sliding window.
-Step 38 moves counters to PostgreSQL for multi-instance correctness.
+Step 38 keeps the Web app single-instance; a future multi-instance deployment
+must replace these counters with a shared implementation.
 """
 from __future__ import annotations
 
@@ -9,7 +10,6 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-
 
 # How many failures in WINDOW_SECONDS before the bucket is limited.
 MAX_FAILURES = 5

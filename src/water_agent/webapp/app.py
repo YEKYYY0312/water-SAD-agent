@@ -1,4 +1,4 @@
-"""FastAPI application for the Step 36 self-hosted Web skeleton.
+"""FastAPI application for the P5 self-hosted Web runtime.
 
 This module deliberately has no dependency on the CLI assembly, Agent registry,
 ProviderGateway, or ToolRegistry. Later Web routes must reuse their existing
@@ -15,9 +15,16 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from water_agent.storage.database import (
+    CHECKPOINT_MIGRATION_HEAD,
+    MIGRATION_HEAD,
+    Database,
+)
 from water_agent.webapp.auth.routes import router as auth_router
+from water_agent.webapp.auth.storage import configure_database_stores
 
 API_ENVELOPE_VERSION = "v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -49,10 +56,21 @@ def _real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -
         return False
 
 
-def create_app(*, static_dir: Path | None = None) -> FastAPI:
+def create_app(*, static_dir: Path | None = None, database: Database | None = None) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
     app.include_router(auth_router)
+    configured_database = database
+    if configured_database is None and os.getenv("DATABASE_URL"):
+        try:
+            configured_database = configure_database_stores()
+        except (OSError, RuntimeError, SQLAlchemyError):
+            # A bad URL must make readiness fail, not prevent the process from
+            # serving /health/live or leak driver details at import time.
+            configured_database = None
+    elif configured_database is not None:
+        configure_database_stores(configured_database)
+    app.state.database = configured_database
     frontend_dir = static_dir or DEFAULT_STATIC_DIR
     index_path = frontend_dir / "index.html"
 
@@ -87,16 +105,41 @@ def create_app(*, static_dir: Path | None = None) -> FastAPI:
         return _success({"status": "live"})
 
     @app.get("/health/ready")
-    async def ready() -> dict[str, Any]:
-        # Step 38 will replace both explicit placeholders with database checks.
-        return _success(
+    async def ready() -> JSONResponse:
+        if configured_database is None:
+            return JSONResponse(
+                status_code=503,
+                content=_success(
+                    {
+                        "status": "not_ready",
+                        "checks": {"database": "not_configured", "migrations": "not_checked"},
+                    }
+                ),
+            )
+        database_ok = configured_database.ping()
+        revision = configured_database.migration_revision() if database_ok else None
+        migration_ok = revision == MIGRATION_HEAD
+        checkpoint_revision = (
+            configured_database.checkpoint_migration_revision() if database_ok else None
+        )
+        checkpoint_ok = checkpoint_revision == CHECKPOINT_MIGRATION_HEAD
+        payload = _success(
             {
-                "status": "ready",
+                "status": (
+                    "ready" if database_ok and migration_ok and checkpoint_ok else "not_ready"
+                ),
                 "checks": {
-                    "database": "not_required_until_step_38",
-                    "migrations": "placeholder_until_step_38",
+                    "database": "ok" if database_ok else "unavailable",
+                    "migrations": revision or "not_applied",
+                    "checkpoint_migrations": (
+                        checkpoint_revision if checkpoint_revision is not None else "not_applied"
+                    ),
                 },
             }
+        )
+        return JSONResponse(
+            status_code=200 if database_ok and migration_ok and checkpoint_ok else 503,
+            content=payload,
         )
 
     @app.get("/api/system/capabilities")
@@ -104,8 +147,8 @@ def create_app(*, static_dir: Path | None = None) -> FastAPI:
         return _success(
             {
                 "real_llm": _real_llm_configured(),
-                "authentication": "not_implemented_until_step_37",
-                "persistence": "not_implemented_until_step_38",
+                "authentication": "session_cookie",
+                "persistence": "postgresql" if configured_database is not None else "memory_dev_only",
                 "sse": "not_implemented_until_step_42",
             }
         )

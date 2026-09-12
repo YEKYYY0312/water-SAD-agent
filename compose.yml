@@ -11,7 +11,7 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -21,7 +21,12 @@ services:
   migrate:
     build:
       context: .
-    command: ["python", "-m", "water_agent.webapp.lifecycle", "migrate-placeholder"]
+    command: ["python", "-m", "water_agent.webapp.lifecycle", "migrate"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://water_agent@postgres:5432/water_agent
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,11 +37,15 @@ services:
     build:
       context: .
     command: ["python", "-m", "water_agent.webapp.lifecycle", "bootstrap-admin"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://water_agent@postgres:5432/water_agent
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
     depends_on:
       migrate:
         condition: service_completed_successfully
     secrets:
       - admin_password
+      - postgres_password
     read_only: true
     tmpfs: [/tmp]
 
@@ -44,6 +53,11 @@ services:
     build:
       context: .
     restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://water_agent@postgres:5432/water_agent
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

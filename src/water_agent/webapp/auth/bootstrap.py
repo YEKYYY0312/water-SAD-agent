@@ -10,9 +10,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from water_agent.webapp.auth import audit
 from water_agent.webapp.auth.models import UserRole
 from water_agent.webapp.auth.password import PasswordTooShortError
+from water_agent.webapp.auth.storage import configure_database_stores
 from water_agent.webapp.auth.user_store import UsernameTakenError, get_user_store
 
 # The one and only path from which the initial admin password may be read.
@@ -43,9 +46,15 @@ def run_bootstrap(
     This function is the ONLY place the admin password secret is read.
     It must never log the password value — only its existence.
     """
-    user_store = get_user_store()
+    try:
+        configure_database_stores()
+        user_store = get_user_store()
+        has_admin = user_store.has_admin()
+    except (OSError, RuntimeError, SQLAlchemyError):
+        print("bootstrap-admin: ERROR — database unavailable.", file=sys.stderr)
+        return 1
 
-    if user_store.has_admin():
+    if has_admin:
         print("bootstrap-admin: an active admin already exists; skipping (idempotent).")
         audit.audit_bootstrap_admin_skipped()
         return 0
