@@ -112,20 +112,29 @@ def test_public_registration_post_returns_404():
 
 def test_bootstrap_creates_admin_from_secret(tmp_path: Path):
     import water_agent.webapp.auth.user_store as us_mod
+    import water_agent.webapp.auth.bootstrap as bs_mod
     original = us_mod._store
-    us_mod._store = UserStore()
+    us = UserStore()
+    us_mod._store = us
 
     secret = tmp_path / "admin_password"
     secret.write_text("SecureBootstrapPass!2026", encoding="utf-8")
 
-    result = run_bootstrap(secret_path=secret)
+    # Simulate a configured database (non-None return) without a real DB
+    sentinel = object()
+    bs_mod_orig = bs_mod.configure_database_stores
+    bs_mod.configure_database_stores = lambda: sentinel  # type: ignore[assignment]
+    try:
+        result = run_bootstrap(secret_path=secret)
+    finally:
+        bs_mod.configure_database_stores = bs_mod_orig
+        us_mod._store = original
+
     assert result == 0
-    assert us_mod._store.has_admin()
+    assert us.has_admin()
 
     events = auth_audit._get_events()
     assert any(e["event"] == "auth.bootstrap_admin_created" for e in events)
-
-    us_mod._store = original
 
 
 # ---------------------------------------------------------------------------
@@ -134,25 +143,33 @@ def test_bootstrap_creates_admin_from_secret(tmp_path: Path):
 
 def test_bootstrap_is_idempotent(tmp_path: Path):
     import water_agent.webapp.auth.user_store as us_mod
+    import water_agent.webapp.auth.bootstrap as bs_mod
     original = us_mod._store
-    us_mod._store = UserStore()
+    us = UserStore()
+    us_mod._store = us
 
     secret = tmp_path / "admin_password"
     secret.write_text("SecureBootstrapPass!2026", encoding="utf-8")
 
-    run_bootstrap(secret_path=secret)
-    admin1_id = list(us_mod._store._by_id.values())[0].user_id
+    sentinel = object()
+    bs_mod_orig = bs_mod.configure_database_stores
+    bs_mod.configure_database_stores = lambda: sentinel  # type: ignore[assignment]
+    try:
+        run_bootstrap(secret_path=secret)
+        admin1_id = list(us_mod._store._by_id.values())[0].user_id
 
-    result = run_bootstrap(secret_path=secret)
+        result = run_bootstrap(secret_path=secret)
+    finally:
+        bs_mod.configure_database_stores = bs_mod_orig
+        us_mod._store = original
+
     assert result == 0
     # Still only one user
-    assert len(us_mod._store._by_id) == 1
-    assert list(us_mod._store._by_id.values())[0].user_id == admin1_id
+    assert len(us._by_id) == 1
+    assert list(us._by_id.values())[0].user_id == admin1_id
 
     skipped = [e for e in auth_audit._get_events() if e["event"] == "auth.bootstrap_admin_skipped"]
     assert len(skipped) == 1
-
-    us_mod._store = original
 
 
 # ---------------------------------------------------------------------------
