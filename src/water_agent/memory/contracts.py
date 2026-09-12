@@ -109,6 +109,21 @@ class MemoryKindInvalidError(MemoryError):
         super().__init__("MEMORY_KIND_INVALID", message)
 
 
+class MemorySecretBlockedError(MemoryError):
+    def __init__(self, message: str = "credential-like content cannot be remembered") -> None:
+        super().__init__("MEMORY_SECRET_BLOCKED", message)
+
+
+class MemoryPiiBlockedError(MemoryError):
+    def __init__(self, message: str = "PII cannot be remembered under the P0 policy") -> None:
+        super().__init__("MEMORY_PII_BLOCKED", message)
+
+
+class MemoryInjectionBlockedError(MemoryError):
+    def __init__(self, message: str = "instruction-shaped content cannot be active memory") -> None:
+        super().__init__("MEMORY_INJECTION_BLOCKED", message)
+
+
 class MemoryConflictRequiresConfirmationError(MemoryError):
     def __init__(self, message: str = "active memory key already exists") -> None:
         super().__init__("MEMORY_CONFLICT_REQUIRES_CONFIRMATION", message)
@@ -282,14 +297,17 @@ __all__ = [
     "MemoryEventType",
     "MemoryExpiredError",
     "MemoryForgottenError",
+    "MemoryInjectionBlockedError",
     "MemoryKind",
     "MemoryKindInvalidError",
     "MemoryNotFoundError",
     "MemoryOrigin",
+    "MemoryPiiBlockedError",
     "MemoryRecord",
     "MemoryRevisionConflictError",
     "MemoryScopeDeniedError",
     "MemoryScopeType",
+    "MemorySecretBlockedError",
     "MemoryStatus",
     "MemoryStoreUnavailableError",
     "MemoryUsage",

@@ -297,6 +297,50 @@ class JsonTraceRecorder:
             node=node, event="guardrail", query="", data=data, duration_ms=duration_ms
         )
 
+    def record_memory_write(
+        self,
+        *,
+        action: str,
+        status: str,
+        memory_id: str = "",
+        content_hash: str = "",
+        kind: str = "",
+        scope_type: str = "",
+        revision: int | None = None,
+        ruleset_version: str = "",
+        rule_ids: _Seq[str] = (),
+        code: str | None = None,
+        project_id_hash: str = "",
+    ) -> None:
+        """Record a P5 memory mutation using a fixed metadata-only schema.
+
+        The method deliberately has no content, semantic-key, actor, reason, or
+        free-form data parameter.  Callers therefore cannot accidentally copy
+        a password, token, PII value, or complete memory body into the trace.
+        """
+
+        data: dict[str, Any] = {
+            "action": action,
+            "status": status,
+            "content_hash": content_hash,
+            "rule_ids": sorted({str(rule_id) for rule_id in rule_ids}),
+        }
+        if memory_id:
+            data["memory_id"] = memory_id
+        if kind:
+            data["kind"] = kind
+        if scope_type:
+            data["scope_type"] = scope_type
+        if revision is not None:
+            data["revision"] = int(revision)
+        if ruleset_version:
+            data["ruleset_version"] = ruleset_version
+        if code:
+            data["code"] = code
+        if project_id_hash:
+            data["project_id_hash"] = project_id_hash
+        self.record(node="memory", event="memory_write", query="", data=data)
+
     def record_provider_event(self, record: Any) -> None:
         """记录一次 provider 治理事件（P2.5 Step 15 review 修复：gateway → trace 接线）。
 
