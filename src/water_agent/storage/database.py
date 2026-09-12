@@ -93,7 +93,8 @@ class Database:
         if engine is None and not url:
             raise DatabaseNotConfiguredError("DATABASE_URL is not configured")
         resolved_engine_url = str(engine.url) if engine is not None else url
-        assert resolved_engine_url is not None
+        if resolved_engine_url is None:
+            raise DatabaseNotConfiguredError("could not resolve engine URL")
         self.settings = DatabaseSettings(
             url=resolved_engine_url,
             pool_size=pool_size,
