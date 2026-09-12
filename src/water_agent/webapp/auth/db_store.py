@@ -87,12 +87,8 @@ class PostgresUserStore:
         )
         try:
             with self.database.transaction() as session:
-                if session.execute(select(User.user_id).where(User.username == username)).first() is not None:
-                    raise UsernameTakenError(username)
                 session.add(record)
             return _user(record)
-        except UsernameTakenError:
-            raise
         except IntegrityError as exc:
             raise UsernameTakenError(username) from exc
 

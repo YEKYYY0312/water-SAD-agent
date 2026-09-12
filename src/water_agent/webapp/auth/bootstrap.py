@@ -47,7 +47,10 @@ def run_bootstrap(
     It must never log the password value — only its existence.
     """
     try:
-        configure_database_stores()
+        db = configure_database_stores()
+        if db is None:
+            print("bootstrap-admin: ERROR — database unavailable.", file=sys.stderr)
+            return 1
         user_store = get_user_store()
         has_admin = user_store.has_admin()
     except (OSError, RuntimeError, SQLAlchemyError):
