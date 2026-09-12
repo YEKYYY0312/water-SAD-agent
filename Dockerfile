@@ -15,6 +15,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir "uv==0.12.6"
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
@@ -28,6 +30,8 @@ RUN groupadd --gid 10001 wateragent \
     && mkdir -p /var/lib/water-agent/uploads /var/lib/water-agent/exports \
     && chown -R wateragent:wateragent /var/lib/water-agent
 COPY --from=python-build /app/.venv /app/.venv
+COPY --from=python-build /app/alembic.ini /app/alembic.ini
+COPY --from=python-build /app/alembic /app/alembic
 COPY --from=python-build /app/src /app/src
 COPY --from=frontend /web/app/dist /app/web/app/dist
 USER wateragent

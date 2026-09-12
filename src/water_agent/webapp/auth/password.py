@@ -7,7 +7,7 @@ re-hashes all stored passwords.
 from __future__ import annotations
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerificationError, VerifyMismatchError, InvalidHashError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 # OWASP-recommended Argon2id settings (2024):
 #   time_cost=2, memory_cost=65536 (64 MiB), parallelism=1

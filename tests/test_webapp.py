@@ -31,17 +31,17 @@ def test_live_health_reports_the_versioned_service_contract(tmp_path: Path) -> N
     }
 
 
-def test_ready_health_is_explicit_about_step_36_placeholders(tmp_path: Path) -> None:
+def test_ready_health_requires_database_and_migrations(tmp_path: Path) -> None:
     response = _client(tmp_path).get("/health/ready")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json()["version"] == "v1"
     assert response.json()["ok"] is True
     assert response.json()["data"] == {
-        "status": "ready",
+        "status": "not_ready",
         "checks": {
-            "database": "not_required_until_step_38",
-            "migrations": "placeholder_until_step_38",
+            "database": "not_configured",
+            "migrations": "not_checked",
         },
     }
 
@@ -79,7 +79,7 @@ def test_capabilities_do_not_claim_a_real_llm_without_a_configured_key(
 
     assert response.status_code == 200
     assert response.json()["data"]["real_llm"] is False
-    assert response.json()["data"]["authentication"] == "not_implemented_until_step_37"
+    assert response.json()["data"]["authentication"] == "session_cookie"
 
 
 def test_capabilities_do_not_treat_a_missing_secret_file_as_a_configured_model(

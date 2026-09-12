@@ -2,6 +2,9 @@
 *
 !pyproject.toml
 !uv.lock
+!alembic.ini
+!alembic/
+!alembic/**
 !src/
 !src/**
 !web/
