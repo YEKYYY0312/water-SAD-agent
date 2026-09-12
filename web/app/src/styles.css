@@ -1,0 +1,45 @@
+:root {
+  color: #d8deea;
+  background: #0b0d12;
+  font-family: "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 20rem; min-height: 100vh; }
+button, textarea { font: inherit; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid #4d8dff; outline-offset: 2px; }
+
+.workbench { min-height: 100vh; display: grid; grid-template-rows: 3.5rem 1fr 1.75rem; background: #0b0d12; }
+.topbar, .statusbar { display: flex; align-items: center; border-color: #252c38; border-style: solid; }
+.topbar { justify-content: space-between; padding: 0 1rem; border-width: 0 0 1px; background: #101319; }
+.brand { display: flex; align-items: center; gap: .75rem; }
+.brand-mark { display: grid; width: 2rem; height: 2rem; place-items: center; color: #0b0d12; background: #4d8dff; font: 700 .65rem ui-monospace, monospace; }
+h1, h2, p { margin: 0; }
+h1 { font-size: .9rem; font-weight: 650; } .brand p { color: #8792a6; font: .65rem ui-monospace, monospace; }
+.topbar-status, .statusbar { gap: 1rem; color: #aeb8ca; font: .7rem ui-monospace, monospace; }
+.workspace { display: grid; min-height: 0; grid-template-columns: 15rem minmax(0, 1fr) 19rem; }
+.sidebar, .inspector { padding: 1rem; background: #101319; } .sidebar { border-right: 1px solid #252c38; } .inspector { border-left: 1px solid #252c38; }
+.kicker { margin-bottom: .4rem; color: #718096; font: 700 .62rem ui-monospace, monospace; letter-spacing: .12em; }
+h2 { font-size: .83rem; font-weight: 650; }
+.empty-state, .boundary-note { margin-top: .9rem; padding: .75rem; border: 1px solid #252c38; background: #141923; color: #aeb8ca; font-size: .76rem; line-height: 1.55; }
+.empty-state span { color: #f0bb5c; font: 1rem ui-monospace, monospace; }
+.stage-list { display: grid; gap: .5rem; margin: .75rem 0 0; padding: 0; list-style: none; }
+.stage-list li { display: grid; gap: .15rem; padding-bottom: .5rem; border-bottom: 1px solid #252c38; font-size: .76rem; }
+.stage-list strong { color: #d8deea; font-weight: 600; } .stage-list span { color: #8792a6; }
+.conversation { display: grid; min-width: 0; grid-template-rows: auto 1fr auto; background: #0e1118; }
+.conversation-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #252c38; }
+.status-label, .trace-tag { color: #9dbcf8; font: .66rem ui-monospace, monospace; }
+.message-log { display: grid; align-content: start; gap: .75rem; max-width: 48rem; width: 100%; margin: 0 auto; padding: 1.5rem 1.25rem; }
+.notice-message { padding: 1rem; border-left: 2px solid #4d8dff; background: #141923; font-size: .85rem; line-height: 1.7; }
+.message-role { margin-bottom: .45rem; color: #8eaff0; font: .68rem ui-monospace, monospace; letter-spacing: .08em; }
+.composer { display: grid; gap: .5rem; padding: 1rem 1.25rem; border-top: 1px solid #252c38; background: #101319; }
+.composer label { font: .7rem ui-monospace, monospace; color: #aeb8ca; }
+.composer textarea { resize: vertical; min-height: 4rem; padding: .6rem; color: #8792a6; border: 1px solid #313b4b; background: #0b0d12; }
+.composer button { justify-self: end; padding: .4rem .65rem; color: #718096; border: 1px solid #313b4b; background: transparent; }
+dl { margin: .9rem 0; } dl div { padding: .6rem 0; border-bottom: 1px solid #252c38; } dt { color: #8792a6; font: .65rem ui-monospace, monospace; } dd { margin: .2rem 0 0; color: #d8deea; font-size: .75rem; overflow-wrap: anywhere; }
+.boundary-note strong { display: block; color: #f0bb5c; font: .7rem ui-monospace, monospace; } .boundary-note p { margin-top: .35rem; }
+.statusbar { justify-content: space-between; padding: 0 .75rem; border-width: 1px 0 0; background: #101319; }
+
+@media (max-width: 64rem) { .workspace { grid-template-columns: 13rem minmax(0, 1fr); } .inspector { display: none; } }
+@media (max-width: 44rem) { .topbar-status { display: none; } .workspace { grid-template-columns: 1fr; } .sidebar { display: none; } .statusbar span:nth-child(2) { display: none; } }

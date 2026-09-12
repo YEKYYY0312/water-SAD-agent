@@ -1,0 +1,39 @@
+# Default deny: only files explicitly re-included below reach Docker build.
+*
+!pyproject.toml
+!uv.lock
+!src/
+!src/**
+!web/
+!web/app/
+!web/app/**
+
+# Never include generated frontend files or dependency trees.
+web/app/node_modules/
+web/app/dist/
+web/app/tests/
+
+# Defense in depth for sensitive or non-publishable runtime material.
+.env*
+**/.env*
+secrets/
+data/traces/
+data/eval/reports/
+data/eval/traces/
+data/sessions/
+data/indexes/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.wal
+*.vec
+*.key
+*.pem
+uploads/
+exports/
+backups/
+tests/
+.git/
+.venv/
+_venv/
