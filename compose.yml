@@ -2,7 +2,7 @@ name: water-agent
 
 services:
   postgres:
-    image: postgres:18.2-bookworm
+    image: postgres:18.2-bookworm@sha256:120230d04218c2acb30d7bb427798bd6c5beb0ef225883132aad653ccad44bce
     restart: unless-stopped
     environment:
       POSTGRES_DB: water_agent
@@ -31,10 +31,12 @@ services:
   bootstrap-admin:
     build:
       context: .
-    command: ["python", "-m", "water_agent.webapp.lifecycle", "bootstrap-admin-placeholder"]
+    command: ["python", "-m", "water_agent.webapp.lifecycle", "bootstrap-admin"]
     depends_on:
       migrate:
         condition: service_completed_successfully
+    secrets:
+      - admin_password
     read_only: true
     tmpfs: [/tmp]
 
@@ -66,19 +68,32 @@ services:
       start_period: 10s
 
   reverse-proxy:
-    image: caddy:2.11.1-alpine
+    image: caddy:2.11.1-alpine@sha256:3b2a0196e0687279c14c27adff9fc6b44acfa318dbb97eaebe385bdf99e5364c
     profiles: [production]
     depends_on:
       app:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8080:80"
-    command: ["caddy", "reverse-proxy", "--from", ":80", "--to", "app:8000"]
+      - "80:80"
+      - "443:443"
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:-}
+      CADDY_EMAIL: ${CADDY_EMAIL:-}
+    command:
+      - sh
+      - -ec
+      - |
+        test -n "$$WEB_DOMAIN" || { echo "WEB_DOMAIN is required for the production profile"; exit 64; }
+        test -n "$$CADDY_EMAIL" || { echo "CADDY_EMAIL is required for the production profile"; exit 64; }
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     read_only: true
-    tmpfs: [/config, /data]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
   local-model:
-    image: alpine:3.22.2
+    image: alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412
     profiles: [local-model]
     command:
       [
@@ -92,8 +107,12 @@ services:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  admin_password:
+    file: ./secrets/admin_password
 
 volumes:
   postgres_data:
   app_uploads:
   app_exports:
+  caddy_data:
+  caddy_config:

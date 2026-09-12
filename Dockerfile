@@ -2,7 +2,7 @@
 
 # Step 36 uses the locally verified Node 26.8.1 toolchain. Vite 8 supports
 # Node >=22.12; the application source and npm lockfile determine JS packages.
-FROM node:26.8.1-bookworm-slim AS frontend
+FROM node:26.8.1-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS frontend
 WORKDIR /web/app
 COPY web/app/package.json web/app/package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -10,7 +10,7 @@ COPY web/app/ ./
 RUN npm run build
 
 # uv 0.12.6 is the repository's locally verified lockfile tool version.
-FROM python:3.12.14-slim-bookworm AS python-build
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS python-build
 WORKDIR /app
 RUN pip install --no-cache-dir "uv==0.12.6"
 COPY pyproject.toml uv.lock ./
@@ -18,7 +18,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
-FROM python:3.12.14-slim-bookworm AS runtime
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS runtime
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \

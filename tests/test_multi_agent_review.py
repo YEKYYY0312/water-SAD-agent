@@ -1119,3 +1119,192 @@ def test_offline_no_llm() -> None:
     txt = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
     assert "ProviderGateway" not in txt
     assert "GovernedChatModel" not in txt
+
+
+# ---------------------------------------------------------------------------
+# provenance type validation — wrong artifact_type blocks review
+# ---------------------------------------------------------------------------
+
+
+def test_drawing_plan_source_design_wrong_type_blocks_review() -> None:
+    """DrawingPlan.source_design_artifact_id 指向 calc_package 必须阻止审查通过。"""
+    calc_env = _hyd_calc_env(150)
+    # 构造错误：source_design_artifact_id 指向 calc_package
+    plan = DrawingPlan(
+        drawing_id="plan-wrong-design-type-001",
+        drawing_class="schematic",
+        insunits=4,
+        entities=[
+            PlannedEntity(
+                entity_id="e1",
+                source_artifact_id=calc_env.artifact_id,
+                segment_id=None,
+                kind="mtext",
+                layer="0",
+                points=[(0, -10)],
+                text="SCHEMATIC",
+            )
+        ],
+        source_design_artifact_id=calc_env.artifact_id,  # 错误：指向 calc_package
+        source_calc_artifact_id=calc_env.artifact_id,
+        integration_conflicts=[],
+    )
+    plan_env = _envelope(
+        plan.model_dump(),
+        artifact_id="plan-wrong-design-type-001",
+        artifact_type="drawing_plan",
+        parent_ids=[calc_env.artifact_id, calc_env.artifact_id],
+        producer="drawing",
+    )
+    registry = {calc_env.artifact_id: calc_env, plan_env.artifact_id: plan_env}
+
+    reviewed = run_review_agent(registry, review_id="rev-wrong-design-type-001")
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert reviewed.status == "blocked", "错误类型引用必须导致 blocked 状态"
+    assert package.decision == "blocked", "decision 必须为 blocked"
+    provenance_issues = [
+        issue
+        for issue in package.issues
+        if issue.rule_id == MULTI_PROVENANCE_INVALID and issue.artifact_id == plan_env.artifact_id
+    ]
+    assert len(provenance_issues) > 0, "必须包含 MULTI_PROVENANCE_INVALID 问题"
+    assert all(issue.owner == "human" for issue in provenance_issues), "owner 必须为 human"
+    assert all(issue.severity == "blocking" for issue in provenance_issues), "severity 必须为 blocking"
+
+
+def test_drawing_plan_source_calc_wrong_type_blocks_review() -> None:
+    """DrawingPlan.source_calc_artifact_id 指向 design_package 必须阻止审查通过。"""
+    design_env = _design_env(150)
+    # 构造错误：source_calc_artifact_id 指向 design_package
+    plan = DrawingPlan(
+        drawing_id="plan-wrong-calc-type-001",
+        drawing_class="schematic",
+        insunits=4,
+        entities=[
+            PlannedEntity(
+                entity_id="e1",
+                source_artifact_id=design_env.artifact_id,
+                segment_id=None,
+                kind="mtext",
+                layer="0",
+                points=[(0, -10)],
+                text="SCHEMATIC",
+            )
+        ],
+        source_design_artifact_id=design_env.artifact_id,
+        source_calc_artifact_id=design_env.artifact_id,  # 错误：指向 design_package
+        integration_conflicts=[],
+    )
+    plan_env = _envelope(
+        plan.model_dump(),
+        artifact_id="plan-wrong-calc-type-001",
+        artifact_type="drawing_plan",
+        parent_ids=[design_env.artifact_id, design_env.artifact_id],
+        producer="drawing",
+    )
+    registry = {design_env.artifact_id: design_env, plan_env.artifact_id: plan_env}
+
+    reviewed = run_review_agent(registry, review_id="rev-wrong-calc-type-001")
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert reviewed.status == "blocked", "错误类型引用必须导致 blocked 状态"
+    assert package.decision == "blocked", "decision 必须为 blocked"
+    provenance_issues = [
+        issue
+        for issue in package.issues
+        if issue.rule_id == MULTI_PROVENANCE_INVALID and issue.artifact_id == plan_env.artifact_id
+    ]
+    assert len(provenance_issues) > 0, "必须包含 MULTI_PROVENANCE_INVALID 问题"
+    assert all(issue.owner == "human" for issue in provenance_issues), "owner 必须为 human"
+    assert all(issue.severity == "blocking" for issue in provenance_issues), "severity 必须为 blocking"
+
+
+def test_drawing_package_plan_wrong_type_blocks_review() -> None:
+    """DrawingPackage.plan_artifact_id 指向 calc_package 必须阻止审查通过。"""
+    calc_env = _hyd_calc_env(150)
+    # 构造错误：plan_artifact_id 指向 calc_package
+    package = DrawingPackage(
+        plan_artifact_id=calc_env.artifact_id,  # 错误：指向 calc_package
+        preview_status="blocked",
+    )
+    package_env = _envelope(
+        package.model_dump(),
+        artifact_id="package-wrong-plan-type-001",
+        artifact_type="drawing_package",
+        parent_ids=[calc_env.artifact_id],
+        producer="drawing",
+    )
+    registry = {calc_env.artifact_id: calc_env, package_env.artifact_id: package_env}
+
+    reviewed = run_review_agent(registry, review_id="rev-wrong-plan-type-001")
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    assert reviewed.status == "blocked", "错误类型引用必须导致 blocked 状态"
+    assert package.decision == "blocked", "decision 必须为 blocked"
+    provenance_issues = [
+        issue
+        for issue in package.issues
+        if issue.rule_id == MULTI_PROVENANCE_INVALID and issue.artifact_id == package_env.artifact_id
+    ]
+    assert len(provenance_issues) > 0, "必须包含 MULTI_PROVENANCE_INVALID 问题"
+    assert all(issue.owner == "human" for issue in provenance_issues), "owner 必须为 human"
+    assert all(issue.severity == "blocking" for issue in provenance_issues), "severity 必须为 blocking"
+
+
+def test_drawing_package_wrong_plan_type_cannot_reach_approval() -> None:
+    """错误类型引用的 DrawingPackage 不能进入批准路径（集成验证）。"""
+    calc_env = _hyd_calc_env(150)
+    design_env = _design_env(150)
+    # 构造正常的 DrawingPlan
+    plan_env = run_drawing_agent(design_env, calc_env, drawing_id="drawing-no-approval-001", insunits=4)
+
+    # 构造错误的 DrawingPackage：plan_artifact_id 指向 design_package 而非 drawing_plan
+    wrong_package = DrawingPackage(
+        plan_artifact_id=design_env.artifact_id,  # 错误：指向 design_package
+        preview_status="staged",
+        staged_file_id="staging-no-approval-001",
+        roundtrip_review={"roundtrip_segment_recall": 1.0, "mismatches": []},
+        staged_file_verified=True,
+        p3_pipeline_executed=True,
+    )
+    wrong_package_env = _envelope(
+        wrong_package.model_dump(),
+        artifact_id="dwpkg-no-approval-001",
+        artifact_type="drawing_package",
+        parent_ids=[design_env.artifact_id],  # parent 也错误地指向 design_package
+        producer="drawing",
+    )
+
+    doc_payload = {"doc_type": "calculation_book", "citation_ids": [], "calc_values": {}, "sections": []}
+    doc_env = _envelope(doc_payload, artifact_id="doc-no-approval-001", artifact_type="document")
+
+    registry = {
+        calc_env.artifact_id: calc_env,
+        design_env.artifact_id: design_env,
+        plan_env.artifact_id: plan_env,
+        wrong_package_env.artifact_id: wrong_package_env,
+        doc_env.artifact_id: doc_env,
+    }
+
+    reviewed = run_review_agent(
+        registry,
+        review_id="rev-no-approval-001",
+        document_artifact_id=doc_env.artifact_id,
+    )
+    package = ReviewPackage.model_validate(reviewed.payload)
+
+    # 验证：不能通过审查
+    assert reviewed.status == "blocked", "含有错误类型引用的产物不能通过审查"
+    assert package.decision == "blocked", "decision 必须为 blocked，不能为 pass"
+
+    # 验证：必须包含 provenance 错误
+    provenance_issues = [issue for issue in package.issues if issue.rule_id == MULTI_PROVENANCE_INVALID]
+    assert len(provenance_issues) > 0, "必须检测出 MULTI_PROVENANCE_INVALID"
+
+    # 验证：owner 为 human，表示这是需要人工介入的结构性问题
+    assert all(issue.owner == "human" for issue in provenance_issues)
+
+    # 验证：无法构造有效的批准记录（因为 decision 是 blocked）
+    # 按规格，blocked 状态不应进入 approval interrupt
+    assert package.decision != "pass", "错误类型引用的产物不得进入 approval 成功路径"

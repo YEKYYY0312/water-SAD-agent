@@ -157,7 +157,13 @@ def _registry(state: MultiAgentProjectState) -> dict[str, ArtifactEnvelope]:
     result: dict[str, ArtifactEnvelope] = {}
     for artifact_id, raw in (state.get("artifacts") or {}).items():
         try:
-            result[artifact_id] = ArtifactEnvelope.model_validate(raw)
+            env = ArtifactEnvelope.model_validate(raw)
+            # Re-compute payload hash to detect checkpoint tampering.
+            # model_validate only checks the stored hash field is well-formed;
+            # this second check verifies it still matches the actual payload.
+            if not verify_envelope_hash(env):
+                continue
+            result[artifact_id] = env
         except ValidationError:
             continue
     return result
