@@ -138,6 +138,8 @@ class AgenticRAGState(TypedDict):
     errors: NotRequired[list[str]]
     remaining_steps: NotRequired[int]
     empty_citation_reflows: NotRequired[int]  # 空引用回流计数（与 invalid 引用 retry 分开）
+    #: Web Step 42 注入的长期记忆结果；PromptAssembler 只把它作为 SESSION_MEMORY 数据段渲染。
+    memory_context: NotRequired[Any]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -809,6 +811,8 @@ async def astream_agentic(
     *,
     on_token: Callable[[str], None] | None = None,
     messages: Sequence[BaseMessage] | None = None,
+    on_event: Callable[[str, Any], None] | None = None,
+    memory_context: Any | None = None,
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
@@ -818,19 +822,28 @@ async def astream_agentic(
     - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。tool-call 轮经由
       ``_BudgetChatModel._stream`` 同步计数，超预算抛 ``ToolBudgetExceeded``；
     - ``messages``：可选的初始消息列表（Step 8 用于注入运行时上下文）；
-      默认 ``[HumanMessage(content=query)]``。
+      默认 ``[HumanMessage(content=query)]``；
+    - ``on_event``：可选的只读 stream 观察回调。回调收到 ``messages`` 或 ``values``
+      原始事件，调用方必须自行决定安全摘要，不能把完整 state 直接发送给浏览器；
+    - ``memory_context``：可选的已授权长期记忆召回结果，只进入独立 data 段，不能改变
+      registry、capability、引用校验或程序化计算路径。
     """
     final_state: dict[str, Any] = {}
     if messages is None:
         messages = [HumanMessage(content=query)]
+    input_state: dict[str, Any] = {"messages": messages, "query": query}
+    if memory_context is not None:
+        input_state["memory_context"] = memory_context
     async for event in app.astream(
-        {"messages": messages, "query": query},
+        input_state,
         config=config,
         stream_mode=["messages", "values"],
     ):
         if not isinstance(event, tuple) or len(event) != 2:
             continue
         mode, payload = event
+        if on_event is not None:
+            on_event(mode, payload)
         if mode == "values" and isinstance(payload, dict):
             final_state = payload
         elif mode == "messages" and isinstance(payload, tuple) and payload:

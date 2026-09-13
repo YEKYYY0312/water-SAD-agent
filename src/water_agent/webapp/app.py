@@ -11,8 +11,10 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,6 +27,12 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
+from water_agent.webapp.run_manager import (
+    DEFAULT_TENANT_ID,
+    AgentSessionFactory,
+    RunManager,
+)
+from water_agent.webapp.run_routes import router as run_router
 
 API_ENVELOPE_VERSION = "v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -45,21 +53,25 @@ def _error(code: str, message: str) -> dict[str, Any]:
 
 def _real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Only inspect configuration presence; never read or expose secret content."""
-    if environment("DEEPSEEK_API_KEY"):
-        return True
-    secret_file = environment("DEEPSEEK_API_KEY_FILE")
-    if not secret_file:
-        return False
-    try:
-        return Path(secret_file).stat().st_size > 0
-    except OSError:
-        return False
+    from water_agent.runtime.agentic import real_llm_configured
+
+    return real_llm_configured(environment)
 
 
-def create_app(*, static_dir: Path | None = None, database: Database | None = None) -> FastAPI:
+def create_app(
+    *,
+    static_dir: Path | None = None,
+    database: Database | None = None,
+    session_factory: AgentSessionFactory | None = None,
+    memory_enabled: bool | None = None,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    trace_dir: str | Path = "data/traces",
+    session_dir: str | Path = "data/sessions",
+) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
     app.include_router(auth_router)
+    app.include_router(run_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
@@ -71,6 +83,19 @@ def create_app(*, static_dir: Path | None = None, database: Database | None = No
     elif configured_database is not None:
         configure_database_stores(configured_database)
     app.state.database = configured_database
+    app.state.run_manager = (
+        RunManager(
+            configured_database,
+            session_factory=session_factory,
+            memory_enabled=memory_enabled,
+            tenant_id=tenant_id,
+            trace_dir=trace_dir,
+            session_dir=session_dir,
+        )
+        if configured_database is not None
+        else None
+    )
+    app.state.tenant_id = tenant_id
     frontend_dir = static_dir or DEFAULT_STATIC_DIR
     index_path = frontend_dir / "index.html"
 
@@ -91,6 +116,17 @@ def create_app(*, static_dir: Path | None = None, database: Database | None = No
         return JSONResponse(
             status_code=exc.status_code,
             content=_error("WEB_HTTP_ERROR", "Request could not be completed"),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        _: Request, __: RequestValidationError
+    ) -> JSONResponse:
+        # Do not echo pydantic locations or submitted values: request data may
+        # contain credentials, PII, or prompt-injection text.
+        return JSONResponse(
+            status_code=422,
+            content=_error("WEB_INVALID_REQUEST", "Request data is invalid"),
         )
 
     @app.exception_handler(Exception)
@@ -149,7 +185,7 @@ def create_app(*, static_dir: Path | None = None, database: Database | None = No
                 "real_llm": _real_llm_configured(),
                 "authentication": "session_cookie",
                 "persistence": "postgresql" if configured_database is not None else "memory_dev_only",
-                "sse": "not_implemented_until_step_42",
+                "sse": "resumable_last_event_id",
             }
         )
 
@@ -168,6 +204,13 @@ def create_app(*, static_dir: Path | None = None, database: Database | None = No
                 status_code=503,
                 content=_error("WEB_FRONTEND_UNAVAILABLE", "Frontend assets are not built"),
             )
+
+    run_manager = app.state.run_manager
+    if run_manager is not None:
+        async def shutdown_run_manager() -> None:
+            run_manager.close()
+
+        app.router.on_shutdown.append(shutdown_run_manager)
 
     return app
 

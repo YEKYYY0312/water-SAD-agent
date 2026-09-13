@@ -8,7 +8,6 @@ function calling（无 Key 属结构化错误而非静默降级），--stream �
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import re
 import sys
@@ -17,65 +16,41 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
-
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import default_state
-from water_agent.embedding import build_embedding_provider
 from water_agent.generation.base import Generator
-from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
+from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
-from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.graphs.calc import build_calc_graph, detect_intent, parse_calc_query
 from water_agent.graphs.rag import build_rag_graph
-from water_agent.ingestion.version_registry import get_version_registry
-from water_agent.mcp.wiring import (
-    load_mcp_gateway,
-    open_gateway_sessions,
-    principal_with_mcp,
-    register_mcp_tools,
-)
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
-from water_agent.prompting.runtime_context import (
-    RuntimeContextProjection,
-    default_context_builder,
-)
 from water_agent.retrieval.base import Retriever
-from water_agent.retrieval.loader import load_clauses_jsonl
-from water_agent.retrieval.rerank import (
-    BailianReranker,
-    LocalReranker,
-    RerankingRetriever,
-    build_bailian_reranker,
+from water_agent.retrieval.trivium import TriviumRetrievalError
+
+# Kept importable from this module for callers that still import the scripted
+# model from the CLI surface; the class now lives in water_agent.runtime.agentic.
+from water_agent.runtime.agentic import (
+    AgenticSession,
+    _build_cache_service,
+    _build_chat_checkpointer,
+    _build_reranker,
+    _build_retriever,
+    _ScriptedAgenticModel,  # noqa: F401
 )
-from water_agent.retrieval.trivium import TriviumRetrievalError, TriviumRetriever
 from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
 )
-from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.session import (
     DEFAULT_SESSION_DIR,
     new_session_id,
     save_session_meta,
-    session_db_path,
 )
-from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.cite import build_cite_clauses_tool
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
-from water_agent.tools.material_stats import material_stats_spec
-from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 DEFAULT_TRACE_DIR = REPO_ROOT / "data" / "traces"
-DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -139,118 +114,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true", help="以 JSON 输出（单次模式）")
     return p
-
-
-def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:
-    """按 db-path 推断维度并构建真实 embedding provider。"""
-    dim = None
-    if db_path.exists():
-        try:
-            import triviumdb
-
-            probe = triviumdb.TriviumDB(str(db_path))
-            dim = int(probe.dim())
-            probe.close()
-        except Exception:  # noqa: BLE001 — triviumdb 打开失败时降级到默认维度
-            dim = None
-    if dim is None:
-        dim = 512
-    provider = build_embedding_provider(
-        dimensions=dim, request_context=request_context, gateway=gateway
-    )
-    return provider, dim
-
-
-def _resolve_db_path(args: argparse.Namespace) -> Path | None:
-    """解析真实索引路径：显式 --db-path 必须存在（不存在响亮失败）；mock 自测不自动加载真实库。"""
-    if args.db_path:
-        if not Path(args.db_path).exists():
-            # 用户显式指定的库不存在：响亮失败，不得静默回落 fixture
-            raise ValueError(f"--db-path 不存在：{args.db_path}（请检查路径，或去掉 --db-path 使用 data/indexes 下的默认库）")
-        return Path(args.db_path)
-    if args.mock_generator:
-        # mock 自测不自动加载真实库：mock_embed 与真实嵌入空间不匹配，直接回落 fixture
-        return None
-    candidates = sorted(DEFAULT_INDEX_DIR.glob("*.db")) if DEFAULT_INDEX_DIR.exists() else []
-    return candidates[-1] if candidates else None
-
-
-def _build_retriever(
-    args: argparse.Namespace, *, request_context=None, gateway=None
-) -> tuple[Retriever, str]:
-    """装配检索器（不含 rerank）。返回 (retriever, db_path_or_empty)。
-
-    legacy 图与 agentic 工具共用：真实库需真实 embedding（DASHSCOPE_API_KEY），
-    ``--mock-generator`` 时用 mock_embed 或直接 fixture 回落，不要求任何 Key。
-    """
-    fixture = load_clauses_jsonl(DEFAULT_FIXTURE)
-    db_path = _resolve_db_path(args)
-    if db_path is None:
-        retriever = TriviumRetriever(db_path=None, fallback_clauses=fixture)
-        return retriever, ""
-
-    dim = args.dimensions
-    if args.mock_generator:
-        # mock 自测：用确定性 mock_embed（与库同维），不建真实 provider、不要求 API Key
-        import triviumdb
-
-        probe = triviumdb.TriviumDB(str(db_path))
-        dim = dim or int(probe.dim())
-        probe.close()
-        from water_agent.retrieval.trivium import mock_embed
-
-        embedding_fn = lambda text: mock_embed(text, dim=dim)
-        fallback_kind = "mock"
-        fallback_reason = "explicit mock_generator"
-    else:
-        # 真实库需要真实 embedding 做 query 向量（维度须与库一致）
-        provider, detected = _embedding_for(db_path, request_context=request_context, gateway=gateway)
-        if args.dimensions is None:
-            dim = detected
-        embedding_fn = provider.embed  # type: ignore[attr-defined]
-        fallback_kind = "none"
-        fallback_reason = "real db"
-    retriever = TriviumRetriever(
-        db_path=db_path,
-        embedding_fn=embedding_fn,
-        hybrid_alpha=args.hybrid_alpha,
-        dim=dim,
-        fallback_clauses=fixture,
-    )
-    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
-    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
-    return retriever, str(db_path)
-
-
-def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=None):
-    if args.rerank == "local":
-        return LocalReranker()
-    if args.rerank == "bailian":
-        return build_bailian_reranker(
-            api_key=args.rerank_api_key,
-            model=args.rerank_model or BailianReranker.DEFAULT_MODEL,
-            base_url=args.rerank_base_url or BailianReranker.DEFAULT_BASE_URL,
-            request_context=request_context,
-            gateway=gateway,
-        )
-    return None
-
-
-def _build_cache_service(args: argparse.Namespace) -> AnswerCacheService:
-    """装配 RAG 精确回答缓存（P2.5 review 修复：接入主路径）。
-
-    当前 `data/versions.json` 4 本规范全 unknown，写入资格恒 INELIGIBLE（fail closed）；
-    lookup 仍会执行并记录 MISS/INELIGIBLE 事件。人工核实版本后自动解锁命中。
-    """
-    reranker = None if args.rerank == "none" else args.rerank
-    return AnswerCacheService(
-        embedding_model="qwen3.7-text-embedding",
-        dimensions=args.dimensions or 512,
-        top_k=args.top_k,
-        recall_top_k=args.recall_top_k,
-        reranker=reranker,
-        version_registry=get_version_registry(),
-    )
 
 
 def build_app(
@@ -334,252 +197,6 @@ def run_calc_once(query: str) -> dict:
         "result_values": dict(calc_result.values) if calc_result is not None else {},
         "spec_record": "公式口径：docs/design/09-hydraulics-formulas.md（ADR-01：公式显式指定）",
     }
-
-
-class _ScriptedAgenticModel(BaseChatModel):
-    """离线占位模型：第一轮 retrieve_clauses，第二轮 cite_clauses 声明首条命中，第三轮作答。
-
-    查询从消息历史里最近一条非"运行时上下文"的 HumanMessage 取，因此同一实例可跨轮复用
-    （交互式多轮会话）。未接真实 DeepSeek function calling 时用此 fake 顶替。
-    """
-
-    @property
-    def _llm_type(self) -> str:
-        return "scripted-agentic"
-
-    @staticmethod
-    def _latest_query(messages) -> str:
-        for m in reversed(messages):
-            if isinstance(m, HumanMessage) and isinstance(m.content, str) and not m.content.startswith("[运行时上下文]"):
-                return m.content
-        return ""
-
-    @staticmethod
-    def _latest_hits(messages) -> list[dict]:
-        for m in reversed(messages):
-            if isinstance(m, ToolMessage) and m.name == "retrieve_clauses":
-                payload = json.loads(m.content) if isinstance(m.content, str) else {}
-                return payload.get("hits", []) or []
-        return []
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        query = self._latest_query(messages)
-        # 本轮（最近一条 HumanMessage 之后）已有的工具结果
-        since_human = []
-        for m in reversed(messages):
-            if isinstance(m, HumanMessage):
-                break
-            since_human.append(m)
-        tool_names = {m.name for m in since_human if isinstance(m, ToolMessage)}
-
-        if "retrieve_clauses" not in tool_names:
-            call = {"name": "retrieve_clauses", "args": {"query": query, "top_k": 5}, "id": f"c-retrieve-{uuid4().hex[:6]}"}
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="", tool_calls=[call]))])
-
-        hits = self._latest_hits(messages)
-        if hits and "cite_clauses" not in tool_names:
-            call = {"name": "cite_clauses", "args": {"article_ids": [hits[0].get("source_id", "")]}, "id": f"c-cite-{uuid4().hex[:6]}"}
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="", tool_calls=[call]))])
-
-        if hits:
-            top = hits[0]
-            answer = (
-                f"根据规范检索结果：{top.get('title', '')}"
-                f"（{top.get('source_id', '')}）——{top.get('text', '')}"
-            )
-        else:
-            answer = "未能在规范条款库中检索到相关内容。"
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
-
-
-def _initial_messages_with_runtime_context(
-    query: str,
-    projection: RuntimeContextProjection,
-    *,
-    session_refs: list[str] | None = None,
-) -> list[HumanMessage]:
-    """按需注入运行时上下文（Step 8）：上下文变化才作为一条用户消息注入。
-
-    首次调用必然注入一次（cwd + 规范版本快照 + 会话引用）；同一 projection 对象在
-    上下文未变时 ``project()`` 返回 None，不再重复注入（省 token）。
-    """
-    context = default_context_builder(session_refs=session_refs)
-    context_text = projection.project(context)
-    messages: list[HumanMessage] = [HumanMessage(content=query)]
-    if context_text:
-        messages.insert(0, HumanMessage(content=f"[运行时上下文]\n{context_text}"))
-    return messages
-
-
-class AgenticSession:
-    """Agentic RAG 会话：一个 thread_id + 一套 app/工具/投影，可连续 ``ask`` 多轮。
-
-    - ``--mock-generator``：脚本化占位模型 + mock 检索装配（fixture 回落），不要求任何 Key；
-    - 默认：真实 DeepSeek function calling（``build_chat_model``）+ 真实检索装配。
-      无 Key 抛带指引的结构化错误，绝不静默降级为假模型；
-    - 检索工具经 ``RerankingRetriever`` 套 ``--rerank``，与 legacy 图口径一致；
-    - 运行时上下文投影跨轮持有：同一会话内上下文不变就不再注入。
-    """
-
-    def __init__(self, args: argparse.Namespace, *, stack: ExitStack, thread_id: str | None = None) -> None:
-        self.args = args
-        self.stack = stack  # 保留 ExitStack 供 MCP 装配清理
-        # P2.5 主体隔离：必须先创建 thread_id，再用它构造 RequestContext / GovernedChatModel /
-        # ToolRegistry 与图。否则所有 agentic 会话共享固定 thread_id（chat-agentic_loop）。
-        self.thread_id = thread_id or uuid4().hex
-        self.request_context = local_request_context(
-            thread_id=self.thread_id, request_id=f"req-{self.thread_id[:12]}"
-        )
-        self.recorder = JsonTraceRecorder(Path(args.trace_dir))
-        # P2.5 trace 接线：provider 治理事件写进当前会话的 trace（复用默认账本）。
-        self.gateway = default_gateway_with_sink(self.recorder.record_provider_event)
-        api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
-        self.model: BaseChatModel
-        if args.mock_generator:
-            self.model = _ScriptedAgenticModel()
-        else:
-            try:
-                self.model = build_chat_model(
-                    model=args.model,
-                    base_url=args.base_url,
-                    api_key_env=api_key_env,
-                    gateway=self.gateway,
-                    request_context_factory=lambda: self.request_context,
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
-                    "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
-                ) from exc
-        try:
-            retriever, self.db_path = _build_retriever(
-                args, request_context=self.request_context, gateway=self.gateway
-            )
-        except ValueError as exc:
-            raise ValueError(
-                f"{exc}。真实检索装配失败：需配置 DASHSCOPE_API_KEY（embedding）且索引可用；"
-                "或用 --mock-generator 走离线占位链路（fixture 回落，不要求 Key）"
-            ) from exc
-        self.retriever = retriever
-        reranker = _build_reranker(args, request_context=self.request_context, gateway=self.gateway)
-        tool_retriever: Retriever = (
-            RerankingRetriever(retriever, reranker, recall_top_k=args.recall_top_k) if reranker is not None else retriever
-        )
-
-        # P2.5 Step 15 接线：ToolRegistry 传入当前 trace 与真实主体，使工具/护栏事件成对落盘，
-        # guardrail_bypass 检测器才能事后证明"这次执行确实过了护栏"。
-        # P4 Step 25：MCP 网关启用时，主体需被授予 MCP_INVOKE 能力（两把钥匙之一）。
-        base_principal = self.request_context.principal
-
-        # P4 Step 25：MCP 网关装配（配置 → 连接 → 桥接 → 注册）。
-        # 文件不存在 = 功能关闭（空装配）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
-        mcp_config = load_mcp_gateway()
-        mcp_assembly = open_gateway_sessions(mcp_config)
-        self.mcp_assembly = mcp_assembly  # 保留装配产物供 close() / --json 报告
-        stack.callback(mcp_assembly.close)  # 会话结束时关闭全部 MCP 子进程
-
-        # 有 MCP 工具暴露时，叠加 MCP_INVOKE 能力（规格 §3 权限模型）
-        principal = (
-            principal_with_mcp(base_principal.capabilities)
-            if mcp_assembly.exposed_tool_names
-            else base_principal.capabilities
-        )
-        from water_agent.runtime.governance.contracts import Principal
-        principal_obj = Principal(
-            kind=base_principal.kind,
-            subject=base_principal.subject,
-            capabilities=principal,
-            auth_domain=base_principal.auth_domain,
-        )
-
-        registry = ToolRegistry(
-            principal=principal_obj,
-            trace=self.recorder,
-        )
-        registry.register(build_retrieve_clauses_tool(tool_retriever))
-        registry.register(build_cite_clauses_tool())
-        registry.register(calc_velocity_spec)
-        registry.register(material_stats_spec)
-        # P3 Step 20：图纸工具**按 DRAWING_ROOT 可用性条件注册**。
-        # 未配置/目录不存在/无 DXF 时不注册 —— 注册一个必然失败的工具会诱导模型
-        # 反复重试，还白占近 1000 tokens 的 schema 预算（规格 §9 第 5 条）。
-        # 状态存到 self.drawing_root_status，供 --json 如实报告原因。
-        drawing_tool, drawing_resolution = maybe_build_read_drawing_tool(
-            getattr(args, "drawing_root", None)
-        )
-        self.drawing_root_status = drawing_resolution
-        if drawing_tool is not None:
-            registry.register(drawing_tool)
-
-        # P4 Step 25：注册 MCP 桥接工具（装配产物 → ToolRegistry）
-        mcp_tool_names = register_mcp_tools(mcp_assembly, registry)
-        self.mcp_tool_names = mcp_tool_names  # 供 --json 报告
-
-        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
-
-        # Step 8：动态系统提示装配（角色/版本快照/公式口径/工具指南）+ 运行时上下文投影
-        self.projection = RuntimeContextProjection()
-        self.config = {"configurable": {"thread_id": self.thread_id}}
-        saver = _build_chat_checkpointer(args.session_dir, stack)
-        self.app = build_agentic_app(
-            model=self.model,
-            tools=tools,
-            checkpointer=saver,
-            prompt=PromptAssembler(tool_registry=registry),  # callable：装配器按 state 动态生成 SystemMessage
-            trace=self.recorder,
-            request_context=self.request_context,
-            cache_service=_build_cache_service(args) if not args.mock_generator else None,
-        )
-
-    def ask(self, query: str) -> dict:
-        stream = bool(getattr(self.args, "stream", False)) and not self.args.mock_generator
-        initial_messages = _initial_messages_with_runtime_context(
-            query, self.projection, session_refs=[self.thread_id]
-        )
-        if stream:
-            state = asyncio.run(
-                astream_agentic(
-                    self.app,
-                    query,
-                    self.config,
-                    on_token=lambda tok: print(tok, end="", flush=True),
-                    messages=initial_messages,
-                )
-            )
-            print(flush=True)
-        else:
-            state = self.app.invoke({"messages": initial_messages, "query": query}, config=self.config)
-
-        citations = [
-            {
-                "source_id": c.source_id,
-                "spec_version": c.spec_version,
-                "version_status": c.version_status,
-                "declared_by": c.declared_by,
-            }
-            for c in state.get("citations", [])
-        ]
-        payload = {
-            "ok": True,
-            "query": query,
-            "answer": state.get("answer", ""),
-            "status": state.get("status", ""),
-            "citations": citations,
-            "errors": state.get("errors", []),
-            "retry_count": state.get("retry_count", 0),
-            "intent": "agentic",
-            "streamed": stream,
-            "session_id": self.thread_id,
-            "retriever_fallback": bool(getattr(self.retriever, "is_fallback", True)),
-            "db_path": self.db_path,
-        }
-        runtime_status = getattr(self.retriever, "runtime_status", None)
-        if isinstance(runtime_status, dict):
-            payload["retriever_runtime_status"] = runtime_status
-            payload["db_error"] = runtime_status.get("db_error")
-        else:
-            payload["db_error"] = getattr(self.retriever, "db_error", None)
-        return payload
 
 
 def run_agentic_once(query: str, *, args: argparse.Namespace) -> dict:
@@ -680,35 +297,6 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
         print(f"索引: {payload['db_path']}")
 
 
-def _build_chat_checkpointer(session_dir: str | Path, stack: ExitStack):
-    """优先 SqliteSaver 做磁盘持久化；不可用时降级 MemorySaver 并显式提示缺口。
-
-    ``stack`` 用于在会话结束时关闭底层 sqlite 连接（SqliteSaver 自身无 close()）。
-    """
-    db_path = session_db_path(session_dir)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import sqlite3
-
-        from langgraph.checkpoint.sqlite import SqliteSaver
-
-        from water_agent.session import default_checkpoint_serde
-
-        conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        stack.callback(conn.close)
-        # 注册 CitationClaim：否则 checkpoint 反序列化被阻止（未来版本报错），--resume 恢复坏引用状态
-        return SqliteSaver(conn, serde=default_checkpoint_serde())
-    except Exception as exc:  # noqa: BLE001 — 持久化不可用不阻塞本步，但必须记录缺口
-        print(
-            json.dumps(
-                {"ok": False, "error": f"sqlite checkpointer 不可用，本轮改用 MemorySaver（进程内态，不落盘）：{exc}"},
-                ensure_ascii=False,
-            ),
-            file=sys.stderr,
-        )
-        from langgraph.checkpoint.memory import MemorySaver
-
-        return MemorySaver()
 def _run_chat_session(args: argparse.Namespace, query: str = "") -> int:
     """交互式多轮会话：每行输入按 ``--mode`` 真正作答（不再是占位回声）。
 
