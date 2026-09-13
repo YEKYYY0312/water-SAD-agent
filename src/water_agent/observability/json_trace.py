@@ -341,6 +341,52 @@ class JsonTraceRecorder:
             data["project_id_hash"] = project_id_hash
         self.record(node="memory", event="memory_write", query="", data=data)
 
+    def record_memory_recall(
+        self,
+        *,
+        query_hash: str,
+        candidate_count: int,
+        returned_count: int,
+        omitted_count: int,
+        used_characters: int,
+        character_budget: int,
+        item_limit: int,
+        hits: _Seq[dict[str, Any]] = (),
+        reason: str | None = None,
+    ) -> None:
+        """Record bounded recall metadata without copying memory正文.
+
+        The fixed hit shape is intentionally narrower than ``record``'s
+        general-purpose data argument: recall trace consumers get IDs, hashes,
+        scores and budget facts, never the memory text or query itself.
+        """
+
+        safe_hits = []
+        for hit in hits:
+            safe_hits.append(
+                {
+                    "memory_id": str(hit.get("memory_id", "")),
+                    "kind": str(hit.get("kind", "")),
+                    "scope": str(hit.get("scope", "")),
+                    "content_hash": str(hit.get("content_hash", "")),
+                    "score": hit.get("score"),
+                    "injected": bool(hit.get("injected", False)),
+                }
+            )
+        data: dict[str, Any] = {
+            "query_hash": query_hash,
+            "candidate_count": int(candidate_count),
+            "returned_count": int(returned_count),
+            "omitted_count": int(omitted_count),
+            "used_characters": int(used_characters),
+            "character_budget": int(character_budget),
+            "item_limit": int(item_limit),
+            "hits": safe_hits,
+        }
+        if reason:
+            data["reason"] = reason
+        self.record(node="memory", event="memory_recall", query="", data=data)
+
     def record_provider_event(self, record: Any) -> None:
         """记录一次 provider 治理事件（P2.5 Step 15 review 修复：gateway → trace 接线）。
 
