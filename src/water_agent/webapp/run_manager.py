@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import MemoryStoreUnavailableError
+from water_agent.memory.providers import MemoryProvider
 from water_agent.memory.recall import MemoryRecallResult, MemoryRecallService
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.runtime.agentic import RunCancelled, build_agentic_session
@@ -153,6 +154,9 @@ class WebAgenticSessionFactory:
     def _args(self) -> argparse.Namespace:
         if self.agent_args is not None:
             return argparse.Namespace(**vars(self.agent_args))
+        from water_agent.generation.local_model import local_model_configured, local_model_settings
+
+        local_settings = local_model_settings() if local_model_configured() else {}
         return argparse.Namespace(
             db_path=None,
             dimensions=None,
@@ -163,9 +167,10 @@ class WebAgenticSessionFactory:
             top_k=5,
             recall_top_k=20,
             hybrid_alpha=0.7,
-            model="deepseek-chat",
-            base_url="https://api.deepseek.com",
+            model=local_settings.get("model", "deepseek-chat"),
+            base_url=local_settings.get("base_url", "https://api.deepseek.com"),
             api_key_env="DEEPSEEK_API_KEY",
+            api_key=local_settings.get("api_key"),
             mock_generator=self.mock_generator,
             session_dir=self.session_dir,
             trace_dir=self.trace_dir,
@@ -217,6 +222,7 @@ class RunManager:
         session_factory: AgentSessionFactory | None = None,
         tenant_id: UUID = DEFAULT_TENANT_ID,
         memory_enabled: bool | None = None,
+        memory_provider: MemoryProvider | None = None,
         trace_dir: str | os.PathLike[str] = "data/traces",
         session_dir: str | os.PathLike[str] = "data/sessions",
         max_workers: int = 4,
@@ -230,6 +236,7 @@ class RunManager:
             if memory_enabled is None
             else memory_enabled
         )
+        self.memory_provider = memory_provider
         self.session_factory = session_factory or WebAgenticSessionFactory(
             database,
             self.sessions,
@@ -326,7 +333,7 @@ class RunManager:
                     try:
                         trace = getattr(session, "recorder", None)
                         memory_context = MemoryRecallService(
-                            self.database, trace=trace
+                            self.database, trace=trace, provider=self.memory_provider
                         ).recall(
                             tenant_id=self.tenant_id,
                             actor_user_id=handle.owner_user_id,

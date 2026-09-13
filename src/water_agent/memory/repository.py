@@ -6,7 +6,7 @@ does not register Agent tools or infer a caller from memory content.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
@@ -37,6 +37,7 @@ from water_agent.memory.contracts import (
     actor_hash,
     content_hash,
 )
+from water_agent.memory.providers import MemoryEmbeddingStore, MemoryProviderUnavailableError
 from water_agent.storage.database import Database
 from water_agent.storage.models import (
     MemoryEventRow,
@@ -71,8 +72,14 @@ def _safe_reason(reason: str, *bodies: str | None) -> str:
 class MemoryRepository:
     """Persist memory records and append-only metadata in one database."""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        embedding_store: MemoryEmbeddingStore | None = None,
+    ) -> None:
         self.database = database
+        self.embedding_store = embedding_store
 
     @contextmanager
     def _transaction(self, *, duplicate_is_conflict: bool = False) -> Iterator[Session]:
@@ -87,6 +94,8 @@ class MemoryRepository:
             raise
         except (MemoryExpiredError, MemoryForgottenError):
             raise
+        except MemoryProviderUnavailableError as exc:
+            raise MemoryStoreUnavailableError() from exc
         except IntegrityError as exc:
             if duplicate_is_conflict:
                 raise MemoryConflictRequiresConfirmationError() from exc
@@ -499,9 +508,54 @@ class MemoryRepository:
                         MemoryRecordRow.expires_at.is_(None),
                         MemoryRecordRow.expires_at > point,
                     ),
+                    exists(
+                        select(User.user_id).where(
+                            User.user_id == actor,
+                            User.is_active.is_(True),
+                        )
+                    ),
                     self._read_access_clause(actor),
                 )
                 .order_by(MemoryRecordRow.created_at, MemoryRecordRow.memory_id)
+            ).scalars()
+            return [self._record(row) for row in rows]
+
+    def list_active_by_ids(
+        self,
+        memory_ids: Sequence[UUID | str],
+        *,
+        tenant_id: UUID | str,
+        actor_user_id: UUID | str,
+        now: datetime | None = None,
+    ) -> list[MemoryRecord]:
+        """Resolve provider-returned IDs through the native auth filter."""
+
+        ids = [str(_as_uuid(value)) for value in memory_ids]
+        if not ids:
+            return []
+        tenant_key = str(_as_uuid(tenant_id))
+        actor = str(_as_uuid(actor_user_id))
+        point = now or _now()
+        with self._transaction() as session:
+            rows = session.execute(
+                select(MemoryRecordRow)
+                .where(
+                    MemoryRecordRow.memory_id.in_(ids),
+                    MemoryRecordRow.tenant_id == tenant_key,
+                    MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+                    or_(
+                        MemoryRecordRow.expires_at.is_(None),
+                        MemoryRecordRow.expires_at > point,
+                    ),
+                    exists(
+                        select(User.user_id).where(
+                            User.user_id == actor,
+                            User.is_active.is_(True),
+                        )
+                    ),
+                    self._read_access_clause(actor),
+                )
+                .order_by(MemoryRecordRow.memory_id)
             ).scalars()
             return [self._record(row) for row in rows]
 
@@ -548,6 +602,10 @@ class MemoryRepository:
             row.content = content
             row.revision = new_revision
             row.updated_at = _now()
+            if self.embedding_store is not None:
+                # A correction invalidates the old vector. Re-indexing is an
+                # explicit opt-in operation and must never be part of P0.
+                self.embedding_store.delete_forget(session, memory_key)
             memory = self._record(row)
             session.add(
                 self._event(
@@ -640,6 +698,11 @@ class MemoryRepository:
             row.revision = new_revision
             row.updated_at = _now()
             row.tombstone = tombstone
+            if target_status is MemoryStatus.FORGOTTEN and self.embedding_store is not None:
+                # The optional provider cleanup runs before the parent
+                # transaction commits. A failure rolls the tombstone back
+                # instead of reporting a privacy deletion with a vector left.
+                self.embedding_store.delete_forget(session, memory_key)
             memory = self._record(row)
             session.add(
                 self._event(

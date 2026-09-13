@@ -100,6 +100,25 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  local-model:
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8g
+          pids: 256
+        reservations:
+          cpus: "0.25"
+          memory: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   reverse-proxy:
     security_opt:
       - no-new-privileges:true

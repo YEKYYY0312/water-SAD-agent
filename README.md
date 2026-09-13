@@ -69,6 +69,15 @@ _venv/bin/python -m water_agent.cli --flow docgen --doc-type calculation_book --
 _venv/bin/python -m water_agent.cli --flow docgen --doc-type design_note --mock-generator "某小区给水改造设计说明"
 _venv/bin/python -m water_agent.cli --flow docgen --resume SESSION_ID --mock-generator
 # 材料统计（Excel 导出见 water_agent.materials.export；agentic 会话内置 material_stats 工具）
+
+# 11) P5 Step 46 可选本地模型（默认关闭；需先取得兼容性证据）
+docker compose --profile local-model up -d local-model
+docker compose exec local-model ollama pull MODEL_NAME
+LOCAL_MODEL_ENABLED=true LOCAL_MODEL_BASE_URL=http://127.0.0.1:11434/v1 \
+  _venv/bin/python -m water_agent.harness.local_model_compat \
+  --out /path/visible-to-app/local-model-compatibility.json
+# 只有 probe 的七项检查全为 passed 且 schema <4500 时，才通过部署覆盖文件将
+# LOCAL_MODEL_ENABLED=true 与该报告路径传给 app；没有报告不会静默切换模型。
 ```
 
 ## 目录结构
@@ -81,9 +90,11 @@ src/water_agent/
   graphs/         # rag / calc / agent_rag (agentic 循环) / docgen (HITL) / chat
   prompting/      # assembler / runtime_context
   ingestion/      # chunker / pipeline / version_registry / quality / gold_set
-  harness/        # loader / scorer / runner / doubles / retrieval_metrics / llm_judge
+  harness/        # loader / scorer / runner / doubles / retrieval_metrics / llm_judge / Step46 probe
   docgen/         # P2 文档模板 + 受限 LLM 润色 + 确定性质量自检
   materials/      # P2 材料统计：管段聚合（可追溯）+ .xlsx/CSV 导出
+  memory/         # P5 长期记忆：原生 FTS + 可选 pgvector/MCP provider
+  mcp/            # P4 网关 + P5 只读 Memory MCP adapter
   runtime/        # P2.5 治理：gateway / guardrails / cache / scenarios / detectors / observability
   observability/  # json_trace / otel (guarded OTel GenAI)
   cli.py          # 生产问答 CLI (--mode auto|calc|legacy|agentic, --flow qa|docgen, --doc-type, --interactive/--resume, --mock-generator, --stream)
@@ -162,6 +173,10 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
   账号与权限服务端校验（`Principal.authenticated`），SSE 可续传（`Last-Event-ID`）且逐事件复核授权；
   长期记忆按 user/project 硬隔离，写入需显式确认并通过 `MemoryWriteGuard`（凭据/PII/注入），
   召回结果以 `SESSION_MEMORY` 数据段有界注入（1200 字符），不能改变系统提示、工具集或能力授权
+- **Step 46 可选增强**：默认仍使用 PostgreSQL FTS；pgvector 只作为显式注入的 provider，
+  故障回退 FTS，forget 在同一事务内清理向量；第三方 Memory MCP 只提供受治理的 ID 排序提示，
+  正文由原生 repository 再做权限过滤。`local-model` profile 默认关闭，当前本机没有本地 endpoint，
+  因此尚未取得 compatible 证据，也不声称语义召回优于 FTS。
 
 ## 容量与基线
 
