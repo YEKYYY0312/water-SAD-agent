@@ -20,6 +20,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Text,
+    UniqueConstraint,
     false,
     text,
 )
@@ -111,6 +112,50 @@ class Run(Base):
     __table_args__ = (
         Index("ix_runs_thread_id", "thread_id"),
         Index("ix_runs_owner_user_id", "owner_user_id"),
+    )
+
+
+class FeedbackCandidateRow(Base):
+    """User feedback kept in a review-only candidate store.
+
+    This table is intentionally separate from ``data/eval`` gold files.  A
+    feedback submission is evidence for later curation, never an evaluation
+    label that the running system can consume as ground truth.
+    """
+
+    __tablename__ = "feedback_candidates"
+
+    feedback_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("web_sessions.thread_id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    rating: Mapped[str] = mapped_column(String(16), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="candidate")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "rating IN ('useful', 'not_useful')",
+            name="ck_feedback_candidates_rating",
+        ),
+        CheckConstraint(
+            "status IN ('candidate', 'reviewed', 'rejected', 'accepted')",
+            name="ck_feedback_candidates_status",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "user_id",
+            name="uq_feedback_candidates_run_user",
+        ),
+        Index("ix_feedback_candidates_user_id", "user_id"),
+        Index("ix_feedback_candidates_run_id", "run_id"),
     )
 
 
@@ -312,6 +357,7 @@ __all__ = [
     "CheckpointBlob",
     "CheckpointMigration",
     "CheckpointWrite",
+    "FeedbackCandidateRow",
     "MemoryEventRow",
     "MemoryRecordRow",
     "MemoryUsageRow",
