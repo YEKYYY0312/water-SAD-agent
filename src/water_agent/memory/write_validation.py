@@ -19,16 +19,25 @@ _VALUE_WITH_UNIT = re.compile(
     r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*"
     r"(?:mm|cm|km|m|l/s|l/min|l/d|m3/h|m³/h|m3/d|m³/d|"
     r"kpa|mpa|pa|m/s|m²|m2|m³|m3|kw|kg|t/d|%|℃|°c|"
-    r"层|个|根|台|座|条|人|户|天|年|月|日|h|min|s)(?![A-Za-z0-9_])",
+    r"台|座|h|min|s)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 _CALCULATION_CONCLUSION = re.compile(
-    r"计算(?:结果|结论)|程序计算|calculated\s+result", re.IGNORECASE
+    r"计算(?:结果|结论|得出|所得|表明)|经计算|程序计算|程序算出|软件算出"
+    r"|水力计算|推荐值|calculated\s+result|calculation\s+(?:shows|gives|result)",
+    re.IGNORECASE,
 )
 
 
 def as_uuid(value: UUID | str) -> UUID:
-    return value if isinstance(value, UUID) else UUID(str(value))
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (AttributeError, TypeError, ValueError) as exc:
+        # Identifiers arrive from callers, so a malformed one is an authorization
+        # failure with a stable code rather than an untyped ValueError.
+        raise MemoryScopeDeniedError("memory identifier is not a valid UUID") from exc
 
 
 def coerce_scope(value: MemoryScopeType | str) -> MemoryScopeType:
