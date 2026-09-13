@@ -272,7 +272,7 @@ class MemoryService:
         self,
         *,
         now: datetime | None = None,
-        tenant_id: UUID | str | None = None,
+        tenant_id: UUID | str,
         actor_user_id: UUID | str | None = None,
     ) -> list[MemoryRecord]:
         return self.repository.expire_due(
