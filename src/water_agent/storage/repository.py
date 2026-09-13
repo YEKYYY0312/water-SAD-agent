@@ -222,5 +222,70 @@ class RunRepository:
                 raise ResourceNotFoundError("run not found")
             return record
 
+    def get_owned_for_user(self, run_id: UUID | str, user_id: UUID | str) -> Run:
+        """Return a run only when the caller is its server-recorded owner.
+
+        Project membership makes a run readable to project members, but
+        cancellation is an owner action.  The owner check is kept in the
+        repository so a URL id cannot be mistaken for authorization.
+        """
+
+        with self.database.transaction() as session:
+            record = session.execute(
+                select(Run)
+                .join(WebSession, WebSession.thread_id == Run.thread_id)
+                .where(
+                    Run.run_id == str(run_id),
+                    Run.owner_user_id == str(user_id),
+                    or_(
+                        (
+                            (WebSession.project_id.is_(None))
+                            & (WebSession.owner_user_id == str(user_id))
+                        ),
+                        exists(
+                            select(ProjectMembership.project_id).where(
+                                ProjectMembership.project_id == WebSession.project_id,
+                                ProjectMembership.user_id == str(user_id),
+                            )
+                        ),
+                    ),
+                )
+            ).scalar_one_or_none()
+            if record is None:
+                raise ResourceNotFoundError("run not found")
+            return record
+
+    def set_status(
+        self,
+        run_id: UUID | str,
+        owner_user_id: UUID | str,
+        status: str,
+        *,
+        expected_statuses: tuple[str, ...] = (),
+    ) -> Run:
+        """Atomically update a run state owned by the caller.
+
+        ``expected_statuses`` makes the transition compare-and-set shaped;
+        the Web run manager still serializes its own events, while the
+        database remains the authoritative owner/status boundary.
+        """
+
+        allowed = {"queued", "running", "succeeded", "failed", "blocked", "cancelled"}
+        if status not in allowed:
+            raise ValueError(f"unknown run status: {status}")
+        with self.database.transaction() as session:
+            query = select(Run).where(
+                Run.run_id == str(run_id),
+                Run.owner_user_id == str(owner_user_id),
+            )
+            if expected_statuses:
+                query = query.where(Run.status.in_(expected_statuses))
+            record = session.execute(query).scalar_one_or_none()
+            if record is None:
+                raise ResourceNotFoundError("run not found")
+            record.status = status
+            record.updated_at = _now()
+            return record
+
 
 __all__ = ["ProjectRepository", "ResourceNotFoundError", "RunRepository", "WebSessionRepository"]

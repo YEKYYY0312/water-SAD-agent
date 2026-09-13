@@ -31,6 +31,25 @@ class JsonTraceRecorder:
         """是否已 ``start``（agentic 图用它决定是否在首个节点开启 trace）。"""
         return self._document is not None
 
+    @property
+    def finished(self) -> bool:
+        """Whether a terminal ``run_end`` has already been persisted."""
+        return self._document is not None and self._document.get("finished_at") is not None
+
+    def snapshot(self) -> dict[str, Any] | None:
+        """Return a detached trace snapshot for an authorized in-process reader.
+
+        The recorder already sanitizes values at write time.  Returning JSON
+        round-tripped data prevents a Web response from mutating the live
+        recorder while a run is still producing events.
+        """
+        if self._document is None:
+            return None
+        # The round-trip of a dict is still a dict; the local annotation keeps
+        # the Any that json.loads returns from leaking out of this typed API.
+        snapshot: dict[str, Any] = json.loads(json.dumps(self._document, ensure_ascii=False))
+        return snapshot
+
     @staticmethod
     def _now() -> str:
         return datetime.now(UTC).isoformat()
