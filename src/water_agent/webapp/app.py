@@ -11,7 +11,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -23,6 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from water_agent.drawing.drawing_root import resolve_drawing_root
 from water_agent.mcp.wiring import load_mcp_gateway
+from water_agent.memory.providers import MemoryEmbeddingStore, MemoryProvider
 from water_agent.memory.repository import MemoryRepository
 from water_agent.memory.service import MemoryService
 from water_agent.memory.write_service import ExplicitMemoryWriteService
@@ -72,6 +73,7 @@ def create_app(
     database: Database | None = None,
     session_factory: AgentSessionFactory | None = None,
     memory_enabled: bool | None = None,
+    memory_provider: MemoryProvider | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     trace_dir: str | Path = "data/traces",
     session_dir: str | Path = "data/sessions",
@@ -98,6 +100,7 @@ def create_app(
             configured_database,
             session_factory=session_factory,
             memory_enabled=memory_enabled,
+            memory_provider=memory_provider,
             tenant_id=tenant_id,
             trace_dir=trace_dir,
             session_dir=session_dir,
@@ -106,11 +109,19 @@ def create_app(
         else None
     )
     app.state.tenant_id = tenant_id
+    app.state.memory_provider = memory_provider
     # One write service per app: its pending-candidate store is in-process (15 min
     # TTL), so preview and confirmation must reach the same worker.  Memory
     # governance itself is never re-implemented here (Step 45 audit note).
     if configured_database is not None:
-        memory_service = MemoryService(MemoryRepository(configured_database))
+        embedding_store = (
+            cast(MemoryEmbeddingStore, memory_provider)
+            if memory_provider is not None and callable(getattr(memory_provider, "delete_forget", None))
+            else None
+        )
+        memory_service = MemoryService(
+            MemoryRepository(configured_database, embedding_store=embedding_store)
+        )
         app.state.memory_service = memory_service
         app.state.memory_write_service = ExplicitMemoryWriteService(memory_service)
     else:

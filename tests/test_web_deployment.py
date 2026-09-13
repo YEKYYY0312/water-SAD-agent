@@ -16,6 +16,10 @@ def test_compose_declares_the_required_default_and_optional_services() -> None:
     assert "reverse-proxy:" in compose
     assert "profiles: [local-model]" in compose
     assert "local-model:" in compose
+    assert "image: ollama/ollama:0.13.3" in compose
+    assert "LOCAL_MODEL_ENABLED: ${LOCAL_MODEL_ENABLED:-false}" in compose
+    assert "Step 46 local-model integration is not implemented" not in compose
+    assert "local_model_data:/root/.ollama" in compose
     assert "postgres_data:" in compose
     assert "postgres_data:/var/lib/postgresql" in compose
     assert "postgres_data:/var/lib/postgresql/data" not in compose

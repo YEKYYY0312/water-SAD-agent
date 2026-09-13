@@ -51,6 +51,7 @@ def test_production_overlay_declares_resource_limits_and_hardening() -> None:
     assert "--timeout-graceful-shutdown" in overlay
     assert "max-size" in overlay  # log rotation
     assert "pids:" in overlay  # process cap
+    assert "  local-model:" in overlay
 
 
 def test_overlay_does_not_fork_the_single_source_of_truth() -> None:
