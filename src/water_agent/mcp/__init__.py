@@ -40,21 +40,31 @@ from water_agent.mcp.config import (
     load_gateway_config,
 )
 from water_agent.mcp.errors import MCP_ERROR_CODES, MCPError
+from water_agent.mcp.memory_adapter import (
+    MAX_MEMORY_TOOL_SCHEMA_TOKENS,
+    READ_ONLY_MEMORY_TOOL_NAMES,
+    MemoryMCPAdapter,
+    filter_memory_mcp_allowlist,
+)
 
 __all__ = [
+    "MAX_MEMORY_TOOL_SCHEMA_TOKENS",
     "MCP_ERROR_CODES",
+    "READ_ONLY_MEMORY_TOOL_NAMES",
     "MCPBridgeResult",
     "MCPError",
     "MCPGatewayConfig",
     "MCPServerConfig",
     "MCPServerSession",
     "MCPStdioClient",
+    "MemoryMCPAdapter",
     "RemoteTool",
     "ServerTransport",
     "SkippedTool",
     "bridge_server_tools",
     "bridge_tool_name",
     "child_env",
+    "filter_memory_mcp_allowlist",
     "load_gateway_config",
     "open_bridge",
 ]

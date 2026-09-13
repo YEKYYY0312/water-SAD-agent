@@ -30,6 +30,13 @@ from water_agent.memory.contracts import (
     MemoryStoreUnavailableError,
     content_hash,
 )
+from water_agent.memory.providers import (
+    MemoryProvider,
+    MemoryProviderHit,
+    MemoryProviderRequest,
+    MemoryProviderUnavailableError,
+    PostgresFtsMemoryProvider,
+)
 from water_agent.memory.repository import MemoryRepository
 from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
 from water_agent.storage.database import Database
@@ -333,6 +340,8 @@ class MemoryRecallResult:
     used_characters: int
     character_budget: int
     item_limit: int
+    provider_name: str = PostgresFtsMemoryProvider.name
+    fallback_used: bool = False
 
     @property
     def context_text(self) -> str:
@@ -367,6 +376,45 @@ def _record_from_row(row: Mapping[Any, Any]) -> MemoryRecord:
     )
 
 
+def _fts_search_hits(request: MemoryProviderRequest) -> list[MemoryProviderHit]:
+    """Run the existing authorized FTS query once for the provider boundary."""
+
+    params = {
+        "tenant_id": str(UUID(str(request.tenant_id))),
+        "actor_user_id": str(UUID(str(request.actor_user_id))),
+        "project_id": None if request.project_id is None else str(UUID(str(request.project_id))),
+        "query": request.query,
+        "contains_cjk": _contains_cjk(request.query),
+        "now": request.now,
+    }
+    try:
+        with request.database.transaction() as session:
+            statement = (
+                _PG_RECALL_SQL
+                if request.database.engine.dialect.name == "postgresql"
+                else _SQLITE_RECALL_SQL
+            )
+            rows = session.execute(text(statement), params).mappings().all()
+    except (OSError, SQLAlchemyError) as exc:
+        raise MemoryProviderUnavailableError("native FTS provider unavailable") from exc
+
+    candidates: list[MemoryProviderHit] = []
+    for row in rows:
+        memory = _record_from_row(row)
+        literal_score = _literal_keyword_score(memory.content, request.query)
+        fts_score = float(row["fts_score"] or 0.0)
+        if request.database.engine.dialect.name == "postgresql":
+            score = fts_score + literal_score
+            if fts_score == 0.0 and literal_score == 0.0:
+                continue
+        else:
+            score = literal_score
+            if score == 0.0:
+                continue
+        candidates.append(MemoryProviderHit(memory=memory, score=score))
+    return candidates
+
+
 class MemoryRecallService:
     """Query and audit authorized long-term memories for one request."""
 
@@ -376,11 +424,17 @@ class MemoryRecallService:
         *,
         trace: MemoryRecallTrace | None = None,
         clock: Callable[[], datetime] | None = None,
+        provider: MemoryProvider | None = None,
+        fallback_provider: MemoryProvider | None = None,
     ) -> None:
         self.database = database
         self.trace = trace
         self.clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._usage_repository = MemoryRepository(database)
+        self.provider = provider if provider is not None else PostgresFtsMemoryProvider()
+        self.fallback_provider = (
+            fallback_provider if fallback_provider is not None else PostgresFtsMemoryProvider()
+        )
 
     def recall(
         self,
@@ -414,43 +468,37 @@ class MemoryRecallService:
                 used_characters=0,
                 character_budget=character_budget,
                 item_limit=item_limit,
+                provider_name=self.provider.name,
             )
             self._emit_trace(result)
             return result
 
-        params = {
-            "tenant_id": tenant_key,
-            "actor_user_id": actor_key,
-            "project_id": project_key,
-            "query": normalized_query,
-            "contains_cjk": _contains_cjk(normalized_query),
-            "now": self.clock(),
-        }
+        request = MemoryProviderRequest(
+            database=self.database,
+            tenant_id=tenant_key,
+            actor_user_id=actor_key,
+            query=normalized_query,
+            project_id=project_key,
+            now=self.clock(),
+            candidate_limit=max(item_limit * 4, MAX_MEMORY_RECALL_ITEMS),
+        )
+        provider = self.provider
+        fallback_used = False
         try:
-            with self.database.transaction() as session:
-                statement = (
-                    _PG_RECALL_SQL
-                    if self.database.engine.dialect.name == "postgresql"
-                    else _SQLITE_RECALL_SQL
-                )
-                rows = session.execute(text(statement), params).mappings().all()
-        except (OSError, SQLAlchemyError) as exc:
-            raise MemoryStoreUnavailableError() from exc
+            provider_hits = provider.search(request)
+        except MemoryProviderUnavailableError as exc:
+            if provider is self.fallback_provider:
+                raise MemoryStoreUnavailableError() from exc
+            try:
+                provider = self.fallback_provider
+                provider_hits = provider.search(request)
+                fallback_used = True
+            except MemoryProviderUnavailableError as fallback_exc:
+                raise MemoryStoreUnavailableError() from fallback_exc
 
-        candidates: list[MemoryRecallHit] = []
-        for row in rows:
-            memory = _record_from_row(row)
-            literal_score = _literal_keyword_score(memory.content, normalized_query)
-            fts_score = float(row["fts_score"] or 0.0)
-            if self.database.engine.dialect.name == "postgresql":
-                score = fts_score + literal_score
-                if fts_score == 0.0 and literal_score == 0.0:
-                    continue
-            else:
-                score = literal_score
-                if score == 0.0:
-                    continue
-            candidates.append(MemoryRecallHit(memory=memory, score=score))
+        candidates = [
+            MemoryRecallHit(memory=hit.memory, score=hit.score) for hit in provider_hits
+        ]
 
         ranked = DeterministicMemoryRanker().rank(candidates)
         selected = self._select_with_budget(ranked, item_limit, character_budget)
@@ -462,6 +510,8 @@ class MemoryRecallService:
             used_characters=len(render_memory_context(selected, max_characters=character_budget)),
             character_budget=character_budget,
             item_limit=item_limit,
+            provider_name=provider.name,
+            fallback_used=fallback_used,
         )
         self._record_usage(
             result.hits,
@@ -526,6 +576,8 @@ class MemoryRecallService:
                 used_characters=result.used_characters,
                 character_budget=result.character_budget,
                 item_limit=result.item_limit,
+                provider_name=result.provider_name,
+                fallback_used=result.fallback_used,
                 hits=[
                     {
                         "memory_id": str(hit.memory.memory_id),
