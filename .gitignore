@@ -56,6 +56,10 @@ cursor/
 secrets/*
 !secrets/README.md
 
+# Step 45 backups: a logical dump contains real user data and must never be
+# committed (scripts/backup.sh defaults here; .dockerignore excludes it too).
+backups/
+
 # React build dependencies and generated static assets
 web/app/node_modules/
 web/app/dist/

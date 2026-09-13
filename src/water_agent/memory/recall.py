@@ -98,8 +98,14 @@ WHERE mr.tenant_id = :tenant_id
       OR
       (
           mr.scope_type = 'project'
-          AND :project_id IS NOT NULL
-          AND mr.project_id = :project_id
+          -- Both casts are load bearing.  Without the first, psycopg cannot
+          -- infer the type of a NULL bind parameter and every project-less
+          -- recall fails with "could not determine data type of parameter $N";
+          -- without the second, `project_id` (varchar(36)) is compared to a
+          -- uuid and PostgreSQL answers "operator does not exist:
+          -- character varying = uuid".  Found by the Step 45 compose smoke test.
+          AND CAST(:project_id AS text) IS NOT NULL
+          AND mr.project_id = CAST(:project_id AS text)
           AND EXISTS (
               SELECT 1
               FROM project_memberships AS membership
@@ -309,6 +315,12 @@ def render_memory_context(
         if len(candidate) > budget:
             continue
         rendered = candidate
+    if rendered == MEMORY_CONTEXT_PREAMBLE:
+        # Nothing fit the budget: an empty "long-term memory context" header
+        # would tell the model a segment exists while carrying no memory.  The
+        # Step 45 gate measures used_characters against this renderer, so the
+        # two must agree on "no segment".
+        return ""
     return rendered.rstrip()
 
 

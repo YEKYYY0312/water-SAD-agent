@@ -1,0 +1,132 @@
+# P5 Step 45 production overlay.
+#
+# Usage:
+#   docker compose -f compose.yml -f compose.production.yml up -d
+#   docker compose -f compose.yml -f compose.production.yml --profile production up -d
+#
+# The base file stays usable on its own for local development; this overlay adds
+# the hardening a self-hosted production deployment needs.  What it deliberately
+# does NOT do: it does not add a second set of services, does not change image
+# tags or digests, and does not introduce a second source of truth for the
+# database URL, migrations, or secrets — those stay defined once in compose.yml.
+name: water-agent
+
+services:
+  postgres:
+    # A runaway query must not be able to take the host down with it.
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+          pids: 256
+        reservations:
+          cpus: "0.25"
+          memory: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  migrate:
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+          pids: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  bootstrap-admin:
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+          pids: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  app:
+    # SIGTERM is the graceful signal; the drain budget below covers the bounded
+    # wait implemented by RunManager.close() (it cancels in-flight runs and
+    # waits up to 20s for their terminal event).  uvicorn's own shutdown
+    # timeout must be larger than that, otherwise uvicorn would abort the drain.
+    stop_signal: SIGTERM
+    stop_grace_period: 45s
+    command:
+      [
+        "uvicorn",
+        "water_agent.webapp.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--timeout-graceful-shutdown",
+        "30",
+        "--proxy-headers",
+        "--forwarded-allow-ips",
+        "*",
+      ]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+          pids: 512
+        reservations:
+          cpus: "0.25"
+          memory: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  reverse-proxy:
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256m
+          pids: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  smoke:
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+          pids: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

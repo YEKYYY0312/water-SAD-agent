@@ -50,7 +50,20 @@ _venv/bin/python -m water_agent.cli --mode agentic "给水管道的设计秒流�
 # 7) 模型冒烟测试
 bash scripts/smoke_agentic.sh
 
-# 8) 交互式多轮 / docgen HITL（EOF 挂起后按输出的 session_id 恢复）
+# 8) P5 长期记忆门禁（离线确定性；报告为可重建产物）
+_venv/bin/python -m water_agent.harness.memory_eval data/eval/memory_p0.jsonl
+_venv/bin/python scripts/compare_memory_p0.py --head data/eval/reports/memory_p0_head.json --base data/eval/memory_p0_main.json
+# 发布门禁环境（CI）用 --release-gate：任何用例 SKIP 都算失败
+
+# 9) P5 自托管部署（需 Docker；secrets/ 下先放 postgres_password 与 admin_password）
+docker compose up -d
+docker compose run --rm smoke          # 20 项 HTTP 检查，含记忆链路与越权拒绝
+bash scripts/backup.sh --out backups/$(date -u +%Y%m%dT%H%M%SZ)
+bash scripts/restore.sh --from <备份目录>   # 非空目标需显式 --force
+bash scripts/check_image.sh water-agent-app:local
+docker compose -f compose.yml -f compose.production.yml up -d   # 生产加固 overlay
+
+# 10) 交互式多轮 / docgen HITL（EOF 挂起后按输出的 session_id 恢复）
 _venv/bin/python -m water_agent.cli --interactive --mode agentic --mock-generator
 _venv/bin/python -m water_agent.cli --flow docgen --doc-type calculation_book --mock-generator "生成 DN150 给水管道计算书"
 _venv/bin/python -m water_agent.cli --flow docgen --doc-type design_note --mock-generator "某小区给水改造设计说明"
@@ -145,6 +158,10 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 - **动态提示装配**：系统提示分段 + 运行时上下文投影 + 规范版本注册表
 - **LLM-as-judge**：5 准则锚定刻度评分（忠实度/引用覆盖/完整性/清晰度/不编造），结果缓存防重复扣费
 - **观测**：本地 JSON Trace + 可选 OTel GenAI 约定（guarded import）
+- **自托管 Web + 长期记忆（P5）**：FastAPI + React 工作台，PostgreSQL 会话/迁移/checkpoint；
+  账号与权限服务端校验（`Principal.authenticated`），SSE 可续传（`Last-Event-ID`）且逐事件复核授权；
+  长期记忆按 user/project 硬隔离，写入需显式确认并通过 `MemoryWriteGuard`（凭据/PII/注入），
+  召回结果以 `SESSION_MEMORY` 数据段有界注入（1200 字符），不能改变系统提示、工具集或能力授权
 
 ## 容量与基线
 
@@ -156,6 +173,7 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 | material_p0 | 10 | 10/10 (100%) | P2：聚合一致/全段溯源，含 1 条非法输入 |
 | docgen_quality | 4 | 离线 4/4；real 4/4 | 2026-09-04 受限润色样本证据；不证明正式规范引用质量 |
 | material_quality | 7 | 7/7 (100%) | 异常输入、round(3)、审计与溯源；xlsx 另由 pytest 覆盖 |
+| memory_p0（P5 Step 45） | 42 | 41 通过 / 0 失败 / 1 SKIP | P5 长期记忆：§13.2 十二项硬指标全达标；**合成机制与隔离契约证据，非自然语言召回质量** |
 | rag_p1 | 58 | 机制 56/58；质量 36/58 | 2026-09-04 real+judge，退出码 1，状态 blocked |
 
 `data/eval/baseline.json` 于 2026-09-04 更新，只包含四套 PR 机制层 suite：`rag_p0`、`calc_p0`、`docgen_p0`、`material_p0`。`docgen_quality`、`material_quality` 与 `rag_p1` 不在默认 baseline；其中 `rag_p1` 需在真实质量达标后建立独立 baseline。
@@ -173,3 +191,21 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 - **P3 真实图纸未验证**：测试图纸由 ezdxf 程序化合成；真实设计院 DXF 含块参照/外部参照/非标图层，当前只证明解析管线与护栏正确
 - 无 DEEPSEEK_API_KEY 时离线闭环（CLI `--mock-generator`；harness 默认机制层 variant）完全可用
 - 语料扩容：`knowledge/` 下 221 个 md（40MB）尚未入库
+
+### P5 自托管与长期记忆（Step 35–45）的口径
+
+- **代码免费、远程模型不免费**：本项目代码可自托管且不收费，但真实问答/检索仍要调用 DeepSeek 与
+  百炼，费用由使用者承担；未配置 Key 时 Web 端返回 424 `WEB_MODEL_NOT_CONFIGURED`，
+  不假装成功（compose smoke 把这一条记为 note，而不是通过）。
+- **`memory_p0` 是合成评测**：42 条离线确定性用例证明的是**隔离与治理机制**。
+  `gold_exact_recall_rate = 1.00` 用合成关键词 gold，**不代表**任意中文表达的召回率；
+  语义召回质量需在 Step 46 的独立无泄漏 gold 上另行验收。
+- **护栏是确定性正则，不是分类器**：`blocked_injection_persisted_count = 0` 只说明
+  "已拦下的变体没有落盘"，**必然存在未覆盖的改写变体**——不得声称能拦住任意注入。
+- **真实记忆质量仍 blocked**：没有真实用户会话语料，也没有跨用户/跨项目的真实攻击样本；
+  当前全部证据来自程序化合成。
+- **多 worker 限制**：待确认记忆候选存于进程内（15 分钟 TTL），多 worker 部署需持久化候选表（P0 未做）。
+- **重新启用已过期记忆不受支持**：P0 状态机前向，`enabled: true` 返回 409，不静默复活。
+- **本机 `docker compose build` 不可用**：Docker Desktop 的 buildx bake 通道报
+  `x-docker-expose-session-sharedkey` gRPC 错误（与仓库无关）；等价命令
+  `docker build -t water-agent-app:local .` 可用，`up/smoke/down` 与镜像检查均已实测通过。
