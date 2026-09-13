@@ -7,21 +7,19 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from water_agent.webapp.auth import audit as auth_audit
 from water_agent.webapp.auth.bootstrap import run_bootstrap
+from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
 from water_agent.webapp.auth.dependencies import SESSION_COOKIE_NAME
 from water_agent.webapp.auth.models import UserRole
 from water_agent.webapp.auth.password import hash_password
 from water_agent.webapp.auth.rate_limit import LoginRateLimiter
 from water_agent.webapp.auth.session_store import SessionStore
 from water_agent.webapp.auth.user_store import UserStore
-from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures — fresh isolated instances per test
@@ -40,9 +38,9 @@ def _fresh_app(
     rate_limiter: LoginRateLimiter | None = None,
 ):
     """Return a TestClient backed by fresh in-memory stores."""
-    import water_agent.webapp.auth.user_store as us_mod
-    import water_agent.webapp.auth.session_store as ss_mod
     import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
 
     us = user_store or UserStore()
     ss = session_store or SessionStore()
@@ -71,9 +69,9 @@ def _fresh_app(
 
 def _make_app_with_stores():
     """Return (client, user_store, session_store, rate_limiter) all fresh."""
-    import water_agent.webapp.auth.user_store as us_mod
-    import water_agent.webapp.auth.session_store as ss_mod
     import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
     from water_agent.webapp.app import create_app
 
     us = UserStore()
@@ -111,8 +109,8 @@ def test_public_registration_post_returns_404():
 # ---------------------------------------------------------------------------
 
 def test_bootstrap_creates_admin_from_secret(tmp_path: Path):
-    import water_agent.webapp.auth.user_store as us_mod
     import water_agent.webapp.auth.bootstrap as bs_mod
+    import water_agent.webapp.auth.user_store as us_mod
     original = us_mod._store
     us = UserStore()
     us_mod._store = us
@@ -142,8 +140,8 @@ def test_bootstrap_creates_admin_from_secret(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 def test_bootstrap_is_idempotent(tmp_path: Path):
-    import water_agent.webapp.auth.user_store as us_mod
     import water_agent.webapp.auth.bootstrap as bs_mod
+    import water_agent.webapp.auth.user_store as us_mod
     original = us_mod._store
     us = UserStore()
     us_mod._store = us
@@ -156,7 +154,7 @@ def test_bootstrap_is_idempotent(tmp_path: Path):
     bs_mod.configure_database_stores = lambda: sentinel  # type: ignore[assignment]
     try:
         run_bootstrap(secret_path=secret)
-        admin1_id = list(us_mod._store._by_id.values())[0].user_id
+        admin1_id = next(iter(us_mod._store._by_id.values())).user_id
 
         result = run_bootstrap(secret_path=secret)
     finally:
@@ -166,7 +164,7 @@ def test_bootstrap_is_idempotent(tmp_path: Path):
     assert result == 0
     # Still only one user
     assert len(us._by_id) == 1
-    assert list(us._by_id.values())[0].user_id == admin1_id
+    assert next(iter(us._by_id.values())).user_id == admin1_id
 
     skipped = [e for e in auth_audit._get_events() if e["event"] == "auth.bootstrap_admin_skipped"]
     assert len(skipped) == 1
@@ -177,7 +175,7 @@ def test_bootstrap_is_idempotent(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 def test_fixed_session_id_is_rejected():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("alice", "GoodPassword2026!", UserRole.MEMBER)
     # Attempt to authenticate with a hand-crafted session cookie
     client.cookies.set(SESSION_COOKIE_NAME, "attacker-chosen-session-id")
@@ -190,7 +188,7 @@ def test_fixed_session_id_is_rejected():
 # ---------------------------------------------------------------------------
 
 def test_tampered_session_cookie_is_rejected():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("bob", "GoodPassword2026!", UserRole.MEMBER)
 
     # Perform a real login
@@ -208,7 +206,7 @@ def test_tampered_session_cookie_is_rejected():
 # ---------------------------------------------------------------------------
 
 def test_brute_force_triggers_rate_limit():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("charlie", "GoodPassword2026!", UserRole.MEMBER)
 
     # Exhaust failures (limiter configured at max_failures=3 above)
@@ -232,9 +230,9 @@ def test_brute_force_triggers_rate_limit():
 # ---------------------------------------------------------------------------
 
 def test_different_sessions_are_isolated():
-    import water_agent.webapp.auth.user_store as us_mod
-    import water_agent.webapp.auth.session_store as ss_mod
     import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
     from water_agent.webapp.app import create_app
 
     us = UserStore()
@@ -283,7 +281,7 @@ def test_unauthenticated_request_returns_401():
 # ---------------------------------------------------------------------------
 
 def test_principal_constructed_from_session():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("dave", "PrincipalTest2026!", UserRole.MEMBER)
 
     r = client.post("/api/auth/login", json={"username": "dave", "password": "PrincipalTest2026!"})
@@ -307,7 +305,7 @@ def test_principal_constructed_from_session():
 # ---------------------------------------------------------------------------
 
 def test_idor_admin_create_requires_admin_role():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("member1", "MemberPass2026!", UserRole.MEMBER)
 
     r = client.post("/api/auth/login", json={"username": "member1", "password": "MemberPass2026!"})
@@ -329,7 +327,7 @@ def test_idor_admin_create_requires_admin_role():
 # ---------------------------------------------------------------------------
 
 def test_password_hash_not_in_login_response():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("eve", "SecretPass2026!", UserRole.MEMBER)
 
     r = client.post("/api/auth/login", json={"username": "eve", "password": "SecretPass2026!"})
@@ -344,7 +342,7 @@ def test_password_hash_not_in_login_response():
 
 
 def test_password_hash_is_not_in_me_response():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("frank", "FrankPass2026!", UserRole.MEMBER)
 
     client.post("/api/auth/login", json={"username": "frank", "password": "FrankPass2026!"})
@@ -357,7 +355,7 @@ def test_password_hash_is_not_in_me_response():
 
 
 def test_argon2id_hash_is_not_plaintext():
-    from water_agent.webapp.auth.password import hash_password, verify_password
+    from water_agent.webapp.auth.password import verify_password
     h = hash_password("TestPass12345678!")
     # Must start with the Argon2 PHC header
     assert h.startswith("$argon2id$")
@@ -371,7 +369,7 @@ def test_argon2id_hash_is_not_plaintext():
 # ---------------------------------------------------------------------------
 
 def test_logout_without_csrf_returns_403():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("grace", "GracePass2026!", UserRole.MEMBER)
     client.post("/api/auth/login", json={"username": "grace", "password": "GracePass2026!"})
 
@@ -382,7 +380,7 @@ def test_logout_without_csrf_returns_403():
 
 
 def test_logout_with_correct_csrf_succeeds():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("hank", "HankPass2026!", UserRole.MEMBER)
     client.post("/api/auth/login", json={"username": "hank", "password": "HankPass2026!"})
 
@@ -399,7 +397,7 @@ def test_logout_with_correct_csrf_succeeds():
 # ---------------------------------------------------------------------------
 
 def test_must_change_password_blocks_me():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("ivan", "IvanPass2026!", UserRole.MEMBER, must_change_password=True)
 
     client.post("/api/auth/login", json={"username": "ivan", "password": "IvanPass2026!"})
@@ -409,7 +407,7 @@ def test_must_change_password_blocks_me():
 
 
 def test_must_change_password_allows_change_pass():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("jack", "JackPass2026!", UserRole.MEMBER, must_change_password=True)
 
     client.post("/api/auth/login", json={"username": "jack", "password": "JackPass2026!"})
@@ -433,7 +431,7 @@ def test_must_change_password_allows_change_pass():
 # ---------------------------------------------------------------------------
 
 def test_audit_events_never_contain_passwords():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("karen", "KarenSecret2026!", UserRole.MEMBER)
 
     client.post("/api/auth/login", json={"username": "karen", "password": "KarenSecret2026!"})
@@ -455,9 +453,9 @@ def test_audit_events_never_contain_passwords():
 # ---------------------------------------------------------------------------
 
 def test_admin_can_create_and_deactivate_user():
-    import water_agent.webapp.auth.user_store as us_mod
-    import water_agent.webapp.auth.session_store as ss_mod
     import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
     from water_agent.webapp.app import create_app
 
     us = UserStore()
@@ -483,7 +481,6 @@ def test_admin_can_create_and_deactivate_user():
     new_id = r.json()["data"]["user"]["user_id"]
 
     # Deactivate
-    from uuid import UUID
     r2 = client.patch(
         f"/api/admin/users/{new_id}/deactivate",
         headers={"X-CSRF-Token": csrf or ""},
@@ -497,7 +494,7 @@ def test_admin_can_create_and_deactivate_user():
 # ---------------------------------------------------------------------------
 
 def test_login_response_does_not_expose_subject_or_hash():
-    client, us, ss, rl = _make_app_with_stores()
+    client, us, _ss, _rl = _make_app_with_stores()
     us.create_user("lucy", "LucyPass2026!", UserRole.MEMBER)
 
     r = client.post("/api/auth/login", json={"username": "lucy", "password": "LucyPass2026!"})
