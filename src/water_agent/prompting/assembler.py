@@ -11,11 +11,19 @@
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
 from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.memory.recall import (
+    MAX_MEMORY_CONTEXT_CHARACTERS,
+    MemoryRecallHit,
+    MemoryRecallResult,
+    render_memory_context,
+)
+from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
 from water_agent.tools.registry import ToolRegistry
 
 # 段级 token 预算（粗估：中文约 1 token/字符，取整上限）。
@@ -28,11 +36,12 @@ SEGMENT_BUDGETS: dict[str, int] = {
     "version_snapshot": 400,
     "formula_specs": 400,
     "tool_guide": 800,
+    "memory_context": MAX_MEMORY_CONTEXT_CHARACTERS,
 }
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p2.5-step14-2026-09-06"
+PROMPT_TEMPLATE_VERSION = "p5-step41-memory-context-2026-09-13"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -131,11 +140,15 @@ class PromptAssembler:
 
     def assemble_prompt(self, state: dict[str, Any] | None = None) -> SystemMessage:
         """装配完整系统提示：静态段在前（缓存友好），动态段在后。"""
+        state = state or {}
         segments = [
             _check_static_budget("role_and_principles", ROLE_AND_PRINCIPLES),
             _truncate_to_budget(self._build_version_snapshot(), SEGMENT_BUDGETS["version_snapshot"]),
             _check_static_budget("formula_specs", FORMULA_SPECS),
             _truncate_to_budget(self._build_tool_guide(), SEGMENT_BUDGETS["tool_guide"]),
+            _truncate_to_budget(
+                self._build_memory_context(state), SEGMENT_BUDGETS["memory_context"]
+            ),
         ]
         content = "\n\n".join(seg for seg in segments if seg)
         return SystemMessage(content=content)
@@ -163,3 +176,35 @@ class PromptAssembler:
         if not lines:
             return ""
         return "【可用工具】\n" + "\n".join(lines)
+
+    @staticmethod
+    def _build_memory_context(state: dict[str, Any]) -> str:
+        """Render only caller-provided session-memory data as a separate segment."""
+
+        value = state.get("memory_context")
+        if value is None:
+            return ""
+        if isinstance(value, MemoryRecallResult):
+            return value.context_text
+        if isinstance(value, str):
+            if not value.strip():
+                return ""
+            envelope = ContentEnvelope(
+                source_tag=SourceTag.SESSION_MEMORY,
+                text=value,
+                redacted=True,
+            )
+            return render_memory_context([envelope])
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            items: list[MemoryRecallHit | ContentEnvelope] = []
+            for item in value:
+                if isinstance(item, MemoryRecallHit):
+                    items.append(item)
+                elif isinstance(item, ContentEnvelope):
+                    if item.source_tag is not SourceTag.SESSION_MEMORY:
+                        raise ValueError("memory_context must contain SESSION_MEMORY data")
+                    items.append(item)
+                else:
+                    raise TypeError("memory_context must be a recall result or memory envelopes")
+            return render_memory_context(items)
+        raise TypeError("memory_context must be a recall result, text, or memory envelopes")
