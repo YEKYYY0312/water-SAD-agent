@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from water_agent.memory.contracts import (
     MemoryInjectionBlockedError,
+    MemoryKindInvalidError,
     MemoryPiiBlockedError,
     MemorySecretBlockedError,
     normalize_semantic_key,
@@ -24,8 +25,15 @@ from water_agent.runtime.governance.rules import (
 )
 
 _MEMORY_SECRET_ASSIGNMENT = re.compile(
-    r"\b(?:api[_\- ]?key|secret[_\- ]?key|access[_\- ]?token|token|password)"
-    r"\s*[=:]\s*['\"]?[^\s'\"]{8,}",
+    # Assignment form: a credential keyword, "=" or ":", then an opaque value.
+    r"\b(?:api[_\- ]?key|secret[_\- ]?key|access[_\- ]?token|token|password"
+    r"|passwd|pwd|private[_\- ]?key|client[_\- ]?secret|passphrase"
+    r"|db[_\- ]?password|secret)\s*[=:]\s*['\"]?[^\s'\"]{8,}"
+    # Bearer/authorization headers separate the credential with whitespace.
+    r"|\bbearer\s+[A-Za-z0-9._\-]{8,}"
+    # Natural language: "the db password is ...", "客户端 secret 为 ...".
+    r"|\b(?:password|passwd|secret|token|api[_\- ]?key|passphrase)\s*"
+    r"(?:is|为|=)\s*['\"]?\S{8,}",
     re.IGNORECASE,
 )
 
@@ -36,7 +44,7 @@ def normalize_memory_content(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).replace("\r\n", "\n").replace("\r", "\n")
     normalized = normalized.strip()
     if not normalized:
-        raise ValueError("memory content must not be empty")
+        raise MemoryKindInvalidError("memory content must not be empty")
     return normalized
 
 

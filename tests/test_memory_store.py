@@ -319,7 +319,7 @@ def test_expire_due_and_forget_leave_only_a_tombstone(database: Database) -> Non
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
 
-    expired = service.expire_due(now=datetime.now(UTC))
+    expired = service.expire_due(now=datetime.now(UTC), tenant_id=tenant_id)
     assert [item.memory_id for item in expired] == [record.memory_id]
     forgotten = service.forget_memory(
         record.memory_id,
@@ -455,3 +455,82 @@ def test_postgres_memory_roundtrip_uses_step39_schema() -> None:
         assert forgotten.content == ""
     finally:
         database.dispose()
+
+
+def test_expire_due_never_returns_another_owners_body(database: Database) -> None:
+    """A user-scoped expiry sweep must stay inside the caller's own memories.
+
+    Before the fix, expire_due() filtered only on status and expires_at, so one
+    user's sweep selected every due row in the tenant and returned the bodies.
+    """
+
+    alice, bob = uuid4(), uuid4()
+    _insert_users(database, alice, bob)
+    service = _service(database)
+    tenant_id = uuid4()
+    past = datetime.now(UTC) - timedelta(seconds=1)
+
+    alice_record = _create_user_memory(
+        service,
+        tenant_id=tenant_id,
+        actor_user_id=alice,
+        semantic_key="alice-units",
+        content="alice body",
+        expires_at=past,
+    )
+    bob_record = _create_user_memory(
+        service,
+        tenant_id=tenant_id,
+        actor_user_id=bob,
+        semantic_key="bob-units",
+        content="bob private body",
+        expires_at=past,
+    )
+
+    expired = service.expire_due(
+        now=datetime.now(UTC),
+        tenant_id=tenant_id,
+        actor_user_id=alice,
+    )
+
+    returned_ids = {item.memory_id for item in expired}
+    assert returned_ids == {alice_record.memory_id}
+    assert bob_record.memory_id not in returned_ids
+    assert all("bob private body" not in (item.content or "") for item in expired)
+
+    # Bob's record must still be ACTIVE: another user's sweep cannot expire it.
+    still_active = service.get_memory(
+        bob_record.memory_id, tenant_id=tenant_id, actor_user_id=bob
+    )
+    assert still_active.status is MemoryStatus.ACTIVE
+
+
+def test_expire_due_stays_inside_the_requested_tenant(database: Database) -> None:
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_a, tenant_b = uuid4(), uuid4()
+    past = datetime.now(UTC) - timedelta(seconds=1)
+
+    record_a = _create_user_memory(
+        service,
+        tenant_id=tenant_a,
+        actor_user_id=owner,
+        semantic_key="a-units",
+        expires_at=past,
+    )
+    record_b = _create_user_memory(
+        service,
+        tenant_id=tenant_b,
+        actor_user_id=owner,
+        semantic_key="b-units",
+        expires_at=past,
+    )
+
+    expired = service.expire_due(now=datetime.now(UTC), tenant_id=tenant_a)
+
+    assert [item.memory_id for item in expired] == [record_a.memory_id]
+    untouched = service.get_memory(
+        record_b.memory_id, tenant_id=tenant_b, actor_user_id=owner
+    )
+    assert untouched.status is MemoryStatus.ACTIVE

@@ -695,26 +695,35 @@ class MemoryRepository:
         if row.status == MemoryStatus.EXPIRED.value:
             raise MemoryExpiredError()
         if row.status != MemoryStatus.ACTIVE.value:
-            raise ValueError("only active memories can be changed")
+            raise MemoryStoreUnavailableError("record is not in a mutable state")
 
     def expire_due(
         self,
         *,
         now: datetime | None = None,
-        tenant_id: UUID | str | None = None,
+        tenant_id: UUID | str,
         actor_user_id: UUID | str | None = None,
     ) -> list[MemoryRecord]:
+        """Expire due memories inside one tenant, never across owners.
+
+        A caller without an actor is a deployment-level scheduler and stays
+        scoped to the tenant.  A caller acting for a user may only expire the
+        memories that user is allowed to write, so the sweep can never return
+        another owner's body.
+        """
+
         point = now or _now()
-        tenant_key = str(_as_uuid(tenant_id)) if tenant_id is not None else None
+        tenant_key = str(_as_uuid(tenant_id))
         operator = str(_as_uuid(actor_user_id)) if actor_user_id is not None else "system"
         with self._transaction() as session:
             conditions = [
+                MemoryRecordRow.tenant_id == tenant_key,
                 MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
                 MemoryRecordRow.expires_at.is_not(None),
                 MemoryRecordRow.expires_at <= point,
             ]
-            if tenant_key is not None:
-                conditions.append(MemoryRecordRow.tenant_id == tenant_key)
+            if actor_user_id is not None:
+                conditions.append(self._write_access_clause(operator))
             rows = list(session.execute(select(MemoryRecordRow).where(*conditions)).scalars())
             expired: list[MemoryRecord] = []
             for row in rows:
@@ -778,7 +787,9 @@ class MemoryRepository:
                         MemoryRecordRow.expires_at.is_(None),
                         MemoryRecordRow.expires_at > _now(),
                     ),
-                    self._read_access_clause(actor),
+                    # Recording usage appends an event row, so it is a write:
+                    # a project viewer must not be able to touch the audit log.
+                    self._write_access_clause(actor),
                 )
             ).scalar_one_or_none()
             if row is None:
