@@ -100,6 +100,9 @@ class _RunHandle:
     finalizing: bool = False
     finalized: bool = False
     session: Any | None = None
+    seen_tool_calls: set[str] = field(default_factory=set)
+    seen_tool_messages: set[str] = field(default_factory=set)
+    calculations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _now() -> str:
@@ -403,7 +406,7 @@ class RunManager:
             status = str(result.get("status") or "failed")
             if status not in RUN_STATUSES or status == "queued" or status == "running":
                 status = "failed"
-            self._finish(handle, status=status, payload=self._result_payload(result))
+            self._finish(handle, status=status, payload=self._result_payload(result, handle=handle))
         except RunCancelled:
             self._finish(handle, status="cancelled", payload={"status": "cancelled"})
         except SQLAlchemyError:
@@ -420,6 +423,7 @@ class RunManager:
 
     def _on_agent_event(self, handle: _RunHandle, mode: str, payload: Any) -> None:
         if mode == "values" and isinstance(payload, dict):
+            self._observe_tool_messages(handle, payload.get("messages"))
             self._append(
                 handle,
                 "state",
@@ -439,16 +443,28 @@ class RunManager:
             if isinstance(text, str) and text:
                 safe["text"] = _safe_text(text, limit=4000)
             if tool_calls:
-                safe["tool_names"] = [
-                    str(item.get("name") or "")
-                    for item in tool_calls
-                    if isinstance(item, dict) and item.get("name")
-                ]
+                names: list[str] = []
+                for item in tool_calls:
+                    name = str(item.get("name") or "") if isinstance(item, dict) else str(getattr(item, "name", "") or "")
+                    call_id = str(item.get("id") or "") if isinstance(item, dict) else str(getattr(item, "id", "") or "")
+                    if not name:
+                        continue
+                    names.append(name)
+                    marker = call_id or name
+                    if marker not in handle.seen_tool_calls:
+                        handle.seen_tool_calls.add(marker)
+                        self._append(
+                            handle,
+                            "tool_started",
+                            {"tool_name": name, "status": "running"},
+                        )
+                if names:
+                    safe["tool_names"] = names
             if safe:
                 self._append(handle, "agent_message", safe)
 
     @staticmethod
-    def _result_payload(result: dict[str, Any]) -> dict[str, Any]:
+    def _result_payload(result: dict[str, Any], *, handle: _RunHandle | None = None) -> dict[str, Any]:
         return {
             "status": str(result.get("status") or "failed"),
             "answer": _safe_text(result.get("answer", "")),
@@ -459,6 +475,89 @@ class RunManager:
             ],
             "errors": [_safe_text(item, limit=1000) for item in result.get("errors", [])],
             "warnings": [_safe_text(item, limit=1000) for item in result.get("warnings", [])],
+            "calculations": list(handle.calculations) if handle is not None else [],
+        }
+
+    def _observe_tool_messages(self, handle: _RunHandle, messages: Any) -> None:
+        """Project real ToolMessages into safe UI events.
+
+        The agent graph remains the execution authority.  This observer only
+        reads already-produced tool results and never computes or re-runs them.
+        """
+
+        if not isinstance(messages, (list, tuple)):
+            return
+        for message in messages:
+            tool_name = getattr(message, "name", None)
+            if not isinstance(tool_name, str) or not tool_name:
+                continue
+            # The citation validator uses a synthetic ToolMessage internally;
+            # it is a graph boundary, not a user-callable tool.  When the
+            # real session exposes a registry, only registered tools may
+            # become a tool card.
+            if tool_name == "citation_validator":
+                continue
+            registry = getattr(handle.session, "registry", None)
+            if registry is not None and registry.get(tool_name) is None:
+                continue
+            tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+            marker = tool_call_id or f"{tool_name}:{len(handle.seen_tool_messages)}"
+            if marker in handle.seen_tool_messages:
+                continue
+            handle.seen_tool_messages.add(marker)
+            raw_content = getattr(message, "content", None)
+            payload = self._tool_payload(raw_content)
+            failed = bool(payload.get("error")) or (
+                isinstance(raw_content, str) and bool(raw_content.strip()) and not payload
+            )
+            result_payload: dict[str, Any] = {
+                "tool_name": tool_name,
+                "status": "failed" if failed else "succeeded",
+            }
+            if failed and not payload:
+                result_payload["code"] = "TOOL_RESULT_INVALID"
+            if payload.get("code"):
+                result_payload["code"] = _safe_text(payload["code"], limit=120)
+            if payload.get("message"):
+                result_payload["message"] = _safe_text(payload["message"], limit=500)
+            calculation = self._calculation_payload(tool_name, payload)
+            if calculation is not None:
+                result_payload["calculation"] = calculation
+                handle.calculations.append(calculation)
+            self._append(handle, "tool_result", result_payload)
+
+    @staticmethod
+    def _tool_payload(content: Any) -> dict[str, Any]:
+        if isinstance(content, dict):
+            return dict(content)
+        if isinstance(content, str):
+            try:
+                decoded = json.loads(content)
+            except (TypeError, ValueError):
+                return {}
+            return decoded if isinstance(decoded, dict) else {}
+        return {}
+
+    @staticmethod
+    def _calculation_payload(tool_name: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Expose only the known programmatic calculation result shape."""
+
+        if (
+            tool_name != "calc_velocity"
+            or isinstance(payload.get("velocity_mps"), bool)
+            or not isinstance(payload.get("velocity_mps"), (int, float))
+        ):
+            return None
+        return {
+            "tool_name": tool_name,
+            "programmatic": True,
+            "values": {"velocity_mps": payload["velocity_mps"]},
+            "units": {"velocity_mps": "m/s"},
+            "assumptions": [
+                _safe_text(item, limit=300)
+                for item in payload.get("assumptions", [])
+                if isinstance(item, str)
+            ],
         }
 
     @staticmethod
@@ -588,13 +687,79 @@ class RunManager:
         recorder = getattr(handle.session, "recorder", None)
         snapshot = recorder.snapshot() if recorder is not None else None
         if snapshot is not None:
-            return cast(dict[str, Any], snapshot)
+            return self._trace_projection(cast(dict[str, Any], snapshot))
         with handle.condition:
             return {
                 "run_id": handle.run_id,
                 "status": handle.status,
                 "events": [],
             }
+
+    @staticmethod
+    def _trace_projection(snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Return the browser-safe trace view; omit query/context正文 by default."""
+
+        projected_events: list[dict[str, Any]] = []
+        for event in snapshot.get("events", []):
+            if not isinstance(event, dict):
+                continue
+            projected: dict[str, Any] = {
+                key: event[key]
+                for key in (
+                    "event_id",
+                    "event_type",
+                    "node_name",
+                    "timestamp",
+                    "duration_ms",
+                    "retry_count",
+                    "status",
+                )
+                if key in event
+            }
+            if event.get("error"):
+                projected["error"] = _safe_text(event["error"], limit=1000)
+            data = event.get("data")
+            if isinstance(data, dict):
+                projected["data"] = {
+                    key: RunManager._trace_value(value)
+                    for key, value in data.items()
+                    if key not in {"query", "prompt", "messages", "content"}
+                }
+            citations = event.get("citations")
+            if isinstance(citations, list):
+                source_ids = [
+                    str(item.get("source_id"))
+                    for item in citations
+                    if isinstance(item, dict) and item.get("source_id")
+                ]
+                if source_ids:
+                    projected["citation_source_ids"] = source_ids
+            context = event.get("retrieved_context")
+            if isinstance(context, list):
+                projected["retrieved_count"] = len(context)
+            projected_events.append(projected)
+        return {
+            "run_id": snapshot.get("run_id", ""),
+            "trace_id": snapshot.get("trace_id", ""),
+            "status": snapshot.get("status", ""),
+            "started_at": snapshot.get("started_at"),
+            "finished_at": snapshot.get("finished_at"),
+            "events": projected_events,
+        }
+
+    @staticmethod
+    def _trace_value(value: Any) -> Any:
+        if isinstance(value, str):
+            return _safe_text(value, limit=1000)
+        if isinstance(value, list):
+            return [RunManager._trace_value(item) for item in value[:40]]
+        if isinstance(value, dict):
+            return {
+                str(key): RunManager._trace_value(item)
+                for key, item in list(value.items())[:40]
+                if key not in {"content", "query", "prompt"}
+            }
+        return value
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=False)
