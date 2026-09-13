@@ -19,6 +19,9 @@ services:
       retries: 12
 
   migrate:
+    # Explicit local tag: scripts/check_image.sh and the CI compose job
+    # need a stable, known image name instead of the compose-derived one.
+    image: water-agent-migrate:local
     build:
       context: .
     command: ["python", "-m", "water_agent.webapp.lifecycle", "migrate"]
@@ -34,6 +37,9 @@ services:
     tmpfs: [/tmp]
 
   bootstrap-admin:
+    # Explicit local tag: scripts/check_image.sh and the CI compose job
+    # need a stable, known image name instead of the compose-derived one.
+    image: water-agent-bootstrap-admin:local
     build:
       context: .
     command: ["python", "-m", "water_agent.webapp.lifecycle", "bootstrap-admin"]
@@ -50,6 +56,9 @@ services:
     tmpfs: [/tmp]
 
   app:
+    # Explicit local tag: scripts/check_image.sh and the CI compose job
+    # need a stable, known image name instead of the compose-derived one.
+    image: water-agent-app:local
     build:
       context: .
     restart: unless-stopped
@@ -80,6 +89,30 @@ services:
       timeout: 3s
       retries: 6
       start_period: 10s
+
+  # Smoke test (Step 45).  It is NOT behind a profile on purpose: the task book's
+  # acceptance command is a bare `docker compose run --rm smoke`, and Compose v2
+  # refuses to run a service whose profile is inactive.  It is a one-shot
+  # (`restart: "no"`) that HTTP-checks the deployed app and exits.
+  smoke:
+    # Explicit local tag: scripts/check_image.sh and the CI compose job
+    # need a stable, known image name instead of the compose-derived one.
+    image: water-agent-smoke:local
+    build:
+      context: .
+    command: ["python", "-m", "water_agent.webapp.smoke"]
+    restart: "no"
+    environment:
+      SMOKE_BASE_URL: http://app:8000
+      SMOKE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      SMOKE_EXPECTED_MIGRATION_HEAD: "0004_step44_workspace"
+    depends_on:
+      app:
+        condition: service_healthy
+    secrets:
+      - admin_password
+    read_only: true
+    tmpfs: [/tmp]
 
   reverse-proxy:
     image: caddy:2.11.1-alpine@sha256:3b2a0196e0687279c14c27adff9fc6b44acfa318dbb97eaebe385bdf99e5364c

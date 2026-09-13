@@ -1,0 +1,3335 @@
+{
+  "report_schema_version": "p5-step-45-memory-evidence-v1",
+  "generated_by": "water_agent.harness.memory_eval",
+  "suite": "data/eval/memory_p0.jsonl",
+  "suite_case_count": 42,
+  "total": 42,
+  "passed": 41,
+  "failed": 0,
+  "skipped": 1,
+  "pass_rate": 1.0,
+  "cases": [
+    {
+      "case_id": "mem-p0-0001",
+      "title": "会话 A 保存的单位偏好在新会话召回",
+      "area": "user_preference_cross_session",
+      "scenario": "preference_cross_session",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "write_action",
+          "expected": "created",
+          "actual": "created",
+          "passed": true
+        },
+        {
+          "name": "recalled",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "source_thread_isolated",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "recall_count": 1,
+        "provenance_valid": 1,
+        "second_session_is_new_thread": true
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0001",
+          "leaked": 0,
+          "returned_count": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0002",
+      "title": "会话 A 保存的输出偏好在新会话召回",
+      "area": "user_preference_cross_session",
+      "scenario": "preference_cross_session",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "write_action",
+          "expected": "created",
+          "actual": "created",
+          "passed": true
+        },
+        {
+          "name": "recalled",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "source_thread_isolated",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "recall_count": 1,
+        "provenance_valid": 1,
+        "second_session_is_new_thread": true
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0002",
+          "leaked": 0,
+          "returned_count": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0003",
+      "title": "给水水源事实只在所属项目召回",
+      "area": "project_fact_isolation",
+      "scenario": "project_fact_isolation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "recalled_inside_project",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "recall_count_inside",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "other_project_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "unscoped_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "inside": 1,
+        "other_project": 0,
+        "no_project": 0
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0003",
+          "leaked": 0,
+          "returned_count": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0004",
+      "title": "泵房配置事实不跨项目召回",
+      "area": "project_fact_isolation",
+      "scenario": "project_fact_isolation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "recalled_inside_project",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "recall_count_inside",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "other_project_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "unscoped_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "inside": 1,
+        "other_project": 0,
+        "no_project": 0
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0004",
+          "leaked": 0,
+          "returned_count": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0005",
+      "title": "两个用户使用相同 key 保存不同单位偏好",
+      "area": "same_key_cross_user",
+      "scenario": "same_key_two_users",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "first_sees_own",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "second_sees_own",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "no_cross_user_leak",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 2,
+        "recall_gold_matched": 2,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "first_hits": 1,
+        "second_hits": 1
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0005",
+          "leaked": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0006",
+      "title": "两个用户使用相同 key 保存不同取整规则",
+      "area": "same_key_cross_user",
+      "scenario": "same_key_two_users",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "first_sees_own",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "second_sees_own",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "no_cross_user_leak",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 2,
+        "recall_gold_matched": 2,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "first_hits": 1,
+        "second_hits": 1
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0006",
+          "leaked": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0007",
+      "title": "猜测他人 memory_id 读取不越权",
+      "area": "memory_id_authorization",
+      "scenario": "idor_memory_id",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "intruder_read_status",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "intruder_delete_denied",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "intruder_list_empty",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "owner_still_active",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "name": "owner_list_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "read_status": 404,
+        "delete_status": 404,
+        "survivor_status": 200
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0007",
+          "code": "MEMORY_SCOPE_DENIED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0008",
+      "title": "猜测他人 memory_id 删除不越权",
+      "area": "memory_id_authorization",
+      "scenario": "idor_memory_id",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "intruder_read_status",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "intruder_delete_denied",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "intruder_list_empty",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "owner_still_active",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "name": "owner_list_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "read_status": 404,
+        "delete_status": 404,
+        "survivor_status": 200
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0008",
+          "code": "MEMORY_SCOPE_DENIED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0009",
+      "title": "猜测他人 thread_id 读写会话均被拒",
+      "area": "thread_id_authorization",
+      "scenario": "idor_thread_id",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "session_read_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "message_post_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "thread_id": "e0e05caa-a360-49ea-a078-482eaf0856fb"
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0009",
+          "code": "MEMORY_SCOPE_DENIED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0010",
+      "title": "猜测他人 project_id 读取项目与记忆均被拒",
+      "area": "project_id_authorization",
+      "scenario": "idor_project_id",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "project_read_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "project_sessions_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "project_memory_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "owner_project_memory_hits",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "session_still_owned",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "project_status": 404,
+        "leaked": 0
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0010",
+          "leaked": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0011",
+      "title": "非成员无法通过 project_id 召回项目事实",
+      "area": "project_id_authorization",
+      "scenario": "idor_project_id",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "project_read_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "project_sessions_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "project_memory_hits",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "owner_project_memory_hits",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "session_still_owned",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "project_status": 404,
+        "leaked": 0
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0011",
+          "leaked": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0012",
+      "title": "重复写入同一事实只做 reaffirm",
+      "area": "reaffirm",
+      "scenario": "reaffirm_duplicate",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "first_action",
+          "expected": "created",
+          "actual": "created",
+          "passed": true
+        },
+        {
+          "name": "disposition",
+          "expected": "reaffirm",
+          "actual": "reaffirm",
+          "passed": true
+        },
+        {
+          "name": "reaffirm_action",
+          "expected": "reaffirmed",
+          "actual": "reaffirmed",
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "revision_unchanged",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "active_records": 1,
+        "recall_count": 1
+      },
+      "events": [
+        {
+          "event": "memory.write_committed",
+          "case_id": "mem-p0-0012",
+          "confirmed": true,
+          "revision": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0013",
+      "title": "重复写入同一材质偏好只做 reaffirm",
+      "area": "reaffirm",
+      "scenario": "reaffirm_duplicate",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "first_action",
+          "expected": "created",
+          "actual": "created",
+          "passed": true
+        },
+        {
+          "name": "disposition",
+          "expected": "reaffirm",
+          "actual": "reaffirm",
+          "passed": true
+        },
+        {
+          "name": "reaffirm_action",
+          "expected": "reaffirmed",
+          "actual": "reaffirmed",
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "revision_unchanged",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 1,
+        "recall_gold_matched": 1,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "active_records": 1,
+        "recall_count": 1
+      },
+      "events": [
+        {
+          "event": "memory.write_committed",
+          "case_id": "mem-p0-0013",
+          "confirmed": true,
+          "revision": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0014",
+      "title": "同 key 不同正文必须人工选择解决方式",
+      "area": "conflict",
+      "scenario": "conflict_requires_confirmation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "disposition",
+          "expected": "conflict",
+          "actual": "conflict",
+          "passed": true
+        },
+        {
+          "name": "unconfirmed_conflict_code",
+          "expected": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "actual": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "passed": true
+        },
+        {
+          "name": "original_preserved",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "proposed_not_persisted_before_decision",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "explicit_resolution_action",
+          "expected": "corrected",
+          "actual": "corrected",
+          "passed": true
+        },
+        {
+          "name": "proposed_applied_after_decision",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 3,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "unreconciled_code": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+        "active_records": 1,
+        "final_recall_count": 1
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0014",
+          "code": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0015",
+      "title": "同 key 不同取整规则不得静默覆盖",
+      "area": "conflict",
+      "scenario": "conflict_requires_confirmation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "disposition",
+          "expected": "conflict",
+          "actual": "conflict",
+          "passed": true
+        },
+        {
+          "name": "unconfirmed_conflict_code",
+          "expected": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "actual": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "passed": true
+        },
+        {
+          "name": "original_preserved",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "proposed_not_persisted_before_decision",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "explicit_resolution_action",
+          "expected": "corrected",
+          "actual": "corrected",
+          "passed": true
+        },
+        {
+          "name": "proposed_applied_after_decision",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 3,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "unreconciled_code": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+        "active_records": 1,
+        "final_recall_count": 1
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0015",
+          "code": "MEMORY_CONFLICT_REQUIRES_CONFIRMATION",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0016",
+      "title": "并发更正必须基于最新 revision",
+      "area": "revision_concurrency",
+      "scenario": "revision_concurrency",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "stale_correction_code",
+          "expected": "MEMORY_REVISION_CONFLICT",
+          "actual": "MEMORY_REVISION_CONFLICT",
+          "passed": true
+        },
+        {
+          "name": "revision_bumped",
+          "expected": 2,
+          "actual": 2,
+          "passed": true
+        },
+        {
+          "name": "content_is_first_correction",
+          "expected": "设计流量按最高日最高时计",
+          "actual": "设计流量按最高日最高时计",
+          "passed": true
+        },
+        {
+          "name": "stale_value_not_recalled",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "revision": 2,
+        "conflict_code": "MEMORY_REVISION_CONFLICT"
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0016",
+          "code": "MEMORY_REVISION_CONFLICT",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0017",
+      "title": "过期 revision 的第二次更正失败且不覆盖",
+      "area": "revision_concurrency",
+      "scenario": "revision_concurrency",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "stale_correction_code",
+          "expected": "MEMORY_REVISION_CONFLICT",
+          "actual": "MEMORY_REVISION_CONFLICT",
+          "passed": true
+        },
+        {
+          "name": "revision_bumped",
+          "expected": 2,
+          "actual": 2,
+          "passed": true
+        },
+        {
+          "name": "content_is_first_correction",
+          "expected": "管径按最小允许流速校核",
+          "actual": "管径按最小允许流速校核",
+          "passed": true
+        },
+        {
+          "name": "stale_value_not_recalled",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "revision": 2,
+        "conflict_code": "MEMORY_REVISION_CONFLICT"
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0017",
+          "code": "MEMORY_REVISION_CONFLICT",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0018",
+      "title": "expired 与 superseded 记忆不被召回",
+      "area": "inactive_status",
+      "scenario": "inactive_status_not_recalled",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "inactive_recall_count",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "no_inactive_body_returned",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "statuses_applied",
+          "expected": 2,
+          "actual": 2,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "statuses": [
+          "expired",
+          "superseded"
+        ],
+        "recalled": 0,
+        "leaked_statuses": []
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0018",
+          "leaked": 0,
+          "returned_count": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0019",
+      "title": "forgotten 与 quarantined 记忆不被召回",
+      "area": "inactive_status",
+      "scenario": "inactive_status_not_recalled",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "inactive_recall_count",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "no_inactive_body_returned",
+          "expected": [],
+          "actual": [],
+          "passed": true
+        },
+        {
+          "name": "statuses_applied",
+          "expected": 2,
+          "actual": 2,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 2,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "statuses": [
+          "forgotten",
+          "quarantined"
+        ],
+        "recalled": 0,
+        "leaked_statuses": []
+      },
+      "events": [
+        {
+          "event": "memory.recall_completed",
+          "case_id": "mem-p0-0019",
+          "leaked": 0,
+          "returned_count": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0020",
+      "title": "忘记后正文、召回与 API 均不可得",
+      "area": "forget_residual",
+      "scenario": "forget_removes_all_surfaces",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "forget_action",
+          "expected": "forgotten",
+          "actual": "forgotten",
+          "passed": true
+        },
+        {
+          "name": "raw_content_cleared",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "name": "tombstone",
+          "expected": true,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "api_status",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "name": "api_status_field",
+          "expected": "forgotten",
+          "actual": "forgotten",
+          "passed": true
+        },
+        {
+          "name": "api_content_absent",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "list_excludes_forgotten",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "residuals",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "pre_forget_visible",
+          "expected": "临时偏好:报价单使用含税价",
+          "actual": "临时偏好:报价单使用含税价",
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "residuals": 0,
+        "raw_content": null,
+        "recall_count": 0,
+        "api_status": "forgotten"
+      },
+      "events": [
+        {
+          "event": "memory.forget_completed",
+          "case_id": "mem-p0-0020",
+          "persisted": 0,
+          "memory_id": "7414ea8f-66a4-444c-b784-d845149c6e5e"
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0021",
+      "title": "忘记后列表与单条读取都不返回正文",
+      "area": "forget_residual",
+      "scenario": "forget_removes_all_surfaces",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "forget_action",
+          "expected": "forgotten",
+          "actual": "forgotten",
+          "passed": true
+        },
+        {
+          "name": "raw_content_cleared",
+          "expected": null,
+          "actual": null,
+          "passed": true
+        },
+        {
+          "name": "tombstone",
+          "expected": true,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "recall_count",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "api_status",
+          "expected": 200,
+          "actual": 200,
+          "passed": true
+        },
+        {
+          "name": "api_status_field",
+          "expected": "forgotten",
+          "actual": "forgotten",
+          "passed": true
+        },
+        {
+          "name": "api_content_absent",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "list_excludes_forgotten",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "residuals",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "pre_forget_visible",
+          "expected": "临时偏好:图纸编号使用旧编码规则",
+          "actual": "临时偏好:图纸编号使用旧编码规则",
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "residuals": 0,
+        "raw_content": null,
+        "recall_count": 0,
+        "api_status": "forgotten"
+      },
+      "events": [
+        {
+          "event": "memory.forget_completed",
+          "case_id": "mem-p0-0021",
+          "persisted": 0,
+          "memory_id": "282f6f89-3e89-4113-b04a-125d46d8c1d6"
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0022",
+      "title": "明文指令注入不得成为活动记忆",
+      "area": "injection_write_block",
+      "scenario": "injection_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "blocked_or_quarantined",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "body_not_persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "plain",
+        "code": null,
+        "quarantined_records": 1,
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0022",
+          "code": "memory.quarantined",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0023",
+      "title": "零宽字符变体不得成为活动记忆",
+      "area": "injection_write_block",
+      "scenario": "injection_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "blocked_or_quarantined",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "body_not_persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "zerowidth",
+        "code": null,
+        "quarantined_records": 1,
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0023",
+          "code": "memory.quarantined",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0024",
+      "title": "Base64 变体不得成为活动记忆",
+      "area": "injection_write_block",
+      "scenario": "injection_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "blocked_or_quarantined",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "body_not_persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "base64",
+        "code": null,
+        "quarantined_records": 1,
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0024",
+          "code": "memory.quarantined",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0025",
+      "title": "API Key 永不落盘",
+      "area": "secret_not_persisted",
+      "scenario": "secret_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_SECRET_BLOCKED",
+          "actual": "MEMORY_SECRET_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "api_key",
+        "code": "MEMORY_SECRET_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0025",
+          "code": "MEMORY_SECRET_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0026",
+      "title": "密码赋值永不落盘",
+      "area": "secret_not_persisted",
+      "scenario": "secret_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_SECRET_BLOCKED",
+          "actual": "MEMORY_SECRET_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "password",
+        "code": "MEMORY_SECRET_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0026",
+          "code": "MEMORY_SECRET_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0027",
+      "title": "Bearer token 永不落盘",
+      "area": "secret_not_persisted",
+      "scenario": "secret_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_SECRET_BLOCKED",
+          "actual": "MEMORY_SECRET_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "active_records",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "bearer",
+        "code": "MEMORY_SECRET_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0027",
+          "code": "MEMORY_SECRET_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0028",
+      "title": "手机号默认不进入长期记忆",
+      "area": "pii_not_persisted",
+      "scenario": "pii_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_PII_BLOCKED",
+          "actual": "MEMORY_PII_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "phone",
+        "code": "MEMORY_PII_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0028",
+          "code": "MEMORY_PII_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0029",
+      "title": "邮箱默认不进入长期记忆",
+      "area": "pii_not_persisted",
+      "scenario": "pii_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_PII_BLOCKED",
+          "actual": "MEMORY_PII_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "email",
+        "code": "MEMORY_PII_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0029",
+          "code": "MEMORY_PII_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0030",
+      "title": "身份证号默认不进入长期记忆",
+      "area": "pii_not_persisted",
+      "scenario": "pii_variants_blocked",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_PII_BLOCKED",
+          "actual": "MEMORY_PII_BLOCKED",
+          "passed": true
+        },
+        {
+          "name": "persisted",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "variant": "id_card",
+        "code": "MEMORY_PII_BLOCKED",
+        "persisted": 0
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0030",
+          "code": "MEMORY_PII_BLOCKED",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0031",
+      "title": "记忆中的忽略规则指令不改变系统段与工具集",
+      "area": "memory_context_cannot_escalate",
+      "scenario": "context_cannot_change_instructions",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "recalled",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "source_tag",
+          "expected": "session_memory",
+          "actual": "session_memory",
+          "passed": true
+        },
+        {
+          "name": "instruction_bearing",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "memory_present_in_prompt",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_after_principles",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_absent_without_state",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "tool_names_unchanged",
+          "expected": [
+            "calc_velocity"
+          ],
+          "actual": [
+            "calc_velocity"
+          ],
+          "passed": true
+        },
+        {
+          "name": "tool_schema_unchanged",
+          "expected": [
+            {
+              "type": "function",
+              "function": {
+                "name": "calc_velocity",
+                "description": "计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。",
+                "parameters": {
+                  "additionalProperties": false,
+                  "description": "流速计算输入（口径表 §1）。",
+                  "properties": {
+                    "diameter_mm": {
+                      "description": "管内径 mm，如 150",
+                      "exclusiveMinimum": 0,
+                      "maximum": 3000,
+                      "title": "Diameter Mm",
+                      "type": "number"
+                    },
+                    "flow_lps": {
+                      "description": "流量 L/s，如 20",
+                      "exclusiveMinimum": 0,
+                      "maximum": 5000,
+                      "title": "Flow Lps",
+                      "type": "number"
+                    },
+                    "scenario": {
+                      "default": "water_supply",
+                      "description": "场景：water_supply 给水（常用 0.6–1.5 m/s）；drainage 排水",
+                      "enum": [
+                        "water_supply",
+                        "drainage"
+                      ],
+                      "title": "Scenario",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "diameter_mm",
+                    "flow_lps"
+                  ],
+                  "title": "VelocityArgs",
+                  "type": "object"
+                }
+              }
+            }
+          ],
+          "actual": [
+            {
+              "type": "function",
+              "function": {
+                "name": "calc_velocity",
+                "description": "计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。",
+                "parameters": {
+                  "additionalProperties": false,
+                  "description": "流速计算输入（口径表 §1）。",
+                  "properties": {
+                    "diameter_mm": {
+                      "description": "管内径 mm，如 150",
+                      "exclusiveMinimum": 0,
+                      "maximum": 3000,
+                      "title": "Diameter Mm",
+                      "type": "number"
+                    },
+                    "flow_lps": {
+                      "description": "流量 L/s，如 20",
+                      "exclusiveMinimum": 0,
+                      "maximum": 5000,
+                      "title": "Flow Lps",
+                      "type": "number"
+                    },
+                    "scenario": {
+                      "default": "water_supply",
+                      "description": "场景：water_supply 给水（常用 0.6–1.5 m/s）；drainage 排水",
+                      "enum": [
+                        "water_supply",
+                        "drainage"
+                      ],
+                      "title": "Scenario",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "diameter_mm",
+                    "flow_lps"
+                  ],
+                  "title": "VelocityArgs",
+                  "type": "object"
+                }
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "tool_guide_unchanged_by_memory",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_adds_no_tool",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "capabilities_unchanged",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "tool_names": [
+          "calc_velocity"
+        ],
+        "memories_endpoints_do_not_grant_capabilities": true,
+        "memory_segment_index": 1093
+      },
+      "events": [
+        {
+          "event": "memory.prompt_rendered",
+          "case_id": "mem-p0-0031",
+          "instruction_surface": false,
+          "count": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0032",
+      "title": "记忆中的提示词泄露指令不进入指令段",
+      "area": "memory_context_cannot_escalate",
+      "scenario": "context_cannot_change_instructions",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "recalled",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "source_tag",
+          "expected": "session_memory",
+          "actual": "session_memory",
+          "passed": true
+        },
+        {
+          "name": "instruction_bearing",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "memory_present_in_prompt",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_after_principles",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_absent_without_state",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "tool_names_unchanged",
+          "expected": [
+            "calc_velocity"
+          ],
+          "actual": [
+            "calc_velocity"
+          ],
+          "passed": true
+        },
+        {
+          "name": "tool_schema_unchanged",
+          "expected": [
+            {
+              "type": "function",
+              "function": {
+                "name": "calc_velocity",
+                "description": "计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。",
+                "parameters": {
+                  "additionalProperties": false,
+                  "description": "流速计算输入（口径表 §1）。",
+                  "properties": {
+                    "diameter_mm": {
+                      "description": "管内径 mm，如 150",
+                      "exclusiveMinimum": 0,
+                      "maximum": 3000,
+                      "title": "Diameter Mm",
+                      "type": "number"
+                    },
+                    "flow_lps": {
+                      "description": "流量 L/s，如 20",
+                      "exclusiveMinimum": 0,
+                      "maximum": 5000,
+                      "title": "Flow Lps",
+                      "type": "number"
+                    },
+                    "scenario": {
+                      "default": "water_supply",
+                      "description": "场景：water_supply 给水（常用 0.6–1.5 m/s）；drainage 排水",
+                      "enum": [
+                        "water_supply",
+                        "drainage"
+                      ],
+                      "title": "Scenario",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "diameter_mm",
+                    "flow_lps"
+                  ],
+                  "title": "VelocityArgs",
+                  "type": "object"
+                }
+              }
+            }
+          ],
+          "actual": [
+            {
+              "type": "function",
+              "function": {
+                "name": "calc_velocity",
+                "description": "计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。",
+                "parameters": {
+                  "additionalProperties": false,
+                  "description": "流速计算输入（口径表 §1）。",
+                  "properties": {
+                    "diameter_mm": {
+                      "description": "管内径 mm，如 150",
+                      "exclusiveMinimum": 0,
+                      "maximum": 3000,
+                      "title": "Diameter Mm",
+                      "type": "number"
+                    },
+                    "flow_lps": {
+                      "description": "流量 L/s，如 20",
+                      "exclusiveMinimum": 0,
+                      "maximum": 5000,
+                      "title": "Flow Lps",
+                      "type": "number"
+                    },
+                    "scenario": {
+                      "default": "water_supply",
+                      "description": "场景：water_supply 给水（常用 0.6–1.5 m/s）；drainage 排水",
+                      "enum": [
+                        "water_supply",
+                        "drainage"
+                      ],
+                      "title": "Scenario",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "diameter_mm",
+                    "flow_lps"
+                  ],
+                  "title": "VelocityArgs",
+                  "type": "object"
+                }
+              }
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "tool_guide_unchanged_by_memory",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_adds_no_tool",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "capabilities_unchanged",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 1,
+        "provenance_valid": 1,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "tool_names": [
+          "calc_velocity"
+        ],
+        "memories_endpoints_do_not_grant_capabilities": true,
+        "memory_segment_index": 1093
+      },
+      "events": [
+        {
+          "event": "memory.prompt_rendered",
+          "case_id": "mem-p0-0032",
+          "instruction_surface": false,
+          "count": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0033",
+      "title": "记忆中的流速数值必须程序化重算",
+      "area": "numeric_memory_revalidation",
+      "scenario": "numeric_memory_revalidation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "memory_recalled_into_context",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_number_in_context",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "answer_from_programmatic_tool",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_number_not_adopted",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "revalidated",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 1,
+        "numeric_revalidated": 1
+      },
+      "evidence": {
+        "memory_value": 3.5,
+        "computed_value": 1.132,
+        "recomputed_value": 1.132,
+        "tool_name": "calc_velocity"
+      },
+      "events": [
+        {
+          "event": "memory.numeric_recalled",
+          "case_id": "mem-p0-0033",
+          "revalidated": true
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0034",
+      "title": "记忆中的循环水泵流速必须程序化重算",
+      "area": "numeric_memory_revalidation",
+      "scenario": "numeric_memory_revalidation",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "memory_recalled_into_context",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_number_in_context",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "answer_from_programmatic_tool",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "memory_number_not_adopted",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "revalidated",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 1,
+        "numeric_revalidated": 1
+      },
+      "evidence": {
+        "memory_value": 2.8,
+        "computed_value": 0.955,
+        "recomputed_value": 0.955,
+        "tool_name": "calc_velocity"
+      },
+      "events": [
+        {
+          "event": "memory.numeric_recalled",
+          "case_id": "mem-p0-0034",
+          "revalidated": true
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0035",
+      "title": "召回首字符预算与条目上限生效且排序稳定",
+      "area": "recall_budget_ranking",
+      "scenario": "recall_budget_and_stable_order",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "item_limit_respected",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "character_budget_respected",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "used_characters_matches_render",
+          "expected": 1136,
+          "actual": 1136,
+          "passed": true
+        },
+        {
+          "name": "overflow_visible_as_omission",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "stable_order",
+          "expected": [
+            "425ffc37-46d4-49dd-abb5-c94d00289e3a",
+            "428a6713-4cef-418d-92c1-9c86b32f0160",
+            "2f179db9-9ebe-4449-a808-299e7fa611b6",
+            "fea53595-38c8-4eac-9ad4-a360db0d68b8",
+            "4959e5a8-eaf5-4232-98c6-e468e6e20284"
+          ],
+          "actual": [
+            "425ffc37-46d4-49dd-abb5-c94d00289e3a",
+            "428a6713-4cef-418d-92c1-9c86b32f0160",
+            "2f179db9-9ebe-4449-a808-299e7fa611b6",
+            "fea53595-38c8-4eac-9ad4-a360db0d68b8",
+            "4959e5a8-eaf5-4232-98c6-e468e6e20284"
+          ],
+          "passed": true
+        },
+        {
+          "name": "budget_violations",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 5,
+        "provenance_valid": 5,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "candidate_count": 12,
+        "returned": 5,
+        "omitted": 7,
+        "used_characters": 1136,
+        "budget": 1200
+      },
+      "events": [
+        {
+          "event": "memory.prompt_rendered",
+          "case_id": "mem-p0-0035",
+          "count": 0,
+          "used_characters": 1136,
+          "character_budget": 1200,
+          "omitted_count": 7
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0036",
+      "title": "大量命中时超预算条目以 omitted 显式披露",
+      "area": "recall_budget_ranking",
+      "scenario": "recall_budget_and_stable_order",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "item_limit_respected",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "character_budget_respected",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "used_characters_matches_render",
+          "expected": 1138,
+          "actual": 1138,
+          "passed": true
+        },
+        {
+          "name": "overflow_visible_as_omission",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "stable_order",
+          "expected": [
+            "6c4b43d1-6196-4d85-b5cb-32f7e3491645",
+            "a8cdf7fb-f1a9-4a5c-870a-fc1a562cbd1c",
+            "1e5aaaf5-e787-48dd-87b4-34e8a71acde9",
+            "8c18b297-079d-40f5-b4bb-aa6b112946e8",
+            "61ea98e9-ecfa-4b1d-9936-0b587a82de10"
+          ],
+          "actual": [
+            "6c4b43d1-6196-4d85-b5cb-32f7e3491645",
+            "a8cdf7fb-f1a9-4a5c-870a-fc1a562cbd1c",
+            "1e5aaaf5-e787-48dd-87b4-34e8a71acde9",
+            "8c18b297-079d-40f5-b4bb-aa6b112946e8",
+            "61ea98e9-ecfa-4b1d-9936-0b587a82de10"
+          ],
+          "passed": true
+        },
+        {
+          "name": "budget_violations",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 5,
+        "provenance_valid": 5,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "candidate_count": 14,
+        "returned": 5,
+        "omitted": 9,
+        "used_characters": 1138,
+        "budget": 1200
+      },
+      "events": [
+        {
+          "event": "memory.prompt_rendered",
+          "case_id": "mem-p0-0036",
+          "count": 0,
+          "used_characters": 1138,
+          "character_budget": 1200,
+          "omitted_count": 9
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0037",
+      "title": "数据库失败返回结构化 MEMORY_STORE_UNAVAILABLE",
+      "area": "store_failure",
+      "scenario": "store_failure_structured",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "error_code",
+          "expected": "MEMORY_STORE_UNAVAILABLE",
+          "actual": "MEMORY_STORE_UNAVAILABLE",
+          "passed": true
+        },
+        {
+          "name": "driver_detail_not_echoed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "code": "MEMORY_STORE_UNAVAILABLE",
+        "message_is_generic": true
+      },
+      "events": [
+        {
+          "event": "memory.recall_degraded",
+          "case_id": "mem-p0-0037",
+          "reported": true,
+          "code": "MEMORY_STORE_UNAVAILABLE"
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0038",
+      "title": "SSE 断线重连按 Last-Event-ID 补发且不重复 finalize",
+      "area": "sse_reconnect",
+      "scenario": "sse_reconnect_replay",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "first_stream_non_empty",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "replay_only_after_cursor",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "no_duplicate_event_ids",
+          "expected": 4,
+          "actual": 4,
+          "passed": true
+        },
+        {
+          "name": "exactly_one_finalize_first",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "exactly_one_finalize_replay",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "invalid_cursor_status",
+          "expected": 400,
+          "actual": 400,
+          "passed": true
+        },
+        {
+          "name": "invalid_cursor_code",
+          "expected": "WEB_EVENT_CURSOR_INVALID",
+          "actual": "WEB_EVENT_CURSOR_INVALID",
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "first_events": 6,
+        "replay_events": 4,
+        "cursor": 2
+      },
+      "events": [
+        {
+          "event": "memory.sse_replayed",
+          "case_id": "mem-p0-0038",
+          "authorized": true,
+          "replayed": 0,
+          "cursor": 2
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0039",
+      "title": "他人 run 的事件日志不可重放",
+      "area": "sse_unauthorized_replay",
+      "scenario": "sse_unauthorized_replay",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "denied_status",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "no_event_body_leaked",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "trace_denied",
+          "expected": 404,
+          "actual": 404,
+          "passed": true
+        },
+        {
+          "name": "replayed_events",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "denied_status": 404,
+        "trace_status": 404
+      },
+      "events": [
+        {
+          "event": "memory.sse_replayed",
+          "case_id": "mem-p0-0039",
+          "authorized": false,
+          "replayed": 0,
+          "cursor": 1
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0040",
+      "title": "取消后 run 状态真实且只 finalize 一次",
+      "area": "run_cancel",
+      "scenario": "run_cancel_true_state",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "run_started",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "cancel_status_code",
+          "expected": 202,
+          "actual": 202,
+          "passed": true
+        },
+        {
+          "name": "cancel_status_value",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "exactly_one_finalize",
+          "expected": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "name": "finalize_status",
+          "expected": "cancelled",
+          "actual": "cancelled",
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 0,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "finalize_count": 1,
+        "events": 6
+      },
+      "events": [],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0041",
+      "title": "记忆接口必须服务端校验会话身份",
+      "area": "identity_required",
+      "scenario": "unauthenticated_access_denied",
+      "requires": null,
+      "outcome": "pass",
+      "status": "passed",
+      "skipped": false,
+      "passed": true,
+      "skip_reason": null,
+      "checks": [
+        {
+          "name": "list_status",
+          "expected": 401,
+          "actual": 401,
+          "passed": true
+        },
+        {
+          "name": "list_code",
+          "expected": "AUTH_SESSION_INVALID",
+          "actual": "AUTH_SESSION_INVALID",
+          "passed": true
+        },
+        {
+          "name": "single_status",
+          "expected": 401,
+          "actual": 401,
+          "passed": true
+        },
+        {
+          "name": "candidate_denied",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "delete_denied",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "record_untouched",
+          "expected": "active",
+          "actual": "active",
+          "passed": true
+        },
+        {
+          "name": "no_body_in_denial",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "counters": {
+        "cross_user_leaks": 0,
+        "cross_project_leaks": 0,
+        "secrets_persisted": 0,
+        "blocked_injections_persisted": 0,
+        "inactive_recalls": 0,
+        "forget_residuals": 0,
+        "budget_violations": 0,
+        "unauthorized_sse_replays": 0,
+        "confirmed_writes": 1,
+        "unconfirmed_persisted_writes": 0,
+        "recall_gold_total": 0,
+        "recall_gold_matched": 0,
+        "provenance_total": 0,
+        "provenance_valid": 0,
+        "numeric_total": 0,
+        "numeric_revalidated": 0
+      },
+      "evidence": {
+        "list_status": 401,
+        "candidate_status": 403,
+        "delete_status": 403
+      },
+      "events": [
+        {
+          "event": "memory.write_blocked",
+          "case_id": "mem-p0-0041",
+          "code": "AUTH_SESSION_INVALID",
+          "persisted": 0
+        }
+      ],
+      "detectors": []
+    },
+    {
+      "case_id": "mem-p0-0042",
+      "title": "备份到全新卷恢复后账号、会话与活动记忆一致",
+      "area": "backup_restore",
+      "scenario": "backup_restore_roundtrip",
+      "requires": "docker",
+      "outcome": "skip",
+      "status": "skipped",
+      "skipped": true,
+      "passed": false,
+      "skip_reason": "no running water-agent compose stack; the backup acceptance runs on a live stack (p5-compose workflow) or via WATER_AGENT_COMPOSE_TEST=1 tests/test_backup_restore.py",
+      "checks": [],
+      "counters": {},
+      "evidence": {
+        "skip_reason": "no running water-agent compose stack; the backup acceptance runs on a live stack (p5-compose workflow) or via WATER_AGENT_COMPOSE_TEST=1 tests/test_backup_restore.py",
+        "requires": "docker"
+      },
+      "events": [],
+      "detectors": []
+    }
+  ],
+  "coverage_notes": {
+    "synthetic_gold": "gold_exact_recall_rate is measured on a synthetic keyword gold set; it does not prove recall of arbitrary natural-language phrasing",
+    "regex_guard_boundary": "the write guard is a deterministic regex rule set; blocked_injection_persisted_count==0 means no blocked variant was persisted, not that every injection rewrite is caught",
+    "postgres_fts": "offline cases execute the SQLite recall substitute; PostgreSQL FTS scoring is only exercised when P5_TEST_DATABASE_URL points at a migrated database"
+  },
+  "metrics": {
+    "cases_total": 42,
+    "cases_evaluated": 41,
+    "cases_skipped": 1,
+    "cross_user_memory_leak_count": 0,
+    "cross_project_memory_leak_count": 0,
+    "secret_persisted_count": 0,
+    "blocked_injection_persisted_count": 0,
+    "inactive_memory_recall_count": 0,
+    "forget_content_residual_count": 0,
+    "memory_prompt_budget_violation_count": 0,
+    "unauthorized_sse_replay_count": 0,
+    "explicit_write_confirmation_rate": 1.0,
+    "gold_exact_recall_rate": 1.0,
+    "memory_provenance_valid_rate": 1.0,
+    "numeric_memory_revalidation_rate": 1.0,
+    "missing_required_counters": [],
+    "detector_findings": [],
+    "detector_finding_count": 0
+  }
+}

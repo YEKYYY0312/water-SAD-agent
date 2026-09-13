@@ -138,6 +138,34 @@ else
     echo "基线不存在（首次运行）；先执行：$PY scripts/compare_baseline.py --init data/eval/baseline.json"
 fi
 
+# memory_p0（P5 Step 45）：长期记忆隔离与安全硬指标。
+# ⚠️ 该套件度量的是**合成机制与隔离契约**：gold_exact_recall_rate 用合成关键词 gold，
+# 不代表任意中文表达的召回率；blocked_injection_persisted_count=0 只证明"已拦下的
+# 变体没有落盘"，护栏是确定性正则，必然存在未覆盖改写。语义召回质量属 Step 46。
+# docker/postgres 相关用例在本门禁里允许结构化 SKIP（--release-gate 关闭该行为，
+# CI 的 memory-p0 job 用它；发布门禁环境不得 SKIP）。
+step "memory_p0 长期记忆硬指标（§13.2 十二项，报告为可重建产物）"
+MEMORY_HEAD="data/eval/reports/memory_p0_head.json"
+MEMORY_BASE="data/eval/memory_p0_main.json"
+if ! $PY -m water_agent.harness.memory_eval data/eval/memory_p0.jsonl --out "$MEMORY_HEAD" \
+    > /tmp/ci_gate_memory.log 2>&1; then
+    tail -40 /tmp/ci_gate_memory.log
+    fail "memory_p0 harness"
+else
+    tail -20 /tmp/ci_gate_memory.log
+    if [ -f "$MEMORY_BASE" ]; then
+        if ! $PY scripts/compare_memory_p0.py --head "$MEMORY_HEAD" --base "$MEMORY_BASE" \
+            > /tmp/ci_gate_memory_cmp.log 2>&1; then
+            cat /tmp/ci_gate_memory_cmp.log
+            fail "memory_p0 基线对比"
+        else
+            head -14 /tmp/ci_gate_memory_cmp.log
+        fi
+    else
+        echo "memory_p0 无入仓基线（首次运行）；固化：cp $MEMORY_HEAD $MEMORY_BASE"
+    fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
     echo
     echo "CI 门禁失败：存在未通过项。"
@@ -145,4 +173,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
