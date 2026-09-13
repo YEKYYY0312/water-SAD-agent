@@ -91,6 +91,16 @@ async def create_message(
     if database is None or manager is None:
         return _database_unavailable()
 
+    # Authorization precedes configuration disclosure: an unowned thread must
+    # answer 404 and must not reveal whether a model is configured.  The run row
+    # is only created once both checks pass, so a refused request cannot leave a
+    # queued run behind (Step 45 memory_p0 mem-p0-0009).
+    sessions = WebSessionRepository(database)
+    try:
+        web_session = sessions.get_for_user(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+
     factory = manager.session_factory
     if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator and not real_llm_configured():
             return JSONResponse(
@@ -105,9 +115,7 @@ async def create_message(
                 },
             )
 
-    sessions = WebSessionRepository(database)
     try:
-        web_session = sessions.get_for_user(thread_id, user.user_id)
         run = RunRepository(database).create(thread_id, user.user_id)
     except ResourceNotFoundError:
         return _not_found()

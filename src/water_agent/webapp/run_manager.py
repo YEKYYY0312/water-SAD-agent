@@ -761,8 +761,37 @@ class RunManager:
             }
         return value
 
-    def close(self) -> None:
+    def close(self, *, timeout_seconds: float = 20.0) -> dict[str, Any]:
+        """Stop accepting work and wait a bounded time for in-flight runs (Step 45).
+
+        The previous implementation called ``shutdown(wait=False)`` and returned
+        immediately, so a SIGTERM during a run dropped it without ever writing a
+        terminal event.  Every live run is now asked to cancel first (the agent
+        loop observes ``cancel_check`` cooperatively), then the manager waits up
+        to ``timeout_seconds`` for them to finalize.  Runs still alive at the
+        deadline are reported, never silently dropped.
+        """
+
+        with self._lock:
+            handles = list(self._handles.values())
+        for handle in handles:
+            with handle.condition:
+                if not handle.finalized and not handle.finalizing:
+                    handle.cancel_requested = True
+                    handle.condition.notify_all()
         self._executor.shutdown(wait=False, cancel_futures=False)
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while time.monotonic() < deadline:
+            if all(handle.finalized for handle in handles):
+                break
+            time.sleep(0.05)
+        unfinalized = [handle.run_id for handle in handles if not handle.finalized]
+        return {
+            "runs": len(handles),
+            "finalized": len(handles) - len(unfinalized),
+            "unfinalized_run_ids": unfinalized,
+            "graceful": not unfinalized,
+        }
 
 
 __all__ = [
