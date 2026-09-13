@@ -11,6 +11,7 @@ from water_agent.memory.commands import adapt_remember_command
 from water_agent.memory.contracts import (
     MemoryConflictRequiresConfirmationError,
     MemoryError,
+    MemoryInjectionBlockedError,
     MemoryKind,
     MemoryOrigin,
     MemoryRevisionConflictError,
@@ -222,6 +223,12 @@ class ExplicitMemoryWriteService:
             tenant_id=tenant,
             actor_user_id=actor,
         )
+        # Detect the conflict before building a preview: confirming a candidate
+        # that was derived from a stale revision would only fail at apply time.
+        if current.revision != expected_revision:
+            raise MemoryRevisionConflictError(
+                f"expected revision {expected_revision}, current revision is {current.revision}"
+            )
         normalized_content = normalize_memory_content(content)
         envelope = ContentEnvelope(source_tag=SourceTag.USER_MESSAGE, text=normalized_content)
         try:
@@ -262,21 +269,30 @@ class ExplicitMemoryWriteService:
             sorted(set(guard_decision.rule_ids) | set(key_guard_decision.rule_ids))
         )
         if guard_decision.quarantined or key_guard_decision.quarantined:
-            operation = CandidateOperation.CREATE
-            disposition = CandidateDisposition.QUARANTINED
-            retained_content = ""
-            target_memory_id = None
-            candidate_revision = None
-        else:
-            operation = CandidateOperation.CORRECT
-            disposition = (
-                CandidateDisposition.REAFFIRM
-                if normalize_memory_content(current.content) == normalized_content
-                else CandidateDisposition.CORRECTION
+            # A correction must never degrade into a silent no-op: quarantining
+            # here would leave the original active body in place while the user
+            # believes it was replaced.  Refuse the correction instead.
+            self._emit(
+                action="blocked",
+                status="blocked",
+                memory_id=current.memory_id,
+                content_hash=envelope.content_hash,
+                code="MEMORY_INJECTION_BLOCKED",
+                ruleset_version=self.guard.ruleset_version,
             )
-            retained_content = normalized_content
-            target_memory_id = current.memory_id
-            candidate_revision = expected_revision
+            raise MemoryInjectionBlockedError(
+                "instruction-shaped content cannot correct an existing memory; "
+                f"rules={','.join(all_rule_ids)}"
+            )
+        operation = CandidateOperation.CORRECT
+        disposition = (
+            CandidateDisposition.REAFFIRM
+            if normalize_memory_content(current.content) == normalized_content
+            else CandidateDisposition.CORRECTION
+        )
+        retained_content = normalized_content
+        target_memory_id = current.memory_id
+        candidate_revision = expected_revision
         candidate = MemoryCandidate(
             candidate_id=uuid4(),
             operation=operation,
