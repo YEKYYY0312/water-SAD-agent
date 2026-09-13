@@ -235,7 +235,10 @@ async def list_memories(
     tenant = _tenant(request)
     try:
         if query and query.strip():
-            result = MemoryRecallService(request.app.state.database).recall(
+            result = MemoryRecallService(
+                request.app.state.database,
+                provider=getattr(request.app.state, "memory_provider", None),
+            ).recall(
                 tenant_id=tenant,
                 actor_user_id=actor,
                 query=query,

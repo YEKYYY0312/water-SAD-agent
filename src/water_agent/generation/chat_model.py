@@ -36,6 +36,7 @@ def build_chat_model(
     model: str = DEFAULT_MODEL,
     base_url: str = DEFAULT_BASE_URL,
     api_key_env: str = DEFAULT_API_KEY_ENV,
+    api_key: str | None = None,
     temperature: float = 0.0,
     category: CallCategory = CallCategory.AGENTIC_LOOP,
     gateway: ProviderGateway | None = None,
@@ -53,14 +54,14 @@ def build_chat_model(
     ``ChatOpenAI`` 自带重试必须关掉（``max_retries=0``），否则会与 gateway
     的重试**叠乘**，实际请求数变成两者之积。
     """
-    api_key = os.environ.get(api_key_env, "").strip()
-    if not api_key:
+    resolved_api_key = (api_key or os.environ.get(api_key_env, "")).strip()
+    if not resolved_api_key:
         raise ValueError(f"{api_key_env} must not be empty")
     resolved_gateway = gateway if gateway is not None else default_gateway()
     inner = ChatOpenAI(
         model=model,
         base_url=base_url,
-        api_key=SecretStr(api_key),
+        api_key=SecretStr(resolved_api_key),
         temperature=temperature,
         timeout=resolved_gateway.timeout_for(ProviderKind.DEEPSEEK_CHAT),
         max_retries=0,  # 重试统一由 ProviderGateway 承担，避免叠乘

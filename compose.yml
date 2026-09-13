@@ -65,6 +65,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://water_agent@postgres:5432/water_agent
       DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+      LOCAL_MODEL_ENABLED: ${LOCAL_MODEL_ENABLED:-false}
+      LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://local-model:11434/v1}
+      LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-qwen3:8b}
+      LOCAL_MODEL_COMPATIBILITY_REPORT: ${LOCAL_MODEL_COMPATIBILITY_REPORT:-}
     secrets:
       - postgres_password
     ports:
@@ -140,14 +144,20 @@ services:
       - caddy_config:/config
 
   local-model:
-    image: alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412
+    # Official Ollama image.  This service is opt-in and does not download a
+    # model automatically; an operator must pull a model and run the Step 46
+    # compatibility probe before setting LOCAL_MODEL_ENABLED=true.
+    image: ollama/ollama:0.13.3
     profiles: [local-model]
-    command:
-      [
-        "sh",
-        "-c",
-        "echo 'Step 46 local-model integration is not implemented; no model endpoint is exposed.'; tail -f /dev/null",
-      ]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - local_model_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     read_only: true
     tmpfs: [/tmp]
 
@@ -161,5 +171,6 @@ volumes:
   postgres_data:
   app_uploads:
   app_exports:
+  local_model_data:
   caddy_data:
   caddy_config:

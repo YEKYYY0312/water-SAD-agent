@@ -69,6 +69,10 @@ DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
 def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Inspect only whether the configured real-model key exists."""
 
+    from water_agent.generation.local_model import local_model_configured, local_model_ready
+
+    if local_model_configured(environment):
+        return local_model_ready(environment)
     if environment("DEEPSEEK_API_KEY"):
         return True
     secret_file = environment("DEEPSEEK_API_KEY_FILE")
@@ -325,6 +329,14 @@ class AgenticSession:
         self.recorder = JsonTraceRecorder(Path(args.trace_dir))
         self.gateway = default_gateway_with_sink(self.recorder.record_provider_event)
         api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
+        api_key = getattr(args, "api_key", None)
+        from water_agent.generation.local_model import local_model_configured, local_model_ready
+
+        if local_model_configured() and not local_model_ready():
+            raise ValueError(
+                "local model is enabled but lacks complete compatibility evidence; "
+                "run the Step 46 compatibility probe before starting an Agent session"
+            )
         if args.mock_generator:
             self.model: BaseChatModel = _ScriptedAgenticModel()
         else:
@@ -333,6 +345,7 @@ class AgenticSession:
                     model=args.model,
                     base_url=args.base_url,
                     api_key_env=api_key_env,
+                    api_key=api_key,
                     gateway=self.gateway,
                     request_context_factory=lambda: self.request_context,
                 )

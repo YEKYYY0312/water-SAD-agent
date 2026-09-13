@@ -372,6 +372,8 @@ class JsonTraceRecorder:
         item_limit: int,
         hits: _Seq[dict[str, Any]] = (),
         reason: str | None = None,
+        provider_name: str | None = None,
+        fallback_used: bool = False,
     ) -> None:
         """Record bounded recall metadata without copying memory正文.
 
@@ -402,6 +404,10 @@ class JsonTraceRecorder:
             "item_limit": int(item_limit),
             "hits": safe_hits,
         }
+        if provider_name:
+            data["provider_name"] = provider_name
+        if fallback_used:
+            data["fallback_used"] = True
         if reason:
             data["reason"] = reason
         self.record(node="memory", event="memory_recall", query="", data=data)
