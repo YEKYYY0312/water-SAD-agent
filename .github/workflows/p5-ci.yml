@@ -1,0 +1,118 @@
+name: p5-ci
+
+# P5 pull-request CI: the Python gate, the frontend gate, and the memory_p0
+# harness against a real PostgreSQL service. Keep every job independent so a
+# frontend failure never hides a Python regression.
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked dependencies
+        run: pip install uv==0.12.6 && uv sync --frozen --extra dev
+      # Single gate entry point: pytest + ruff + mypy + the five mechanism
+      # harnesses + the baseline comparison all live inside scripts/ci_gate.sh.
+      # Do not re-list its steps here: that would create a second source of truth.
+      - name: Run the PR gate
+        run: bash scripts/ci_gate.sh
+      - name: Upload the P5 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p5-report
+          path: data/eval/reports/
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix web/app ci --ignore-scripts
+      - name: Typecheck the frontend
+        run: npm --prefix web/app run typecheck
+      - name: Run frontend tests
+        run: npm --prefix web/app run test
+      - name: Build the frontend
+        run: npm --prefix web/app run build
+
+  memory-p0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        # Same pinned digest as p5-postgres.yml: the memory layer must be
+        # exercised on the exact PostgreSQL build the release gate uses.
+        image: postgres:18.2-bookworm@sha256:120230d04218c2acb30d7bb427798bd6c5beb0ef225883132aad653ccad44bce
+        env:
+          POSTGRES_DB: water_agent_test
+          POSTGRES_USER: water_agent
+          POSTGRES_PASSWORD: water_agent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U water_agent -d water_agent_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked dependencies
+        run: pip install uv==0.12.6 && uv sync --frozen --extra dev
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
+        run: .venv/bin/python -m water_agent.webapp.lifecycle migrate
+      # This job has PostgreSQL but no water-agent Compose stack, so the
+      # backup case (mem-p0-0042) legitimately SKIPs here.  The harness must not
+      # be run with --release-gate in this job: that flag belongs to the
+      # p5-compose workflow, which is the environment where Docker and a live
+      # stack actually exist.  Instead the exact skip set is asserted below, so
+      # any *unexpected* SKIP still turns the build red.
+      - name: Run the memory_p0 harness
+        run: >-
+          .venv/bin/python -m water_agent.harness.memory_eval
+          data/eval/memory_p0.jsonl
+          --out data/eval/reports/memory_p0_head.json
+      - name: Assert only the documented environmental skip occurred
+        run: >-
+          .venv/bin/python -c "
+          import json, pathlib, sys;
+          report = json.loads(pathlib.Path('data/eval/reports/memory_p0_head.json').read_text(encoding='utf-8'));
+          skipped = [(c['case_id'], c.get('requires'), c.get('skip_reason')) for c in report['cases'] if c.get('skipped')];
+          unexpected = [s for s in skipped if s[1] != 'docker'];
+          print(json.dumps({'skipped': skipped, 'unexpected': unexpected}, ensure_ascii=False, indent=2));
+          sys.exit(1 if unexpected or len(skipped) > 1 else 0)
+          "
+      - name: Compare memory_p0 against the main baseline
+        run: >-
+          .venv/bin/python scripts/compare_memory_p0.py
+          --head data/eval/reports/memory_p0_head.json
+          --base data/eval/memory_p0_main.json
+      - name: Run the PostgreSQL memory and session tests
+        env:
+          P5_TEST_DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
+          DATABASE_URL: postgresql+psycopg://water_agent:water_agent_test@127.0.0.1:5432/water_agent_test
+        run: >-
+          .venv/bin/pytest -q
+          tests/test_p5_step38_storage.py
+          tests/test_memory_store.py
+          tests/test_memory_recall.py
+          tests/test_memory_write_policy.py
+          tests/test_memory_web_api.py
+          tests/test_web_sessions.py

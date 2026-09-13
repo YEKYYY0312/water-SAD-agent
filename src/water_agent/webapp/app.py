@@ -7,6 +7,7 @@ single points of construction rather than duplicating them here.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -22,6 +23,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from water_agent.drawing.drawing_root import resolve_drawing_root
 from water_agent.mcp.wiring import load_mcp_gateway
+from water_agent.memory.repository import MemoryRepository
+from water_agent.memory.service import MemoryService
+from water_agent.memory.write_service import ExplicitMemoryWriteService
 from water_agent.storage.database import (
     CHECKPOINT_MIGRATION_HEAD,
     MIGRATION_HEAD,
@@ -29,6 +33,7 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
+from water_agent.webapp.memory_routes import router as memory_router
 from water_agent.webapp.run_manager import (
     DEFAULT_TENANT_ID,
     AgentSessionFactory,
@@ -76,6 +81,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(run_router)
     app.include_router(workspace_router)
+    app.include_router(memory_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
@@ -100,6 +106,16 @@ def create_app(
         else None
     )
     app.state.tenant_id = tenant_id
+    # One write service per app: its pending-candidate store is in-process (15 min
+    # TTL), so preview and confirmation must reach the same worker.  Memory
+    # governance itself is never re-implemented here (Step 45 audit note).
+    if configured_database is not None:
+        memory_service = MemoryService(MemoryRepository(configured_database))
+        app.state.memory_service = memory_service
+        app.state.memory_write_service = ExplicitMemoryWriteService(memory_service)
+    else:
+        app.state.memory_service = None
+        app.state.memory_write_service = None
     frontend_dir = static_dir or DEFAULT_STATIC_DIR
     index_path = frontend_dir / "index.html"
 
@@ -260,8 +276,13 @@ def create_app(
 
     run_manager = app.state.run_manager
     if run_manager is not None:
+
         async def shutdown_run_manager() -> None:
-            run_manager.close()
+            # Bounded graceful drain: in-flight runs are cancelled and awaited up
+            # to the configured budget instead of being dropped on SIGTERM.  The
+            # drain result is stored on app.state so tests can assert it without
+            # scraping logs.
+            app.state.shutdown_drain = await asyncio.to_thread(run_manager.close)
 
         app.router.on_shutdown.append(shutdown_run_manager)
 

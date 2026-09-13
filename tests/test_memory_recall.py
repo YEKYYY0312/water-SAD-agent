@@ -99,6 +99,26 @@ def test_step41_migration_declares_postgres_only_gin_fts_index() -> None:
     assert "dialect.name != \"postgresql\"" in migration
 
 
+def test_step45_postgres_recall_casts_the_project_parameter() -> None:
+    """Regression: project-less recall used to fail on PostgreSQL.
+
+    Step 45's compose smoke test found that a NULL ``:project_id`` bind made
+    psycopg answer "could not determine data type of parameter $N", so *every*
+    personal-session recall returned ``MEMORY_STORE_UNAVAILABLE`` in the
+    self-hosted deployment.  Casting the parameter to text also fixes the
+    follow-on ``character varying = uuid`` mismatch, because ``project_id`` is
+    stored as varchar(36).  The offline SQLite substitute never had this bug, so
+    the fix is locked statically here as well as by the PostgreSQL-gated test.
+    """
+
+    from water_agent.memory.recall import _PG_RECALL_SQL
+
+    assert "CAST(:project_id AS text) IS NOT NULL" in _PG_RECALL_SQL
+    assert "mr.project_id = CAST(:project_id AS text)" in _PG_RECALL_SQL
+    assert ":project_id IS NOT NULL" not in _PG_RECALL_SQL
+    assert "mr.project_id = :project_id" not in _PG_RECALL_SQL
+
+
 def test_exact_and_keyword_recall_is_deterministic(database: Database) -> None:
     owner, tenant_id = uuid4(), uuid4()
     _insert_users(database, owner)

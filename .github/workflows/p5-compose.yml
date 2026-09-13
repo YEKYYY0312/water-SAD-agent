@@ -1,0 +1,110 @@
+name: p5-compose
+
+# Whole-stack Compose smoke test. Building the app image is slow, so this runs
+# only on manual dispatch and on v* tags: it stays off every pull request.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked dependencies
+        run: pip install uv==0.12.6 && uv sync --frozen --extra dev
+      # Secret files are created with a restrictive umask, written through
+      # printf + redirection only, and never echoed: the values must not reach
+      # the job log. An empty secret is a hard failure, not an empty file.
+      - name: Create the compose secret files
+        run: |
+          umask 077
+          test -n "${{ secrets.WATER_AGENT_POSTGRES_PASSWORD }}" || { echo "missing repository secret WATER_AGENT_POSTGRES_PASSWORD"; exit 1; }
+          test -n "${{ secrets.WATER_AGENT_ADMIN_PASSWORD }}" || { echo "missing repository secret WATER_AGENT_ADMIN_PASSWORD"; exit 1; }
+          mkdir -p secrets
+          printf '%s' "${{ secrets.WATER_AGENT_POSTGRES_PASSWORD }}" > secrets/postgres_password
+          printf '%s' "${{ secrets.WATER_AGENT_ADMIN_PASSWORD }}" > secrets/admin_password
+      - name: Show the compose version and validate the config
+        run: |
+          docker compose version
+          docker compose config -q
+      - name: Build the compose images
+        run: docker compose build
+      - name: Start the stack and wait for the app health
+        run: |
+          if docker compose up -d --wait; then
+            echo "compose up -d --wait succeeded"
+          else
+            # Older compose releases have no --wait, and --wait can also time out.
+            # Fall back to detaching and polling the app healthcheck ourselves.
+            echo "compose up -d --wait unavailable or unhealthy; polling app health instead"
+            docker compose up -d
+            healthy=0
+            for attempt in $(seq 1 60); do
+              health="$(docker compose ps --format '{{.Health}}' app 2>/dev/null || true)"
+              echo "poll ${attempt}: app health=${health:-unknown}"
+              if [ "$health" = "healthy" ]; then
+                healthy=1
+                break
+              fi
+              sleep 5
+            done
+            if [ "$healthy" -ne 1 ]; then
+              echo "the app container never became healthy"
+              docker compose ps
+              exit 1
+            fi
+          fi
+      - name: Run the compose smoke service
+        run: docker compose run --rm smoke
+      # This job IS the release-gate environment: Docker and a live stack exist
+      # here, so the harness runs with --release-gate, which turns ANY skipped
+      # case into a failure. mem-p0-0042 backs the live stack up and verifies the
+      # dump, so it must really execute rather than SKIP.
+      - name: Run the memory_p0 harness as the release gate
+        run: >-
+          .venv/bin/python -m water_agent.harness.memory_eval
+          data/eval/memory_p0.jsonl
+          --out data/eval/reports/memory_p0_head.json
+          --release-gate
+      - name: Compare memory_p0 against the main baseline
+        run: >-
+          .venv/bin/python scripts/compare_memory_p0.py
+          --head data/eval/reports/memory_p0_head.json
+          --base data/eval/memory_p0_main.json
+      # scripts/backup.sh and scripts/restore.sh are the P5 backup pair; this
+      # step exercises the destructive half (restore into the running stack)
+      # after the harness has verified the non-destructive half.
+      - name: Back up and restore
+        run: |
+          bash scripts/backup.sh --out /tmp/water-agent-backup
+          bash scripts/restore.sh --from /tmp/water-agent-backup --force
+      # The image check runs WITHOUT --require-scanners on purpose: GitHub-hosted
+      # runners carry no trivy/grype and cannot use docker scout unauthenticated,
+      # so a strict scanner requirement belongs to the release gate only. Pass
+      # --require-scanners here when the maintainer asks for it explicitly.
+      - name: Check the built app image
+        run: bash scripts/check_image.sh water-agent-app:local
+      # Dump the logs before the teardown step, otherwise the containers (and
+      # their logs) are already gone. The app, migrate and bootstrap-admin
+      # processes never log secret values: they read the password from the
+      # *_FILE paths, so this output is safe to keep.
+      - name: Dump the compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Tear the stack down
+        if: always()
+        run: docker compose down -v
+      - name: Upload the backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p5-backup
+          path: /tmp/water-agent-backup
+          retention-days: 7
