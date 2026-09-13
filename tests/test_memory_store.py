@@ -99,7 +99,7 @@ def _create_user_memory(
 
 def test_alembic_head_and_memory_tables_are_declared() -> None:
     migration = Path("alembic/versions/0002_step39_memory.py").read_text(encoding="utf-8")
-    assert MIGRATION_HEAD == "0002_step39_memory"
+    assert MIGRATION_HEAD == "0003_step41_memory_fts"
     for table in ("memory_records", "memory_events", "memory_usage"):
         assert f'"{table}"' in migration
     assert 'down_revision = "0001_step38"' in migration

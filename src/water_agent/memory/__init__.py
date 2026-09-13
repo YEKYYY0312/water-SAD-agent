@@ -25,6 +25,17 @@ from water_agent.memory.contracts import (
     MemoryStoreUnavailableError,
     MemoryUsage,
 )
+from water_agent.memory.recall import (
+    MAX_MEMORY_CONTEXT_CHARACTERS,
+    MAX_MEMORY_RECALL_ITEMS,
+    DeterministicMemoryRanker,
+    MemoryContextRenderer,
+    MemoryRecallHit,
+    MemoryRecallResult,
+    MemoryRecallService,
+    normalize_recall_query,
+    render_memory_context,
+)
 from water_agent.memory.repository import MemoryRepository
 from water_agent.memory.service import MemoryService
 from water_agent.memory.write_contracts import (
@@ -44,15 +55,19 @@ from water_agent.memory.write_service import ExplicitMemoryWriteService
 
 __all__ = [
     "ALLOWED_STATUS_TRANSITIONS",
+    "MAX_MEMORY_CONTEXT_CHARACTERS",
+    "MAX_MEMORY_RECALL_ITEMS",
     "MEMORY_ERROR_CODES",
     "CandidateDisposition",
     "CandidateOperation",
     "ConflictPreview",
     "ConflictResolution",
+    "DeterministicMemoryRanker",
     "ExplicitMemoryWriteService",
     "MemoryCandidate",
     "MemoryConfirmation",
     "MemoryConflictRequiresConfirmationError",
+    "MemoryContextRenderer",
     "MemoryError",
     "MemoryEvent",
     "MemoryEventType",
@@ -64,6 +79,9 @@ __all__ = [
     "MemoryNotFoundError",
     "MemoryOrigin",
     "MemoryPiiBlockedError",
+    "MemoryRecallHit",
+    "MemoryRecallResult",
+    "MemoryRecallService",
     "MemoryRecord",
     "MemoryRepository",
     "MemoryRevisionConflictError",
@@ -80,4 +98,6 @@ __all__ = [
     "MemoryWriteResult",
     "RememberCommand",
     "adapt_remember_command",
+    "normalize_recall_query",
+    "render_memory_context",
 ]
