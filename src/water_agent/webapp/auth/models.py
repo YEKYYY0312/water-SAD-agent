@@ -78,7 +78,13 @@ class SessionRecord(BaseModel):
     )
 
     def is_expired(self) -> bool:
-        return _utc_now() > self.expires_at
+        # SQLite (and some DB driver configurations) may return a naive
+        # datetime for a timezone-aware column.  Treat it as UTC at the
+        # boundary instead of comparing unlike datetime objects.
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return _utc_now() > expires_at
 
 
 # ---------------------------------------------------------------------------
