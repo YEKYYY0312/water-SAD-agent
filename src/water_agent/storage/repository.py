@@ -12,7 +12,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, exists, or_, select
 
 from water_agent.storage.database import Database
-from water_agent.storage.models import Project, ProjectMembership, Run, WebSession
+from water_agent.storage.models import (
+    FeedbackCandidateRow,
+    Project,
+    ProjectMembership,
+    Run,
+    WebSession,
+)
 
 
 class ResourceNotFoundError(LookupError):
@@ -64,6 +70,32 @@ class ProjectRepository:
             if project is None:
                 raise ResourceNotFoundError("project not found")
             return project
+
+    def list_for_user(self, user_id: UUID | str) -> list[tuple[Project, str]]:
+        """List only projects where the authenticated user has membership."""
+
+        with self.database.transaction() as session:
+            rows = session.execute(
+                select(Project, ProjectMembership.role)
+                .join(ProjectMembership, ProjectMembership.project_id == Project.project_id)
+                .where(ProjectMembership.user_id == str(user_id))
+                .order_by(Project.updated_at.desc(), Project.project_id.asc())
+            )
+            return [(project, str(role)) for project, role in rows]
+
+    def membership_role(self, project_id: UUID | str, user_id: UUID | str) -> str:
+        """Return the server-recorded role or hide the project as not found."""
+
+        with self.database.transaction() as session:
+            role = session.execute(
+                select(ProjectMembership.role).where(
+                    ProjectMembership.project_id == str(project_id),
+                    ProjectMembership.user_id == str(user_id),
+                )
+            ).scalar_one_or_none()
+            if role is None:
+                raise ResourceNotFoundError("project not found")
+            return str(role)
 
     def add_member(self, project_id: UUID | str, actor_user_id: UUID | str, user_id: UUID | str, role: str = "member") -> None:
         with self.database.transaction() as session:
@@ -137,6 +169,37 @@ class WebSessionRepository:
             if record is None:
                 raise ResourceNotFoundError("session not found")
             return record
+
+    def list_for_user(
+        self,
+        user_id: UUID | str,
+        *,
+        project_id: UUID | str | None = None,
+        personal_only: bool = False,
+    ) -> list[WebSession]:
+        """List sessions after applying owner/membership filtering in SQL."""
+
+        user_key = str(user_id)
+        access = or_(
+            (WebSession.project_id.is_(None) & (WebSession.owner_user_id == user_key)),
+            exists(
+                select(ProjectMembership.project_id).where(
+                    ProjectMembership.project_id == WebSession.project_id,
+                    ProjectMembership.user_id == user_key,
+                )
+            ),
+        )
+        with self.database.transaction() as session:
+            query = select(WebSession).where(access)
+            if project_id is not None:
+                query = query.where(WebSession.project_id == str(project_id))
+            elif personal_only:
+                query = query.where(WebSession.project_id.is_(None))
+            return list(
+                session.execute(
+                    query.order_by(WebSession.updated_at.desc(), WebSession.thread_id.asc())
+                ).scalars()
+            )
 
     def delete_for_user(self, thread_id: UUID | str, user_id: UUID | str) -> None:
         with self.database.transaction() as session:
@@ -255,6 +318,32 @@ class RunRepository:
                 raise ResourceNotFoundError("run not found")
             return record
 
+    def list_for_session(self, thread_id: UUID | str, user_id: UUID | str) -> list[Run]:
+        """List a session's runs only when the caller can read that session."""
+
+        with self.database.transaction() as session:
+            query = (
+                select(Run)
+                .join(WebSession, WebSession.thread_id == Run.thread_id)
+                .where(
+                    Run.thread_id == str(thread_id),
+                    or_(
+                        (
+                            (WebSession.project_id.is_(None))
+                            & (WebSession.owner_user_id == str(user_id))
+                        ),
+                        exists(
+                            select(ProjectMembership.project_id).where(
+                                ProjectMembership.project_id == WebSession.project_id,
+                                ProjectMembership.user_id == str(user_id),
+                            )
+                        ),
+                    ),
+                )
+                .order_by(Run.created_at.desc(), Run.run_id.asc())
+            )
+            return list(session.execute(query).scalars())
+
     def set_status(
         self,
         run_id: UUID | str,
@@ -288,4 +377,48 @@ class RunRepository:
             return record
 
 
-__all__ = ["ProjectRepository", "ResourceNotFoundError", "RunRepository", "WebSessionRepository"]
+class FeedbackCandidateRepository:
+    """Persist review-only feedback candidates, never evaluation gold."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def create_or_get(
+        self,
+        *,
+        run_id: UUID | str,
+        thread_id: UUID | str,
+        user_id: UUID | str,
+        rating: str,
+        comment: str = "",
+    ) -> tuple[FeedbackCandidateRow, bool]:
+        with self.database.transaction() as session:
+            existing = session.execute(
+                select(FeedbackCandidateRow).where(
+                    FeedbackCandidateRow.run_id == str(run_id),
+                    FeedbackCandidateRow.user_id == str(user_id),
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing, False
+            record = FeedbackCandidateRow(
+                feedback_id=str(uuid4()),
+                run_id=str(run_id),
+                thread_id=str(thread_id),
+                user_id=str(user_id),
+                rating=rating,
+                comment=comment,
+                status="candidate",
+                created_at=_now(),
+            )
+            session.add(record)
+            return record, True
+
+
+__all__ = [
+    "FeedbackCandidateRepository",
+    "ProjectRepository",
+    "ResourceNotFoundError",
+    "RunRepository",
+    "WebSessionRepository",
+]

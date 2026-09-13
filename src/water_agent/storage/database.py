@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-MIGRATION_HEAD = "0003_step41_memory_fts"
+MIGRATION_HEAD = "0004_step44_workspace"
 CHECKPOINT_MIGRATION_HEAD = 9
 
 

@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from water_agent.drawing.drawing_root import resolve_drawing_root
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.storage.database import (
     CHECKPOINT_MIGRATION_HEAD,
     MIGRATION_HEAD,
@@ -33,6 +35,7 @@ from water_agent.webapp.run_manager import (
     RunManager,
 )
 from water_agent.webapp.run_routes import router as run_router
+from water_agent.webapp.workspace_routes import router as workspace_router
 
 API_ENVELOPE_VERSION = "v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -72,6 +75,7 @@ def create_app(
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
     app.include_router(auth_router)
     app.include_router(run_router)
+    app.include_router(workspace_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
@@ -180,12 +184,61 @@ def create_app(
 
     @app.get("/api/system/capabilities")
     async def capabilities() -> dict[str, Any]:
+        drawing = resolve_drawing_root()
+        drawing_status = {
+            "OK": "available",
+            "NOT_CONFIGURED": "not_configured",
+            "NOT_FOUND": "unavailable",
+            "NO_DRAWING_FILES": "unavailable",
+        }[drawing.status]
+        drawing_detail = {
+            "OK": f"DXF 图纸能力可用（{len(drawing.drawings)} 张已登记图纸）",
+            "NOT_CONFIGURED": "DRAWING_ROOT 未配置",
+            "NOT_FOUND": "DRAWING_ROOT 不可用",
+            "NO_DRAWING_FILES": "未发现可用 DXF 图纸",
+        }[drawing.status]
+        mcp_invalid = False
+        try:
+            mcp_config = load_mcp_gateway()
+        except Exception:  # noqa: BLE001 -- status endpoint must not expose config details
+            mcp_config = None
+            mcp_invalid = True
+        if mcp_invalid:
+            mcp_status = "unavailable"
+            mcp_detail = "MCP 配置不可用"
+            mcp_server_count = None
+        elif mcp_config is None:
+            mcp_status = "not_configured"
+            mcp_detail = "MCP 配置未启用"
+            mcp_server_count = 0
+        else:
+            mcp_status = "blocked"
+            mcp_detail = "真实 CAD/BIM 与企业库 MCP 尚未验证；危险确认门仍按配置 fail closed"
+            mcp_server_count = len(mcp_config.servers)
         return _success(
             {
                 "real_llm": _real_llm_configured(),
                 "authentication": "session_cookie",
                 "persistence": "postgresql" if configured_database is not None else "memory_dev_only",
                 "sse": "resumable_last_event_id",
+                "drawing": {
+                    "status": drawing_status,
+                    "configured_status": drawing.status,
+                    "message": drawing_detail,
+                    "supported_format": "dxf",
+                    "dwg": {
+                        "status": "blocked",
+                        "message": "DWG 直读 blocked；需人工预转换为 DXF",
+                    },
+                    "real_samples": False,
+                    "recall_gate": False,
+                },
+                "mcp": {
+                    "status": mcp_status,
+                    "message": mcp_detail,
+                    "configured_server_count": mcp_server_count,
+                    "real_endpoints_verified": False,
+                },
             }
         )
 
