@@ -67,3 +67,14 @@ web/app/dist/
 
 # Workbuddy AI memory (sensitive / ephemeral)
 .workbuddy-ai/
+
+# 误复制的其他项目文件
+CONTRIBUTING.md
+LICENSE
+TROUBLESHOOTING.md
+blender_addon/
+deploy/
+docs/LLM_ENV.md
+docs/api-reference.md
+docs/ifcopenshell_api_docs.txt
+experiments/
