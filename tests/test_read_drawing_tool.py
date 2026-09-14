@@ -523,9 +523,14 @@ class TestConditionalRegistration:
 
 class TestWiring:
     def test_cli_registers_tool_only_when_root_available(self) -> None:
-        """CLI 与 runner 共用同一条装配策略，不各写一份判断（必然漂移）。"""
+        """CLI 与 runner 共用同一条装配策略，不各写一份判断（必然漂移）。
+
+        Step 42 把 CLI 的 AgenticSession 装配（含 read_drawing 条件注册）搬到了
+        ``runtime/agentic.py``，由 CLI 与 Web 共用；因此这里断言的是那个共享装配
+        模块本身，而不是已经不再做这件事的 ``cli.py``。
+        """
         cli_src = (
-            Path(__file__).resolve().parents[1] / "src/water_agent/cli.py"
+            Path(__file__).resolve().parents[1] / "src/water_agent/runtime/agentic.py"
         ).read_text(encoding="utf-8")
         runner_src = (
             Path(__file__).resolve().parents[1] / "src/water_agent/harness/runner.py"
