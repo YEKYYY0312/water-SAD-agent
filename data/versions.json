@@ -2,37 +2,37 @@
   {
     "spec_id": "GB50015",
     "version": "2019",
-    "status": "unknown",
-    "effective_date": null,
+    "status": "current",
+    "effective_date": "2020-03-01",
     "successor": null,
-    "source": "未核实：data/curated/clauses/GB50015-2019.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
-    "verified_at": "2026-09-03"
+    "source": "中华人民共和国住房和城乡建设部公告2019年第171号，查询自 www.mohurd.gov.cn",
+    "verified_at": "2026-09-14"
   },
   {
     "spec_id": "GB50013",
     "version": "2018",
-    "status": "unknown",
-    "effective_date": null,
+    "status": "current",
+    "effective_date": "2019-08-01",
     "successor": null,
-    "source": "未核实：data/curated/clauses/GB50013-2018.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
-    "verified_at": "2026-09-03"
+    "source": "建提复字〔2024〕23号，发布日期2024-08-16，查询自 www.mohurd.gov.cn",
+    "verified_at": "2026-09-14"
   },
   {
     "spec_id": "GB50014",
     "version": "2021",
-    "status": "unknown",
-    "effective_date": null,
+    "status": "current",
+    "effective_date": "2021-10-01",
     "successor": null,
-    "source": "未核实：data/curated/clauses/GB50014-2021.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
-    "verified_at": "2026-09-03"
+    "source": "中华人民共和国住房和城乡建设部公告2021年第58号，查询自 www.mohurd.gov.cn",
+    "verified_at": "2026-09-14"
   },
   {
     "spec_id": "GB50318",
     "version": "2017",
-    "status": "unknown",
-    "effective_date": null,
+    "status": "current",
+    "effective_date": "2017-07-01",
     "successor": null,
-    "source": "未核实：data/curated/clauses/GB50318-2017.jsonl 仅证明该版本已入库，不证明现行/废止；人工核实（公告号/生效日期）后改为 current 并填 source",
-    "verified_at": "2026-09-03"
+    "source": "中华人民共和国住房和城乡建设部公告第1447号，查询自 www.mohurd.gov.cn",
+    "verified_at": "2026-09-14"
   }
 ]
