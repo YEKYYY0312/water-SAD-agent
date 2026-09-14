@@ -4,6 +4,7 @@
   不静默降级、不产出空文件；
 - 内容与引擎输出一一对应：第一张表 = 材料清单（含来源明细列），第二张表 = 统计说明
   （汇总 + 逐段来源明细），保证"清单数值与计算一致、可追溯来源"。
+- **路径安全**（Step 15 P1 补全）：导出前校验路径，防止写入预期外位置。
 """
 from __future__ import annotations
 
@@ -44,14 +45,53 @@ def _summary_rows(table: MaterialTable) -> list[list[Any]]:
     return rows
 
 
+def _validate_export_path(path: str | Path) -> Path:
+    """校验导出路径安全性（Step 15 P1 补全）。
+
+    Args:
+        path: 用户提供的路径
+
+    Returns:
+        解析后的绝对路径
+
+    Raises:
+        ValueError: 路径不安全（相对路径或包含路径遍历）
+    """
+    original_path = Path(path)
+
+    # 1. 拒绝相对路径（在 resolve 之前检查）
+    if not original_path.is_absolute():
+        raise ValueError(f"导出路径必须为绝对路径，收到：{path}")
+
+    # 2. 检查路径遍历（.. 不应该出现在路径组成部分中）
+    if ".." in original_path.parts:
+        raise ValueError(f"导出路径不得包含 '..' 路径遍历：{path}")
+
+    # 3. 解析为规范化路径
+    destination = original_path.resolve()
+
+    return destination
+
+
 def write_materials_xlsx(
     table: MaterialTable,
     path: str | Path,
     *,
     title: str = "给排水材料统计表",
 ) -> Path:
-    """材料清单导出为 .xlsx（两个 sheet：材料清单 + 统计说明）。返回写入路径。"""
-    destination = Path(path)
+    """材料清单导出为 .xlsx（两个 sheet：材料清单 + 统计说明）。返回写入路径。
+
+    Args:
+        table: 材料清单表格
+        path: 输出路径（必须为绝对路径）
+        title: 表格标题（预留，当前未使用）
+
+    Raises:
+        ValueError: 路径校验失败（相对路径或路径遍历）
+        ImportError: openpyxl 未安装
+    """
+    # 路径安全校验（Step 15 P1 补全）
+    destination = _validate_export_path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         from openpyxl import Workbook  # type: ignore[import-untyped]
@@ -101,9 +141,21 @@ def write_materials_xlsx(
     return destination
 
 
-def write_materials_csv(table: MaterialTable, path: str | Path) -> Path:
-    """材料清单导出为 CSV（utf-8-sig，Excel 直接打开中文不乱码）。返回写入路径。"""
-    destination = Path(path)
+def write_materials_csv(
+    table: MaterialTable,
+    path: str | Path,
+) -> Path:
+    """材料清单导出为 CSV（utf-8-sig，Excel 直接打开中文不乱码）。返回写入路径。
+
+    Args:
+        table: 材料清单表格
+        path: 输出路径（必须为绝对路径）
+
+    Raises:
+        ValueError: 路径校验失败（相对路径或路径遍历）
+    """
+    # 路径安全校验（Step 15 P1 补全）
+    destination = _validate_export_path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
