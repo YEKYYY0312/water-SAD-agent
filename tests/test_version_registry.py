@@ -158,9 +158,9 @@ class TestVersionRegistry:
             assert "现行" in lines[0]
 
     def test_status_from_prod_json(self) -> None:
-        """data/versions.json 只录事实：四本已入库规范有记录，但现行状态尚未人工核实 → unknown。
+        """data/versions.json 只录事实：四本已入库规范有记录。
 
-        人工核实（公告号/生效日期）并填入 source 后，把这里的断言改为 STATUS_CURRENT。
+        2026-09-14 更新：四本规范均已核实为 current（住建部公告核实完成）。
 
         2026-09-08 补充：这条断言**不是**只看 status 字段。曾出现过把 status 改成
         current 但 source 仍是"未核实…"占位符的半成品状态（当时守卫放行了它），
@@ -171,9 +171,12 @@ class TestVersionRegistry:
         for spec_id in ("GB50015", "GB50013", "GB50014", "GB50318"):
             status = reg.get_spec_status(spec_id)
             assert status["version"], f"{spec_id} 应在 data/versions.json 中有记录（含版本号）"
-            assert status["status"] == STATUS_UNKNOWN, f"{spec_id} 未人工核实前必须为 unknown"
-            assert status["source"], "即使 unknown 也要写明为什么未知/如何核实"
-            assert status["status"] != STATUS_CURRENT
+            # 2026-09-14：规范版本已核实，期望为 current
+            assert status["status"] == STATUS_CURRENT, (
+                f"{spec_id} 已核实为 current（见 data/versions.json 的 source 与 verified_at）"
+            )
+            assert status["source"], "current 状态必须有住建部公告等来源依据"
+            assert status["effective_date"], "current 状态必须有实施日期"
 
     def test_prod_json_has_no_half_verified_entry(self) -> None:
         """生产 json 不得存在"声明 current 但依据是占位符"的半成品条目。
