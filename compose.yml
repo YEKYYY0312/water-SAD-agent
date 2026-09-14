@@ -58,6 +58,8 @@ services:
   app:
     # Explicit local tag: scripts/check_image.sh and the CI compose job
     # need a stable, known image name instead of the compose-derived one.
+    # Single worker only: memory candidate store is in-process (15 min TTL).
+    # For multi-worker, enable sticky sessions or persist candidates to Postgres.
     image: water-agent-app:local
     build:
       context: .

@@ -219,7 +219,7 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
   "已拦下的变体没有落盘"，**必然存在未覆盖的改写变体**——不得声称能拦住任意注入。
 - **真实记忆质量仍 blocked**：没有真实用户会话语料，也没有跨用户/跨项目的真实攻击样本；
   当前全部证据来自程序化合成。
-- **多 worker 限制**：待确认记忆候选存于进程内（15 分钟 TTL），多 worker 部署需持久化候选表（P0 未做）。
+- **单 worker 部署约束**：记忆候选表存于进程内（15 分钟 TTL，最多 256 条），设计面向单 worker 部署。多 worker 环境下候选不共享，需在负载均衡层启用会话亲和性（sticky session），或持久化候选表到 PostgreSQL（当前未实现）。
 - **重新启用已过期记忆不受支持**：P0 状态机前向，`enabled: true` 返回 409，不静默复活。
 - **本机 `docker compose build` 不可用**：Docker Desktop 的 buildx bake 通道报
   `x-docker-expose-session-sharedkey` gRPC 错误（与仓库无关）；等价命令

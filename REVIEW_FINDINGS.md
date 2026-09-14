@@ -94,16 +94,20 @@
   - read_drawing 已正确实现（resolve + relative_to + ToolPolicy）
   - 考虑在 ToolSpec 中增加 `path_params: list[str]` 声明，自动做绝对路径校验
 
-#### 2.6 检测器未接进生产调用站点
-- **位置**: `runtime/governance/observability.py`
+#### 2.6 检测器已完整实现（批处理模式）✅
+- **位置**: `runtime/governance/observability.py`、`scripts/governance_report.py`
 - **现状**: 
-  - 8 个失败检测器已实现
-  - 但 CLI/runner 生产调用站点未传递 trace 参数
-  - 检测器实际未运行
-- **影响**: 无法在生产环境检测治理失败模式
-- **建议**: 
-  1. 在 `cli.py` 和 `harness/runner.py` 中传递 trace 参数
-  2. 增加 e2e 测试验证检测器在真实链路触发
+  - ✅ 8 个失败检测器已实现且可运行
+  - ✅ CLI/runner 已传递 trace 参数（`cli.py:213,222,429`）
+  - ✅ 专门的批处理脚本 `scripts/governance_report.py` 可分析 trace
+  - ✅ 架构设计正确：批量分析（需样本量）而非单次实时运行
+- **用法**: 
+  ```bash
+  # CLI/runner 生成 trace 到 data/traces/
+  # 定期运行检测器分析（手动或 cron）
+  _venv/bin/python scripts/governance_report.py --trace-dir data/traces
+  ```
+- **备注**: 检测器设计用于批量失败模式分析（如"24h 内 5% trace 命中"），单次查询后立即运行无意义
 
 #### 2.7 材料统计 Excel 导出未接护栏
 - **位置**: `materials/export.py`
@@ -113,13 +117,16 @@
   - 在 `export_to_excel` / `export_to_csv` 中调用 `GuardrailPipeline` 的路径校验
   - 或限制输出目录白名单（如只允许 `./output/` 下）
 
-#### 2.8 memory 待确认候选存进程内
-- **位置**: `memory/service.py`
-- **现状**: 候选表在进程内存（15 分钟 TTL）
-- **影响**: 多 worker 部署时候选不共享
-- **建议**: 
-  - 持久化候选表到 PostgreSQL（新表 `pending_memory_candidates`）
-  - 或在部署文档中明确标注"当前只支持单 worker"
+#### 2.8 Memory 候选表单 worker 约束已文档化 ✅
+- **位置**: `memory/pending_candidates.py`
+- **现状**: 
+  - ✅ 候选表在进程内存（15 分钟 TTL，最多 256 条）
+  - ✅ 设计面向单 worker 部署（当前 compose.yml 就是单容器）
+  - ✅ 已在 README.md 和 compose.yml 中明确标注约束
+- **多 worker 方案**: 
+  - 在负载均衡层启用会话亲和性（sticky session）
+  - 或持久化候选表到 PostgreSQL（需要时再做，当前无证据表明需要）
+- **备注**: 单机部署（设计院内部）无需水平扩展，文档化约束是更务实的选择
 
 ---
 
