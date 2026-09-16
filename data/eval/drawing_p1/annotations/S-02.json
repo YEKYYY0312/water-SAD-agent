@@ -1,0 +1,27 @@
+{
+  "drawing_id": "S-02",
+  "drawing_type": "系统图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 0,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 599,
+    "layer_count": 8,
+    "unit_known": false,
+    "insunits": 0,
+    "truncated": false,
+    "pipes_reviewed": 477,
+    "mapping_missing_inputs": [
+      "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），长度无法换算为米。请人工确认图纸单位后重新提供，解析器不按默认单位换算（估算的长度会变成错误的工程量）",
+      "dn_mm：477 条管段无管径标注（LAYER3#1E、LAYER3#20、0#25…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：477 条管段无材质标注（LAYER3#1E、LAYER3#20、0#25…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：477 条管段的图层名未表达给水/排水归属（LAYER3#1E、LAYER3#20、0#25…）"
+    ],
+    "review_not_checked": [
+      "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+    ]
+  },
+  "defects": [],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

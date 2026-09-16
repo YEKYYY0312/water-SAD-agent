@@ -1,0 +1,97 @@
+{
+  "drawing_id": "S-03",
+  "drawing_type": "系统图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 3,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 1186,
+    "layer_count": 4,
+    "unit_known": false,
+    "insunits": 0,
+    "truncated": false,
+    "pipes_reviewed": 945,
+    "mapping_missing_inputs": [
+      "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），长度无法换算为米。请人工确认图纸单位后重新提供，解析器不按默认单位换算（估算的长度会变成错误的工程量）",
+      "dn_mm：945 条管段无管径标注（0#27、0#28、0#29…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：831 条管段无材质标注（0#27、0#28、0#29…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：945 条管段的图层名未表达给水/排水归属（0#27、0#28、0#29…）"
+    ],
+    "review_not_checked": [
+      "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+    ]
+  },
+  "defects": [
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN25（图层 0），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "0",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "喷嘴DN25×1",
+        "approx_position": "图层 0"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN25",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "S-03-D001"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN50（图层 0），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "0",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "LZD型转子流量计DN50×1",
+        "approx_position": "图层 0"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN50",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "S-03-D002"
+    },
+    {
+      "category": "材料待核",
+      "severity": "中",
+      "description": "图面出现塑料管材字样 UPVC（图层 0），需人工确认是否用于热水或消防系统",
+      "location": {
+        "layer": "0",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "UPVC×2; Rww-B1001-150UPVC×1; RS-B6001-100UPVC×1",
+        "approx_position": "图层 0"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；塑料管能否使用取决于系统与温度压力条件"
+      },
+      "expected": "人工核对",
+      "actual": "UPVC",
+      "occurrences": 11,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测；消防/热水材料判定需结合系统图与说明页，不单凭一词定罪。",
+      "defect_id": "S-03-D003"
+    }
+  ],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

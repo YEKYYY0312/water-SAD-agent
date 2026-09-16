@@ -1,0 +1,24 @@
+{
+  "drawing_id": "P-04",
+  "drawing_type": "平面图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 0,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 386,
+    "layer_count": 32,
+    "unit_known": true,
+    "insunits": 4,
+    "truncated": false,
+    "pipes_reviewed": 128,
+    "mapping_missing_inputs": [
+      "dn_mm：128 条管段无管径标注（CEN#8445、CEN#8446、CEN#8450…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：128 条管段无材质标注（CEN#8445、CEN#8446、CEN#8450…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：128 条管段的图层名未表达给水/排水归属（CEN#8445、CEN#8446、CEN#8450…）"
+    ],
+    "review_not_checked": []
+  },
+  "defects": [],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

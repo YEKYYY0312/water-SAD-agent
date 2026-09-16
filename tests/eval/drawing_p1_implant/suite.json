@@ -1,0 +1,17 @@
+{
+  "suite": "drawing_p1_implant",
+  "description": "真实底图 + 程序化植入缺陷：只测植入段召回/误报，不对底图做合规断言",
+  "spec_ref": "docs/design/13-p3-drawing-review.md §7/§8",
+  "real_samples": true,
+  "synthetic_implants": true,
+  "accepts_recall_gate": false,
+  "purpose": "在真实图纸噪声（非标图层、INSERT、多余几何）下验证 drain.min_diameter 对植入段的逐条覆盖与合规植入零误报；底图经 CAD 目视确认干净（见 data/eval/drawing_p1/REVIEW.md），但判分只认植入段，不对整图断言",
+  "generator": "cases 由 tests/eval/drawing_p1_implant/build_implants.py 在 data/drawings/real_samples 副本上植入（ezdxf，单位与底图一致）；cases/*.dxf 不入库（.gitignore），cases/*.json 入库",
+  "gold_format": "每 case 一个 <case_id>.json：{ case_id, base_drawing, synthetic_implants, defects: [{ rule_id, handle, layer, segment_id, evidence }] }；handle 为重读权威值；合规植入 defects=[]",
+  "scoring": "与 drawing_p0 同口径：单 case 按 (rule_id, handle) 精确匹配；聚合 defect_recall 分母为植入 gold 缺陷总数；本套件不设召回率门槛",
+  "spec_fields": {
+    "base_drawing": "底图登记号（data/drawings/real_samples 下，不入库）",
+    "synthetic_implants": "true 表示缺陷为程序化植入，非底图原生",
+    "implants": "植入段 [{dn, material}]，坐标由生成器按包围盒自动避让"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "pi-005-s03-compliant",
+  "description": "S-03 底图植入 DN400 合规管 → 0 缺陷（植入不误报）",
+  "drawing": "pi-005-s03-compliant.dxf",
+  "base_drawing": "S-03",
+  "synthetic_implants": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "未检查"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": []
+}
