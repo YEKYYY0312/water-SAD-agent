@@ -1,0 +1,25 @@
+{
+  "case_id": "pi-001-p01-single-violation",
+  "description": "P-01 底图植入 DN200 排水管 → 应报 drain.min_diameter",
+  "drawing": "pi-001-p01-single-violation.dxf",
+  "base_drawing": "P-01",
+  "synthetic_implants": true,
+  "expected_status": "succeeded",
+  "expected_summary_contains": [
+    "发现 1 条待核问题"
+  ],
+  "expected_not_checked_contains": [
+    "drain.horizontal_slope_range",
+    "drain.pressure_flow_velocity"
+  ],
+  "expected_missing_inputs_contains": [],
+  "defects": [
+    {
+      "rule_id": "drain.min_diameter",
+      "handle": "209A7",
+      "segment_id": "DR-PIPE#209A7",
+      "layer": "DR-PIPE",
+      "evidence": "植入标注 DN200 钢筋混凝土（DN200 < 下限 DN300）"
+    }
+  ]
+}
