@@ -1,0 +1,28 @@
+{
+  "drawing_id": "P-03",
+  "drawing_type": "平面图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 0,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 2997,
+    "layer_count": 28,
+    "unit_known": true,
+    "insunits": 4,
+    "truncated": false,
+    "pipes_reviewed": 2595,
+    "mapping_missing_inputs": [
+      "dn_mm：2594 条管段无管径标注（0#31、0#32、0#33…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：2595 条管段无材质标注（0#31、0#32、0#33…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：2537 条管段的图层名未表达给水/排水归属（0#31、0#32、0#33…）"
+    ],
+    "review_not_checked": [
+      "drain.min_diameter：58 条排水管段无管径标注，未检查",
+      "drain.horizontal_slope_range：坡度需两端标高，当前图元仅有二维坐标，标高未做结构化解析，**未检查**（不代表坡度合规）",
+      "drain.pressure_flow_velocity：流速需设计流量，图纸不含流量信息，**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
+    ]
+  },
+  "defects": [],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

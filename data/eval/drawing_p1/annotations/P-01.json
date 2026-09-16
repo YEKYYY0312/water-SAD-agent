@@ -1,0 +1,236 @@
+{
+  "drawing_id": "P-01",
+  "drawing_type": "平面图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 9,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 4560,
+    "layer_count": 36,
+    "unit_known": true,
+    "insunits": 1,
+    "truncated": false,
+    "pipes_reviewed": 2512,
+    "mapping_missing_inputs": [
+      "dn_mm：2512 条管段无管径标注（$TD_AUDIT_GENERATED_(12C)#24AF、$TD_AUDIT_GENERATED_(12C)#24EF、$TD_AUDIT_GENERATED_(12C)#2650…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：2512 条管段无材质标注（$TD_AUDIT_GENERATED_(12C)#24AF、$TD_AUDIT_GENERATED_(12C)#24EF、$TD_AUDIT_GENERATED_(12C)#2650…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：2512 条管段的图层名未表达给水/排水归属（$TD_AUDIT_GENERATED_(12C)#24AF、$TD_AUDIT_GENERATED_(12C)#24EF、$TD_AUDIT_GENERATED_(12C)#2650…）"
+    ],
+    "review_not_checked": []
+  },
+  "defects": [
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 D200（图层 FW），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "FW",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "D200×1",
+        "approx_position": "图层 FW"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "D200",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-01-D001"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN50（图层 P_XF_DIM），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN50×5",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN50",
+      "occurrences": 5,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-01-D002"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN70（图层 P_XF_DIM），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN70×1",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN70",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-01-D003"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN80（图层 P_XF_DIM），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN80×2",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN80",
+      "occurrences": 2,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-01-D004"
+    },
+    {
+      "category": "材料待核",
+      "severity": "中",
+      "description": "图面出现塑料管材字样 UPVC（图层 FW），需人工确认是否用于热水或消防系统",
+      "location": {
+        "layer": "FW",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "UPVC×1",
+        "approx_position": "图层 FW"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；塑料管能否使用取决于系统与温度压力条件"
+      },
+      "expected": "人工核对",
+      "actual": "UPVC",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测；消防/热水材料判定需结合系统图与说明页，不单凭一词定罪。",
+      "defect_id": "P-01-D005"
+    },
+    {
+      "category": "坡度待核",
+      "severity": "中",
+      "description": "图面坡度标注 D400   I=0.003（≈0.0030，图层 P_XF_DIM）低于设计要点下限 0.005，需人工结合管径复核",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "D400   I=0.003×2",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "GB50015-2019",
+        "clause": "4.7.1",
+        "evidence_level": "informal_summary",
+        "requirement": "排水横管坡度宜 0.005~0.01（语料自述为设计要点综述，非正式条文）"
+      },
+      "expected": "i ≥ 0.005（设计要点，非正式条文）",
+      "actual": "D400   I=0.003",
+      "occurrences": 2,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "唯一引用真实在库条文的一项，且为非正式综述级；不得表述为违反规范，具体管径对应坡度需人工核对。",
+      "defect_id": "P-01-D006"
+    },
+    {
+      "category": "坡度待核",
+      "severity": "中",
+      "description": "图面坡度标注 D300   I=0.004（≈0.0040，图层 P_XF_DIM）低于设计要点下限 0.005，需人工结合管径复核",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "D300   I=0.004×27",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "GB50015-2019",
+        "clause": "4.7.1",
+        "evidence_level": "informal_summary",
+        "requirement": "排水横管坡度宜 0.005~0.01（语料自述为设计要点综述，非正式条文）"
+      },
+      "expected": "i ≥ 0.005（设计要点，非正式条文）",
+      "actual": "D300   I=0.004",
+      "occurrences": 27,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "唯一引用真实在库条文的一项，且为非正式综述级；不得表述为违反规范，具体管径对应坡度需人工核对。",
+      "defect_id": "P-01-D007"
+    },
+    {
+      "category": "坡度待核",
+      "severity": "中",
+      "description": "图面坡度标注 D300  I=0.004（≈0.0040，图层 P_XF_DIM）低于设计要点下限 0.005，需人工结合管径复核",
+      "location": {
+        "layer": "P_XF_DIM",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "D300  I=0.004×3",
+        "approx_position": "图层 P_XF_DIM"
+      },
+      "regulation": {
+        "spec": "GB50015-2019",
+        "clause": "4.7.1",
+        "evidence_level": "informal_summary",
+        "requirement": "排水横管坡度宜 0.005~0.01（语料自述为设计要点综述，非正式条文）"
+      },
+      "expected": "i ≥ 0.005（设计要点，非正式条文）",
+      "actual": "D300  I=0.004",
+      "occurrences": 3,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "唯一引用真实在库条文的一项，且为非正式综述级；不得表述为违反规范，具体管径对应坡度需人工核对。",
+      "defect_id": "P-01-D008"
+    },
+    {
+      "category": "坡度待核",
+      "severity": "中",
+      "description": "图面坡度标注 D300 I=0.004;（≈0.0040，图层 FW）低于设计要点下限 0.005，需人工结合管径复核",
+      "location": {
+        "layer": "FW",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "D300 I=0.004;×1",
+        "approx_position": "图层 FW"
+      },
+      "regulation": {
+        "spec": "GB50015-2019",
+        "clause": "4.7.1",
+        "evidence_level": "informal_summary",
+        "requirement": "排水横管坡度宜 0.005~0.01（语料自述为设计要点综述，非正式条文）"
+      },
+      "expected": "i ≥ 0.005（设计要点，非正式条文）",
+      "actual": "D300 I=0.004;",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "唯一引用真实在库条文的一项，且为非正式综述级；不得表述为违反规范，具体管径对应坡度需人工核对。",
+      "defect_id": "P-01-D009"
+    }
+  ],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

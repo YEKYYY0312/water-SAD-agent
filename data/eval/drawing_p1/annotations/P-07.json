@@ -1,0 +1,258 @@
+{
+  "drawing_id": "P-07",
+  "drawing_type": "平面图",
+  "annotation_date": "2026-09-15",
+  "annotator": "启发式文本扫描（非规范判定）+ P3 程序化管线",
+  "total_defects": 10,
+  "extraction_ok": true,
+  "extraction_summary": {
+    "entity_count": 3393,
+    "layer_count": 25,
+    "unit_known": false,
+    "insunits": 0,
+    "truncated": false,
+    "pipes_reviewed": 2276,
+    "mapping_missing_inputs": [
+      "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），长度无法换算为米。请人工确认图纸单位后重新提供，解析器不按默认单位换算（估算的长度会变成错误的工程量）",
+      "dn_mm：2276 条管段无管径标注（$TD_AUDIT_GENERATED_(5F5)#D26、$TD_AUDIT_GENERATED_(D29)#D28、035#D2A…）。管径只取自标注的显式 DN/De 声明，不从线宽或图层推断",
+      "material：2276 条管段无材质标注（$TD_AUDIT_GENERATED_(5F5)#D26、$TD_AUDIT_GENERATED_(D29)#D28、035#D2A…）。不假定默认管材（管材差价大，猜错直接影响造价）",
+      "system：2276 条管段的图层名未表达给水/排水归属（$TD_AUDIT_GENERATED_(5F5)#D26、$TD_AUDIT_GENERATED_(D29)#D28、035#D2A…）"
+    ],
+    "review_not_checked": [
+      "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+    ]
+  },
+  "defects": [
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN25（图层 $TD_AUDIT_GENERATED_(8727)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8727)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN25×3",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8727)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN25",
+      "occurrences": 3,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D001"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN25（图层 $TD_AUDIT_GENERATED_(87D8)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(87D8)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN25×1",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(87D8)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN25",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D002"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN32（图层 $TD_AUDIT_GENERATED_(8727)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8727)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN32×4",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8727)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN32",
+      "occurrences": 4,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D003"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN32（图层 $TD_AUDIT_GENERATED_(87D8)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(87D8)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN32×2",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(87D8)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN32",
+      "occurrences": 2,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D004"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN40（图层 $TD_AUDIT_GENERATED_(8727)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8727)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN40×2",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8727)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN40",
+      "occurrences": 2,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D005"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN50（图层 $TD_AUDIT_GENERATED_(8727)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8727)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN50×1",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8727)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN50",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D006"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN50（图层 $TD_AUDIT_GENERATED_(8728)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8728)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN50×5",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8728)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN50",
+      "occurrences": 5,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D007"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN70（图层 $TD_AUDIT_GENERATED_(8727)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8727)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN70×1",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8727)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN70",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D008"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN70（图层 $TD_AUDIT_GENERATED_(8728)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8728)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN70×1",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8728)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN70",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D009"
+    },
+    {
+      "category": "管径待核",
+      "severity": "中",
+      "description": "图面出现小管径标注 DN75（图层 $TD_AUDIT_GENERATED_(8728)），需人工确认系统与立管/支管属性后再判是否合规",
+      "location": {
+        "layer": "$TD_AUDIT_GENERATED_(8728)",
+        "entity_type": "TEXT/MTEXT",
+        "entity_content": "DN75×1",
+        "approx_position": "图层 $TD_AUDIT_GENERATED_(8728)"
+      },
+      "regulation": {
+        "spec": "工程惯例（无条文支撑）",
+        "evidence_level": "engineering_practice",
+        "basis": "未引用规范条款；小管径是否违规取决于系统、立管/支管与建筑类型，文本扫描无法判定"
+      },
+      "expected": "人工核对",
+      "actual": "DN75",
+      "occurrences": 1,
+      "confidence": "低",
+      "needs_manual_review": true,
+      "notes": "仅文本观测，不构成规范违反判定；DN/De/D 裸值不区分立管支管与室内外。",
+      "defect_id": "P-07-D010"
+    }
+  ],
+  "notes": "候选标注非 gold：管径/材料/坡度三类待核均须人工复核后才可转评测 gold；P3 findings 为程序化产出，其中 min_diameter 系工程惯例级。INSERT 块内文字不可见，实际缺陷可能更多。"
+}

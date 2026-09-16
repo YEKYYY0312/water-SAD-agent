@@ -78,3 +78,30 @@ docs/LLM_ENV.md
 docs/api-reference.md
 docs/ifcopenshell_api_docs.txt
 experiments/
+
+# P2 真实图纸样本：已脱敏，但仍含业主/设计院/工程可识别线索，
+# 且样本 ID → 原始工程的映射本身即可识别，故样本**整体不入库**。
+# 本地使用：设置 DRAWING_ROOT=data/drawings/real_samples 后运行 P3 链路。
+#
+# 注意用 `dir/*` 而不是 `dir/`：gitignore **无法**在父目录被整体排除后
+# 再重新包含其子文件（"It is not possible to re-include a file if a parent
+# directory of that file is excluded"）。而 MANIFEST.md 只含非识别性元信息
+# （类型/图层数/实体数/版本/单位），必须入库作为样本集的可审阅凭证。
+data/drawings/real_samples/*
+!data/drawings/real_samples/MANIFEST.md
+# 溯源映射（样本 ID → 原始工程目录/文件），**绝不允许入库**。
+data/drawings/provenance.json
+
+# 脱敏替换表：**含待脱敏的词本身**，入库等于泄漏，故不入库。
+data/drawings/desensitize_terms.json
+
+# drawing_p1_implant：cases/*.dxf 是真实底图副本（含业主/设计院可识别线索，
+# 与 real_samples 同口径不入库）；cases/*.json（gold）入库，本地用
+# build_implants.py 重建 DXF 后再跑 runner。
+tests/eval/drawing_p1_implant/cases/*.dxf
+
+# 导出产物目录（材料统计 .xlsx / .csv 等）。
+# 目录里现存的 output/materials.xlsx 是**相对路径写入的遗留件** ——
+# `write_materials_xlsx` 自 Step 15 起要求绝对路径（相对路径会抛 ValueError），
+# 所以这是护栏上线前留下的，不是可复现产物。不入库。
+output/
