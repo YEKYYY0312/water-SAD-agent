@@ -1,0 +1,1 @@
+{"drawing_id": null, "defect_id": null, "gold_defects": [], "review_status": "visual_review_closed_no_defects", "review_note": "2026-09-16 CAD 目视复核：18 张图纸均未发现规范违规；0 条 gold 缺陷。仅可作阴性误报集（drawing_p1/negative_set.jsonl），不可作召回率门禁。", "real_samples": true, "accepts_recall_gate": false}
