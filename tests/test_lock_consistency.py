@@ -53,9 +53,11 @@ def test_water_agent_requires_dist_matches_pyproject_dependencies() -> None:
     lock = _load_lock()
     water_agent = next(pkg for pkg in lock["package"] if _canonical(pkg["name"]) == "water-agent")
     requires_dist = water_agent.get("metadata", {}).get("requires-dist") or []
+    # 只统计无 marker 的运行时依赖（过滤 extra == 'dev' 等条件依赖）
     locked_specs = {
         _canonical(entry["name"]): entry.get("specifier", "")
         for entry in requires_dist
+        if "marker" not in entry
     }
     for dep in pyproject["project"]["dependencies"]:
         match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)", dep)
