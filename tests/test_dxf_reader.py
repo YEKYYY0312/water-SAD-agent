@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import ezdxf
 import pytest
 
 from water_agent.drawing import (
@@ -104,6 +105,47 @@ class TestRoundTrip:
         for entity in read_drawing("r", root=drawings, policy=policy).entities:
             if entity.kind not in (DrawingEntityKind.CIRCLE, DrawingEntityKind.ARC):
                 assert entity.radius is None
+
+
+class TestInsertExpansion:
+    def test_insert_block_expansion(self, drawings: Path, policy: ToolPolicy) -> None:
+        doc = ezdxf.new()
+        msp = doc.modelspace()
+        block = doc.blocks.new("TEST_BLOCK")
+        block.add_circle((0, 0), radius=10)
+        block.add_text("TEST", dxfattribs={"insert": (0, 0)})
+        msp.add_blockref("TEST_BLOCK", (100, 200))
+        path = drawings / "insert.dxf"
+        doc.saveas(path)
+
+        result = read_drawing("insert", root=drawings, policy=policy)
+
+        assert result.ok
+        circles = [e for e in result.entities if e.dxftype == "CIRCLE"]
+        texts = [e for e in result.entities if e.dxftype == "TEXT"]
+        assert len(circles) == 1
+        assert len(texts) == 1
+        assert circles[0].source_block == "TEST_BLOCK"
+        assert texts[0].source_block == "TEST_BLOCK"
+        assert circles[0].points == ((100.0, 200.0),)
+        assert texts[0].points == ((100.0, 200.0),)
+
+    def test_nested_insert_expansion(self, drawings: Path, policy: ToolPolicy) -> None:
+        doc = ezdxf.new()
+        inner = doc.blocks.new("INNER")
+        inner.add_circle((0, 0), radius=2)
+        outer = doc.blocks.new("OUTER")
+        outer.add_blockref("INNER", (10, 0))
+        doc.modelspace().add_blockref("OUTER", (100, 200))
+        path = drawings / "nested.dxf"
+        doc.saveas(path)
+
+        result = read_drawing("nested", root=drawings, policy=policy)
+
+        circles = [e for e in result.entities if e.dxftype == "CIRCLE"]
+        assert len(circles) == 1
+        assert circles[0].source_block == "OUTER/INNER"
+        assert circles[0].points == ((110.0, 200.0),)
 
 
 class TestCoordinateAndTextNormalization:
@@ -400,6 +442,73 @@ class TestContentGuardCatchesInjection:
         assert "13812345678" not in flagged[0].text
         assert "[REDACTED:PHONE]" in flagged[0].text
         assert any("pii" in rule for rule in flagged[0].suspicious)
+
+
+class TestMifEscapeDecoding:
+    """P2 Step 8：``\\M+5XXXX`` 转义必须解码。
+
+    真实图纸里 3,387 条文本图元有 **1,239 条（37%）** 是这种形态。合成样本
+    `drawing_p0` 全用明文，**永远暴露不出这个缺口** —— 只能靠真实样本发现
+    （P2 Step 5 实测）。不解码，送进模型的是 ``\\M+5D0C2\\M+5BDA8…``
+    而不是「新建建(构)筑物」，标注全部不可读。
+
+    这一组同时是**安全断言**：解码发生在内容护栏之前，所以把攻击串写成 MIF 转义
+    **不能**绕过注入检测 —— 在 Step 8 之前，转义形态是一条事实上的护栏绕过路径。
+    """
+
+    def test_mif_encoded_annotation_is_decoded(
+        self, drawings: Path, policy: ToolPolicy
+    ) -> None:
+        from water_agent.drawing.mif import mif_encode
+
+        build_synthetic_drawing(
+            drawings, drawing_id="mif", inject_annotation=mif_encode("新建建(构)筑物")
+        )
+        result = read_drawing("mif", root=drawings, policy=policy)
+        texts = [e.text for e in result.entities]
+        assert any("新建建(构)筑物" in t for t in texts)
+        # 不得有任何实体残留转义形态
+        assert not any("\\M+" in t for t in texts)
+
+    def test_injection_hidden_in_mif_escape_is_still_caught(
+        self, drawings: Path, policy: ToolPolicy
+    ) -> None:
+        """**护栏绕过回归**：转义形态的注入此前对 `check_retrieved_content` 不可见。
+
+        解码放在 `_guard_text` 之前，注入检测才能看到真实文本。
+        """
+        from water_agent.drawing.mif import mif_encode
+
+        build_synthetic_drawing(
+            drawings, drawing_id="mifinj", inject_annotation=mif_encode(INJECTION)
+        )
+        result = read_drawing("mifinj", root=drawings, policy=policy)
+        flagged = [e for e in result.entities if e.suspicious]
+        assert len(flagged) == 1, "MIF 转义形态的注入未被检测到（护栏绕过）"
+        assert any("injection" in rule for rule in flagged[0].suspicious)
+
+    def test_pii_hidden_in_mif_escape_is_still_redacted(
+        self, drawings: Path, policy: ToolPolicy
+    ) -> None:
+        from water_agent.drawing.mif import mif_encode
+
+        build_synthetic_drawing(
+            drawings,
+            drawing_id="mifpii",
+            inject_annotation=mif_encode("业主联系人 13812345678"),
+        )
+        result = read_drawing("mifpii", root=drawings, policy=policy)
+        flagged = [e for e in result.entities if e.suspicious]
+        assert len(flagged) == 1, "MIF 转义形态的 PII 未被脱敏"
+        assert "13812345678" not in flagged[0].text
+
+    def test_plain_text_unaffected(self, drawings: Path, policy: ToolPolicy) -> None:
+        """解码是纯增量：明文标注逐字不变。"""
+        build_synthetic_drawing(drawings, drawing_id="plain")
+        result = read_drawing("plain", root=drawings, policy=policy)
+        texts = [e.text for e in result.entities]
+        assert any("DN200 球墨铸铁" in t for t in texts)
+        assert any("检查井 Y1" in t for t in texts)
 
 
 class TestFilteringAndTruncation:
