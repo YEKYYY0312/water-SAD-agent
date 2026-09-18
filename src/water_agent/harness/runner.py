@@ -69,7 +69,6 @@ from water_agent.runtime.governance.binding import (
     local_request_context,
 )
 from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
 from water_agent.tools.material_stats import material_stats_spec
@@ -735,8 +734,13 @@ class HarnessRunner:
             self._real_chat_model.gateway = gateway
         # 先创建带本地工具的基础 registry（异常恢复路径保留本地工具）
         base_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-        base_registry.register(build_retrieve_clauses_tool(retriever))
-        base_registry.register(build_cite_clauses_tool())
+
+        # 启用引用可追溯性检查（Step 8，2026-09-16）
+        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
+        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
+
+        base_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater))
+        base_registry.register(cite_tool_spec)
         base_registry.register(calc_velocity_spec)
         base_registry.register(material_stats_spec)
         drawing_tool, _ = maybe_build_read_drawing_tool()
@@ -765,8 +769,12 @@ class HarnessRunner:
                         request_context = request_context.model_copy(update={"principal": request_context.principal.model_copy(update={"capabilities": caps2})})
                         # 主体能力更新后重建 registry（护栏按新主体校验），再把所有工具注进去
                         new_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-                        new_registry.register(build_retrieve_clauses_tool(retriever))
-                        new_registry.register(build_cite_clauses_tool())
+
+                        # 启用引用可追溯性检查（Step 8，2026-09-16）
+                        cite_tool_spec2, context_updater2 = build_cite_clauses_tool_with_context_check()
+
+                        new_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater2))
+                        new_registry.register(cite_tool_spec2)
                         new_registry.register(calc_velocity_spec)
                         new_registry.register(material_stats_spec)
                         drawing_tool2, _ = maybe_build_read_drawing_tool()
@@ -839,7 +847,10 @@ class HarnessRunner:
 
     @staticmethod
     def _context_texts_from_messages(result: dict) -> list[str]:
-        """从 retrieve_clauses 的 ToolMessage 里取条文正文，供 judge 做忠实度判据。"""
+        """从 retrieve_clauses 的 ToolMessage 里取条文正文，供 judge 做忠实度判据。
+
+        P3 Step 9 修复：拼接 source_id（条款号）到正文前，使评委能判定引用条款号是否出现在上下文中。
+        """
         from langchain_core.messages import ToolMessage
 
         from water_agent.graphs.agent_rag import _payload_of
@@ -849,8 +860,11 @@ class HarnessRunner:
             if isinstance(m, ToolMessage) and m.name == "retrieve_clauses":
                 for hit in _payload_of(m).get("hits", []) or []:
                     text = hit.get("text")
+                    source_id = hit.get("source_id", "")
                     if text:
-                        texts.append(str(text))
+                        # 格式：【条款号】 条文内容
+                        prefix = f"【{source_id}】 " if source_id else ""
+                        texts.append(prefix + str(text))
         return texts
 
     def _apply_judge(self, scored: EvalResult, query: str, answer: str, *, context_texts: list[str] | None) -> None:
