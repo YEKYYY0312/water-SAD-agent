@@ -1,9 +1,9 @@
-"""水力计算工具族（P1）。
+"""水力计算工具（Step 8 → 可选 Step 22 反向校验）。
 
-公式口径唯一来源：``docs/design/09-hydraulics-formulas.md``（ADR-01 落实）：
-- 公式由输入显式指定（``HydraulicsFormula``），禁止静默切换；
-- 缺参返回结构化 ``missing_inputs``，禁止猜测；
-- 越界计算照常返回结果，但用 ``assumptions`` 标注并交由上层明示。
+规格 `docs/design/09-hydraulics-formulas.md`（ADR-01 落实）：
+- 公式由输入显式指定（`HydraulicsFormula`），禁止静默切换；
+- 缺参返回结构化 `missing_inputs`，禁止猜测；
+- 越界计算照常返回结果，但用 `assumptions` 标注并交由上层明示。
 
 纯函数实现，先不依赖 Step 4 的 ToolRegistry；Step 4 后在此注册工具。
 """
@@ -41,6 +41,9 @@ FORMULA_SET: frozenset[str] = frozenset(
 )
 
 # 给水/排水场景流速约束（口径表 §1；非全局硬编码，随 scenario 显式区分）
+# 排水上限按管材区分（GB50014-2021 5.2.9）：塑料管/铸铁管 5.0 m/s，
+# 混凝土管/钢管 10.0 m/s。 canonical 阈值表见 `drawing/rules.py::_MAX_VELOCITY_BY_MATERIAL`，
+# 此处保留保守默认值 5.0（未知管材），有 `material` 输入时按管材精确判定。
 _VELOCITY_CONSTRAINTS: dict[str, dict[str, float | str]] = {
     "water_supply": {"min_mps": 0.6, "max_mps": 1.5, "label": "给水常用区间 0.6–1.5 m/s"},
     "drainage": {"min_mps": 0.6, "max_mps": 5.0, "label": "排水：最小 0.6 m/s；非金属管最大 5 m/s（金属 10 m/s）"},
@@ -144,7 +147,17 @@ def calc_velocity(inputs: dict[str, Any]) -> CalcResult:
     velocity = flow_m3s / area_m2
 
     scenario = str(inputs.get("scenario") or "water_supply")
-    constraints = _VELOCITY_CONSTRAINTS.get(scenario)
+    material_raw = inputs.get("material")
+    material = material_raw if isinstance(material_raw, str) and material_raw.strip() else None
+
+    constraints: dict[str, float | str] | None
+    if scenario == "drainage" and material is not None:
+        from water_agent.drawing.rules import get_max_velocity_for_material as _get_max_v
+
+        _max_v = _get_max_v(material)
+        constraints = {"min_mps": 0.6, "max_mps": _max_v, "label": f"排水（管材 {material}）最小 0.6 m/s、最大 {_max_v:g} m/s"}
+    else:
+        constraints = _VELOCITY_CONSTRAINTS.get(scenario)
     assumptions: list[str] = []
     if constraints is not None:
         min_mps = float(constraints["min_mps"])
@@ -297,7 +310,7 @@ _CALC_FUNCTIONS: dict[str, Callable[[dict[str, Any]], CalcResult]] = {
 
 
 def run_calc(formula: str, inputs: dict[str, Any]) -> CalcResult:
-    """按显式公式口径分发计算。公式不在口径表 → 结构化工单错误。"""
+    """按显式公式口径分发计算。公式不在口径表时返回结构化工单错误。"""
     if formula not in FORMULA_SET:
         return CalcResult(
             ok=False,
