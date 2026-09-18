@@ -71,6 +71,10 @@ class DrawingEntity(BaseModel):
     source_tag: str = "retrieved_file"
     #: 内容护栏命中的规则 ID。**只带 ID，不带命中文本。**
     suspicious: tuple[str, ...] = ()
+    #: INSERT 块名（仅 kind=INSERT 时非空）—— 用于符号库查询。
+    block_name: str = ""
+    #: 产生该图元的块引用名称；模型空间直接图元为 ``None``。
+    source_block: str | None = None
 
 
 class DrawingExtraction(BaseModel):
