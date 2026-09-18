@@ -5,10 +5,11 @@
 均 miss；不同主体不可串数据；`no_store` 不落盘；被拒绝或引用失败的结果永不进入缓存；
 trace 不含 cache key 原文或 PII；对任一失效因子改动，断言调用次数增加。
 
-**关于真实语料**：`data/versions.json` 的 4 本规范状态全为 `unknown`，按规格 §5
-「不缓存版本未知的结果」，当前真实语料**一条也存不进缓存**
-（`TestRealCorpusCurrentlyIneligible` 断言此事实）。因此机制层测试使用
-版本已核实的 fake 注册表 —— 测的是机制，不是放宽校验。
+**关于真实语料**：`data/versions.json` 的 4 本规范已于 2026-09-14 核实为 `current`
+（提交 `b3cbf09`，来源均为 www.mohurd.gov.cn），因此真实语料**现在可以进缓存**。
+这正是 `TestRealCorpusCurrentlyIneligible` 当初预留的「解锁缓存」信号，该类已随之
+翻转为 `TestRealCorpusEligibility`。机制层测试仍使用版本已核实的 fake 注册表 ——
+测的是机制，不是放宽校验。
 
 全部离线，不发起任何远程调用。
 """
@@ -642,24 +643,31 @@ class TestCorpusVersion:
         assert stored.status is CacheStatus.INELIGIBLE
 
 
-class TestRealCorpusCurrentlyIneligible:
-    """真实语料的当前事实：4 本规范全为 unknown → 一条也存不进缓存。
+class TestRealCorpusEligibility:
+    """真实语料的当前事实：4 本规范已核实为 ``current`` → **缓存已解锁**。
 
-    这是规格 §5「不缓存版本未知的结果」的直接后果，是刻意的 fail closed。
-    人工核实 `data/versions.json` 后本测试需相应更新 —— 那正是"解锁缓存"的信号。
+    本类原名 ``TestRealCorpusCurrentlyIneligible``，断言「4 本规范全为 unknown
+    → 一条也存不进缓存」。2026-09-14 的 ``b3cbf09`` 把四本规范核实为 ``current``
+    （来源均为 www.mohurd.gov.cn），该断言随即失败 —— 这**正是当初写它时预留的
+    「解锁缓存」信号**（原 docstring 原话：「人工核实后本测试需相应更新 ——
+    那正是"解锁缓存"的信号」），不是回归。本类随之翻转为断言「现在可以缓存」。
+
+    翻转后仍是一道绊线：若 ``data/versions.json`` 被改回 ``unknown``、或新增规范
+    未核实，下面三条会立刻失败，提醒复核缓存是否该再次关闭（fail closed）。
     """
 
-    def test_real_registry_all_unknown(self) -> None:
+    def test_real_registry_all_verified_current(self) -> None:
         statuses = [
             (str(r.get("spec_id")), str(r.get("status")))
             for r in get_version_registry().list_all()
         ]
         assert statuses, "注册表应有条目"
-        assert all(status == "unknown" for _spec, status in statuses), (
-            "若已人工核实版本状态，请更新本测试与 test_real_corpus_store_is_rejected"
+        assert all(status == "current" for _spec, status in statuses), (
+            "若规范状态被改回 unknown（或新增了未核实的规范），请更新本测试与 "
+            "test_real_corpus_is_eligible_for_store —— 缓存必须随之关闭"
         )
 
-    def test_real_corpus_store_is_rejected(self) -> None:
+    def test_real_corpus_is_eligible_for_store(self) -> None:
         svc = _service(registry=get_version_registry())
         ctx = _ctx()
         eligibility = svc.eligibility_for(
@@ -667,18 +675,35 @@ class TestRealCorpusCurrentlyIneligible:
             citation_verified=True, output_guardrails_passed=True,
             answer="答案", source_ids=_SOURCES, ctx=ctx,
         )
-        assert eligibility.eligible is False
-        assert eligibility.reason == REASON_SPEC_VERSION_UNKNOWN
+        assert eligibility.eligible is True
+        assert eligibility.reason == REASON_OK
+        # 语料版本必须可判定 —— 否则缓存仍会因 corpus_version_unknown 关闭
+        assert svc.corpus_version_known is True
 
-    def test_real_versions_json_has_no_verified_spec(self) -> None:
-        """双保险：直接读 data/versions.json，避免注册表实现变化掩盖事实。"""
+    def test_versions_json_claims_survive_load_guard(self) -> None:
+        """双保险：直接读 `data/versions.json`，逐条比对注册表的**实际**判定。
+
+        断言「文件里声明的 status」与「过加载期守卫之后的 status」一致。
+        任何被降级的条目（缺 ``verified_at`` / ``source`` 自述未核实 /
+        ``current`` 缺 ``effective_date``）都会在这里暴露 —— 而不是悄悄变成
+        unknown 让缓存无声关闭。比硬编码「必须是 current」更能说明问题：
+        它连降级原因一起报出来。
+        """
         path = Path(__file__).resolve().parents[1] / "data" / "versions.json"
         raw = json.loads(path.read_text(encoding="utf-8"))
         records = raw if isinstance(raw, list) else raw.get("specs", [])
+        assert records, "data/versions.json 不应为空"
+        actual_by_id = {
+            str(r.get("spec_id")): r for r in get_version_registry().list_all()
+        }
         for record in records:
-            assert record.get("status", "unknown") == "unknown" or not record.get(
-                "verified_at"
-            ), f"{record.get('spec_id')} 已核实 → 请更新缓存资格测试"
+            spec_id = str(record.get("spec_id"))
+            declared = str(record.get("status", "unknown"))
+            actual = actual_by_id.get(spec_id, {})
+            assert str(actual.get("status", "unknown")) == declared, (
+                f"{spec_id}: versions.json 声明 {declared!r}，注册表判定 "
+                f"{actual.get('status')!r}（降级原因 {actual.get('demotion_reason')!r}）"
+            )
 
 
 class TestServiceHelpers:
@@ -877,8 +902,16 @@ class TestContextBudgetReview:
         assembled = PromptAssembler(tool_registry=self._registry()).assemble_prompt({})
         used = _estimate_tokens(str(assembled.content))
         assert used <= sum(SEGMENT_BUDGETS.values())
-        # 实测约 1424；留出余量但设上限防止无声膨胀
-        assert used < 1800, f"系统提示膨胀到 {used} tokens，请复核预算"
+        # 2026-09-15 重新标定（原为「实测约 1424 / 上限 1800」）。
+        # 三点实测，便于下次失败时直接定位是哪一段涨的：
+        #     空注册表 1458 | 旧「四本全 unknown」注册表 1587 | 现行（全 current）1827
+        # +240 全部来自 b3cbf09 把四本规范核实为 current：`snapshot_lines()` 从此
+        # 输出生效日期与公告号来源（铁律 2 要求引用可追溯，这部分开销是**必要**的，
+        # 不是无声膨胀 —— 它对应一次有据可查的提交）。
+        # 2026-09-17 再次标定：1827 → 1917 (+90)。
+        # 增量来自引用可追溯性增强（cite工具描述补充检索上下文校验说明）。
+        # 上限取 1950（余量 33，约 1.7%）：保持紧绷，任何进一步膨胀立刻失败。
+        assert used < 1950, f"系统提示膨胀到 {used} tokens，请复核预算"
 
     def test_tool_definitions_token_cost_is_bounded(self) -> None:
         """5 个工具的 schema 约 4.4K tokens —— 是当前最大的静态开销。
