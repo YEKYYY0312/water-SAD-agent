@@ -1,0 +1,23 @@
+{
+  "logs": [
+    {
+      "defect_id": "P03-D001",
+      "drawing": "P-03",
+      "status": "success",
+      "original_text": "{\\fSimSun|b0|i0|c134|p2;DN500}",
+      "handle": "289",
+      "defect_text": "DN250"
+    },
+    {
+      "defect_id": "P03-D002",
+      "drawing": "P-03",
+      "status": "success",
+      "original_text": "{\\fSimSun|b0|i0|c134|p2;DN700}",
+      "handle": "2BA",
+      "defect_text": "DN200"
+    }
+  ],
+  "summary": {
+    "total": 2
+  }
+}

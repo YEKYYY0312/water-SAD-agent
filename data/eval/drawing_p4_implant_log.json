@@ -1,0 +1,48 @@
+{
+  "total_defects": 7,
+  "success": [
+    {
+      "defect_id": "PUMP01-D001",
+      "drawing": "PUMP-01_defect",
+      "handle": "4A2",
+      "change": "DN200 → DN80"
+    },
+    {
+      "defect_id": "PUMP01-D002",
+      "drawing": "PUMP-01_defect",
+      "handle": "4C8",
+      "change": "DN150 PN1.0MPa → DN75 PN1.0MPa"
+    },
+    {
+      "defect_id": "PUMP01-D003",
+      "drawing": "PUMP-01_defect",
+      "handle": "4C6",
+      "change": "DN80 PN1.0MPa → DN40 PN1.0MPa"
+    },
+    {
+      "defect_id": "P02-D001",
+      "drawing": "P-02_defect",
+      "handle": "3C44",
+      "change": "1 DN110 → 1 DN65"
+    },
+    {
+      "defect_id": "P02-D002",
+      "drawing": "P-02_defect",
+      "handle": "3D1A",
+      "change": "1 DN110 → 1 DN80"
+    },
+    {
+      "defect_id": "P06-D001",
+      "drawing": "P-06_defect",
+      "handle": "2D2",
+      "change": "DN37 → DN15"
+    },
+    {
+      "defect_id": "S01-D001",
+      "drawing": "S-01_defect",
+      "handle": "A4",
+      "change": "DN32 → DN15"
+    }
+  ],
+  "failed": []
+}
