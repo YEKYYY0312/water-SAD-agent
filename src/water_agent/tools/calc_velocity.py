@@ -18,22 +18,27 @@ class VelocityArgs(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    diameter_mm: float = Field(gt=0, le=3000, description="管内径 mm，如 150")
-    flow_lps: float = Field(gt=0, le=5000, description="流量 L/s，如 20")
+    diameter_mm: float = Field(gt=0, le=3000, description="管内径 mm")
+    flow_lps: float = Field(gt=0, le=5000, description="流量 L/s")
     scenario: Literal["water_supply", "drainage"] = Field(
         default="water_supply",
-        description="场景：water_supply 给水（常用 0.6–1.5 m/s）；drainage 排水",
+        description="场景：water_supply给水（0.6–1.5m/s）；drainage排水",
+    )
+    material: str | None = Field(
+        default=None,
+        description="管材。drainage时影响流速上限（塑料5、金属10 m/s）",
     )
 
 
 def _execute(args: VelocityArgs) -> dict:
-    result = _hydraulic_calc_velocity(
-        {
-            "diameter_mm": args.diameter_mm,
-            "flow_lps": args.flow_lps,
-            "scenario": args.scenario,
-        }
-    )
+    payload: dict = {
+        "diameter_mm": args.diameter_mm,
+        "flow_lps": args.flow_lps,
+        "scenario": args.scenario,
+    }
+    if args.material is not None:
+        payload["material"] = args.material
+    result = _hydraulic_calc_velocity(payload)
     if not result.ok:
         raise RuntimeError("velocity 计算失败：" + ("；".join(result.errors) or "未知错误"))
     return {
