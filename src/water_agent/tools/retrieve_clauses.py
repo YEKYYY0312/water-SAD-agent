@@ -62,7 +62,13 @@ def _truncate_to_limit(payload: dict, limit: int = MAX_RESULT_BYTES) -> dict:
     return payload
 
 
-def _make_execute(retriever: Retriever):
+def _make_execute(retriever: Retriever, context_updater=None):
+    """返回 execute 闭包，捕获 retriever 和可选的 context_updater。
+
+    Args:
+        retriever: 检索器实例
+        context_updater: 可选的上下文更新函数，检索完成后会调用它更新可用条款号
+    """
     def execute(args: RetrieveArgs) -> dict:
         clauses = retriever.retrieve(args.query, top_k=args.top_k)
         # P2.5 Step 14：检索结果是**不可信来源**（Greshake 的经典注入向量）。
@@ -70,8 +76,10 @@ def _make_execute(retriever: Retriever):
         # 会让正常检索整体失效），而是脱敏 + 打 `suspicious` 标记按数据隔离。
         pipeline = default_guardrail_pipeline()
         hits: list[dict[str, Any]] = []
+        source_ids = []  # 收集所有检索到的 source_id
         for clause in clauses:
             entry = _clause_to_dict(clause)
+            source_ids.append(entry["source_id"])  # 记录 source_id
             outcome = pipeline.check_retrieved_content(
                 ContentEnvelope(
                     source_tag=SourceTag.RETRIEVED_CLAUSE,
@@ -85,6 +93,16 @@ def _make_execute(retriever: Retriever):
                 # 只带规则 ID，不带命中文本 —— 摘要本身不得成为二次注入载荷
                 entry["suspicious"] = [hit.rule_id for hit in outcome.hits]
             hits.append(entry)
+
+        # 更新 cite_clauses 的可用上下文（如果提供了 context_updater）
+        if context_updater is not None and source_ids:
+            try:
+                context_updater(source_ids)
+            except Exception:  # noqa: BLE001, S110
+                # 更新失败不影响检索结果返回，但记录日志以便调试
+                # TODO: 接入结构化日志后记录异常详情
+                pass
+
         payload = {
             "ok": True,
             "count": len(hits),
@@ -97,8 +115,13 @@ def _make_execute(retriever: Retriever):
     return execute
 
 
-def build_retrieve_clauses_tool(retriever: Retriever) -> ToolSpec:
-    """用给定检索器构建 retrieve_clauses 工具（检索器由调用方注入）。"""
+def build_retrieve_clauses_tool(retriever: Retriever, context_updater=None) -> ToolSpec:
+    """用给定检索器构建 retrieve_clauses 工具（检索器由调用方注入）。
+
+    Args:
+        retriever: 检索器实例
+        context_updater: 可选的上下文更新函数，每次检索后自动更新 cite_clauses 的可用条款号
+    """
     return ToolSpec(
         name="retrieve_clauses",
         description=(
@@ -107,5 +130,5 @@ def build_retrieve_clauses_tool(retriever: Retriever) -> ToolSpec:
             "Do not use for 纯数值计算（应调用计算工具）。"
         ),
         args_model=RetrieveArgs,
-        execute=_make_execute(retriever),
+        execute=_make_execute(retriever, context_updater),
     )
