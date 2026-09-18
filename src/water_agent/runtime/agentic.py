@@ -52,7 +52,6 @@ from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.runtime.governance.contracts import Principal, RequestContext
 from water_agent.session import default_checkpoint_serde, session_db_path
 from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.cite import build_cite_clauses_tool
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
@@ -386,8 +385,13 @@ class AgenticSession:
         self.request_context = self.request_context.model_copy(update={"principal": principal})
 
         registry = ToolRegistry(principal=principal, trace=self.recorder)
-        registry.register(build_retrieve_clauses_tool(tool_retriever))
-        registry.register(build_cite_clauses_tool())
+
+        # 启用引用可追溯性检查（Step 8，2026-09-16）
+        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
+        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
+
+        registry.register(build_retrieve_clauses_tool(tool_retriever, context_updater=context_updater))
+        registry.register(cite_tool_spec)
         registry.register(calc_velocity_spec)
         registry.register(material_stats_spec)
         drawing_tool, self.drawing_root_status = maybe_build_read_drawing_tool(
