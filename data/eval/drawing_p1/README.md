@@ -1,14 +1,13 @@
-# Drawing P1 候选标注集（终：目视复核关闭，0 缺陷，转阴性误报集）
+# Drawing P1 阴性样本集（CAD 目视确认无违规，仅测误报率）
 
-**状态（2026-09-16 目视复核终判）**: 18 张图纸 CAD 目视均无规范违规；28 条文本候选全部撤回
-（7 条文本复核删 + 21 条目视复核删）。本目录转**阴性误报集**（`negative_set.jsonl`），
-`drawing_p1_gold.jsonl` 为 0 缺陷占位；两产物 `accepts_recall_gate=false`，
-**不构成召回率验收证据**，仅可作误报率（FP）测试。
+**状态**: 2026-09-16 CAD 目视终判：18 张图纸本身无规范违规，28 条文本候选全部撤回，确认违规 0 条。
+本目录产物 `accepts_recall_gate=false`：仅可做误报率（false-positive）测试，**不可做召回率门禁**。
 
 ## 统计
 
 - 图纸数: 18
-- 候选总数: 28
+- 文本候选总数: 28（全部撤回）
+- 确认违规: 0
 - 信心度分布: {'低': 28}
 - 分类分布: {'管径待核': 22, '材料待核': 2, '坡度待核': 4}
 
@@ -44,17 +43,17 @@
 | S-04 | 系统图 | 1 |
 | S-05 | 系统图 | 0 |
 
-## 复核记录（终）
+## 目视终判（2026-09-16）
 
-- 2026-09-16 文本复核：删 7 条（P-06 DN37、PUMP-01 DN32/50/80、S-01 DN32、S-03 喷嘴DN25/流量计DN50）。
-- 2026-09-16 CAD 目视复核：其余 21 条观测全部判合规撤回；18 张图纸 0 违规。
-- 产物：`negative_set.jsonl`（28 条误报负例，`review_status=dropped_false_positive`）；`../drawing_p1_gold.jsonl`（0 缺陷占位，`review_status=visual_review_closed_no_defects`）。
-- 详见 `REVIEW.md`。INSERT 块内文字对链路仍不可见（MANIFEST：含 INSERT 16/18）。
+- 28 条文本候选全部撤回：7 条文本复核删除（配件规格/设备接口/孤立文本）+ 21 条 CAD 目视判误报。
+- 确认违规 0 条；本批转阴性误报集，链路若报警计误报。召回率门禁仍 blocked，需另采带已知缺陷图纸。
+- 终判记录见 `REVIEW.md`；撤回明细见 `drawing_p1_negatives.jsonl`（`review_status=dropped_by_visual_review`）。
 
 ## 文件
 
-- `annotations/*.json`：18 张图纸的候选标注快照（保留原文，便于回溯候选来源）。
-- `negative_set.jsonl`：28 条误报负例（误报率测试用）。
-- `drawing_p1.jsonl`：复核前候选汇总（历史快照，不做评测用）。
-- `REVIEW.md`：复核记录（含目视终判）。
+- `annotations/*.json`：18 张图纸的文本候选标注（复核前快照，`needs_manual_review=true`，已全部撤回）。
+- `drawing_p1.jsonl`：复核前候选汇总（28 行，历史快照，不做 gold 用）。
+- `drawing_p1_negatives.jsonl`：28 条撤回候选（`review_status=dropped_by_visual_review` + 撤回原因）。
+- `../drawing_p1_gold.jsonl`：0 条确认缺陷占位（`review_status=visual_review_clean`）。
+- `REVIEW.md`：复核记录（含 CAD 目视终判）。
 - 本 README：统计与终判说明。
