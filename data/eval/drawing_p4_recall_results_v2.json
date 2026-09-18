@@ -1,0 +1,35 @@
+{
+  "summary": {
+    "total": 2,
+    "recalled": 2,
+    "recall_rate": 1.0
+  },
+  "details": [
+    {
+      "defect_id": "P03-D001",
+      "recalled": true,
+      "handle": "289",
+      "expected_violation": "室外排水管（污水/合流）公称管径不宜小于 300mm",
+      "matched_finding": {
+        "rule_id": "drain.min_diameter",
+        "severity": "medium",
+        "detail": "标注管径 DN250，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+        "match_type": "evidence",
+        "pipe_handle": "232"
+      }
+    },
+    {
+      "defect_id": "P03-D002",
+      "recalled": true,
+      "handle": "2BA",
+      "expected_violation": "室外排水管（污水/合流）公称管径不宜小于 300mm",
+      "matched_finding": {
+        "rule_id": "drain.min_diameter",
+        "severity": "medium",
+        "detail": "标注管径 DN200，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+        "match_type": "evidence",
+        "pipe_handle": "2CA"
+      }
+    }
+  ]
+}

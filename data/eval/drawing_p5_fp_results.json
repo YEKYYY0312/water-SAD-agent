@@ -1,0 +1,777 @@
+{
+  "summary": {
+    "total_drawings": 18,
+    "total_findings": 67,
+    "timestamp": "2026-09-16"
+  },
+  "details": [
+    {
+      "drawing_id": "D-01",
+      "findings": [],
+      "stats": {
+        "entities": 376,
+        "pipes": 246,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "D-02",
+      "findings": [],
+      "stats": {
+        "entities": 3700,
+        "pipes": 3226,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "D-03",
+      "findings": [],
+      "stats": {
+        "entities": 270,
+        "pipes": 143,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-01",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 2968,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-02",
+      "findings": [
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "203A",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "203B",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "20F6",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "20F7",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "214B",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "214C",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "2167",
+          "evidence_handles": [
+            "3D7B",
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "216A",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "236B",
+          "evidence_handles": [
+            "3D7B",
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3AF2",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3AF5",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B02",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B03",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B05",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B06",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B12",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B13",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B14",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B15",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B17",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B1F",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B20",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B39",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3A",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3B",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3C",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3D",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3E",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B3F",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3B40",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BA7",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BA9",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BC6",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BC8",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BC9",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BCC",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BCD",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BCE",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BCF",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD0",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD1",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD2",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD3",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD4",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3BD7",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C02",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C03",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C46",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C47",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C48",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C4D",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C4E",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C4F",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C50",
+          "evidence_handles": [
+            "3C44"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C52",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C53",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3C54",
+          "evidence_handles": [
+            "3C4A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D0F",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D10",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D13",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D15",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D17",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D19",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D1C",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D1D",
+          "evidence_handles": [
+            "3D12"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D1E",
+          "evidence_handles": [
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+          "handle": "3D1F",
+          "evidence_handles": [
+            "3D12"
+          ]
+        }
+      ],
+      "stats": {
+        "entities": 791,
+        "pipes": 645,
+        "findings": 67
+      }
+    },
+    {
+      "drawing_id": "P-03",
+      "findings": [],
+      "stats": {
+        "entities": 3003,
+        "pipes": 2601,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-04",
+      "findings": [],
+      "stats": {
+        "entities": 414,
+        "pipes": 140,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-05",
+      "findings": [],
+      "stats": {
+        "entities": 4157,
+        "pipes": 3722,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-06",
+      "findings": [],
+      "stats": {
+        "entities": 723,
+        "pipes": 616,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-07",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 168,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-01",
+      "findings": [],
+      "stats": {
+        "entities": 1009,
+        "pipes": 150,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-02",
+      "findings": [],
+      "stats": {
+        "entities": 2899,
+        "pipes": 2247,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-03",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 1332,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-01",
+      "findings": [],
+      "stats": {
+        "entities": 618,
+        "pipes": 410,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-02",
+      "findings": [],
+      "stats": {
+        "entities": 612,
+        "pipes": 483,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-03",
+      "findings": [],
+      "stats": {
+        "entities": 1200,
+        "pipes": 951,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-04",
+      "findings": [],
+      "stats": {
+        "entities": 1610,
+        "pipes": 797,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-05",
+      "findings": [],
+      "stats": {
+        "entities": 3614,
+        "pipes": 3240,
+        "findings": 0
+      }
+    }
+  ]
+}

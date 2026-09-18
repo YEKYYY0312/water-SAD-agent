@@ -1,0 +1,608 @@
+{
+  "instructions": "请为每个 finding 标注 is_false_positive:\n  - true: 误报（检出的问题在工程上完全不成立）\n  - false: 真实问题（即使在阴性集中，可能仍存在我们之前未注意的真实缺陷）\n\n如果 is_false_positive=true，请在 reason 中说明误报原因：\n  - 系统类型混淆（如给水管被误判为排水管）\n  - 标注关联错误（标注被关联到错误的管段）\n  - 管径阈值过严（DN250 被判违规，但实际场景允许）\n  - 其他（请具体说明）\n",
+  "annotations": [
+    {
+      "drawing_id": "P-02",
+      "finding_index": 0,
+      "rule_id": "drain.min_diameter",
+      "handle": "203A",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 1,
+      "rule_id": "drain.min_diameter",
+      "handle": "203B",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 2,
+      "rule_id": "drain.min_diameter",
+      "handle": "20F6",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 3,
+      "rule_id": "drain.min_diameter",
+      "handle": "20F7",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 4,
+      "rule_id": "drain.min_diameter",
+      "handle": "214B",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 5,
+      "rule_id": "drain.min_diameter",
+      "handle": "214C",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 6,
+      "rule_id": "drain.min_diameter",
+      "handle": "2167",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 7,
+      "rule_id": "drain.min_diameter",
+      "handle": "216A",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 8,
+      "rule_id": "drain.min_diameter",
+      "handle": "236B",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 9,
+      "rule_id": "drain.min_diameter",
+      "handle": "3AF2",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 10,
+      "rule_id": "drain.min_diameter",
+      "handle": "3AF5",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 11,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B02",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 12,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B03",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 13,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B05",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 14,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B06",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 15,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B12",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 16,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B13",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 17,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B14",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 18,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B15",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 19,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B17",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 20,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B1F",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 21,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B20",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 22,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B39",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 23,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3A",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 24,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3B",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 25,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3C",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 26,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3D",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 27,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3E",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 28,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B3F",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 29,
+      "rule_id": "drain.min_diameter",
+      "handle": "3B40",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 30,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BA7",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 31,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BA9",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 32,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BC6",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 33,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BC8",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 34,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BC9",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 35,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BCC",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 36,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BCD",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 37,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BCE",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 38,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BCF",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 39,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD0",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 40,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD1",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 41,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD2",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 42,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD3",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 43,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD4",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 44,
+      "rule_id": "drain.min_diameter",
+      "handle": "3BD7",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 45,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C02",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 46,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C03",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 47,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C46",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 48,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C47",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 49,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C48",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 50,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C4D",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 51,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C4E",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 52,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C4F",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 53,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C50",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 54,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C52",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 55,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C53",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 56,
+      "rule_id": "drain.min_diameter",
+      "handle": "3C54",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 57,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D0F",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 58,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D10",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 59,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D13",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 60,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D15",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 61,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D17",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 62,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D19",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 63,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D1C",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 64,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D1D",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 65,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D1E",
+      "detail": "标注管径 DN110，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    },
+    {
+      "drawing_id": "P-02",
+      "finding_index": 66,
+      "rule_id": "drain.min_diameter",
+      "handle": "3D1F",
+      "detail": "标注管径 DN133，小于惯例最小值 DN300（系统类型未明确标识，按管径推断可能为排水管）",
+      "is_false_positive": true,
+      "reason": "规则适用范围错误：DN110-133 室内管道（可能为立管），不受室外排水管 DN300 最小值限制"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "total_defects": 2,
+    "detected": 2,
+    "recall": 1.0,
+    "timestamp": "2026-09-16"
+  },
+  "detected_handles": [
+    "2CA",
+    "2CB",
+    "289",
+    "2BA",
+    "232"
+  ],
+  "matched_handles": [
+    "289",
+    "2BA"
+  ],
+  "missed_handles": []
+}

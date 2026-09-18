@@ -1,0 +1,192 @@
+{
+  "summary": {
+    "total_drawings": 18,
+    "total_findings": 2,
+    "timestamp": "2026-09-16"
+  },
+  "details": [
+    {
+      "drawing_id": "D-01",
+      "findings": [],
+      "stats": {
+        "entities": 376,
+        "pipes": 246,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "D-02",
+      "findings": [],
+      "stats": {
+        "entities": 3700,
+        "pipes": 3226,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "D-03",
+      "findings": [],
+      "stats": {
+        "entities": 270,
+        "pipes": 143,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-01",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 2968,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-02",
+      "findings": [
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300",
+          "handle": "2167",
+          "evidence_handles": [
+            "3D7B",
+            "3D1A"
+          ]
+        },
+        {
+          "rule_id": "drain.min_diameter",
+          "severity": "medium",
+          "detail": "标注管径 DN110，小于惯例最小值 DN300",
+          "handle": "236B",
+          "evidence_handles": [
+            "3D7B",
+            "3D1A"
+          ]
+        }
+      ],
+      "stats": {
+        "entities": 791,
+        "pipes": 645,
+        "findings": 2
+      }
+    },
+    {
+      "drawing_id": "P-03",
+      "findings": [],
+      "stats": {
+        "entities": 3003,
+        "pipes": 2601,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-04",
+      "findings": [],
+      "stats": {
+        "entities": 414,
+        "pipes": 140,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-05",
+      "findings": [],
+      "stats": {
+        "entities": 4157,
+        "pipes": 3722,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-06",
+      "findings": [],
+      "stats": {
+        "entities": 723,
+        "pipes": 616,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "P-07",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 168,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-01",
+      "findings": [],
+      "stats": {
+        "entities": 1009,
+        "pipes": 150,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-02",
+      "findings": [],
+      "stats": {
+        "entities": 2899,
+        "pipes": 2247,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "PUMP-03",
+      "findings": [],
+      "stats": {
+        "entities": 5000,
+        "pipes": 1332,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-01",
+      "findings": [],
+      "stats": {
+        "entities": 618,
+        "pipes": 410,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-02",
+      "findings": [],
+      "stats": {
+        "entities": 612,
+        "pipes": 483,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-03",
+      "findings": [],
+      "stats": {
+        "entities": 1200,
+        "pipes": 951,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-04",
+      "findings": [],
+      "stats": {
+        "entities": 1610,
+        "pipes": 797,
+        "findings": 0
+      }
+    },
+    {
+      "drawing_id": "S-05",
+      "findings": [],
+      "stats": {
+        "entities": 3614,
+        "pipes": 3240,
+        "findings": 0
+      }
+    }
+  ]
+}

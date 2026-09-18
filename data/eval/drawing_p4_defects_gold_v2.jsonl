@@ -1,0 +1,2 @@
+{"defect_id": "P03-D001", "drawing_id": "P-03_defect", "handle": "289", "defect_type": "室外排水管管径不足", "violation": "室外排水管（污水/合流）公称管径不宜小于 300mm", "severity": "major", "original_text": "{\\fSimSun|b0|i0|c134|p2;DN500}", "defect_text": "DN250"}
+{"defect_id": "P03-D002", "drawing_id": "P-03_defect", "handle": "2BA", "defect_type": "室外排水管管径不足", "violation": "室外排水管（污水/合流）公称管径不宜小于 300mm", "severity": "major", "original_text": "{\\fSimSun|b0|i0|c134|p2;DN700}", "defect_text": "DN200"}
