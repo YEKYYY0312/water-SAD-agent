@@ -242,9 +242,53 @@ RULE_PRESSURE_VELOCITY = RuleSpec(
     basis="GB50014-2021 5.2.9（语料含原文区间 0.7~2.0 m/s）",
 )
 
+#: 按管材分类的最大流速（GB50014-2021 5.2.9）
+_MAX_VELOCITY_BY_MATERIAL: dict[str, float] = {
+    # 塑料管类
+    "HDPE": 5.0,
+    "PVC-U": 5.0,
+    "UPVC": 5.0,
+    "PPR": 5.0,
+    "PE": 5.0,
+    # 铸铁管类
+    "铸铁": 5.0,
+    "球墨铸铁": 5.0,
+    "灰口铸铁": 5.0,
+    # 混凝土管类
+    "混凝土": 10.0,
+    "钢筋混凝土": 10.0,
+    # 钢管类
+    "钢管": 10.0,
+    "镀锌钢管": 10.0,
+    "不锈钢": 10.0,
+}
+
+
+def _get_max_velocity_for_material(material: str | None) -> float:
+    """获取指定管材的最大流速限值。未识别管材返回保守值 5.0。"""
+    if material is None:
+        return 5.0  # 未知管材用最严格限值
+    return _MAX_VELOCITY_BY_MATERIAL.get(material, 5.0)
+
+
+#: 公开别名（`hydraulics.calc_velocity` 等外部调用方使用，避免引用私有函数）。
+get_max_velocity_for_material = _get_max_velocity_for_material
+
+#: 排水管按管材分类的最大流速。来源 `GB50014-2021 5.2.9`，与
+#: `RULE_PRESSURE_VELOCITY` 同一条文（语料含原文），故同为 FORMAL_CLAUSE。
+RULE_DRAIN_MAX_VELOCITY = RuleSpec(
+    rule_id="drain.max_velocity_by_material",
+    title="排水管最大流速按管材区分：塑料管/铸铁管 5.0 m/s，混凝土管/钢管 10.0 m/s",
+    level=EvidenceLevel.FORMAL_CLAUSE,
+    severity=Severity.HIGH,
+    source_id="GB50014-2021 5.2.9",
+    basis="GB50014-2021 5.2.9（塑料管、铸铁管 5.0 m/s；混凝土管、钢管 10.0 m/s；未知管材取保守值 5.0）",
+)
+
 #: 全部规则的机器可读清单。新增规则必须进这里（供覆盖率断言与文档引用）。
 ALL_RULES: tuple[RuleSpec, ...] = (
     RULE_PRESSURE_VELOCITY,
+    RULE_DRAIN_MAX_VELOCITY,
     RULE_DRAIN_SLOPE,
     RULE_DRAIN_MIN_DN,
 )
@@ -264,26 +308,41 @@ def _suspicious_note(pipe: MappedPipe) -> str:
 
 
 def check_min_diameter(result: MappingResult) -> tuple[list[Finding], list[str]]:
-    """排水管最小管径检查。返回 (findings, 未检查说明)。"""
+    """排水管最小管径检查。返回 (findings, 未检查说明)。
+
+    检查策略（P5.1 恢复严格模式）：
+    - **只检查 system=drainage 的管段**
+    - system=None 或 system=water_supply 的管段不检查
+    - 降低误报率：避免将室内立管（DN100-150）误判为室外排水主管
+
+    P5.1 改动说明：
+    P4 为提高召回率放宽了检查范围（system=None 且 50-800mm 也检查），
+    但导致 P5 误报率 100%（67 个室内立管被误判）。本次恢复严格模式，
+    依赖 P5.1 增强的系统类型识别（从标注文本推断）来保持召回率。
+    """
     findings: list[Finding] = []
     skipped = [p for p in result.pipes if p.system == "drainage" and p.dn_mm is None]
+
     for pipe in result.pipes:
+        # 只检查明确标识为排水系统的管段
         if pipe.system != "drainage" or pipe.dn_mm is None:
             continue
+
         if pipe.dn_mm < MIN_DRAIN_DN_MM:
+            detail = f"标注管径 DN{pipe.dn_mm}，小于惯例最小值 DN{MIN_DRAIN_DN_MM}"
+            detail += _suspicious_note(pipe)
+
             findings.append(
                 Finding(
                     rule=RULE_DRAIN_MIN_DN,
                     segment_id=pipe.segment_id,
                     handle=pipe.handle,
                     layer=pipe.layer,
-                    detail=(
-                        f"标注管径 DN{pipe.dn_mm}，小于惯例最小值 DN{MIN_DRAIN_DN_MM}"
-                        f"{_suspicious_note(pipe)}"
-                    ),
+                    detail=detail,
                     evidence_handles=pipe.evidence_handles,
                 )
             )
+
     not_checked = (
         [
             f"{RULE_DRAIN_MIN_DN.rule_id}：{len(skipped)} 条排水管段无管径标注，未检查"
@@ -317,20 +376,29 @@ def check_slope(result: MappingResult) -> tuple[list[Finding], list[str]]:
 
 
 def check_pressure_velocity(result: MappingResult) -> tuple[list[Finding], list[str]]:
-    """压力流设计流速检查。
+    """压力流设计流速与最大流速检查。
 
     **当前恒为"未检查"**：流速 = 流量 / 过水断面，而流量不在图纸上 ——
     它来自水力计算（`tools/hydraulics.py`）或设计条件。图纸只给管径。
     规则保留在清单里是因为 Step 22 的审查子图可以在**有计算结果时**喂进来；
     此时如实报告未检查，不假装校验过。
+
+    本函数同时负责两条流速规则：
+    - RULE_PRESSURE_VELOCITY：压力流设计流速 0.7-2.0 m/s（GB50014-2021 5.2.9）
+    - RULE_DRAIN_MAX_VELOCITY：按管材分类的最大流速（同一条文，塑料管/铸铁管 5.0，混凝土管/钢管 10.0）
+    两者都需要流量数据，当前都报未检查。
     """
     if not any(p.system == "drainage" for p in result.pipes):
         return [], []
     return [], [
         (
-            f"{RULE_PRESSURE_VELOCITY.rule_id}：流速需设计流量，图纸不含流量信息，"
-            "**未检查**（需配合水力计算结果，见 tools/hydraulics.py）"
-        )
+            f"{RULE_PRESSURE_VELOCITY.rule_id}：压力流设计流速需设计流量，"
+            "图纸不含流量信息，**未检查**（需配合水力计算结果）"
+        ),
+        (
+            f"{RULE_DRAIN_MAX_VELOCITY.rule_id}：按管材分类的最大流速需设计流量，"
+            "图纸不含流量信息，**未检查**（塑料管/铸铁管限值 5.0 m/s，混凝土管/钢管 10.0 m/s）"
+        ),
     ]
 
 
