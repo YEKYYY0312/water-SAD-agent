@@ -24,6 +24,7 @@ dependencies = [
     "fastapi>=0.141,<0.142",
     "uvicorn>=0.52,<0.53",
     "argon2-cffi>=23.1,<24",
+    "pytest>=9.1.1",
 ]
 
 [project.optional-dependencies]
