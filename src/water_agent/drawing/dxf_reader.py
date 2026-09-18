@@ -1,4 +1,8 @@
-"""DXF 解析：文件 → 图元中间格式，含路径三层防御与四道护栏。
+"""DXF 解析：文件 → 图元中间格式，含路径三层防御、块展开与四道护栏。
+
+模型空间中的 INSERT 会保留为可查询的块引用，并通过 ``virtual_entities()``
+展开其可见内容；展开后的图元带有 ``source_block`` 来源链，嵌套块使用 ``/``
+连接块名。块展开失败只记录错误，不影响同一文件中其他图元的解析。
 
 规格 `docs/design/13-p3-drawing-review.md` §2/§4/§5。
 
@@ -27,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from water_agent.drawing.drawing_root import DRAWING_SUFFIX, UNSUPPORTED_SUFFIXES
+from water_agent.drawing.mif import mif_decode
 from water_agent.drawing.models import (
     DRAWING_DEPENDENCY_MISSING,
     DRAWING_NOT_FOUND,
@@ -167,14 +172,35 @@ def _entity_points(entity: Any, dxftype: str) -> tuple[tuple[float, float], ...]
 
 
 def _entity_text(entity: Any, dxftype: str) -> str:
-    """抽取标注文本。MTEXT 用 `plain_mtext` 归一 ``\\P`` 段落符（规格 §5.4）。"""
+    """抽取标注文本，并**解码 AutoCAD 的 MIF 转义**。
+
+    MTEXT 先用 `plain_mtext` 归一 ``\\P`` 段落符（规格 §5.4），再解码。
+
+    **为什么必须先 plain_mtext、后 mif_decode**：MIF 转义在 ``plain_mtext`` 里被
+    当作未知转义序列**原样保留**（已实测），而反过来先解码会让解出的 ``{`` ``}``
+    ``\\`` 暴露给 MTEXT 的格式解析器，可能被当成格式组吞掉。两种顺序在实测样本上
+    结果一致，取"改动最小 + 不让转义载荷进入解析器"的那个。
+
+    **为什么这个解码是必需的（不是锦上添花）**：真实图纸里 3,387 条文本图元有
+    **1,239 条（37%）** 是 ``\\M+5XXXX`` 形态。不解码，送进模型的是
+    ``\\M+5D0C2\\M+5BDA8…`` 而不是「新建建(构)筑物」—— 标注全部不可读，
+    审查链拿不到管径/高程/构筑物名。合成样本 `drawing_p0` 用明文，
+    **永远暴露不出这个缺口**，所以只能靠真实样本发现（P2 Step 5）。
+
+    **同时它也是安全边界**：解码放在 `_guard_text` 之前，注入检测与 PII 脱敏
+    才能看到真实文本。否则把注入指令写成 MIF 转义即可绕过
+    `check_retrieved_content` 的内容护栏 —— 转义形态此前是一条约定的绕过路径。
+    """
     if dxftype == "TEXT":
-        return str(entity.dxf.text or "")
-    if dxftype == "MTEXT":
+        raw = str(entity.dxf.text or "")
+    elif dxftype == "MTEXT":
         from ezdxf.tools.text import plain_mtext
 
-        return str(plain_mtext(entity.text or ""))
-    return ""
+        raw = str(plain_mtext(entity.text or ""))
+    else:
+        return ""
+    # `mif_decode` 幂等：无 `\M+` 即原样返回，重复调用不改变结果。
+    return mif_decode(raw)
 
 
 def _guard_text(
@@ -311,34 +337,76 @@ def read_drawing(
         )
 
     entities: list[DrawingEntity] = []
+    errors: list[str] = []
     truncated = False
-    for raw_entity in doc.modelspace():
+    expansion_limit = 32
+
+    def append_entity(
+        entity: Any,
+        *,
+        source_block: str | None,
+        handle_prefix: str,
+        depth: int = 0,
+    ) -> None:
+        nonlocal truncated
         if len(entities) >= max_entities:
             truncated = True
-            break
-        dxftype = raw_entity.dxftype()
-        layer = str(raw_entity.dxf.layer)
+            return
+        dxftype = entity.dxftype()
+        layer = str(getattr(entity.dxf, "layer", ""))
         if system != "all" and _layer_system(layer) != system:
-            continue
-        handle = str(raw_entity.dxf.handle or "")
-        text_raw = _entity_text(raw_entity, dxftype)
+            return
+        raw_handle = str(getattr(entity.dxf, "handle", "") or "")
+        handle = raw_handle or handle_prefix
+        text_raw = _entity_text(entity, dxftype)
         text, hits = _guard_text(
             text_raw, pipeline=guard, file_hash=file_hash, handle=handle
         )
+        block_name = str(getattr(entity.dxf, "name", "")) if dxftype == "INSERT" else ""
         entities.append(
             DrawingEntity(
                 handle=handle,
                 kind=_DXFTYPE_TO_KIND.get(dxftype, DrawingEntityKind.OTHER),
                 dxftype=dxftype,
                 layer=layer,
-                points=_entity_points(raw_entity, dxftype),
+                points=_entity_points(entity, dxftype),
                 radius=(
-                    float(raw_entity.dxf.radius) if dxftype in ("CIRCLE", "ARC") else None
+                    float(entity.dxf.radius) if dxftype in ("CIRCLE", "ARC") else None
                 ),
                 text=text,
                 suspicious=hits,
+                block_name=block_name,
+                source_block=source_block,
             )
         )
+
+        if dxftype != "INSERT" or depth >= expansion_limit:
+            if dxftype == "INSERT" and depth >= expansion_limit:
+                errors.append(f"INSERT {handle} 嵌套深度超过 {expansion_limit}，停止展开")
+            return
+        nested_source = block_name if source_block is None else f"{source_block}/{block_name}"
+        try:
+            for index, virtual_entity in enumerate(entity.virtual_entities()):
+                if len(entities) >= max_entities:
+                    truncated = True
+                    return
+                append_entity(
+                    virtual_entity,
+                    source_block=nested_source,
+                    handle_prefix=f"{handle}:virtual-{index}",
+                    depth=depth + 1,
+                )
+        except Exception as exc:  # noqa: BLE001 — 块损坏不能阻断整张图
+            errors.append(f"INSERT {handle} 展开失败: {exc}")
+
+    for index, raw_entity in enumerate(doc.modelspace()):
+        append_entity(
+            raw_entity,
+            source_block=None,
+            handle_prefix=f"modelspace-{index}",
+        )
+        if truncated:
+            break
 
     if truncated:
         assumptions.append(
@@ -355,5 +423,6 @@ def read_drawing(
         layers=tuple(sorted(str(layer.dxf.name) for layer in doc.layers)),
         entities=tuple(entities),
         truncated=truncated,
+        errors=tuple(errors),
         assumptions=tuple(assumptions),
     )

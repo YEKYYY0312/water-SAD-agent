@@ -61,7 +61,8 @@ _MATERIAL_HINTS: tuple[tuple[str, str], ...] = (
 #: 标注与管线的关联半径（图纸单位）。标注通常压在管线旁而非端点上，
 #: 故按"标注点到线段的距离"判定，超过此值视为不相关。
 #: 这个值是**工程惯例而非规范**，故写死为常量并在结果里如实标注为假设。
-ANNOTATION_MATCH_RADIUS = 12.0
+#: P4 实测：真实图纸中标注距离 7-15 单位属正常范围，故设为 20 以覆盖合理偏移。
+ANNOTATION_MATCH_RADIUS = 20.0
 
 #: 管线类图元（能成为管段的图元类型）。
 _PIPE_KINDS = frozenset({DrawingEntityKind.LINE, DrawingEntityKind.POLYLINE})
@@ -234,6 +235,58 @@ def _layer_system(layer: str) -> str | None:
     return reader_layer_system(layer)
 
 
+#: 系统类型推断关键词（P5.1）。按最长匹配优先排列。
+_SYSTEM_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # 排水系统关键词
+    ("污水", "drainage"),
+    ("废水", "drainage"),
+    ("雨水", "drainage"),
+    ("排水", "drainage"),
+    ("WL", "drainage"),  # 废水立管
+    ("PL", "drainage"),  # 排水立管
+    ("FL", "drainage"),  # 废水立管（另一种标注）
+    ("YL", "drainage"),  # 雨水立管
+    ("WS", "drainage"),  # 污水（Waste water）
+    ("FS", "drainage"),  # 废水（Foul water/sewage）
+    # 给水系统关键词
+    ("给水", "water_supply"),
+    ("自来水", "water_supply"),
+    ("JL", "water_supply"),  # 给水立管
+    ("GL", "water_supply"),  # 给水立管（另一种标注）
+)
+
+
+def infer_system_from_annotation(text: str) -> str | None:
+    """从标注文本推断系统类型（P5.1 系统类型识别增强）。
+
+    检查标注文本中是否包含系统类型关键词，用于补充图层名无法识别的情况。
+    **最长匹配优先**："污水管" 先匹配 "污水" 而不是等待更短的关键词。
+
+    Args:
+        text: 标注文本内容
+
+    Returns:
+        'drainage' / 'water_supply' / None（无法推断时）
+
+    Examples:
+        >>> infer_system_from_annotation("DN200污水管")
+        'drainage'
+        >>> infer_system_from_annotation("给水立管 DN100")
+        'water_supply'
+        >>> infer_system_from_annotation("DN150")
+        None
+    """
+    if not text:
+        return None
+
+    # 按定义顺序匹配（已按最长优先排列）
+    for keyword, system in _SYSTEM_KEYWORDS:
+        if keyword in text:
+            return system
+
+    return None
+
+
 def map_pipes(extraction: DrawingExtraction) -> MappingResult:
     """`DrawingExtraction` → 管段语义对象。
 
@@ -278,12 +331,23 @@ def map_pipes(extraction: DrawingExtraction) -> MappingResult:
             for t in suspicious_texts
             if _distance_to_polyline(t.points[0], entity.points) <= ANNOTATION_MATCH_RADIUS
         )
+
+        # 系统类型识别：优先图层名，其次标注文本（P5.1 增强）
+        system = _layer_system(entity.layer)
+        if system is None and nearby:
+            # 尝试从附近标注文本推断系统类型
+            for annotation in nearby:
+                inferred = infer_system_from_annotation(annotation.text or "")
+                if inferred is not None:
+                    system = inferred
+                    break  # 找到第一个匹配就停止
+
         result.pipes.append(
             MappedPipe(
                 segment_id=f"{entity.layer}#{entity.handle}",
                 handle=entity.handle,
                 layer=entity.layer,
-                system=_layer_system(entity.layer),
+                system=system,
                 length_raw=length_raw,
                 length_m=None if scale is None else length_raw * scale,
                 dn_mm=dn,
@@ -292,6 +356,9 @@ def map_pipes(extraction: DrawingExtraction) -> MappingResult:
                 ignored_suspicious_handles=ignored,
             )
         )
+
+    # P5.1 全局上下文推断：如果图纸主系统明确，未识别图层的管段使用主系统
+    _apply_global_system_inference(result)
 
     _record_attribute_gaps(result)
     if result.pipes:
@@ -313,6 +380,80 @@ def _nearby_annotations(
     ]
     return [t for distance, t in sorted(scored, key=lambda item: item[0])
             if distance <= ANNOTATION_MATCH_RADIUS]
+
+
+def _apply_global_system_inference(result: MappingResult) -> None:
+    """P5.1 全局上下文推断：从图纸主系统类型推断未识别管段的系统。
+
+    如果 80%+ 的管段已识别为同一系统（drainage/water_supply），
+    则将未识别系统的管段（system=None）也推断为该主系统。
+
+    **理由**：
+    - 缺陷图纸中，小管径管段的标注可能只有 "DN250" 而无系统关键词
+    - 但图纸整体是排水图纸（标题、主要管线都是排水系统）
+    - 此时可以合理推断未识别图层的管段也是排水系统
+
+    **保守原则**：
+    - 仅当主系统占比 ≥ 80% 时才推断（避免混合图纸误判）
+    - 仅对 DN ≥ 200 的管段推断（室外干管范围，避免误判室内立管）
+    - 推断结果记录在 assumptions 中，让用户知道这是推断而非图面明确标识
+    """
+    if not result.pipes:
+        return
+
+    # 统计已识别系统的分布
+    system_counts: dict[str, int] = {}
+    total_with_system = 0
+
+    for pipe in result.pipes:
+        if pipe.system:
+            system_counts[pipe.system] = system_counts.get(pipe.system, 0) + 1
+            total_with_system += 1
+
+    if total_with_system == 0:
+        return
+
+    # 找到主系统（占比最高的系统）
+    dominant_system = max(system_counts, key=lambda k: system_counts[k])
+    dominant_ratio = system_counts[dominant_system] / total_with_system
+
+    # 仅当主系统占比 ≥ 80% 时才应用全局推断
+    if dominant_ratio < 0.8:
+        return
+
+    # 应用全局推断（创建新的 MappedPipe 实例，因为 dataclass frozen=True）
+    # P5.1 改进：只对 DN ≥ 200 的管段推断（室外干管范围），避免误判室内立管
+    updated_pipes = []
+    inference_count = 0
+
+    for pipe in result.pipes:
+        if pipe.system is None and pipe.dn_mm is not None and pipe.dn_mm >= 200:
+            # 应用全局推断（仅限大管径）
+            updated_pipes.append(
+                MappedPipe(
+                    segment_id=pipe.segment_id,
+                    handle=pipe.handle,
+                    layer=pipe.layer,
+                    system=dominant_system,
+                    length_raw=pipe.length_raw,
+                    length_m=pipe.length_m,
+                    dn_mm=pipe.dn_mm,
+                    material=pipe.material,
+                    evidence_handles=pipe.evidence_handles,
+                    ignored_suspicious_handles=pipe.ignored_suspicious_handles,
+                )
+            )
+            inference_count += 1
+        else:
+            updated_pipes.append(pipe)
+
+    result.pipes = updated_pipes
+
+    if inference_count > 0:
+        result.assumptions.append(
+            f"图纸主系统类型为 {dominant_system}（{dominant_ratio:.0%} 管段已明确识别），"
+            f"{inference_count} 条未识别图层的大管径管段（DN ≥ 200）推断为主系统类型"
+        )
 
 
 def _extract_attributes(
