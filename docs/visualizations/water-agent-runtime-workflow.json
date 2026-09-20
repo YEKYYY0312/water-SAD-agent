@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "给排水 Agent：一次请求的内部运行流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1360, 500],
+    "views": [
+      {
+        "id": "main-answer",
+        "label": "主回答链",
+        "focus": ["request", "session", "agent", "citations", "response"],
+        "note": "请求经认证授权与会话装配后，进入有界 Agentic RAG 循环；引用校验通过才返回。"
+      },
+      {
+        "id": "governed-execution",
+        "label": "受治理执行",
+        "focus": ["agent", "model", "tools", "engineering"],
+        "note": "模型调用受 ProviderGateway 约束；工具调用受 ToolRegistry.invoke 护栏约束。"
+      },
+      {
+        "id": "context-boundary",
+        "label": "上下文与回流",
+        "focus": ["session", "memory", "agent", "citations"],
+        "note": "记忆按授权范围召回，只进入独立数据段；无效引用仅允许有限回流。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "flow", "label": "请求、会话与回答主链" },
+    { "id": "controls", "label": "记忆与受治理执行" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "接入", "fromCol": 0, "toCol": 0, "variant": "security" },
+    { "id": "context", "label": "会话与上下文", "fromCol": 1, "toCol": 1 },
+    { "id": "reason", "label": "Agent 循环", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "verify", "label": "引用校验", "fromCol": 3, "toCol": 3 },
+    { "id": "deliver", "label": "交付", "fromCol": 4, "toCol": 4, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "agent-loop", "label": "有界回流", "lane": "flow", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "execution-boundary", "label": "唯一受控入口", "lane": "controls", "fromCol": 2, "toCol": 2, "variant": "security" }
+  ],
+  "mainPath": ["request", "session", "agent", "citations", "response"],
+  "semanticChecks": {
+    "allowedRoots": ["request"],
+    "allowedTerminals": ["response"],
+    "requiredPaths": [
+      { "from": "request", "to": "response" },
+      { "from": "agent", "to": "tools" },
+      { "from": "agent", "to": "citations" }
+    ]
+  },
+  "nodes": [
+    { "id": "request", "lane": "flow", "col": 0, "type": "external", "label": "用户请求", "sublabel": "Web / CLI", "width": 110 },
+    { "id": "session", "lane": "flow", "col": 1, "type": "security", "label": "受控会话", "sublabel": "认证、授权、装配", "tag": "AgenticSession", "width": 125 },
+    { "id": "agent", "lane": "flow", "col": 2, "type": "backend", "label": "Agentic RAG", "sublabel": "提示、决策、工具调用", "tag": "bounded", "width": 130 },
+    { "id": "citations", "lane": "flow", "col": 3, "type": "backend", "label": "引用校验", "sublabel": "声明、上下文、版本", "tag": "deterministic", "width": 125 },
+    { "id": "response", "lane": "flow", "col": 4, "type": "frontend", "label": "结果与状态", "sublabel": "答案、引用、错误", "tag": "SSE / CLI", "width": 120 },
+    { "id": "memory", "lane": "controls", "col": 1, "type": "database", "label": "授权记忆", "sublabel": "范围过滤与召回", "tag": "数据，非指令", "width": 120 },
+    { "id": "model", "lane": "controls", "col": 2, "type": "security", "label": "模型网关", "sublabel": "限流、预算、重试", "tag": "ProviderGateway", "width": 125 },
+    { "id": "tools", "lane": "controls", "col": 3, "type": "security", "label": "工具执行", "sublabel": "护栏、schema、能力", "tag": "ToolRegistry.invoke", "width": 135 },
+    { "id": "engineering", "lane": "controls", "col": 4, "type": "backend", "label": "工程能力", "sublabel": "检索、计算、读图、MCP", "tag": "结构化结果", "width": 135 }
+  ],
+  "edges": [
+    { "id": "request-session", "from": "request", "to": "session", "label": "请求准入", "variant": "emphasis", "role": "main" },
+    { "id": "session-agent", "from": "session", "to": "agent", "label": "已授权运行", "variant": "security", "role": "main" },
+    { "id": "session-memory", "from": "session", "to": "memory", "label": "按作用域召回", "role": "branch" },
+    { "id": "memory-agent", "from": "memory", "to": "agent", "label": "独立数据段", "variant": "emphasis", "role": "async" },
+    { "id": "agent-model", "from": "agent", "to": "model", "label": "受治理模型请求", "variant": "security", "role": "branch" },
+    { "id": "model-agent", "from": "model", "to": "agent", "label": "回答 / tool call", "variant": "emphasis", "role": "return", "fromSide": "left", "toSide": "bottom", "route": "return-left" },
+    { "id": "agent-tools", "from": "agent", "to": "tools", "label": "提议调用", "variant": "security", "role": "branch" },
+    { "id": "tools-engineering", "from": "tools", "to": "engineering", "label": "通过才执行", "variant": "emphasis", "role": "main" },
+    { "id": "engineering-agent", "from": "engineering", "to": "agent", "label": "结构化结果", "role": "return" },
+    { "id": "agent-citations", "from": "agent", "to": "citations", "label": "草稿与引用声明", "variant": "emphasis", "role": "main" },
+    { "id": "citations-agent", "from": "citations", "to": "agent", "label": "无效引用：有限回流", "variant": "security", "role": "error" },
+    { "id": "citations-response", "from": "citations", "to": "response", "label": "验证通过", "variant": "emphasis", "role": "main" }
+  ]
+}

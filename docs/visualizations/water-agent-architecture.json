@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "给排水 Agent：受治理的工程智能架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1380, 840],
+    "views": [
+      {
+        "id": "main-path",
+        "label": "主业务链",
+        "focus": ["user", "web", "agent", "governance", "tools", "model"],
+        "note": "从用户请求到受治理模型与工具执行的主路径。"
+      },
+      {
+        "id": "engineering-tools",
+        "label": "确定性工程能力",
+        "focus": ["agent", "tools", "retrieval", "engineering", "data"],
+        "note": "计算、引用、图纸规则和材料聚合均保留可验证的确定性边界。"
+      },
+      {
+        "id": "mcp-boundary",
+        "label": "MCP 受控接入",
+        "focus": ["tools", "mcp", "mcpServers", "governance"],
+        "note": "第三方 MCP 工具须经过白名单、schema 安检、能力与确认门。"
+      },
+      {
+        "id": "state-memory",
+        "label": "状态与长期记忆",
+        "focus": ["web", "agent", "data"],
+        "note": "会话、审计、规范版本与已授权记忆在服务端受控保存。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "设计人员 / 外部调用方",
+      "sublabel": "提问、审批、工程任务",
+      "pos": [40, 350],
+      "size": [160, 70]
+    },
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "Web 自托管界面与 API",
+      "sublabel": "认证、会话、SSE、记忆",
+      "tag": "HTTP / SSE",
+      "pos": [280, 350],
+      "size": [190, 75]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent 编排运行时",
+      "sublabel": "RAG、文档、图纸、多 Agent",
+      "tag": "LangGraph",
+      "pos": [560, 350],
+      "size": [205, 75]
+    },
+    {
+      "id": "governance",
+      "type": "security",
+      "label": "治理与安全边界",
+      "sublabel": "身份、护栏、能力、限流、预算、缓存、检测",
+      "tag": "fail closed",
+      "pos": [555, 120],
+      "size": [235, 80]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "受控工具注册表",
+      "sublabel": "唯一调用入口：校验、能力与超时",
+      "tag": "ToolRegistry.invoke",
+      "pos": [805, 350],
+      "size": [215, 75]
+    },
+    {
+      "id": "model",
+      "type": "external",
+      "label": "模型提供商",
+      "sublabel": "统一受 ProviderGateway 治理",
+      "tag": "受治理出口",
+      "pos": [1070, 120],
+      "size": [210, 80]
+    },
+    {
+      "id": "retrieval",
+      "type": "backend",
+      "label": "规范检索与引用校验",
+      "sublabel": "检索、重排、引用、版本校验",
+      "tag": "可追溯引用",
+      "pos": [1090, 350],
+      "size": [235, 75]
+    },
+    {
+      "id": "engineering",
+      "type": "backend",
+      "label": "确定性工程执行层",
+      "sublabel": "水力、DXF 审查、材料、文档自检",
+      "tag": "LLM 不参与数值运算",
+      "pos": [1070, 535],
+      "size": [245, 82]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP 客户端网关",
+      "sublabel": "桥接、白名单、schema、确认门",
+      "tag": "stdio JSON-RPC",
+      "pos": [805, 640],
+      "size": [230, 80]
+    },
+    {
+      "id": "mcpServers",
+      "type": "external",
+      "label": "MCP Server / CAD-BIM / 企业库",
+      "sublabel": "自研服务；外部服务待验证",
+      "tag": "不可信第三方",
+      "pos": [1110, 650],
+      "size": [220, 80]
+    },
+    {
+      "id": "data",
+      "type": "database",
+      "label": "受控数据与持久化状态",
+      "sublabel": "语料、版本、会话、trace、长期记忆",
+      "tag": "最小化保存",
+      "pos": [550, 640],
+      "size": [225, 80]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "本项目受治理执行边界",
+      "wraps": ["web", "agent", "governance", "tools", "retrieval", "engineering", "mcp", "data"],
+      "pad": 32
+    }
+  ],
+  "connections": [
+    { "id": "user-web", "from": "user", "to": "web", "label": "HTTPS：提问、审批与工作区", "labelAt": [245, 300], "variant": "emphasis" },
+    { "id": "web-agent", "from": "web", "to": "agent", "label": "已授权运行 / SSE 事件", "labelAt": [520, 445], "variant": "emphasis" },
+    { "id": "agent-tools", "from": "agent", "to": "tools", "label": "按意图选择工具", "labelAt": [785, 445], "variant": "emphasis" },
+    { "id": "tools-retrieval", "from": "tools", "to": "retrieval", "label": "检索条款 / 声明引用", "labelAt": [1055, 445] },
+    { "id": "agent-governance", "from": "agent", "to": "governance", "label": "受控请求", "labelAt": [745, 285], "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "governance-model", "from": "governance", "to": "model", "label": "能力校验、预算与重试", "labelAt": [950, 220], "variant": "security" },
+    { "id": "tools-engineering", "from": "tools", "to": "engineering", "label": "程序化计算与审查", "labelAt": [1045, 500], "fromSide": "bottom", "toSide": "top", "via": [[912.5, 500], [1192.5, 500]] },
+    { "id": "tools-mcp", "from": "tools", "to": "mcp", "label": "MCP_INVOKE + 护栏", "labelAt": [755, 560], "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "mcp-servers", "from": "mcp", "to": "mcpServers", "label": "stdio JSON-RPC", "labelAt": [1075, 745], "variant": "dashed" },
+    { "id": "agent-data", "from": "agent", "to": "data", "label": "会话、审批与 trace", "labelAt": [670, 555], "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "确定性底线",
+      "items": [
+        "水力数值只来自程序化工具", 
+        "图纸审查为固定确定性管线", 
+        "材料数量按可溯源管段聚合"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "可信性与治理",
+      "items": [
+        "引用需声明并经校验", 
+        "模型调用唯一出口为 ProviderGateway", 
+        "工具调用唯一入口为 ToolRegistry.invoke"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "证据边界",
+      "items": [
+        "规范版本仍可能为 unknown", 
+        "真实图纸召回与外部 CAD/BIM 集成尚待验证", 
+        "确定性护栏不能覆盖任意改写变体"
+      ]
+    }
+  ]
+}
