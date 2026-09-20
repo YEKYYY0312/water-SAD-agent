@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>给排水 Agent｜内部运行图谱</title>
+  <style>
+    :root {
+      --bg: #f5f8fc;
+      --surface: rgba(255,255,255,.92);
+      --surface-2: #eef4fb;
+      --text: #13233b;
+      --muted: #61728b;
+      --line: #d7e1ef;
+      --brand: #087e8b;
+      --brand-2: #0ca6c8;
+      --violet: #7655d9;
+      --amber: #bd7200;
+      --rose: #c7395d;
+      --good: #138a63;
+      --shadow: 0 14px 42px rgba(29, 57, 90, .10);
+      --radius: 16px;
+      color-scheme: light;
+    }
+    [data-theme="dark"] {
+      --bg: #07111f;
+      --surface: rgba(12, 25, 43, .94);
+      --surface-2: #11243c;
+      --text: #e6eef9;
+      --muted: #9cafc7;
+      --line: #263c58;
+      --brand: #2cc1b3;
+      --brand-2: #45c9ef;
+      --violet: #a88bff;
+      --amber: #f6b64a;
+      --rose: #ff7f9c;
+      --good: #4bd49e;
+      --shadow: 0 16px 46px rgba(0, 0, 0, .34);
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: radial-gradient(circle at 85% -12%, rgba(12,166,200,.14), transparent 33%), var(--bg);
+      color: var(--text);
+      font: 14px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .shell { width: min(1540px, calc(100% - 32px)); margin: 0 auto; }
+    .topbar { padding: 30px 0 18px; display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; }
+    .eyebrow { color: var(--brand); font-weight: 800; letter-spacing: .1em; font-size: 12px; text-transform: uppercase; }
+    h1 { margin: 3px 0 4px; font-size: clamp(24px, 3vw, 36px); line-height: 1.18; letter-spacing: -.03em; }
+    .lead { color: var(--muted); margin: 0; max-width: 780px; }
+    .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn, .theme-btn {
+      border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 11px; cursor: pointer;
+      transition: transform .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .btn:hover, .theme-btn:hover { transform: translateY(-1px); border-color: var(--brand); }
+    .layout { display: grid; grid-template-columns: 275px minmax(0, 1fr); gap: 18px; align-items: start; padding-bottom: 28px; }
+    .sidebar, .panel, .overview, .note, .all-modules { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .sidebar { position: sticky; top: 14px; padding: 15px; max-height: calc(100vh - 28px); overflow: auto; }
+    .sidebar h2 { font-size: 15px; margin: 0 0 9px; }
+    .sidebar p { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+    .search { position: relative; }
+    .search input { width: 100%; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px 9px 30px; outline: none; }
+    .search input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(12,166,200,.12); }
+    .search::before { content: "⌕"; position: absolute; left: 10px; top: 6px; font-size: 20px; color: var(--muted); }
+    .module-group { margin-top: 15px; }
+    .module-group-label { color: var(--muted); font-weight: 800; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 5px 7px; }
+    .module-nav { display: grid; gap: 3px; }
+    .nav-item { width: 100%; text-align: left; border: 1px solid transparent; background: transparent; padding: 8px; border-radius: 9px; cursor: pointer; display: grid; grid-template-columns: 8px 1fr; gap: 8px; align-items: center; }
+    .nav-item:hover { background: var(--surface-2); }
+    .nav-item[aria-current="true"] { background: color-mix(in srgb, var(--brand) 12%, transparent); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); }
+    .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+    .nav-item[data-tone="violet"] .nav-dot { background: var(--violet); }
+    .nav-item[data-tone="amber"] .nav-dot { background: var(--amber); }
+    .nav-item[data-tone="rose"] .nav-dot { background: var(--rose); }
+    .nav-title { font-weight: 700; font-size: 13px; }
+    .nav-sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .workspace { display: grid; gap: 18px; min-width: 0; }
+    .overview { padding: 16px; overflow: hidden; }
+    .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 15px; margin-bottom: 13px; }
+    .section-head h2 { margin: 0; font-size: 17px; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .map { display: grid; grid-template-columns: repeat(9, minmax(82px, 1fr)); gap: 10px; align-items: center; min-width: 940px; padding: 10px 3px 2px; }
+    .map-wrap { overflow-x: auto; padding-bottom: 4px; }
+    .map-node { min-height: 68px; text-align: left; position: relative; border: 1px solid var(--line); color: var(--text); background: var(--surface-2); border-radius: 11px; padding: 9px; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+    .map-node:hover, .map-node.active { transform: translateY(-2px); border-color: var(--brand); box-shadow: 0 6px 18px rgba(8,126,139,.18); }
+    .map-node .map-kicker { display: block; color: var(--muted); font-size: 10px; font-weight: 700; }
+    .map-node .map-label { display: block; font-weight: 800; line-height: 1.25; margin-top: 3px; font-size: 12px; }
+    .map-node .map-arrow { position: absolute; right: -17px; top: 29px; z-index: 2; color: var(--brand); font-size: 20px; font-weight: 800; }
+    .map-node.safety { border-color: color-mix(in srgb, var(--rose) 50%, var(--line)); }
+    .map-node.safety .map-kicker { color: var(--rose); }
+    .map-node.data { border-color: color-mix(in srgb, var(--violet) 50%, var(--line)); }
+    .map-node.data .map-kicker { color: var(--violet); }
+    .map-node.quality { border-color: color-mix(in srgb, var(--amber) 50%, var(--line)); }
+    .map-node.quality .map-kicker { color: var(--amber); }
+    .map-rail { grid-column: 2 / 9; border-top: 1px dashed var(--line); height: 1px; margin: 10px 0 1px; position: relative; }
+    .map-rail span { position: absolute; top: -10px; left: 37%; background: var(--surface); color: var(--muted); padding: 0 8px; font-size: 10px; white-space: nowrap; }
+    .panel { overflow: hidden; }
+    .module-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; padding: 22px 23px 17px; border-bottom: 1px solid var(--line); }
+    .module-header h2 { margin: 5px 0 7px; font-size: clamp(20px, 2.5vw, 28px); letter-spacing: -.025em; }
+    .module-summary { margin: 0; color: var(--muted); max-width: 840px; }
+    .badge { display: inline-flex; align-items: center; width: fit-content; padding: 3px 8px; background: color-mix(in srgb, var(--brand) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line)); color: var(--brand); border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .module-meta { display: grid; gap: 7px; align-content: start; min-width: 178px; }
+    .meta-item { border: 1px solid var(--line); padding: 7px 9px; border-radius: 9px; font-size: 11px; color: var(--muted); }
+    .meta-item strong { display: block; color: var(--text); font-size: 12px; }
+    .tabs { display: flex; gap: 5px; padding: 12px 20px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .tab { white-space: nowrap; border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 9px 11px; color: var(--muted); font-weight: 800; cursor: pointer; }
+    .tab:hover { color: var(--text); }
+    .tab[aria-selected="true"] { color: var(--brand); border-color: var(--brand); }
+    .tab-content { padding: 20px; }
+    .flow-intro { color: var(--muted); margin: 0 0 15px; }
+    .flow-list { display: grid; gap: 9px; counter-reset: flow; }
+    .flow-step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 11px; padding: 11px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface-2) 73%, transparent); }
+    .flow-step::before { counter-increment: flow; content: counter(flow, decimal-leading-zero); color: var(--brand); font-size: 11px; font-weight: 900; padding-top: 2px; }
+    .flow-step + .flow-step { position: relative; }
+    .flow-step + .flow-step::after { content: "↓"; position: absolute; color: var(--brand); left: 14px; top: -18px; background: var(--surface); padding: 0 3px; font-weight: 900; }
+    .flow-step h3 { margin: 0 0 3px; font-size: 14px; }
+    .flow-step p { margin: 0; color: var(--muted); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .91em; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--surface-2) 80%, transparent); color: color-mix(in srgb, var(--brand) 80%, var(--text)); overflow-wrap: anywhere; }
+    .state-grid, .guard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+    .state-card, .guard-card { border: 1px solid var(--line); border-radius: 12px; padding: 13px; background: color-mix(in srgb, var(--surface-2) 57%, transparent); }
+    .state-card h3, .guard-card h3 { font-size: 13px; margin: 0 0 6px; }
+    .state-card p, .guard-card p { color: var(--muted); margin: 0; font-size: 13px; }
+    .state-type { color: var(--violet); font: 11px ui-monospace, monospace; display: block; margin-bottom: 5px; }
+    .control-head { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; }
+    .control-kind { display: inline-flex; border-radius: 999px; padding: 2px 7px; color: var(--rose); background: color-mix(in srgb, var(--rose) 10%, transparent); font-size: 10px; font-weight: 900; }
+    .source-list { display: grid; gap: 8px; }
+    .source-link { display: flex; gap: 9px; align-items: center; text-decoration: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text); background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+    .source-link:hover { border-color: var(--brand); }
+    .source-link .file { font: 12px ui-monospace, monospace; overflow-wrap: anywhere; }
+    .source-link .line { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .source-note { color: var(--muted); margin: 14px 0 0; font-size: 12px; }
+    .all-modules { padding: 17px; }
+    .all-modules summary { cursor: pointer; font-weight: 800; }
+    .all-module-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; padding-top: 14px; }
+    .all-module-card { text-align: left; border: 1px solid var(--line); background: var(--surface-2); padding: 11px; border-radius: 11px; cursor: pointer; }
+    .all-module-card:hover { border-color: var(--brand); }
+    .all-module-card strong { display: block; font-size: 13px; }
+    .all-module-card span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .foot { color: var(--muted); font-size: 12px; padding: 0 3px 28px; }
+    .empty { color: var(--muted); padding: 12px 7px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .sidebar { position: static; max-height: none; } .module-groups { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; } .module-group { margin-top: 0; } }
+    @media (max-width: 680px) { .shell { width: min(100% - 20px, 1540px); } .topbar { padding-top: 20px; flex-direction: column; } .header-actions { justify-content: flex-start; } .module-header { grid-template-columns: 1fr; padding: 17px; } .module-meta { grid-template-columns: repeat(2, minmax(0,1fr)); min-width: 0; } .tab-content { padding: 14px; } .state-grid, .guard-grid, .all-module-grid { grid-template-columns: 1fr; } .module-groups { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="shell topbar">
+    <div>
+      <div class="eyebrow">Source-aligned interactive explorer</div>
+      <h1>给排水 Agent · 内部运行图谱</h1>
+      <p class="lead">点击任意模块，查看它真实的调用顺序、状态字段、循环上限、失败分支、治理边界与源码入口。主图只负责导航；右侧工作台才是细节。</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn" id="showAll" type="button">展开全部模块</button>
+      <button class="theme-btn" id="themeToggle" type="button" aria-label="切换颜色主题">切换深色</button>
+    </div>
+  </header>
+
+  <main class="shell layout">
+    <aside class="sidebar" aria-label="模块导航">
+      <h2>模块目录 · 12 个运行面</h2>
+      <p>搜索模块名、类名或关键词；切换后 URL 可直接分享当前模块。</p>
+      <label class="search"><input id="moduleSearch" type="search" placeholder="搜索：RAG、MCP、审批…" autocomplete="off"></label>
+      <div class="module-groups" id="moduleNav"></div>
+    </aside>
+
+    <section class="workspace">
+      <section class="overview" aria-labelledby="overviewTitle">
+        <div class="section-head">
+          <h2 id="overviewTitle">总览导航图</h2>
+          <p>实线主问答路径；下方是可独立打开的专项图与运行边界。</p>
+        </div>
+        <div class="map-wrap">
+          <div class="map" id="systemMap" aria-label="给排水 Agent 架构导航图"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="detailPanel" aria-live="polite"></section>
+
+      <details class="all-modules" id="allModules">
+        <summary>模块速览（可作为第二个入口）</summary>
+        <div class="all-module-grid" id="allModuleGrid"></div>
+      </details>
+    </section>
+  </main>
+  <footer class="shell foot">依据当前工作区源码整理于 2026-09-16。图中明确区分“已实现的机制”与“尚未获得真实环境验证的能力”；它不是对实际 CAD/BIM、真实检索质量或任意提示注入防护的额外承诺。</footer>
+
+  <script>
+  (() => {
+    const modules = [
+      {
+        id: 'agentic-rag', group: '主问答链', tone: 'brand', title: 'Agentic RAG 外层循环', short: 'ReAct + 引用校验 + 有界回流', badge: '核心问答图 · LangGraph',
+        role: '将 ReAct 工具调用子图包在引用校验与最终收口之外；它不是无界的“模型自己想”。',
+        status: '默认最大 10 轮工具调用；外层递归上限 20；引用回流受独立计数器约束。',
+        flowIntro: '外层图刻意把“模型会不会继续调工具”和“回答的引用是否有效”拆开处理，避免模型停止调用工具后直接把未验证回答返回。',
+        flow: [
+          ['装配 <code>AgenticSession</code>', '创建受治理模型、检索器/可选 rerank、工具注册表、动态提示、MCP 会话与 checkpointer；随后编译 <code>build_agentic_app()</code>。'],
+          ['进入 <code>agent_loop</code>', '提取用户问题，先跑输入护栏；若被拦截，直接写 <code>status=blocked</code>，不进入 provider 或工具。'],
+          ['运行 ReAct 子图', '<code>create_react_agent</code> 在内部执行“模型 → 工具 → 模型”，直到模型不再请求工具。<code>_BudgetChatModel</code> 对工具调用轮次计数，默认超过 10 轮转为结构化失败。'],
+          ['进入 <code>citation_validator</code>', '从 <code>ToolMessage</code> 中提取本轮检索条款与 <code>cite_clauses</code> 声明的 source_id；只允许引用本轮上下文里的条款。'],
+          ['按校验结果路由', '有效引用 → 成功；无效引用可回流至多 2 次；“有回答但零引用”先回流 1 次；无检索结果且明确说明未检索到依据，才允许零引用成功。'],
+          ['<code>finalize</code> 收口', '仅在引用成功且有回答时执行输出护栏；写入 trace 的最终状态、引用与重试次数，并返回 answer/status/errors payload。']
+        ],
+        state: [
+          ['messages', 'add_messages[list[BaseMessage]]', '跨节点累积的人类、AI、工具与校验器反馈消息。'],
+          ['query / answer', 'str', '原问题与从最后 AIMessage 取出的最终文本。'],
+          ['citations', 'list[CitationClaim]', '由模型调用 cite_clauses 声明后，经确定性校验与版本状态补充。'],
+          ['retry_count / empty_citation_reflows', 'int', '无效引用重试与零引用回流分开计数，互不挤占。'],
+          ['memory_context', 'MemoryRecallResult | None', 'Web 层授权召回的长期记忆，只作为 SESSION_MEMORY 数据段进入提示。']
+        ],
+        controls: [
+          ['循环上限', '<code>max_tool_turns=10</code>；图递归限制 <code>RECURSION_LIMIT=20</code>。超限失败，不会持续调用。'],
+          ['引用回流协议', '校验器反馈被包装成“合成 assistant tool_call + ToolMessage”，且每次使用新的 tool_call_id，兼容 OpenAI/DeepSeek 的消息顺序要求。'],
+          ['缓存事实', '当前 <code>AGENTIC_LOOP</code> 分类在缓存资格上是不可存储的；接线会记录 MISS/INELIGIBLE，但不会把 Agentic 最终回答写入缓存。'],
+          ['不可信工具输出', '校验器只读取 ToolMessage 的结构化信号；工具输出不是系统指令。']
+        ],
+        sources: [['src/water_agent/graphs/agent_rag.py', 329, 'agent_loop 与输入护栏'], ['src/water_agent/graphs/agent_rag.py', 492, '引用校验和回流'], ['src/water_agent/graphs/agent_rag.py', 697, '外层图节点与条件边'], ['src/water_agent/runtime/agentic.py', 311, 'AgenticSession 装配']]
+      },
+      {
+        id: 'retrieval', group: '主问答链', tone: 'violet', title: 'RAG 语料切块与检索', short: '父子切块、表格隔离、Trivium payload', badge: '入库与检索数据链',
+        role: '把规范原文变成具有章节上下文、稳定 id 和可溯源 metadata 的检索单元；回答时由 retrieve_clauses 工具提供候选条款。',
+        status: '切块配置默认 target=600、overlap=80、article_max=800（近似 token）；父块不直接写入 Trivium。',
+        flowIntro: '“切块”不是按固定字符数粗暴切开：先保留结构边界，再仅在需要时进入带重叠的文本窗口。',
+        flow: [
+          ['读取 <code>RawClause</code>', '输入带 spec_id、章/节/条号、标题、正文、来源路径与页码。'],
+          ['建立稳定父块', '为章、节、小节和“无条号标题”建立 parent chunk；ID 由结构字段与正文内容哈希稳定生成，避免同标题不同正文被合并。'],
+          ['先抽离 Markdown 表格', '表格被作为单独的 <code>table</code> chunk；默认不与普通文字窗口混切，保留表格语义。'],
+          ['条文优先', '有 article 且正文 ≤800 近似 token 时作为单个 <code>article</code>；超长条文先按段落拆分。'],
+          ['窗口回退', '仍超长的段落才使用目标 600 / overlap 80 的字符窗口，产生 <code>text_window</code>。无条号正文则生成 paragraph 或 text_window。'],
+          ['只索引子块', '写入 Trivium 的 payload 是可检索子块；父块保存在 sidecar parent store。manifest 保存入库 node_id，用于幂等跳过或 upsert。']
+        ],
+        state: [
+          ['ChunkConfig', 'dataclass', '<code>target_tokens=600</code>、<code>overlap_tokens=80</code>、<code>article_max_tokens=800</code>。'],
+          ['Chunk', 'domain model', '包含 chunk_id、parent_id、chunk_type、spec_id、章节、article、text、source_path、page、content_hash。'],
+          ['parent store', 'dict[str, Chunk]', '保存父层结构，不作为向量库的检索 payload。'],
+          ['manifest', 'set[int]', '记录成功入库 node_id，支持重复运行的幂等判断。']
+        ],
+        controls: [
+          ['稳定溯源', '每个 chunk 都保留规范 ID、章节/条号和来源定位；引用的 source_id 由后续工具与校验器使用。'],
+          ['真实入库前提', '<code>curated=True</code> 时必须显式提供 embedding provider，避免悄悄用 mock embedding 冒充正式语料。'],
+          ['检索与重排', '运行时可将基础 retriever 包装为 <code>RerankingRetriever</code>；是否启用取决于装配参数，而不是切块器自行决定。'],
+          ['质量边界', '当前真实检索质量与正式规范版本仍需真实 Key、权限、网络和 gold 证据；此页面不将切块机制等同于召回率验收。']
+        ],
+        sources: [['src/water_agent/ingestion/chunker.py', 69, 'ChunkConfig 与 RawClause'], ['src/water_agent/ingestion/chunker.py', 208, '结构化 Chunker'], ['src/water_agent/ingestion/pipeline.py', 172, '切块入库与 Trivium 写入'], ['src/water_agent/runtime/agentic.py', 125, '运行时 retriever 装配']]
+      },
+      {
+        id: 'tools', group: '主问答链', tone: 'brand', title: '工具注册表与确定性工程能力', short: '唯一执行入口 ToolRegistry.invoke', badge: '工具执行边界',
+        role: '统一接住模型发起的本地与桥接工具调用，按固定顺序做治理、schema 校验、执行、超时处理与 trace 记录。',
+        status: '注册表装配时按能力暴露：检索、引用、计算、材料、可选读图与 MCP 工具；工具不会绕开 invoke 直接执行。',
+        flowIntro: '工具层把“模型选择调用什么”与“能否真的执行”严格分离。模型传来的参数先经过治理，之后才进入 Pydantic 或函数。',
+        flow: [
+          ['按 name 解析 ToolSpec', '未知工具立即返回 <code>UNKNOWN_TOOL</code> 结构化错误，并记录未执行的工具事件。'],
+          ['护栏前置校验', '<code>GuardrailPipeline.validate_tool_call</code> 在 schema 之前运行：能力、主体授权、参数大小、路径/域名白名单与注入标记都在这里裁定。'],
+          ['Pydantic 参数校验', '使用 <code>args_model.model_validate</code>；首个非法字段变为 <code>INVALID_ARGUMENTS</code>，不抛裸异常到 Agent 循环。'],
+          ['工具专属 guard', '若 ToolSpec 定义 guard，则在 execute 前再做业务安全校验。'],
+          ['执行与协作式 deadline', '调用 <code>spec.execute(model)</code>；结束后检查耗时，超过 ToolSpec timeout 返回 <code>TOOL_TIMEOUT</code>。当前设计不杀线程。'],
+          ['结构化返回 + trace', '异常转 <code>TOOL_ERROR</code>；每条路径写 tool event。护栏 event 与 tool event 共用 invocation_id，参数仅记录 hash。']
+        ],
+        state: [
+          ['ToolSpec', 'name / description / args_model / execute', '声明工具名称、参数 schema、执行函数与 timeout_seconds。'],
+          ['Principal', 'governance contract', '注册表每次执行都使用该主体做 capability 授权。'],
+          ['invocation_id', '16-char id', '把护栏裁定与工具执行 trace 关联起来。'],
+          ['args_hash', 'SHA-256 prefix', '仅记录参数摘要，避免把 PII 或注入载荷落 trace。']
+        ],
+        controls: [
+          ['计算铁律', '水力计算走程序工具；LLM 只可提出调用和解释结果，不能自行成为数值计算器。'],
+          ['fail closed', '未在治理清单登记、且未做装配期 capability 声明的工具被拒绝。'],
+          ['超时语义', '协作式 deadline 不会强杀执行线程；加入写入类工具前需要另行定义可取消协议。'],
+          ['读图暴露条件', 'DRAWING_ROOT 不可用时 read_drawing 不注册，避免让模型反复调用一个必然失败的能力。']
+        ],
+        sources: [['src/water_agent/tools/registry.py', 61, 'ToolRegistry 定义'], ['src/water_agent/tools/registry.py', 151, 'invoke 前置护栏与 schema'], ['src/water_agent/runtime/agentic.py', 370, '本地工具与 MCP 工具注册']]
+      },
+      {
+        id: 'checkpoint', group: '状态与持久化', tone: 'violet', title: 'Checkpointer、会话与可恢复状态', short: 'thread_id 隔离 · SQLite / PostgreSQL', badge: 'LangGraph 状态持久化',
+        role: '保存 LangGraph 图的中间状态与消息，使多轮会话、interrupt 审批和 resume 有持久化基础；它不等同于长期记忆。',
+        status: 'Agentic、docgen、multi-agent 图都要求提供 checkpointer；CLI 默认使用会话 SQLite，Web 使用受授权包装的 PostgreSQL saver。',
+        flowIntro: '同一个 thread_id 是图状态的定位符，但在 Web 路径中它不是权限凭证：每次读写 checkpoint 还会重新校验该 session 是否属于当前用户。',
+        flow: [
+          ['生成或传入 <code>thread_id</code>', 'AgenticSession 将 thread_id 放进 LangGraph configurable config；同线程后续调用可读取先前 checkpoint。'],
+          ['选择 saver', '测试可用 MemorySaver；CLI 构造 SqliteSaver 保存到 <code>data/sessions/sessions.sqlite</code>；Web 通过连接池创建 PostgresSaver。'],
+          ['注册自定义序列化', '<code>default_checkpoint_serde()</code> 允许 <code>CitationClaim</code> 序列化，避免 resume 后丢失引用状态。'],
+          ['图节点持续落 state', 'LangGraph 在节点边界保存状态；Agentic 的 messages/citations/retry，docgen 的草稿/审批，multi-agent 的 artifacts/revision 都可恢复。'],
+          ['Web 每次重新授权', '<code>ScopedPostgresSaver</code> 在 get/list/put/put_writes/delete_thread 之前调用 session repository，避免仅凭猜到 thread_id 越权读写。'],
+          ['interrupt 后 resume', 'docgen 与 multi-agent 在人工确认点挂起；恢复时继续同一持久化状态，而非重启一条新流程。']
+        ],
+        state: [
+          ['thread_id', 'str', '会话/图状态定位键；不应直接被当作用户身份。'],
+          ['messages / graph state', 'LangGraph checkpoint', '由各图的 TypedDict 定义，随节点边界保存。'],
+          ['session metadata', 'JSON', '只保存 id、首条 query、状态、时间等事实；消息正文仍由 checkpoint 保存。'],
+          ['CitationClaim serializer', 'JsonPlusSerializer', '显式注册项目自定义引用类型。']
+        ],
+        controls: [
+          ['构造期强制', '<code>build_agentic_app</code> 与 <code>build_docgen_graph</code> 未传 checkpointer 会抛 ValueError。'],
+          ['Web 授权封装', 'ScopedPostgresSaver 的每个同步/异步方法都先查 WebSessionRepository；thread_id 泄漏不等于越权成功。'],
+          ['数据库边界', 'PostgreSQL checkpointer 只管理连接池生命周期和 readiness；运行时不调用 schema setup，迁移由 Alembic 管理。'],
+          ['与长期记忆区别', 'checkpoint 保存“图执行状态”；长期记忆是按用户/项目范围授权检索的独立 memory_records。']
+        ],
+        sources: [['src/water_agent/session.py', 15, '会话库与自定义 serde'], ['src/water_agent/runtime/agentic.py', 195, 'CLI checkpointer 选择'], ['src/water_agent/storage/checkpoint.py', 22, 'Postgres checkpointer factory'], ['src/water_agent/storage/scoped_checkpoint.py', 17, 'Web 授权包装']]
+      },
+      {
+        id: 'memory', group: '状态与持久化', tone: 'violet', title: '长期记忆：授权召回与数据化注入', short: 'FTS / 可选 pgvector · 非指令内容', badge: 'Web 长期记忆链',
+        role: '在 Web RunManager 中按 tenant、用户、项目、线程范围召回记忆，并以明确的数据段而非系统指令形式交给 Agentic RAG。',
+        status: '默认原生 PostgreSQL FTS；可选 pgvector provider 只在显式注入且已启用时使用，故障回退 FTS。真实语义召回质量仍未验收。',
+        flowIntro: '长期记忆是一次请求的可选上下文，不会绕过 session 授权，也不能把已存文本提升成系统提示。',
+        flow: [
+          ['Web 创建受授权 Session', 'RunManager 使用当前用户、项目与 principal 创建 AgenticSession，并准备可重放的 SSE 运行事件。'],
+          ['按范围召回', '<code>MemoryRecallService.recall</code> 接收 tenant_id、actor_user_id、project_id、query、source_thread_id 与 run_id，先决定可见范围。'],
+          ['provider 检索与排序', '默认 FTS 返回候选；随后按 scope、kind、更新时间、ID 做确定性排序，再按条目数和字符预算选择，不把正文切半。'],
+          ['包装为 ContentEnvelope', '每条命中以 <code>SourceTag.SESSION_MEMORY</code> 包装；渲染为明确的长期记忆数据段。'],
+          ['传给 <code>aask</code>', 'MemoryRecallResult 写入 AgenticRAGState.memory_context，PromptAssembler 只将其作为 data segment。'],
+          ['按错误类型处理', 'memory store 暂不可用时记录 degraded 并继续无记忆运行；策略/授权/数据错误则阻断本次 run，不把它伪装成“无记忆”。']
+        ],
+        state: [
+          ['MemoryRecallResult', 'hits / counts / budget', '包含命中、候选数、被预算省略数、字符预算及 provider 名。'],
+          ['MemoryRecallHit', 'memory + deterministic score', '正文可包装为 untrusted SESSION_MEMORY 数据。'],
+          ['MemoryRecord', 'scoped persistent record', '具备 tenant、用户/项目范围、kind、状态、revision 与来源等约束。'],
+          ['pending candidate', 'process-local / 15 min', '待确认写入候选为进程内 TTL 存储；多 worker 持久化候选仍是已知限制。']
+        ],
+        controls: [
+          ['不成为指令', '只有 SYSTEM_POLICY 来源可承载指令；长期记忆属于 SESSION_MEMORY，因此内容即使含命令也应被当作数据。'],
+          ['显式写入', '写入需候选、guard、确认与 revision/hash 约束，不能因为模型“觉得有用”而静默持久化。'],
+          ['故障分级', 'Store unavailable 是可用性降级；授权/策略/数据错误是阻断，二者不能合并为“没有记忆”。'],
+          ['证据边界', 'memory_p0 是合成机制集；不证明任意中文表达的语义召回。']
+        ],
+        sources: [['src/water_agent/webapp/run_manager.py', 224, 'Web run 与记忆接线'], ['src/water_agent/memory/recall.py', 238, '命中包装、排序与预算渲染'], ['src/water_agent/memory/recall.py', 418, 'MemoryRecallService'], ['src/water_agent/memory/write_service.py', 1, '显式写入候选服务']]
+      },
+      {
+        id: 'multi-agent', group: '专项编排图', tone: 'amber', title: '多 Agent 项目编排', short: '水力 / 设计 / 图纸 / 审查 + HITL', badge: 'P4.5 · 四 Agent 有界图',
+        role: '处理项目级交付，不是普通问答的默认分支。四个专责 Agent 通过带哈希的 ArtifactEnvelope 交接，审查结论由确定性 router 选择下一责任方。',
+        status: '最大执行步数 24；水力、设计、图纸各最多修订 2 次；审查最多 3 轮；最终必须经过 interrupt 审批与 release gate。',
+        flowIntro: '这里的“multi-agent”不是动态创建任意子代理，而是一张预定义、可计数、可追溯的四 Agent LangGraph。',
+        flow: [
+          ['intake', '用 <code>ProjectBrief</code> 严格校验项目 ID、系统、SI 单位、计算用例、拓扑、约束和交付物；无效输入转 missing_inputs。'],
+          ['hydraulic Agent', '调用程序化水力计算，产出 CalcPackage；新计算会使下游设计、图纸、文档、审查产物失效。'],
+          ['design Agent', '基于计算包与检索 source_id 生成 DesignPackage；若发现需要重算，写入结构化 recalculation_requests，而不是直接改数。'],
+          ['recalculate → hydraulic', '只有字段、公式、来源计算 case 和 input_updates 齐备才更新 brief 并消耗水力修订额度；否则等待人工补输入。'],
+          ['drawing Agent + staging', '由设计和计算生成 DrawingPlan，stage 成 drawing package，并生成依赖同一产物链的 document。'],
+          ['review → router', '审查 Agent 产出 ReviewPackage。router 只读 issue.owner，按 hydraulic → design → drawing → human 优先级选择一个回流目标。'],
+          ['approval → release gate → export', 'review pass 后计算最终包 hash 并 interrupt；恢复时重新核验上下文 hash、有效期、产物状态、审查与阻断问题，全部通过才导出。']
+        ],
+        state: [
+          ['project_brief', 'dict / ProjectBrief', '项目输入的 JSON 形态。'],
+          ['artifacts + active_artifact_ids', 'ArtifactEnvelope registry', '保留历史与当前有效版本；父 artifact id、revision、payload_hash 形成谱系。'],
+          ['revision_counts + step_count', 'dict / int', '执行次数和修订预算的唯一状态来源。'],
+          ['approval_context_hash', 'SHA-256', '审批时绑定当前交付产物集合；任意漂移会导致 approval stale。'],
+          ['trace_events', 'add[list[dict]]', '记录 agent_call、产物增删、路由、审批与导出事件。']
+        ],
+        controls: [
+          ['固定责任与上限', 'router 不读取 issue.message 等自由文本推断 owner，且超出 24/2/2/2/3 上限会 <code>MULTI_RETRY_EXHAUSTED</code>。'],
+          ['内容与数值完整性', 'ArtifactEnvelope 的 payload_hash 基于 canonical JSON；ready 状态不能与 payload.errors/missing_inputs 矛盾。'],
+          ['审批抗漂移', 'interrupt 前后都会重算 release artifacts 的集合 hash，审批绑定 revision 与 parent IDs。'],
+          ['导出门禁', '必须同时具备未过期审批、hash 匹配、无 stale artifact、review pass、无未解决 blocking finding。']
+        ],
+        sources: [['src/water_agent/multi_agent/orchestrator.py', 566, '编排节点与状态'], ['src/water_agent/multi_agent/orchestrator.py', 1339, 'LangGraph 条件边'], ['src/water_agent/multi_agent/routing.py', 29, '路由上限与 owner 优先级'], ['src/water_agent/multi_agent/contracts.py', 237, 'ArtifactEnvelope / payload hash']]
+      },
+      {
+        id: 'docgen', group: '专项编排图', tone: 'amber', title: '文档生成与 HITL 审批', short: '模板草稿、自检、interrupt、finalize', badge: 'P2 文档交付图',
+        role: '为计算书和设计说明提供与普通问答分离的受控文档流程。数值与引用来自结构化输入，文本润色不能改写这些事实。',
+        status: 'MAX_DRAFT_ROUNDS=2，MAX_SELF_CHECK_ATTEMPTS=2；审批仅接受严格 bool，failed/rejected 不会误进入 finalize。',
+        flowIntro: '文档链的“人工审核”是 LangGraph interrupt，不是 UI 上点一个按钮就被假定为通过。',
+        flow: [
+          ['gather_inputs', '收集 query、意图、已有 citations、calc_result 与可序列化的检索快照；本节点不主动篡改检索或计算事实。'],
+          ['draft', '模板引擎渲染结构化章节；若上一稿被拒绝，反馈会进入下一稿。'],
+          ['self_check', '确定性检查结构合规、引用策略、数值完整性；不通过且未达上限回 draft，否则 failed。'],
+          ['approval interrupt', '通过自检才进入 waiting 并挂起。恢复时解析严格审批结果及原因，拒绝可在稿次预算内重拟。'],
+          ['finalize', '只有 approved 才到此节点；终稿仍从同一结构化文档对象渲染，避免草稿/终稿双真源。']
+        ],
+        state: [
+          ['doc_draft / final', 'str', '由同源模板渲染的草稿和终稿文本。'],
+          ['calc_result / citations', 'structured inputs', '数值只取 calc_values，引用只取输入 source_id。'],
+          ['self_check_attempts / draft_round', 'int', '有界重试计数。'],
+          ['approval_log', 'persistent list', '由 checkpointer 跨进程保存的审批事实。']
+        ],
+        controls: [
+          ['模板事实边界', '受限 prose 润色失败或破坏结构时返回 blocked，不静默降级为“通过”。'],
+          ['严格审批', '审批输入不是任意 truthy 值；拒绝和 failed 的路由与 approved 分离。'],
+          ['持久化要求', '没有 checkpointer 时 docgen 图拒绝构建，因为 interrupt/resume 不能可靠工作。'],
+          ['独立于问答', 'docgen 是专用分支，不是每一次普通 Agentic RAG 问答的必经阶段。']
+        ],
+        sources: [['src/water_agent/graphs/docgen.py', 54, '稿次与自检上限'], ['src/water_agent/graphs/docgen.py', 146, '审批决策与路由'], ['src/water_agent/graphs/docgen.py', 196, 'HITL 图装配'], ['src/water_agent/docgen/templates.py', 1, '结构化文档模板']]
+      },
+      {
+        id: 'drawing', group: '专项编排图', tone: 'amber', title: '图纸读取与确定性审查', short: 'DXF → 图元 → 管段 → 规则 → 报告', badge: 'P3 确定性子图',
+        role: '图纸审查是独立的固定管线，输入为受约束的 drawing_id，所有抽取、映射、规则判断和报告渲染均不调用 LLM。',
+        status: 'DXF 是解析基线；DWG 直读 blocked。真实图纸召回率尚未验收，drawing_p0 仅验证合成 smoke 链路。',
+        flowIntro: '即使抽取失败，图也会完整走到报告节点，确保“没审到任何管段”和“审查后无缺陷”不会被混成同一个结论。',
+        flow: [
+          ['load_extract', '<code>read_drawing</code> 用登记号在装配期注入的 DRAWING_ROOT 内解析 DXF；路径、类型、大小、内容都有防线。'],
+          ['map_pipes', '把结构化图元、标注和层信息映射为管段语义；单位未知时长度为 None，绝不默认为某种单位。'],
+          ['rule_check', '<code>review_drawing</code> 对管段运行规则，产出 findings、not_checked、missing_inputs 和 assumptions。'],
+          ['report', '唯一引用 Finding.rendered_finding() 的文本；路径错误中的 DRAWING_ROOT 被脱敏；not_checked 必须单独展示。'],
+          ['失败不伪装成功', '抽取失败时仍 map/check/report，但 report.ok=false、status=failed；pipes_reviewed=0 时不渲染“缺陷（0 条）”。']
+        ],
+        state: [
+          ['DrawingReviewState', 'TypedDict', 'drawing_id、extraction、mapping、review、report、status、step_count。'],
+          ['DrawingExtraction', 'intermediate model', '文件哈希、单位、实体与稳定错误码；报告摘要不带路径。'],
+          ['MappingResult', 'pipe semantics', '图元到管段的映射及遗漏/可疑标注处理。'],
+          ['ReviewResult', 'findings / not_checked', '规则结果与未检查项同为一等输出。']
+        ],
+        controls: [
+          ['不猜单位', '<code>unit_known=false</code> 时 length_m=None，避免不可靠数量进入材料清单。'],
+          ['不拿可疑标注算数', 'suspicious 标注不参与数值推导，但其 handle 会被披露，而非静默丢弃。'],
+          ['能力按需暴露', 'read_drawing 没有路径参数；DRAWING_ROOT 不可用时该工具不注册给模型。'],
+          ['证据边界', '真实设计院 DXF 尚未完成召回率验证，不能将合成 smoke 结果表述为真实图纸能力。']
+        ],
+        sources: [['src/water_agent/graphs/drawing_review.py', 1, '确定性管线与报告纪律'], ['src/water_agent/graphs/drawing_review.py', 208, '节点与固定边'], ['src/water_agent/drawing/dxf_reader.py', 1, 'DXF 解析与路径防御'], ['src/water_agent/drawing/mapping.py', 1, '图元到管段映射']]
+      },
+      {
+        id: 'provider', group: '治理与安全', tone: 'rose', title: 'ProviderGateway：模型调用治理', short: '能力、熔断、限流、预算、重试、usage', badge: '唯一远程模型调用入口',
+        role: '对远程模型、embedding、rerank 等 provider 调用统一执行授权、可靠性和账务语义；调用点不应私自创建第二条网络出口。',
+        status: '固定顺序：能力 → 熔断 → 发送前限流 → 预算预留 → 有界重试 → usage 对账/回滚 → trace 账本。',
+        flowIntro: '“能重试”和“可记账”各有严格边界：错误类型不确定不放大，usage 缺失不伪造账单。',
+        flow: [
+          ['能力校验', '<code>Principal.require(required_capability)</code>；无能力立即 fail closed。'],
+          ['熔断检查', '按 provider + model 的 breaker key 判断；打开时拒绝发送，恢复后只允许有限探测。'],
+          ['发送前限流', '按 principal_hash、capability、model 的 key 获取额度；拒绝会带可用的 retry_after。'],
+          ['预算预留', '按主体授权域预留 estimated input + max output tokens；超出 token cap 不发送。'],
+          ['有界执行与重试', '受 request deadline 约束；仅瞬时错误（超时、连接、408/429/5xx）进入重试，429 尊重 Retry-After。'],
+          ['对账或回滚', '成功后以 provider usage 结算；失败回滚 reservation。usage 未知时释放预留但 token/cost 保持 unknown，不用估算伪装。'],
+          ['写 UsageRecord', '记录 principal_hash、模型、类别、延迟、缓存状态、重试次数和已知 usage，回调给 trace/metrics。']
+        ],
+        state: [
+          ['RequestContext', 'principal / request_id / deadline', '调用的授权和追踪上下文；trace 不写主体原文。'],
+          ['ProviderCall', 'provider / model / category', '包含所需 capability 与输入/输出 token 估计。'],
+          ['BudgetLedger reservation', 'reserve → settle/rollback', '把失败、未知 usage 和成功账务区分。'],
+          ['UsageRecord', 'known or unknown', 'usage_known=false 时不能填写虚构 token/cost。']
+        ],
+        controls: [
+          ['重试纪律', '401/403 不重试且不计入熔断；未知错误默认永久，避免把不确定错误放大成流量风暴。'],
+          ['不换模型', 'gateway 不会因为调用失败自动切换模型、偷偷回退本地模型或伪造 usage。'],
+          ['成本上限事实', '未核对价格不作为硬成本拒绝；默认硬约束是 daily_token_cap，成本仅在价格已确认时结算。'],
+          ['多实例边界', '默认内存限流/账本不支持多实例，不能被宣称为分布式生产配额。']
+        ],
+        sources: [['src/water_agent/runtime/governance/gateway.py', 187, 'ProviderGateway 主入口'], ['src/water_agent/runtime/governance/config.py', 31, '治理版本与策略'], ['src/water_agent/runtime/governance/stores.py', 28, '限流与预算 store'], ['src/water_agent/runtime/governance/inventory.py', 42, '远程调用清单']]
+      },
+      {
+        id: 'mcp', group: '治理与安全', tone: 'rose', title: 'MCP 网关：配置、桥接与远端工具', short: 'stdio JSON-RPC · 双钥匙授权', badge: 'P4 MCP 客户端网关',
+        role: '将人工配置的 MCP server 工具经过协议校验、schema 子集检查、描述安检与能力登记后，桥接为本地 ToolSpec。',
+        status: '纯标准库 stdio 客户端；真实 CAD/BIM/企业库 server 尚未验证。human_confirmation=true 而确认门未接线时整台 server 不暴露。',
+        flowIntro: '模型不能决定 shell 命令、环境变量、server 地址或白名单；这些都在装配期从配置读取。',
+        flow: [
+          ['加载版本化配置', '默认 <code>data/mcp_servers.json</code> 不存在表示功能关闭；文件存在但格式错误抛 <code>MCP_CONFIG_INVALID</code>，不会静默跳过。'],
+          ['确认门预过滤', '配置为 human_confirmation=true 且 handler 未就绪时，该 server 不 spawn，记录 MCP_CONFIRMATION_UNAVAILABLE。'],
+          ['stdio 连接与握手', 'list 形式启动子进程（不用 shell）；<code>initialize</code> → initialized 通知 → tools/list 分页（最多 20 页）。'],
+          ['桥接五道门', 'remote tool 必须通过 allow 白名单、确认门、描述注入安检、inputSchema 安全子集和本地名称唯一性，然后登记 MCP_INVOKE binding。'],
+          ['注册为 ToolSpec', '桥接成功工具进入同一个 ToolRegistry；只有确有 exposed tool 时，当前 principal 才显式叠加 MCP_INVOKE。'],
+          ['运行时调用', 'ToolRegistry 仍会先跑护栏；远端 isError=true 返回结构化业务失败，连接/协议/超时/超限作为 MCPError 再由注册表收口。']
+        ],
+        state: [
+          ['MCPGatewayConfig', 'servers + confirmation handler', '配置清单与确认门状态。'],
+          ['MCPGatewayAssembly', 'sessions / skipped / manifest_hash', '保存成功连接、跳过理由以及影响缓存失效的清单摘要。'],
+          ['RemoteTool', 'name / description / input_schema', '来自 server 的不可信清单条目，shape 校验与内容安检分层。'],
+          ['McpToolBinding', 'local name / server / remote tool', '转换即授权的本地登记；统一 capability 为 MCP_INVOKE。']
+        ],
+        controls: [
+          ['双钥匙授权', 'allow 白名单决定“哪些工具”；Principal 的 MCP_INVOKE 决定“谁能用”。任一缺失，invoke 护栏拒绝。'],
+          ['最小环境透传', '子进程默认只获得 PATH/HOME；额外变量由 env_file/env 显式提供，避免把宿主 API Key 自动泄露给 server。'],
+          ['schema fail closed', '未知关键字、嵌套结构、anyOf/$ref 等不在受支持子集内时工具不暴露。'],
+          ['实机边界', '本机 fake server 已验证协议往返，不等于 CAD/BIM 与企业库 server 已验证。']
+        ],
+        sources: [['src/water_agent/mcp/config.py', 40, '配置版本、server schema 与 child env'], ['src/water_agent/mcp/client.py', 99, 'MCPStdioClient 生命周期'], ['src/water_agent/mcp/bridge.py', 154, '远端工具桥接'], ['src/water_agent/mcp/wiring.py', 138, '统一装配入口']]
+      },
+      {
+        id: 'guardrails', group: '治理与安全', tone: 'rose', title: '安全与护栏：五个检查面', short: '输入、来源、工具、记忆、输出', badge: '确定性规则集 · 非分类器',
+        role: '在模型调用、工具执行、记忆写入与结果返回的不同边界使用不同动作：不是所有命中都简单“删除”或“允许”。',
+        status: 'RULESET_VERSION=p2.5-step14-2026-09-06；规则是 NFKC/不可见字符/Base64 规范化后的确定性正则，因此必然存在未覆盖改写。',
+        flowIntro: '核心安全语义是“把外部内容关在数据边界内”，而不是宣称正则可以识别所有攻击表达。',
+        flow: [
+          ['用户输入面', '16 KiB 上限 → 注入检测 → PII/secret 策略。直接提示注入命中 BLOCK；默认 PII 脱敏，凭据无论 pii_mode 都强制脱敏。'],
+          ['检索/工具内容面', '外部文本以 ContentEnvelope 标记来源。间接注入/凭据命中为 REDACT + 数据隔离，不因一条可疑文字丢弃整条检索内容。'],
+          ['工具调用面', 'ToolRegistry 在 Pydantic 之前调用 validate_tool_call：能力登记、主体授权、参数大小、路径/域名白名单、参数注入；未登记工具 fail closed。'],
+          ['记忆写入面', '记忆候选先经内容和 semantic key guard；注入形态、PII/凭据和范围不合格不会持久化。'],
+          ['输出面', 'Agentic finalize 只在引用已校验且有 answer 时检查输出；被拒后 answer 清空，状态置 blocked。'],
+          ['脱敏观测面', 'trace 记录命中的 rule_id、动作、摘要和 hash；落盘时无条件脱敏，不把原始 payload 当诊断日志。']
+        ],
+        state: [
+          ['ContentEnvelope', 'source_tag + text + reference', '来源标签有信任偏序；外部来源不能被提升为 SYSTEM_POLICY。'],
+          ['GuardrailOutcome', 'decision / content / hits', '决定 ALLOW、REDACT 或 BLOCK，并保留脱敏命中摘要。'],
+          ['ToolPolicy', 'read/export dirs + arg limits', '按 capability 而非参数名决定路径/域名白名单。'],
+          ['RuleHit', 'rule_id / category / count', '诊断不携带原始命中文本。']
+        ],
+        controls: [
+          ['检测规范化', 'NFKC、移除零宽字符、折叠空白和最多 8 段 Base64 解码只用于检测；放行给模型的普通文本仍保持原文。'],
+          ['来源不可升级', '只有 SYSTEM_POLICY 可承载指令；检索、工具输出、用户消息、记忆等不能改标为系统来源。'],
+          ['路径已知局限', '通用护栏的路径外观识别刻意不把相对路径全部当路径；新直接收路径的工具仍须在工具层做自身校验。'],
+          ['诚实边界', '这是确定性规则集而不是分类器；不能宣称能够拦住任意注入改写。']
+        ],
+        sources: [['src/water_agent/runtime/governance/pipeline.py', 201, '五面 GuardrailPipeline'], ['src/water_agent/runtime/governance/rules.py', 1, '规范化与注入/secret 规则'], ['src/water_agent/runtime/governance/contracts.py', 119, 'SourceTag、Principal 与 ContentEnvelope'], ['src/water_agent/tools/registry.py', 151, '护栏在 schema 之前']]
+      },
+      {
+        id: 'harness', group: '评测与观测', tone: 'amber', title: 'Harness、质量评测与回归门禁', short: 'JSONL 用例、双轨执行、指标、baseline', badge: '评测先行',
+        role: '用可加载的评测用例验证机制与质量链路，并把计算、引用、检索、文档、材料、图纸、记忆和 multi-agent 的评价口径分开记录。',
+        status: '真实质量层无 Key 时结构化 SKIP；有 Key 但组件、网络或权限失败必须 blocked/非零，不能包装成 SKIP。',
+        flowIntro: 'Harness 不把“模型能跑”当成“工程质量通过”：不同层面有不同 gold、指标和失败语义。',
+        flow: [
+          ['加载 JSONL suite', 'loader 依据 case type/variant 路由；runner 支持用例级 variant 或运行级覆盖。'],
+          ['选择执行链', 'calc 走确定性计算图；mock/trivium 走机制层；real 默认走 agentic 图，legacy 仅为改造前后对比。'],
+          ['装配真实组件', '真实链要求 DeepSeek Key、DashScope Key 与真实 Trivium 索引；检索器 fallback 到 fixture 时拒绝作为 real 质量评测。'],
+          ['逐用例评分', '引用正确性、计算误差、文档/材料规则等按确定性 scorer；检索指标独立从 context 排名计算。'],
+          ['可选 LLM Judge', 'faithfulness、citation_coverage、no_fabrication 是阻断维度，任一低于 4/5 质量不通过；不会覆盖机制层判分。'],
+          ['报告、trace 与 baseline 对比', '生成 reports/traces；ci_gate 运行机制层 harness 与 baseline 比较，防止关键指标回退。']
+        ],
+        state: [
+          ['EvalResult', 'case status + score facts', '记录 passed、skipped、variant、失败原因与延迟等。'],
+          ['retrieval metrics', 'Recall@1/3/5 + MRR', '以检索的 source_id 排名与 gold_any 计算，不与引用正确性混用。'],
+          ['judge verdict', 'bool | None', '无 judge 分数为未执行，不把 unknown 记为通过。'],
+          ['trace/report', 'JSON artifacts', '供回归、治理检测与质量调查使用。']
+        ],
+        controls: [
+          ['真实/机制分离', '缺 Key 是前置条件缺失的 SKIP；已有 Key 后的组件失败是 RealComponentsError，不可伪装成通过。'],
+          ['图纸指标独立', 'drawing 的缺陷召回按人工标注缺陷、rule_id + handle 精确匹配，不能复用检索 MRR 的分母。'],
+          ['multi-agent 专项', 'multi_agent_eval 与 multi_agent_metrics 检验工件谱系、路由、审批、roundtrip 等专属证据。'],
+          ['门禁依据', '质量基线和阈值是单一来源；改动不应让关键指标下降。']
+        ],
+        sources: [['src/water_agent/harness/runner.py', 188, 'HarnessRunner 与真实组件装配'], ['src/water_agent/harness/retrieval_metrics.py', 1, 'Recall/MRR 指标'], ['src/water_agent/harness/quality.py', 1, 'LLM judge 阻断阈值'], ['src/water_agent/harness/multi_agent_eval.py', 473, '多 Agent 专项评测']]
+      },
+      {
+        id: 'observability', group: '评测与观测', tone: 'amber', title: 'Trace、失败检测器与运行观测', short: '事件脱敏、检测器、local_event_only', badge: 'P2.5 运行证据',
+        role: '把模型调用、护栏决策、工具执行、缓存和关键运行结果写为结构化 trace，再用确定性检测器识别“看似成功”的故障。',
+        status: '检测器不调用 LLM；告警投递当前仅 local_event_only，不声称已连接 PagerDuty 或 Slack。',
+        flowIntro: '可观测性不参与改变执行语义；但它让“工具被护栏拦了却仍被描述为完成”等问题可被事后识别。',
+        flow: [
+          ['开始 trace', 'Agentic agent_loop 首次进入时创建 run_id / trace_id；Web run 还维护可重放 SSE 事件。'],
+          ['记录执行事件', '模型响应被压缩为 token/延迟/摘要；ToolRegistry 写 guardrail 与 tool event；缓存记录 key hash 与资格。'],
+          ['收口 trace', 'finalize 写最终 status、最后错误、引用和 retry count；工具参数与敏感内容不直接落盘。'],
+          ['构造 TraceView', '从 trace JSON 提取可判定字段，而不是再让模型解读日志。'],
+          ['运行 8 个治理检测器', '包括 guardrail_bypass、tool_misuse、cascading_errors、context_loss、hallucinated_action、success_hallucination、unverified_citation_after_cache、budget_bypass。'],
+          ['聚合与本地告警', '计算指标、映射 PAGE/TICKET 严重度和 runbook，并写本地结构化事件。']
+        ],
+        state: [
+          ['JsonTraceRecorder', 'trace lifecycle', '记录 provider、tool、guardrail、cache、finish 等事件。'],
+          ['invocation_id', 'correlation id', '用于配对同次工具的 guardrail 和 tool event。'],
+          ['Signal', 'detector result', '带 detector 名、严重度、证据和 runbook 语义。'],
+          ['GovernanceMetrics', 'aggregate', '未知数据使用 None，而非冒充 0。']
+        ],
+        controls: [
+          ['无 LLM 检测器', '检测器以 trace 事实为输入，AST 测试约束其不引入模型/HTTP 客户端。'],
+          ['脱敏纪律', 'trace 只保存 hash、规则 ID、摘要等；缺事件不能证明没有绕过。'],
+          ['告警事实', 'delivery=local_event_only；尚未配置外部通知通道。'],
+          ['接线边界', '部分检测器尚未接进所有 CLI/runner 生产调用站点，不能将离线检测器覆盖宣称为全生产覆盖。']
+        ],
+        sources: [['src/water_agent/observability/json_trace.py', 1, 'JSON trace recorder'], ['src/water_agent/runtime/governance/detectors.py', 108, '治理失败检测器'], ['src/water_agent/runtime/governance/observability.py', 129, '聚合指标与告警'], ['src/water_agent/tools/registry.py', 111, '工具/护栏事件写入']]
+      }
+    ];
+
+    const groups = [
+      ['主问答链', ['agentic-rag', 'retrieval', 'tools']],
+      ['状态与持久化', ['checkpoint', 'memory']],
+      ['专项编排图', ['multi-agent', 'docgen', 'drawing']],
+      ['治理与安全', ['provider', 'mcp', 'guardrails']],
+      ['评测与观测', ['harness', 'observability']]
+    ];
+    const mapItems = [
+      ['agentic-rag', '主问答', 'Agentic RAG', 'main'],
+      ['retrieval', 'RAG 数据', '切块与检索', 'data'],
+      ['tools', '执行边界', 'ToolRegistry', 'main'],
+      ['provider', '远程治理', 'ProviderGateway', 'safety'],
+      ['checkpoint', '状态', 'Checkpointer', 'data'],
+      ['memory', '长期上下文', 'Memory recall', 'data'],
+      ['multi-agent', '项目交付', 'Multi-agent', 'quality'],
+      ['docgen', '文档专项', 'HITL docgen', 'quality'],
+      ['drawing', '图纸专项', '确定性审查', 'quality'],
+      ['mcp', '远端工具', 'MCP 网关', 'safety'],
+      ['guardrails', '安全边界', 'Guardrails', 'safety'],
+      ['harness', '质量门禁', 'Harness', 'quality'],
+      ['observability', '运行证据', 'Trace / detectors', 'quality']
+    ];
+    const byId = Object.fromEntries(modules.map(m => [m.id, m]));
+    const nav = document.getElementById('moduleNav');
+    const map = document.getElementById('systemMap');
+    const detail = document.getElementById('detailPanel');
+    const allGrid = document.getElementById('allModuleGrid');
+    let selected = 'agentic-rag';
+    let activeTab = 'flow';
+
+    function esc(text) {
+      return String(text).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    }
+    function markup(text) {
+      const safe = esc(text);
+      return safe.replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/g, '<code>$1</code>');
+    }
+    function sourceHref(path, line) { return '../../' + path + '#L' + line; }
+    function renderNav(filter = '') {
+      const q = filter.trim().toLowerCase();
+      nav.innerHTML = groups.map(([label, ids]) => {
+        const visible = ids.map(id => byId[id]).filter(m => !q || (m.title + m.short + m.badge + m.role).toLowerCase().includes(q));
+        if (!visible.length) return '';
+        return `<section class="module-group"><div class="module-group-label">${esc(label)}</div><div class="module-nav">${visible.map(m => `<button class="nav-item" data-module="${m.id}" data-tone="${m.tone}" aria-current="${m.id === selected}"><span class="nav-dot"></span><span><span class="nav-title">${esc(m.title)}</span><span class="nav-sub">${esc(m.short)}</span></span></button>`).join('')}</div></section>`;
+      }).join('') || '<p class="empty">没有匹配模块</p>';
+    }
+    function renderMap() {
+      map.innerHTML = mapItems.map(([id, kicker, label, kind], index) => {
+        const arrow = index < 3 ? '<span class="map-arrow" aria-hidden="true">→</span>' : '';
+        return `<button class="map-node ${kind} ${id === selected ? 'active' : ''}" type="button" data-module="${id}"><span class="map-kicker">${esc(kicker)}</span><span class="map-label">${esc(label)}</span>${arrow}</button>`;
+      }).join('');
+    }
+    function renderTabContent(m) {
+      if (activeTab === 'flow') {
+        return `<p class="flow-intro">${esc(m.flowIntro)}</p><div class="flow-list">${m.flow.map(([title, body]) => `<article class="flow-step"><div><h3>${markup(title)}</h3><p>${markup(body)}</p></div></article>`).join('')}</div>`;
+      }
+      if (activeTab === 'state') {
+        return `<div class="state-grid">${m.state.map(([name, type, body]) => `<article class="state-card"><span class="state-type">${markup(type)}</span><h3>${markup(name)}</h3><p>${markup(body)}</p></article>`).join('')}</div>`;
+      }
+      if (activeTab === 'controls') {
+        return `<div class="guard-grid">${m.controls.map(([title, body]) => `<article class="guard-card"><div class="control-head"><span class="control-kind">关键约束</span><h3>${markup(title)}</h3></div><p>${markup(body)}</p></article>`).join('')}</div>`;
+      }
+      return `<div class="source-list">${m.sources.map(([path, line, label]) => `<a class="source-link" href="${sourceHref(path, line)}" target="_blank" rel="noopener"><span aria-hidden="true">↗</span><span class="file">${esc(path)}</span><span class="line">L${line} · ${esc(label)}</span></a>`).join('')}</div><p class="source-note">链接指向当前工作区中的源码位置。若浏览器不允许以 file:// 打开源码，请在编辑器中按路径和行号定位。</p>`;
+    }
+    function renderDetail() {
+      const m = byId[selected];
+      detail.innerHTML = `<header class="module-header"><div><span class="badge">${esc(m.badge)}</span><h2>${esc(m.title)}</h2><p class="module-summary">${esc(m.role)}</p></div><div class="module-meta"><div class="meta-item"><strong>当前实现状态</strong>${esc(m.status)}</div><div class="meta-item"><strong>阅读方式</strong>先看流程，再切换状态、约束与源码</div></div></header><div class="tabs" role="tablist" aria-label="${esc(m.title)} 详情标签">${[['flow','具体流程'],['state','状态与产物'],['controls','约束与分支'],['sources','源码入口']].map(([id,label]) => `<button class="tab" role="tab" type="button" data-tab="${id}" aria-selected="${activeTab === id}">${label}</button>`).join('')}</div><div class="tab-content" role="tabpanel">${renderTabContent(m)}</div>`;
+      document.title = `${m.title}｜给排水 Agent 内部图谱`;
+    }
+    function renderAll() {
+      allGrid.innerHTML = modules.map(m => `<button class="all-module-card" type="button" data-module="${m.id}"><strong>${esc(m.title)}</strong><span>${esc(m.short)}</span></button>`).join('');
+    }
+    function select(id, updateHash = true) {
+      if (!byId[id]) return;
+      selected = id;
+      activeTab = 'flow';
+      if (updateHash) history.replaceState(null, '', '#' + encodeURIComponent(id));
+      renderNav(document.getElementById('moduleSearch').value);
+      renderMap();
+      renderDetail();
+      detail.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+    document.addEventListener('click', event => {
+      const moduleButton = event.target.closest('[data-module]');
+      if (moduleButton) { select(moduleButton.dataset.module); return; }
+      const tabButton = event.target.closest('[data-tab]');
+      if (tabButton) { activeTab = tabButton.dataset.tab; renderDetail(); }
+    });
+    document.getElementById('moduleSearch').addEventListener('input', e => renderNav(e.target.value));
+    document.getElementById('showAll').addEventListener('click', () => {
+      const section = document.getElementById('allModules');
+      section.open = !section.open;
+      if (section.open) section.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    });
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const dark = document.documentElement.dataset.theme !== 'dark';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      localStorage.setItem('water-agent-explorer-theme', dark ? 'dark' : 'light');
+      document.getElementById('themeToggle').textContent = dark ? '切换浅色' : '切换深色';
+    });
+    window.addEventListener('hashchange', () => select(decodeURIComponent(location.hash.slice(1)), false));
+    const storedTheme = localStorage.getItem('water-agent-explorer-theme');
+    if (storedTheme === 'dark') { document.documentElement.dataset.theme = 'dark'; document.getElementById('themeToggle').textContent = '切换浅色'; }
+    const initial = decodeURIComponent(location.hash.slice(1));
+    if (byId[initial]) selected = initial;
+    renderNav(); renderMap(); renderDetail(); renderAll();
+  })();
+  </script>
+</body>
+</html>
