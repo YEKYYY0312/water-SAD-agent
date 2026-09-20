@@ -205,7 +205,7 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 - **P3 DWG 直读 blocked**：本机无 ODA File Converter / libredwg，且转换需 `EXECUTE_SHELL`（构造期即被拒绝的危险能力），故 P3 只支持 DXF，`.dwg` 恒返回结构化 `DRAWING_UNSUPPORTED_FORMAT`
 - **P3 真实图纸未验证**：测试图纸由 ezdxf 程序化合成；真实设计院 DXF 含块参照/外部参照/非标图层，当前只证明解析管线与护栏正确
 - 无 DEEPSEEK_API_KEY 时离线闭环（CLI `--mock-generator`；harness 默认机制层 variant）完全可用
-- 语料扩容：`knowledge/` 下 221 个 md（40MB）尚未入库
+- 语料扩容：`knowledge/` 下 221 个 md（40MB）已入库；`data/curated/clauses/` 含 1595 条审校条款；`data/indexes/` 向量库（21MB）可通过 `scripts/build_index.py` 从 curated 重建
 
 ### P5 自托管与长期记忆（Step 35–45）的口径
 
