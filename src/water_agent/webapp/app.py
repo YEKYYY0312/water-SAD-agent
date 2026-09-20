@@ -276,6 +276,20 @@ def create_app(
         async def workbench() -> FileResponse:
             return FileResponse(index_path)
 
+        @app.get("/login.html", include_in_schema=False)
+        async def login_page() -> FileResponse:
+            login_path = frontend_dir / "login.html"
+            if login_path.is_file():
+                return FileResponse(login_path)
+            return FileResponse(index_path)
+
+        @app.get("/test_csrf.html", include_in_schema=False)
+        async def test_csrf_page() -> FileResponse:
+            test_path = frontend_dir / "test_csrf.html"
+            if test_path.is_file():
+                return FileResponse(test_path)
+            return FileResponse(index_path)
+
     else:
 
         @app.get("/", include_in_schema=False)
