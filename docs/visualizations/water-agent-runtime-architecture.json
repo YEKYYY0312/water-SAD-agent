@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "给排水 Agent：内部运行机制",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1380, 650],
+    "views": [
+      {
+        "id": "answer-path",
+        "label": "主回答路径",
+        "focus": ["request", "admission", "session", "agent", "citations", "response"],
+        "note": "请求通过认证授权后，以会话状态和运行时上下文驱动有界 Agentic RAG 循环。"
+      },
+      {
+        "id": "governed-execution",
+        "label": "受治理执行",
+        "focus": ["agent", "gateway", "provider", "registry", "engineering", "mcp"],
+        "note": "模型与工具不是直接调用：分别经过 ProviderGateway 与 ToolRegistry.invoke。"
+      },
+      {
+        "id": "evidence-and-memory",
+        "label": "证据与记忆边界",
+        "focus": ["memory", "session", "agent", "citations", "state"],
+        "note": "记忆只能作为按范围授权的数据；引用必须声明并校验；运行事件脱敏持久化。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "request",
+      "type": "external",
+      "label": "用户请求",
+      "sublabel": "Web / CLI 工程任务",
+      "pos": [35, 280],
+      "size": [145, 65]
+    },
+    {
+      "id": "admission",
+      "type": "security",
+      "label": "请求准入",
+      "sublabel": "认证、归属、授权、CSRF",
+      "tag": "失败即拒绝",
+      "pos": [235, 277.5],
+      "size": [165, 70]
+    },
+    {
+      "id": "session",
+      "type": "backend",
+      "label": "AgenticSession 装配",
+      "sublabel": "主体、检索、MCP、会话",
+      "tag": "每线程受控会话",
+      "pos": [455, 277.5],
+      "size": [180, 70]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "有界 Agentic RAG 循环",
+      "sublabel": "提示、决策、工具、回流",
+      "tag": "LangGraph",
+      "pos": [690, 277.5],
+      "size": [190, 70]
+    },
+    {
+      "id": "citations",
+      "type": "backend",
+      "label": "引用校验与收口",
+      "sublabel": "声明、上下文匹配、版本状态",
+      "tag": "validate_citations",
+      "pos": [935, 277.5],
+      "size": [170, 70]
+    },
+    {
+      "id": "response",
+      "type": "frontend",
+      "label": "流式结果与状态",
+      "sublabel": "答案、引用、错误、审批状态",
+      "tag": "SSE / CLI",
+      "pos": [1160, 277.5],
+      "size": [160, 70]
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "已授权长期记忆",
+      "sublabel": "按用户、项目、线程范围召回",
+      "tag": "数据，不能成为指令",
+      "pos": [455, 490],
+      "size": [180, 70]
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "会话、审批与脱敏 trace",
+      "sublabel": "checkpoint、工具事件、治理观测",
+      "tag": "可追溯状态",
+      "pos": [690, 490],
+      "size": [190, 70]
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "ProviderGateway",
+      "sublabel": "能力、限流、预算、重试、usage 对账",
+      "tag": "唯一远程模型出口",
+      "pos": [675, 80],
+      "size": [205, 72]
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "label": "模型提供商 / 本地模型",
+      "sublabel": "仅接受网关发起的调用",
+      "tag": "受治理提供方",
+      "pos": [970, 80],
+      "size": [190, 72]
+    },
+    {
+      "id": "registry",
+      "type": "security",
+      "label": "ToolRegistry.invoke",
+      "sublabel": "护栏、能力、schema、协作式超时",
+      "tag": "唯一工具入口",
+      "pos": [925, 490],
+      "size": [190, 70]
+    },
+    {
+      "id": "engineering",
+      "type": "backend",
+      "label": "确定性工程能力",
+      "sublabel": "检索、计算、审图、材料",
+      "tag": "数值不由 LLM 计算",
+      "pos": [1160, 465],
+      "size": [180, 78]
+    },
+    {
+      "id": "mcp",
+      "type": "external",
+      "label": "MCP Server",
+      "sublabel": "白名单、schema、确认门",
+      "tag": "不可信第三方",
+      "pos": [1160, 580],
+      "size": [180, 62]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "本项目受治理运行边界",
+      "wraps": ["admission", "session", "agent", "citations", "memory", "state", "gateway", "registry", "engineering"],
+      "pad": 28
+    }
+  ],
+  "connections": [
+    { "id": "request-admission", "from": "request", "to": "admission", "label": "请求", "labelAt": [205, 260], "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight" },
+    { "id": "admission-session", "from": "admission", "to": "session", "label": "授权主体", "labelAt": [430, 260], "variant": "security" },
+    { "id": "session-agent", "from": "session", "to": "agent", "label": "线程状态 + 提示", "labelAt": [662, 260], "variant": "emphasis" },
+    { "id": "agent-citations", "from": "agent", "to": "citations", "label": "草稿 + 引用声明", "labelAt": [907, 260], "variant": "emphasis" },
+    { "id": "citations-response", "from": "citations", "to": "response", "label": "验证通过", "labelAt": [1132, 260], "variant": "emphasis" },
+    { "id": "memory-session", "from": "memory", "to": "session", "label": "授权召回结果", "labelAt": [412, 410], "fromSide": "top", "toSide": "bottom" },
+    { "id": "agent-state", "from": "agent", "to": "state", "label": "会话 / 审批 / trace", "labelAt": [690, 410], "fromSide": "bottom", "toSide": "top", "variant": "dashed" },
+    { "id": "agent-gateway", "from": "agent", "to": "gateway", "label": "模型请求", "labelAt": [660, 195], "fromSide": "top", "toSide": "bottom", "variant": "security" },
+    { "id": "gateway-provider", "from": "gateway", "to": "provider", "label": "限流、预算、重试", "labelAt": [925, 175], "variant": "security" },
+    { "id": "agent-registry", "from": "agent", "to": "registry", "label": "模型提议调用", "labelAt": [902, 415], "fromSide": "bottom", "toSide": "top", "variant": "security" },
+    { "id": "registry-engineering", "from": "registry", "to": "engineering", "label": "通过才执行", "labelAt": [1137, 445], "variant": "emphasis" },
+    { "id": "engineering-mcp", "from": "engineering", "to": "mcp", "label": "受控 MCP 调用", "labelAt": [1250, 555], "fromSide": "bottom", "toSide": "top", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "确定性与引用",
+      "items": ["数值运算由程序工具完成", "引用必须声明并校验", "图纸审查为固定确定性管线"]
+    },
+    {
+      "dot": "rose",
+      "title": "不可绕过入口",
+      "items": ["模型调用统一经 ProviderGateway", "工具调用统一经 ToolRegistry.invoke", "记忆不会改变系统规则或能力"]
+    },
+    {
+      "dot": "amber",
+      "title": "运行分支",
+      "items": ["无效引用只允许有限回流", "docgen 自检与 HITL 审批为专属分支", "授权失败阻断；部分可用性故障才降级"]
+    }
+  ]
+}
