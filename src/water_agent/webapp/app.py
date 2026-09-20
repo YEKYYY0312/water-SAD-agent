@@ -16,6 +16,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
@@ -80,6 +81,21 @@ def create_app(
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
+
+    # CORS configuration for development (allow localhost:8001 for login.html)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:8001",
+            "http://localhost:8001",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(auth_router)
     app.include_router(run_router)
     app.include_router(workspace_router)
