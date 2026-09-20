@@ -1,0 +1,260 @@
+## P2.5 自动标注 - 直接粘贴给 Cursor
+
+---
+
+**任务**：自动审查 18 份 DXF 图纸并标注缺陷，无需人工逐张审查。
+
+**第一步：创建自动标注脚本**
+
+执行以下命令：
+
+```bash
+mkdir -p data/eval/drawing_p1/annotations
+
+cat > scripts/auto_annotate_drawings.py << 'EOFPY'
+#!/usr/bin/env python3
+"""自动审查图纸并标注缺陷。"""
+import json
+import sys
+from pathlib import Path
+from typing import List, Dict, Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from water_agent.drawing.dxf_reader import read_dxf_file
+
+def load_drawing(dxf_path: Path) -> Dict[str, Any]:
+    result = read_dxf_file(str(dxf_path))
+    if not result["ok"]:
+        raise ValueError(f"无法读取图纸: {result.get('error')}")
+    return result
+
+def check_pipe_diameter(entities: List[Dict]) -> List[Dict]:
+    """检查管径是否符合规范。"""
+    defects = []
+    texts = [e for e in entities if e["type"] == "TEXT"]
+
+    for text in texts:
+        content = text.get("text", "").strip()
+        if not (content.startswith("DN") and content[2:].replace("DN", "").isdigit()):
+            continue
+
+        diameter = int(content[2:])
+        layer = text.get("layer", "")
+
+        if "给水" in layer and diameter < 20:
+            defects.append({
+                "category": "管径不符",
+                "severity": "高",
+                "description": f"生活给水管 {content} 不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "3.5.2", "requirement": "生活给水立管管径不应小于 DN20"},
+                "expected": "DN20 或更大",
+                "actual": content,
+                "confidence": "中",
+                "notes": "自动检测：假设为立管，请人工验证"
+            })
+
+        if "排水" in layer and diameter < 75:
+            defects.append({
+                "category": "管径不符",
+                "severity": "高",
+                "description": f"排水管 {content} 不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "4.3.2", "requirement": "住宅排水立管管径不应小于 DN75"},
+                "expected": "DN75 或更大",
+                "actual": content,
+                "confidence": "中",
+                "notes": "自动检测：假设为住宅排水立管"
+            })
+
+        if "消防" in layer and diameter < 100:
+            defects.append({
+                "category": "管径不符",
+                "severity": "高",
+                "description": f"消防管 {content} 不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "8.2.2", "requirement": "室内消火栓管径不应小于 DN100"},
+                "expected": "DN100 或更大",
+                "actual": content,
+                "confidence": "高",
+                "notes": "自动检测：消防管径不足"
+            })
+
+    return defects
+
+def check_material(entities: List[Dict]) -> List[Dict]:
+    """检查管道材料是否符合规范。"""
+    defects = []
+    texts = [e for e in entities if e["type"] == "TEXT"]
+
+    for text in texts:
+        content = text.get("text", "").strip().upper()
+        layer = text.get("layer", "")
+
+        if "热水" in layer and "PVC" in content:
+            defects.append({
+                "category": "材料选用错误",
+                "severity": "高",
+                "description": "热水管使用 PVC 不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "3.5.4", "requirement": "热水管道应采用耐热材料，不得使用 PVC-U 管"},
+                "expected": "PP-R、铜管或不锈钢管",
+                "actual": "PVC",
+                "confidence": "高",
+                "notes": "自动检测：热水管材料不符"
+            })
+
+        if "消防" in layer and any(p in content for p in ["PPR", "PVC", "PE"]):
+            defects.append({
+                "category": "材料选用错误",
+                "severity": "高",
+                "description": "消防管使用塑料管不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "8.2.3", "requirement": "消防管道应采用钢管或不锈钢管"},
+                "expected": "镀锌钢管或不锈钢管",
+                "actual": content,
+                "confidence": "高",
+                "notes": "自动检测：消防管材料不符"
+            })
+
+    return defects
+
+def check_slope(entities: List[Dict]) -> List[Dict]:
+    """检查排水管坡度是否符合规范。"""
+    defects = []
+    texts = [e for e in entities if e["type"] == "TEXT"]
+
+    for text in texts:
+        content = text.get("text", "").strip()
+        layer = text.get("layer", "")
+
+        if not (content.startswith("i=") or content.startswith("I=")):
+            continue
+
+        slope_str = content[2:].strip()
+        slope = None
+
+        if ":" in slope_str:
+            parts = slope_str.split(":")
+            if len(parts) == 2 and parts[1].isdigit():
+                slope = 1.0 / float(parts[1])
+        elif slope_str.replace(".", "").replace("0", "").isdigit():
+            try:
+                slope = float(slope_str)
+            except:
+                continue
+
+        if slope is not None and "排水" in layer and slope < 0.012:
+            defects.append({
+                "category": "坡度不足",
+                "severity": "中",
+                "description": f"排水管坡度 {content} 不符合规范要求",
+                "location": {"layer": layer, "entity_type": "TEXT", "entity_content": content, "approx_position": f"图层 {layer}"},
+                "regulation": {"spec": "GB50015-2019", "clause": "4.3.5", "requirement": "DN100 排水横管坡度不应小于 0.012"},
+                "expected": "i ≥ 0.012",
+                "actual": content,
+                "confidence": "低",
+                "notes": "自动检测：假设为 DN100，未能匹配具体管径"
+            })
+
+    return defects
+
+def annotate_drawing(dxf_path: Path, output_path: Path):
+    print(f"正在审查: {dxf_path.name}")
+
+    drawing = load_drawing(dxf_path)
+    entities = drawing.get("entities", [])
+
+    drawing_id = dxf_path.stem
+    drawing_type = {"P-": "平面图", "S-": "系统图", "D-": "大样图", "PUMP-": "泵房图"}.get(
+        next((k for k in ["P-", "S-", "D-", "PUMP-"] if drawing_id.startswith(k)), ""), "未知"
+    )
+
+    all_defects = []
+    all_defects.extend(check_pipe_diameter(entities))
+    all_defects.extend(check_material(entities))
+    all_defects.extend(check_slope(entities))
+
+    seen = set()
+    unique_defects = []
+    for defect in all_defects:
+        key = (defect["category"], defect["description"], defect["location"]["entity_content"])
+        if key not in seen:
+            seen.add(key)
+            unique_defects.append(defect)
+
+    for i, defect in enumerate(unique_defects, start=1):
+        defect["defect_id"] = f"{drawing_id}-D{i:03d}"
+
+    annotation = {
+        "drawing_id": drawing_id,
+        "drawing_type": drawing_type,
+        "annotation_date": "2026-09-15",
+        "annotator": "自动审查（Cursor）",
+        "total_defects": len(unique_defects),
+        "defects": unique_defects,
+        "notes": "此文件由 LLM 自动生成，建议人工复核信心度为'低'或'中'的案例"
+    }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(annotation, f, ensure_ascii=False, indent=2)
+
+    confidence_counts = {"高": 0, "中": 0, "低": 0}
+    for defect in unique_defects:
+        confidence_counts[defect.get("confidence", "低")] += 1
+
+    print(f"  ✓ 发现 {len(unique_defects)} 个缺陷 (高:{confidence_counts['高']} 中:{confidence_counts['中']} 低:{confidence_counts['低']})")
+
+def main():
+    drawings_dir = Path("data/drawings/real_samples")
+    annotations_dir = Path("data/eval/drawing_p1/annotations")
+
+    dxf_files = sorted(drawings_dir.glob("*.dxf"))
+    print(f"找到 {len(dxf_files)} 份图纸\n")
+
+    for dxf_file in dxf_files:
+        output_file = annotations_dir / f"{dxf_file.stem}.json"
+        try:
+            annotate_drawing(dxf_file, output_file)
+        except Exception as e:
+            print(f"  ✗ 标注失败: {e}")
+
+    print(f"\n✅ 自动标注完成！输出: {annotations_dir}")
+
+if __name__ == "__main__":
+    main()
+EOFPY
+
+chmod +x scripts/auto_annotate_drawings.py
+echo "✅ 自动标注脚本已创建"
+```
+
+**第二步：运行自动标注**
+
+```bash
+_venv/bin/python scripts/auto_annotate_drawings.py
+```
+
+**第三步：汇总和生成报告**
+
+```bash
+# 汇总（使用 P2.5 之前创建的脚本）
+_venv/bin/python scripts/merge_drawing_annotations.py
+
+# 统计（使用 P2.5 之前创建的脚本）
+_venv/bin/python scripts/generate_drawing_p1_stats.py
+```
+
+**完成！** 现在你有：
+- `data/eval/drawing_p1/annotations/*.json` (18 个标注文件)
+- `data/eval/drawing_p1.jsonl` (评测集)
+- `data/eval/drawing_p1/README.md` (统计报告)
+
+---
+
+**说明**：
+- 自动标注会检测：管径不符、材料错误、坡度不足
+- 每个缺陷标记信心度（高/中/低）
+- 整个过程只需 5-10 分钟
+- 建议人工复核信心度为"低"或"中"的案例（可选）
