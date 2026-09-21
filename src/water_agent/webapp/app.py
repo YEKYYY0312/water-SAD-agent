@@ -43,6 +43,7 @@ from water_agent.webapp.run_manager import (
     RunManager,
 )
 from water_agent.webapp.run_routes import router as run_router
+from water_agent.webapp.settings_routes import router as settings_router
 from water_agent.webapp.workspace_routes import router as workspace_router
 
 API_ENVELOPE_VERSION = "v1"
@@ -108,6 +109,7 @@ def create_app(
     app.include_router(run_router)
     app.include_router(workspace_router)
     app.include_router(memory_router)
+    app.include_router(settings_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
