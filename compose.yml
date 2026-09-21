@@ -71,8 +71,15 @@ services:
       LOCAL_MODEL_BASE_URL: ${LOCAL_MODEL_BASE_URL:-http://local-model:11434/v1}
       LOCAL_MODEL_NAME: ${LOCAL_MODEL_NAME:-qwen3:8b}
       LOCAL_MODEL_COMPATIBILITY_REPORT: ${LOCAL_MODEL_COMPATIBILITY_REPORT:-}
+      # LLM 凭据的第二优先级来源（第一是同名环境变量，第三是 app_credentials
+      # 卷内的文件，由 Web 设置面板写入）。空文件等同于未配置，因此这两个
+      # secret 可以只是占位符。解析顺序见 water_agent/config/credentials.py。
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+      DASHSCOPE_API_KEY_FILE: /run/secrets/dashscope_api_key
     secrets:
       - postgres_password
+      - deepseek_api_key
+      - dashscope_api_key
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -85,6 +92,10 @@ services:
     volumes:
       - app_uploads:/var/lib/water-agent/uploads
       - app_exports:/var/lib/water-agent/exports
+      # Web 设置面板写入的密钥落在这里。刻意不放进 /var/lib/water-agent：
+      # scripts/backup.sh 打包的是那个目录整体（tar -C /var/lib/water-agent .），
+      # 挂进去会把密钥明文写进 user_files.tar。
+      - app_credentials:/var/lib/water-agent-credentials
     healthcheck:
       test:
         [
@@ -168,11 +179,19 @@ secrets:
     file: ./secrets/postgres_password
   admin_password:
     file: ./secrets/admin_password
+  # 这两个是可选凭据：Compose 的 `file:` 要求文件存在，所以首次部署需
+  # `touch secrets/deepseek_api_key secrets/dashscope_api_key`，空文件由
+  # 加载器视为未配置。详见 secrets/README.md。
+  deepseek_api_key:
+    file: ./secrets/deepseek_api_key
+  dashscope_api_key:
+    file: ./secrets/dashscope_api_key
 
 volumes:
   postgres_data:
   app_uploads:
   app_exports:
+  app_credentials:
   local_model_data:
   caddy_data:
   caddy_config:

@@ -27,15 +27,48 @@ change it; this file is no longer used once the password has been changed.
 printf 'your-strong-admin-password' > secrets/admin_password
 ```
 
-## Optional files (later P5 steps)
+### `deepseek_api_key` and `dashscope_api_key`
+
+LLM credentials.  **Both files must exist before `docker compose up`** — Compose
+resolves every `file:` entry when it parses `compose.yml`, so a missing file
+fails `docker compose config`.  An *empty* file is fine: the loader treats it as
+"not configured", and the app then refuses runs with `424
+WEB_MODEL_NOT_CONFIGURED` instead of pretending to answer.
+
+```bash
+touch secrets/deepseek_api_key secrets/dashscope_api_key   # placeholders are enough
+printf 'sk-your-deepseek-key' > secrets/deepseek_api_key   # or fill them in
+printf 'sk-your-dashscope-key' > secrets/dashscope_api_key
+```
+
+`deepseek_api_key` backs chat generation; `dashscope_api_key` backs embedding and
+reranking.
+
+## Where a credential may come from
+
+`water_agent/config/credentials.py` resolves each key from three places, highest
+priority first:
+
+| Priority | Source | Notes |
+|---|---|---|
+| 1 | The environment variable itself (`DEEPSEEK_API_KEY`) | What the CLI and the harness use |
+| 2 | `{ENV}_FILE` → the files above | Mounted read-only at `/run/secrets/`, wired in `compose.yml` |
+| 3 | The `app_credentials` volume | Written by the Web settings panel, read-write |
+
+Priority 3 lives at `/var/lib/water-agent-credentials`, deliberately *outside*
+`/var/lib/water-agent`: `scripts/backup.sh` archives that directory wholesale, so
+a credential stored inside it would land in `user_files.tar` in plain text.
+Set `WATER_AGENT_CREDENTIALS_DIR` to relocate it (tests and bare `uvicorn` runs do).
+
+A key written through the settings panel takes effect on the next run without a
+restart, and survives restarts because the app backfills the volume into its
+environment at startup.
+
+## Optional files (not yet wired)
 
 | File | Used by |
 |---|---|
-| `deepseek_api_key` | Step 42+ real LLM calls — set `DEEPSEEK_API_KEY_FILE` |
-| `dashscope_api_key` | Step 42+ embedding/rerank — set `DASHSCOPE_API_KEY_FILE` |
 | `session_signing_key` | Step 38+ session integrity — 32+ random bytes |
-
-These are not required for Step 37 local development.
 
 ## Permissions
 
