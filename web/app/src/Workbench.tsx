@@ -3,6 +3,7 @@ import {
   ProjectSidebar,
 } from "./workspaceComponents";
 import { MemoryWorkspace } from "./MemoryWorkspace";
+import { SettingsPanel } from "./SettingsPanel";
 import { useWorkspaceController } from "./useWorkspaceController";
 import { Inspector } from "./workspaceInspector";
 
@@ -11,6 +12,15 @@ export function Workbench() {
   const modelState = workspace.capabilities
     ? (workspace.capabilities.real_llm ? "real model" : "mock / 未配置")
     : "loading";
+  // 两个面板互斥：主区只有一处，同时打开会让「返回会话」按钮的含义变得含糊。
+  const openMemory = () => {
+    workspace.setSettingsOpen(false);
+    workspace.setMemoryOpen((current) => !current);
+  };
+  const openSettings = () => {
+    workspace.setMemoryOpen(false);
+    workspace.setSettingsOpen((current) => !current);
+  };
   const serviceState = workspace.pageError
     ? "attention"
     : workspace.capabilities
@@ -31,9 +41,10 @@ export function Workbench() {
           <span>project / {projectName}</span>
           <span>model / {modelState}</span>
           <span>● {serviceState}</span>
-          <button type="button" className="workspace-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={() => workspace.setMemoryOpen((current) => !current)}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
+          <button type="button" className="workspace-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={openMemory}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
+          <button type="button" className="icon-button settings-toggle" aria-pressed={workspace.settingsOpen} aria-label={workspace.settingsOpen ? "返回会话" : "设置"} title="设置" onClick={openSettings}>⚙</button>
         </div>
-        <button type="button" className="workspace-memory-toggle mobile-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={() => workspace.setMemoryOpen((current) => !current)}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
+        <button type="button" className="workspace-memory-toggle mobile-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={openMemory}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
       </header>
       {workspace.pageError && <div className="global-error" role="alert">{workspace.pageError}</div>}
       <div className="workspace">
@@ -49,7 +60,14 @@ export function Workbench() {
           onSelectSession={workspace.selectSession}
           onCreateSession={workspace.createSession}
         />
-        {workspace.memoryOpen ? (
+        {workspace.settingsOpen ? (
+          <section className="conversation settings-conversation" aria-labelledby="settings-heading">
+            <SettingsPanel
+              capabilities={workspace.capabilities}
+              onCapabilitiesChanged={workspace.refreshCapabilities}
+            />
+          </section>
+        ) : workspace.memoryOpen ? (
           <section className="conversation memory-conversation" aria-labelledby="memory-heading">
             <MemoryWorkspace />
           </section>
