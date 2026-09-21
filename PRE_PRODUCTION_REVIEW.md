@@ -56,32 +56,29 @@
 
 ### P0 - 阻塞上线
 
-#### 1. **API 密钥泄漏风险** 🔴
-**问题**：`.env.local` 和 `.env` 包含真实 API 密钥且可能已入库
+#### 1. **API 密钥泄漏** 🔴（2026-09-21 复核：结论与原判相反）
 ```bash
-# 当前状态
+# 形态示意（占位符，非真实值）
 .env.local:1:export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-.env.local:2:export DASHSCOPE_API_KEY="sk-your-dashscope-key.EXRHIIM.R2tf..."
+.env.local:2:export DASHSCOPE_API_KEY="sk-your-dashscope-key"
 .env:3:DEEPSEEK_API_KEY=sk-your-deepseek-key
 ```
 
-**风险**：
-- 密钥可能已提交到 git 仓库
-- 任何克隆仓库的人都能读取
-- 密钥可能在公开仓库中泄漏
+**实测结论**：`.env` 与 `.env.local` 被 `.gitignore` 覆盖，`git log --all -- .env .env.local`
+为空，**从未入库**。原判「可能已入库」不成立。
+
+真正的泄漏点是**本文件自己**：为举证而把上面三行的真实密钥原样粘贴进来，
+而 `PRE_PRODUCTION_REVIEW.md` 不在 `.gitignore` 中，已随 commit `79e76a0`
+入库。一份排查密钥泄漏的报告成了唯一的入库泄漏源。明文已于 2026-09-21 替换为占位符。
+
+**风险**：旧密钥仍存在于 `79e76a0` 及其后的历史快照中，任何拿到仓库副本的人可复原。
 
 **修复**：
-1. **立即轮换密钥**（在 DeepSeek / 百炼控制台生成新密钥）
-2. 确认 `.env` 和 `.env.local` 在 `.gitignore` 中
-3. 检查 git 历史：`git log -p -- .env .env.local`
-4. 如已入库，执行 git 历史清理：
-   ```bash
-   git filter-branch --force --index-filter \
-     'git rm --cached --ignore-unmatch .env .env.local' \
-     --prune-empty --tag-name-filter cat -- --all
-   ```
-5. 创建 `.env.example` 模板（只含占位符）
-6. 文档中说明密钥配置方式
+1. **去 DeepSeek / 阿里云百炼控制台吊销这两个旧密钥并重新签发** —— 这是唯一的根治手段。
+   改写 git 历史删不掉 reflog、本地备份与编辑器缓存里的副本，轮换才能让泄漏值失效。
+2. 新密钥不要再写进任何入库文件：通过设置面板填入，或写 `secrets/deepseek_api_key`
+   （`secrets/*` 已被 `.gitignore` 排除），详见 `secrets/README.md`。
+3. 举证类文档一律先脱敏再粘贴 —— `grep` 输出常带凭据原文。
 
 #### 2. **部署文档缺失** 🟡
 **问题**：无 `DEPLOY.md` / `INSTALL.md` / 运维手册
