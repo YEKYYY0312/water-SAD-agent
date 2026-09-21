@@ -25,10 +25,18 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+# The credential directory must exist in the image with the right owner before
+# Compose mounts a volume over it: Docker copies ownership and mode from the
+# image only when it first populates an empty volume, so a path that is absent
+# here becomes a root-owned mount that the wateragent user cannot write.
+# It is a sibling of /var/lib/water-agent, not a child — scripts/backup.sh
+# archives that directory wholesale and must never pick up credentials.
 RUN groupadd --gid 10001 wateragent \
     && useradd --uid 10001 --gid wateragent --create-home --shell /usr/sbin/nologin wateragent \
     && mkdir -p /var/lib/water-agent/uploads /var/lib/water-agent/exports \
-    && chown -R wateragent:wateragent /var/lib/water-agent
+    && mkdir -p /var/lib/water-agent-credentials \
+    && chown -R wateragent:wateragent /var/lib/water-agent /var/lib/water-agent-credentials \
+    && chmod 700 /var/lib/water-agent-credentials
 COPY --from=python-build /app/.venv /app/.venv
 COPY --from=python-build /app/alembic.ini /app/alembic.ini
 COPY --from=python-build /app/alembic /app/alembic
