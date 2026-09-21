@@ -46,9 +46,12 @@ export type WorkspaceController = {
   streaming: boolean;
   feedbackState: string | null;
   memoryOpen: boolean;
+  settingsOpen: boolean;
   setNewProjectName: (value: string) => void;
   setDraft: (value: string) => void;
   setMemoryOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  setSettingsOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  refreshCapabilities: () => void;
   createProject: (event: FormEvent<HTMLFormElement>) => void;
   selectProject: (projectId: string | null) => void;
   selectSession: (threadId: string) => void;
@@ -73,6 +76,7 @@ export function useWorkspaceController(): WorkspaceController {
   const [streaming, setStreaming] = useState(false);
   const [feedbackState, setFeedbackState] = useState<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
@@ -259,6 +263,14 @@ export function useWorkspaceController(): WorkspaceController {
       .catch((error) => setFeedbackState(apiMessage(error)));
   };
 
+  // 设置面板写入密钥后调用：topbar 的 model 指示与 Inspector 的能力状态都读
+  // capabilities，不刷新就会继续显示「mock / 未配置」。
+  const refreshCapabilities = () => {
+    void api.getCapabilities()
+      .then(setCapabilities)
+      .catch((error) => setPageError(apiMessage(error)));
+  };
+
   return {
     capabilities,
     projects,
@@ -274,9 +286,12 @@ export function useWorkspaceController(): WorkspaceController {
     streaming,
     feedbackState,
     memoryOpen,
+    settingsOpen,
     setNewProjectName,
     setDraft,
     setMemoryOpen,
+    setSettingsOpen,
+    refreshCapabilities,
     createProject,
     selectProject,
     selectSession,

@@ -3,13 +3,13 @@
 ## 🌐 访问地址
 
 **本地开发**: 
-- 主界面：http://127.0.0.1:8000/
-- 登录页面：http://127.0.0.1:8001/login.html（临时服务器）
-- CSRF 测试：http://127.0.0.1:8001/test_csrf.html（临时服务器）
+- 主界面（工作台 / 长期记忆 / 设置）：http://127.0.0.1:8000/
+- 登录页：http://127.0.0.1:8001/login.html，需先 `bash serve_login.sh`
 
-> 💡 **临时访问方式**：由于 login.html 和 test_csrf.html 尚未打包进 Docker 镜像，  
-> 需要在项目根目录运行 `python3 -m http.server 8001` 来访问这些页面。  
-> 下次重新构建镜像时，这些文件会被打包进去，可通过 8000 端口访问。
+> 💡 登录页尚未并入 React 应用，仍是独立的 `login.html`，由 `serve_login.sh`
+> 起一个只暴露该文件的临时服务器提供（**不要**直接 `python3 -m http.server`
+> 于项目根目录——那会把 `secrets/`、`.env`、`.git/` 一并暴露在 HTTP 上）。
+> 下一轮并入后即同源访问，8001 端口与该脚本一并删除。
 
 ## 🔐 登录凭据
 
@@ -53,21 +53,39 @@ cat secrets/admin_password | pbcopy
    - 跨会话召回
    - 记忆管理（激活/停用/遗忘）
 
-### API 密钥配置（可选）
+### API 密钥配置
 
-如需使用真实 LLM 模型（非 mock），需要配置以下 API 密钥：
+不配置真实密钥时，提问会被诚实拒绝（424 `WEB_MODEL_NOT_CONFIGURED`），
+而不是用假答案糊过去。两种配置方式：
+
+#### 方式一：设置面板（推荐，立即生效）
+
+登录后点右上角 **⚙** → 在「对话生成（DeepSeek）」或「向量检索与重排（百炼）」
+里填入密钥 → 保存。**无需重启**，下一次提问即使用新密钥；重启后依然生效。
+
+密钥只写不读：面板与所有接口都只返回「是否已配置、来自哪一层、何时更新」，
+不会回传密钥内容。要确认填对了，回到会话发一条消息。
+
+需要管理员账号才能写入；普通成员可以看到配置状态，以免撞上 424 却不知缘由。
+
+#### 方式二：Compose secret 文件（需重建容器）
 
 ```bash
-# DeepSeek API（生成模型）
 printf 'sk-your-deepseek-key' > secrets/deepseek_api_key
-
-# 百炼 API（嵌入与重排序）
 printf 'sk-your-dashscope-key' > secrets/dashscope_api_key
 
-# 重启服务
-docker compose down
-docker compose up -d
+# 必须 up -d 重建容器，restart 不会重新读取挂载内容
+docker compose up -d app
 ```
+
+两个文件**必须存在**（可以是空文件）才能 `docker compose up`，因为 Compose
+解析 `compose.yml` 时就会校验每个 `file:`。空文件等同于未配置。
+
+解析优先级：同名环境变量 > `secrets/` 文件 > 设置面板写入。完整说明见
+`secrets/README.md`。
+
+> 配置好真实模型后再跑 `docker compose run --rm smoke`，其最后一项会真的
+> 发起一次模型调用（产生少量费用），而不再走 424 分支。
 
 ## 🚀 快速开始
 
@@ -276,11 +294,31 @@ docker compose restart app
 
 **症状**: 返回 `WEB_MODEL_NOT_CONFIGURED`
 
-**原因**: 未配置 DeepSeek/百炼 API 密钥
+**原因**: 未配置 DeepSeek/百炼 API 密钥。这是设计上的诚实拒绝——不会拿假答案糊过去。
 
 **解决**:
-1. 使用 CLI 的 `--mock-generator` 模式（无需 API 密钥）
-2. 或者按上文「API 密钥配置」章节配置真实密钥
+1. 登录后点右上角 **⚙** 填入密钥，保存即生效（无需重启）
+2. 或使用 CLI 的 `--mock-generator` 模式（无需 API 密钥）
+3. 两种配置方式详见上文「API 密钥配置」
+
+### 问题 5: 设置面板保存报 503 `WEB_CREDENTIAL_STORE_UNAVAILABLE`
+
+**症状**: 在设置面板保存密钥时返回 503
+
+**原因**: 凭据卷没挂上。容器是 `read_only: true`，密钥要写进
+`app_credentials` 卷（挂载于 `/var/lib/water-agent-credentials`）；裸跑
+`uvicorn` 或旧镜像启动的容器没有这个卷。
+
+**解决**:
+```bash
+docker compose build app && docker compose up -d app
+docker compose exec app ls -ld /var/lib/water-agent-credentials   # 期望 wateragent 所有
+```
+若该目录属于 `root`，说明卷是在镜像预创建该路径之前建的——Docker 只在首次
+填充空卷时复制所属关系。停掉容器后 `docker volume rm water-agent_app_credentials`
+再启动即可（卷里只有密钥，删掉等于重填一次）。
+
+临时替代：用环境变量或 `secrets/` 文件配置，两者都不需要可写卷。
 
 ## 📚 相关文档
 
@@ -305,6 +343,13 @@ docker compose down
 ```bash
 docker compose restart app
 ```
+
+> ⚠️ `restart` 只是重启容器里的**同一份**镜像与配置。改了 `src/` 下的代码、
+> `compose.yml`、或 `secrets/` 里的文件，都必须重建 / 重建容器才会生效：
+> ```bash
+> docker compose build app && docker compose up -d app
+> ```
+> 源码是在构建时 `COPY` 进镜像的（见 `Dockerfile`），不是挂载进去的。
 
 ### 查看服务状态
 ```bash

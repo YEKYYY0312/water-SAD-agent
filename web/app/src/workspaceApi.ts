@@ -102,7 +102,8 @@ export class WorkspaceApiError extends Error {
   }
 }
 
-function csrfToken(): string | undefined {
+/** 读取非 HttpOnly 的 wa_csrf cookie。导出以供 settingsApi 复用，避免第三份实现。 */
+export function csrfToken(): string | undefined {
   if (typeof document === "undefined") return undefined;
   const pair = document.cookie
     .split(";")
