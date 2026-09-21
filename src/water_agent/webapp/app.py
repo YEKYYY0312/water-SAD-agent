@@ -236,7 +236,7 @@ def create_app(
         )
 
     @app.get("/api/system/capabilities")
-    async def capabilities() -> dict[str, Any]:
+    async def capabilities() -> JSONResponse:
         drawing = resolve_drawing_root()
         drawing_status = {
             "OK": "available",
@@ -268,7 +268,7 @@ def create_app(
             mcp_status = "blocked"
             mcp_detail = "真实 CAD/BIM 与企业库 MCP 尚未验证；危险确认门仍按配置 fail closed"
             mcp_server_count = len(mcp_config.servers)
-        return _success(
+        payload = _success(
             {
                 "real_llm": _real_llm_configured(),
                 "authentication": "session_cookie",
@@ -294,6 +294,12 @@ def create_app(
                 },
             }
         )
+        # This payload is live runtime state, not a document.  Without an
+        # explicit no-store the browser may serve a heuristically cached copy,
+        # and the workbench then shows "mock / 未配置" after a key has already
+        # been configured — observed in a browser while verifying the settings
+        # panel.  Stale capability data misleads about what the agent can do.
+        return JSONResponse(content=payload, headers={"Cache-Control": "no-store"})
 
     if index_path.is_file():
         app.mount("/assets", StaticFiles(directory=frontend_dir / "assets"), name="assets")
