@@ -106,3 +106,14 @@ def test_capabilities_do_not_treat_an_empty_secret_file_as_a_configured_model(
 
     assert response.status_code == 200
     assert response.json()["data"]["real_llm"] is False
+
+
+def test_capabilities_are_never_cached(tmp_path: Path) -> None:
+    """能力状态是实时配置，缓存会让界面在密钥配好后仍显示「mock / 未配置」。
+
+    浏览器对没有 Cache-Control 的 200 响应会做启发式缓存——这个现象是在浏览器
+    里验证设置面板时实测到的，curl 不会复现。
+    """
+    response = _client(tmp_path).get("/api/system/capabilities")
+
+    assert response.headers["cache-control"] == "no-store"
