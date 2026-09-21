@@ -18,7 +18,7 @@ function TraceList({ trace }: { trace: TraceSnapshot | null }) {
   return <section className="inspector-section trace-section" aria-labelledby="trace-heading"><p className="kicker">TRACE</p><h3 id="trace-heading">脱敏运行轨迹</h3>{!trace ? <p className="muted-copy">运行结束后加载 trace。</p> : <div className="trace-list">{trace.events.map((event, index) => <div className="trace-row" key={event.event_id || index}><div><code>{event.event_type || "event"}</code><small>{event.node_name || ""}</small></div><span>{event.status || ""}</span>{event.error && <p>{event.error}</p>}</div>)}</div>}</section>;
 }
 
-function CapabilityStatus({ label, status, message }: { label: string; status: string; message: string }) {
+export function CapabilityStatus({ label, status, message }: { label: string; status: string; message: string }) {
   return <div className="capability-row"><StatusMark status={status} /><div><strong>{label}</strong><p>{message}</p></div><code>{status}</code></div>;
 }
 
