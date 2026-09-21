@@ -152,7 +152,7 @@
 
             <div class="form-group">
                 <label for="password">密码</label>
-                <input type="password" id="password" name="password" value="ZUMegbehOEWFij8uIIjKNT5c-ig6o6VO" required>
+                <input type="password" id="password" name="password" placeholder="见 secrets/admin_password" required>
             </div>
 
             <button type="submit" id="loginBtn">登录</button>
@@ -160,9 +160,9 @@
 
         <div class="hint">
             <strong>提示：</strong><br>
-            默认管理员账号已自动填充<br>
-            用户名: admin<br>
-            密码: ZUMegbehOEWFij8uIIjKNT5c-ig6o6VO
+            管理员密码存放在 <code>secrets/admin_password</code>，不在本页内。<br>
+            复制到剪贴板：<br>
+            <code>cat secrets/admin_password | pbcopy</code>
         </div>
     </div>
 
