@@ -68,19 +68,15 @@ DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
 def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Inspect only whether the configured real-model key exists."""
 
+    from water_agent.config.credentials import resolve_secret
     from water_agent.generation.local_model import local_model_configured, local_model_ready
 
     if local_model_configured(environment):
         return local_model_ready(environment)
-    if environment("DEEPSEEK_API_KEY"):
-        return True
-    secret_file = environment("DEEPSEEK_API_KEY_FILE")
-    if not secret_file:
-        return False
-    try:
-        return Path(secret_file).stat().st_size > 0
-    except OSError:
-        return False
+    # 与 build_chat_model 共用同一解析顺序（env → _FILE → 凭据卷）。两处各自
+    # 判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、
+    # 真跑 503 的矛盾结果。
+    return resolve_secret("DEEPSEEK_API_KEY", getenv=environment) is not None
 
 
 def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:

@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from water_agent.config.credentials import load_credentials_into_environ
 from water_agent.drawing.drawing_root import resolve_drawing_root
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.providers import MemoryEmbeddingStore, MemoryProvider
@@ -80,6 +81,13 @@ def create_app(
     session_dir: str | Path = "data/sessions",
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
+    # Backfill LLM credentials from the Compose secret files and the writable
+    # credential volume into this process' environment.  This is what makes a
+    # key configured before a restart keep working, and it is what lets
+    # embedding.py / retrieval/rerank.py keep reading os.environ unchanged.
+    # Values already present in the environment win and are never overwritten.
+    load_credentials_into_environ()
+
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
 
     # CORS configuration for development (allow localhost:8001 for login.html)
