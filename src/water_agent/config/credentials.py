@@ -43,6 +43,14 @@ SOURCE_SECRET_FILE = "secret_file"
 SOURCE_VOLUME = "volume"
 SOURCE_NONE = "none"
 
+# 环境变量里由本模块注入（而非用户显式设置）的变量名。
+#
+# 写入与启动回填都会写 os.environ，而 os.environ 是解析优先级最高的一层；若不
+# 把这件事记下来，:func:`credential_status` 会把每一种来源都报成 "env"，用户便
+# 再也看不出密钥究竟配在 Compose secret 还是设置面板里。这是进程内状态，与
+# 单 worker 部署下的配置生命周期一致。
+_INJECTED: set[str] = set()
+
 
 class UnknownCredentialError(KeyError):
     """请求的凭据名不在 :data:`CREDENTIALS` 白名单内。"""
@@ -141,9 +149,13 @@ def credential_status(
     *,
     getenv: Callable[[str], str | None] = os.getenv,
 ) -> CredentialStatus:
-    """报告凭据来自哪一层，供设置面板展示。绝不返回密钥值。"""
+    """报告凭据来自哪一层，供设置面板展示。绝不返回密钥值。
+
+    只有**用户显式设置**的环境变量才报 ``env``：本模块注入的那些会被跳过，
+    继续往下追到真正的文件来源，否则回填之后一切都会显示成 ``env``。
+    """
     require_known(env_name)
-    if (getenv(env_name) or "").strip():
+    if (getenv(env_name) or "").strip() and env_name not in _INJECTED:
         return CredentialStatus(env_name, True, SOURCE_ENV, None)
 
     secret_file = getenv(f"{env_name}_FILE")
@@ -194,6 +206,7 @@ def write_credential(env_name: str, value: str) -> None:
         temporary.unlink(missing_ok=True)
         raise CredentialStoreUnavailableError(str(credentials_dir())) from error
     os.environ[env_name] = cleaned
+    _INJECTED.add(env_name)
 
 
 def delete_credential(env_name: str) -> None:
@@ -208,7 +221,11 @@ def delete_credential(env_name: str) -> None:
         target.unlink(missing_ok=True)
     except OSError as error:
         raise CredentialStoreUnavailableError(str(credentials_dir())) from error
-    os.environ.pop(env_name, None)
+    # 只清掉本模块注入的值。用户显式设置的环境变量不属于这里管理的范围，
+    # 删掉它会让「面板删除」产生超出预期的副作用。
+    if env_name in _INJECTED:
+        os.environ.pop(env_name, None)
+        _INJECTED.discard(env_name)
 
 
 def load_credentials_into_environ(
@@ -227,5 +244,11 @@ def load_credentials_into_environ(
         value = resolve_secret(env_name, getenv=target_environ.get)
         if value:
             target_environ[env_name] = value
+            _INJECTED.add(env_name)
             filled.append(env_name)
     return filled
+
+
+def forget_injected_credentials() -> None:
+    """清空注入记录。仅供测试隔离使用，生产代码不应调用。"""
+    _INJECTED.clear()

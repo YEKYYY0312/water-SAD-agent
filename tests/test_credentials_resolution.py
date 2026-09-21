@@ -29,6 +29,7 @@ from water_agent.config.credentials import (
     credential_status,
     credentials_dir,
     delete_credential,
+    forget_injected_credentials,
     load_credentials_into_environ,
     resolve_secret,
     write_credential,
@@ -51,11 +52,13 @@ def isolated_credentials(tmp_path, monkeypatch) -> None:
         monkeypatch.delenv(f"{env_name}_FILE", raising=False)
     # 本地模型会短路 real_llm_configured，显式关掉以便测远端密钥分支。
     monkeypatch.delenv("LOCAL_MODEL_ENABLED", raising=False)
+    forget_injected_credentials()
     yield
     # write_credential 用 os.environ[...] 直接赋值，monkeypatch 追踪不到，
-    # 必须手工清掉，否则密钥会污染后续测试。
+    # 必须手工清掉，否则密钥会污染后续测试。注入记录是模块级的，同理。
     for env_name in CREDENTIALS:
         os.environ.pop(env_name, None)
+    forget_injected_credentials()
 
 
 def _write_secret_file(tmp_path, name: str, value: str) -> str:
@@ -202,6 +205,47 @@ def test_write_credential_persists_and_injects_environment() -> None:
     assert os.environ[DEEPSEEK] == "sk-panel-written", (
         "必须注入进程环境：embedding.py 与 rerank.py 仍直接读 os.environ"
     )
+
+
+def test_panel_written_credential_reports_the_volume_not_the_environment() -> None:
+    """回归：注入 env 曾让来源一律显示为 env，用户便看不出密钥配在哪。"""
+    write_credential(DEEPSEEK, "sk-panel-written")
+
+    status = credential_status(DEEPSEEK)
+
+    assert status.source == SOURCE_VOLUME
+    assert status.updated_at is not None
+
+
+def test_backfilled_secret_file_still_reports_the_file(tmp_path, monkeypatch) -> None:
+    """回归：启动回填写了 env，来源仍须追到真正的 Compose secret。"""
+    monkeypatch.setenv(DEEPSEEK + "_FILE", _write_secret_file(tmp_path, "sf", "sk-secret-file"))
+
+    load_credentials_into_environ()
+
+    assert os.environ[DEEPSEEK] == "sk-secret-file"
+    assert credential_status(DEEPSEEK).source == SOURCE_SECRET_FILE
+
+
+def test_explicit_environment_variable_is_not_mistaken_for_injection(monkeypatch) -> None:
+    """用户显式设的 env 必须仍报 env：回填不会覆盖它，也不该被归为注入。"""
+    monkeypatch.setenv(DEEPSEEK, "sk-set-by-operator")
+    _seed_volume_file(DEEPSEEK, "sk-in-volume")
+
+    load_credentials_into_environ()
+
+    assert credential_status(DEEPSEEK).source == SOURCE_ENV
+    assert resolve_secret(DEEPSEEK) == "sk-set-by-operator"
+
+
+def test_delete_leaves_an_operator_set_environment_variable_alone(monkeypatch) -> None:
+    """面板删除不得清掉运维显式设置的环境变量——那超出面板的管辖范围。"""
+    monkeypatch.setenv(DEEPSEEK, "sk-set-by-operator")
+
+    delete_credential(DEEPSEEK)
+
+    assert os.environ[DEEPSEEK] == "sk-set-by-operator"
+    assert credential_status(DEEPSEEK).source == SOURCE_ENV
 
 
 def test_written_credential_file_is_owner_only() -> None:
