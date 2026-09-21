@@ -10,13 +10,13 @@ P2.5（Step 12）：返回的模型被 ``GovernedChatModel`` 包裹，每次生�
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from water_agent.config.credentials import resolve_secret
 from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.runtime.governance.binding import default_gateway
 from water_agent.runtime.governance.contracts import (
@@ -54,9 +54,12 @@ def build_chat_model(
     ``ChatOpenAI`` 自带重试必须关掉（``max_retries=0``），否则会与 gateway
     的重试**叠乘**，实际请求数变成两者之积。
     """
-    resolved_api_key = (api_key or os.environ.get(api_key_env, "")).strip()
+    resolved_api_key = (api_key or resolve_secret(api_key_env) or "").strip()
     if not resolved_api_key:
-        raise ValueError(f"{api_key_env} must not be empty")
+        raise ValueError(
+            f"{api_key_env} must not be empty"
+            f"（可设同名环境变量、{api_key_env}_FILE，或在 Web 设置面板填写）"
+        )
     resolved_gateway = gateway if gateway is not None else default_gateway()
     inner = ChatOpenAI(
         model=model,
