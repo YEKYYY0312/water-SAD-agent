@@ -46,9 +46,12 @@ class CredentialRequest(BaseModel):
 
 
 def _ok(data: object) -> JSONResponse:
+    # no-store：凭据状态是实时配置，被浏览器缓存后面板会显示陈旧的「未配置」，
+    # 用户会以为保存没生效而重复填写。
     return JSONResponse(
         status_code=200,
         content={"version": _API_VERSION, "ok": True, "data": data},
+        headers={"Cache-Control": "no-store"},
     )
 
 

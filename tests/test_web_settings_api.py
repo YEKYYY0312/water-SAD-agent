@@ -311,6 +311,14 @@ def test_no_response_body_ever_carries_the_secret(database: Database, tmp_path: 
         assert SECRET_VALUE[-4:] not in response.text, f"{response.url} 泄漏了密钥末四位"
 
 
+def test_credential_status_is_never_cached(database: Database, tmp_path: Path) -> None:
+    """缓存后的「未配置」会让用户以为保存没生效而重复填写。"""
+    client = _client(database, tmp_path, UserRole.ADMIN)
+
+    assert client.get("/api/settings/credentials").headers["cache-control"] == "no-store"
+    assert _put(client, DEEPSEEK, SECRET_VALUE).headers["cache-control"] == "no-store"
+
+
 def test_listing_exposes_only_the_four_status_fields(
     database: Database, tmp_path: Path
 ) -> None:
