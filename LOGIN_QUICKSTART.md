@@ -25,7 +25,7 @@ bash serve_login.sh
 在浏览器中打开：**http://127.0.0.1:8001/login.html**
 
 - 用户名已自动填充：`admin`
-- 密码已自动填充：`ZUMegbehOEWFij8uIIjKNT5c-ig6o6VO`
+- 密码：见 `secrets/admin_password`（`cat secrets/admin_password | pbcopy` 可直接复制）
 - 点击「登录」按钮
 
 ### 3. 测试 CSRF Token

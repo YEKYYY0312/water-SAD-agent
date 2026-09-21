@@ -16,12 +16,18 @@
 ### 管理员账号
 
 - **用户名**: `admin`
-- **密码**: `ZUMegbehOEWFij8uIIjKNT5c-ig6o6VO`
+- **密码**: 见 `secrets/admin_password`
+
+```bash
+# 复制密码到剪贴板
+cat secrets/admin_password | pbcopy
+```
 
 > ⚠️  **安全提示**: 
 > - 密码存储在 `secrets/admin_password` 文件中
 > - 首次登录后建议修改密码
 > - 该文件已被 `.gitignore` 排除，不会提交到仓库
+> - **不要把密码抄进任何会进仓库的文件**（文档、HTML、脚本）
 
 ## 📋 功能说明
 
@@ -79,7 +85,7 @@ docker compose up -d
 ### 3. 登录
 
 - 用户名: `admin`
-- 密码: `ZUMegbehOEWFij8uIIjKNT5c-ig6o6VO`
+- 密码: 见 `secrets/admin_password`
 
 ### 4. 创建第一个会话
 
