@@ -30,6 +30,11 @@ jobs:
           mkdir -p secrets
           printf '%s' "${{ secrets.WATER_AGENT_POSTGRES_PASSWORD }}" > secrets/postgres_password
           printf '%s' "${{ secrets.WATER_AGENT_ADMIN_PASSWORD }}" > secrets/admin_password
+          # The LLM credentials are optional: Compose needs every `file:` to
+          # exist, but an empty one means "not configured" and the smoke run
+          # then asserts the honest 424 instead of starting a billable call.
+          printf '%s' "${{ secrets.WATER_AGENT_DEEPSEEK_API_KEY }}" > secrets/deepseek_api_key
+          printf '%s' "${{ secrets.WATER_AGENT_DASHSCOPE_API_KEY }}" > secrets/dashscope_api_key
       - name: Show the compose version and validate the config
         run: |
           docker compose version

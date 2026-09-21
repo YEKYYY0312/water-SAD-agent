@@ -27,6 +27,32 @@ def test_compose_declares_the_required_default_and_optional_services() -> None:
     assert "/health/ready" in compose
 
 
+def test_compose_wires_the_llm_credential_sources() -> None:
+    """凭据的三层来源里，第 2、3 层由 compose 提供，缺一层 Web 端就配不上模型。
+
+    这一组断言存在的理由：这两个 secret 的命名约定早在 secrets/README.md 里
+    写好，却长期没有接进 compose，于是文档教的 `printf > secrets/deepseek_api_key`
+    完全无效——容器内根本看不到那个文件。
+    """
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+
+    # 第 2 层：Compose secret，只读挂载
+    assert "deepseek_api_key:" in compose
+    assert "dashscope_api_key:" in compose
+    assert "file: ./secrets/deepseek_api_key" in compose
+    assert "file: ./secrets/dashscope_api_key" in compose
+    assert "DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key" in compose
+    assert "DASHSCOPE_API_KEY_FILE: /run/secrets/dashscope_api_key" in compose
+
+    # 第 3 层：设置面板写入的可写卷
+    assert "app_credentials:/var/lib/water-agent-credentials" in compose
+    assert "\n  app_credentials:\n" in compose, "named volume 必须在顶层 volumes 注册"
+
+    # 凭据卷不得落在 /var/lib/water-agent 之内：scripts/backup.sh 打包该目录
+    # 整体，挂进去会把密钥明文写进备份包。
+    assert "app_credentials:/var/lib/water-agent/" not in compose
+
+
 def test_container_uses_a_non_root_runtime_user_and_a_multistage_build() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
