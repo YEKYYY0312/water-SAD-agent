@@ -6,8 +6,16 @@ fixture 检索，保证无真实数据也能完整跑通 RAG / Harness / CLI。
 不得静默退回 fixture，而应抛出结构化错误，由上层图/CLI 记录失败。
 真实库 0 命中是合法结果（返回空列表，不回落、不抛错）。
 
-文本索引：triviumdb 的文本索引不落盘，打开库时由 ``_rebuild_text_index`` 用 payload
-重灌并 ``build_text_index``，否则 ``search_hybrid`` 退化为纯向量（见该方法说明）。
+文本索引有两条来源，``runtime_status.text_index_source`` 标明实际走了哪条：
+
+- ``persisted``：库带 ``.text`` 侧文件（入库时 ``build_text_index`` + ``flush`` 产出）。
+  此时以 ``access_mode="read_only"`` + ``load_text_index=True`` 打开，只读文件系统上
+  也能检索，且不必重灌。
+- ``rebuilt``：库没有侧文件，退回 read_write 打开并由 ``_rebuild_text_index`` 用 payload
+  重灌（只读模式下 ``index_text`` 会被拒，所以这条路必须可写）。
+
+两条都不成立时 ``search_hybrid`` 会退化为纯向量，因此 ``retrieve`` 在
+``text_index_ready`` 为假时直接抛错，不静默降级。
 
 P1 父子块语义
 --------------
@@ -19,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -33,10 +42,75 @@ TRIVIUM_DIM = 1536
 DEFAULT_HYBRID_ALPHA = 0.7
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
+DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
+INDEX_PATH_ENV = "WATER_AGENT_INDEX_PATH"
+
+# 当前语料的权威索引。必须是具名常量而不是"目录下排序最后的那个"：`data/indexes/`
+# 里同时存在 256 与 512 维两份索引，靠 ``sorted(...)[-1]`` 选中 512 纯属文件名巧合，
+# 再放进一份 768 维就会**无声换库**（维度与 embedding.DEFAULT_DIMENSIONS 不符时
+# 检索质量崩掉，但没有任何一处会报错）。改动这个常量时必须同步
+# ``embedding.DEFAULT_DIMENSIONS`` / ``DEFAULT_INDEX_VERSION``。
+DEFAULT_INDEX_NAME = "qwen3.7__512__curated.db"
 
 
 class TriviumRetrievalError(RuntimeError):
     """真实 TriviumDB 检索失败时抛出。"""
+
+
+class IndexSelectionError(RuntimeError):
+    """索引目录非空，但选不出一个明确的索引时抛出。"""
+
+
+def resolve_index_path(
+    explicit: str | Path | None = None,
+    *,
+    getenv: Callable[[str], str | None] = os.environ.get,
+    index_dir: Path | None = None,
+    allow_default: bool = True,
+) -> Path | None:
+    """按显式优先级选出检索索引，选不出就报错而不是猜。
+
+    优先级：调用方显式指定（CLI ``--db-path``）→ ``WATER_AGENT_INDEX_PATH``
+    环境变量（部署侧覆盖）→ 目录下的 :data:`DEFAULT_INDEX_NAME`。
+
+    返回 ``None`` 只代表**一份索引都没有**——这是 P0 的合法状态，由调用方回落到
+    fixture 检索。目录里有索引却没有那份具名的，说明配置与产物不一致，抛
+    :class:`IndexSelectionError`：此时静默改用别的索引会让维度、语料版本和
+    ``baseline.json`` 三者对不上，比直接失败危险得多。
+
+    ``allow_default=False`` 只关掉最后那层"目录下的默认索引"，前两层照旧生效：
+    给"默认不该碰真实库、但显式配了就必须照用"的调用方用（mock 生成器，见
+    ``runtime.agentic._resolve_db_path``）。这条分支刻意放在两层显式来源**之后**，
+    否则部署侧设了 ``WATER_AGENT_INDEX_PATH`` 却拿到 fixture 答案，正是"无声降级"。
+    """
+
+    directory = DEFAULT_INDEX_DIR if index_dir is None else index_dir
+    if explicit:
+        path = Path(explicit)
+        if not path.exists():
+            raise IndexSelectionError(f"指定的索引不存在：{path}")
+        return path
+    configured = (getenv(INDEX_PATH_ENV) or "").strip()
+    if configured:
+        path = Path(configured)
+        if not path.exists():
+            raise IndexSelectionError(f"{INDEX_PATH_ENV} 指向的索引不存在：{path}")
+        return path
+    if not allow_default:
+        return None
+    if not directory.exists():
+        return None
+    default = directory / DEFAULT_INDEX_NAME
+    if default.exists():
+        return default
+    available = sorted(p.name for p in directory.glob("*.db"))
+    if not available:
+        return None
+    raise IndexSelectionError(
+        f"{directory} 下没有默认索引 {DEFAULT_INDEX_NAME}，现有 {available}。"
+        f"请设置 {INDEX_PATH_ENV} 显式指定，或重建默认索引——"
+        "不自动改用其他索引：维度/语料版本不匹配会让检索无声劣化"
+    )
 
 
 class TriviumFallbackReason(str):
@@ -63,8 +137,20 @@ def mock_embed(text: str, dim: int = TRIVIUM_DIM) -> list[float]:
 
 
 def _default_fixture_clauses() -> list[RetrievedClause]:
+    """兜底 fixture；文件缺失时返回空列表而不是抛错。
+
+    这是 fallback 的 fallback：fixture 自己不在位**不该**让检索器构造失败，否则
+    部署里少一个 2KB 夹具就打死每一次问答。空列表的后果是检索返回空、由上层按
+    "无依据"处理——``runtime_status`` 里 ``is_fallback``/``fallback_reason`` 照实
+    暴露，不会假装检索成功。
+    """
+
     clauses = []
-    for c in load_clauses_jsonl(DEFAULT_FIXTURE_PATH):
+    try:
+        loaded = load_clauses_jsonl(DEFAULT_FIXTURE_PATH)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    for c in loaded:
         clauses.append(
             RetrievedClause(
                 spec_id=c.spec_id,
@@ -81,6 +167,27 @@ def _default_fixture_clauses() -> list[RetrievedClause]:
 
 def _parents_path(db_path: str | Path) -> Path:
     return Path(str(db_path) + ".parents.json")
+
+
+def _text_index_path(db_path: str | Path) -> Path:
+    """持久化文本索引的侧文件（``flush()`` 之后才存在）。"""
+
+    return Path(str(db_path) + ".text")
+
+
+def has_persisted_text_index(db_path: str | Path) -> bool:
+    """库是否自带可加载的文本索引，决定能否以只读方式打开。
+
+    只看"存在且非空"，完整性交给 triviumdb 自己校验：实测只读打开会用 ``.flush_ok``
+    拒绝不完整的 generation。刻意**不**用"``hybrid_alpha=0`` 与 ``=1`` 命中是否相同"
+    这类行为探测——节点数少于 ``top_k`` 时两边必然相同，会把健康的小库误判成坏的。
+    """
+
+    sidecar = _text_index_path(db_path)
+    try:
+        return sidecar.is_file() and sidecar.stat().st_size > 0
+    except OSError:
+        return False
 
 
 
@@ -124,6 +231,8 @@ class TriviumRetriever(Retriever):
         self._db = None
         self._db_error: str | None = None
         self._db_opened = False
+        self._access_mode = "read_write"
+        self._text_index_source = "none"
         self._fallback_kind: str = "fixture" if self.db_path is None or not self.db_path.exists() else "none"
         self._fallback_reason: str = "db path missing" if self.db_path is None else ("db path not found" if not self.db_path.exists() else "")
         self._used_fallback = self._fallback_kind != "none"
@@ -139,7 +248,25 @@ class TriviumRetriever(Retriever):
                     except Exception:  # noqa: BLE001 — 探测失败回退默认维度
                         probe_len = 0
                     open_dim = probe_len or 1536
-                self._db = triviumdb.TriviumDB(str(self.db_path), dim=open_dim)
+                # 只读优先。TriviumRetriever 从不改库，而 triviumdb 默认的
+                # ``access_mode="read_write"`` 在**打开阶段**就要求文件可写、``close()``
+                # 还要求目录可写——容器以只读根文件系统运行时（compose 的
+                # ``read_only: true``）必然失败。实测 ``access_mode="read_only"``
+                # + ``load_text_index=True`` 在 444 文件 / 555 目录上可正常检索，
+                # 且命中与 read_write + 进程内重建**逐位一致**。
+                # 没有 ``.text`` 侧文件的库只能走 read_write 重建（只读模式下
+                # ``index_text`` 被拒），行为与此前保持一致。
+                if has_persisted_text_index(self.db_path):
+                    self._db = triviumdb.TriviumDB(
+                        str(self.db_path),
+                        dim=open_dim,
+                        access_mode="read_only",
+                        load_text_index=True,
+                    )
+                    self._access_mode = "read_only"
+                else:
+                    self._db = triviumdb.TriviumDB(str(self.db_path), dim=open_dim)
+                    self._access_mode = "read_write"
                 self._db_opened = True
                 self._used_fallback = False
             except Exception as exc:  # noqa: BLE001 — pragma: no cover — triviumdb 打开失败降级 fixture
@@ -151,7 +278,15 @@ class TriviumRetriever(Retriever):
         self._text_index_ready = False
         self._text_indexed_nodes = 0
         if self._db is not None:
-            self._rebuild_text_index()
+            if self._access_mode == "read_only":
+                # 侧文件已随库加载，无需重灌；``text_indexed_nodes`` 保持 0 表示
+                # "本进程没有重建过"，真实来源看 ``text_index_source``。
+                self._text_index_ready = True
+                self._text_index_source = "persisted"
+            else:
+                self._rebuild_text_index()
+                if self._text_index_ready:
+                    self._text_index_source = "rebuilt"
 
     @property
     def fallback_kind(self) -> str:
@@ -162,12 +297,13 @@ class TriviumRetriever(Retriever):
         return self._fallback_reason
 
     def _rebuild_text_index(self) -> None:
-        """打开库后重建文本索引（triviumdb 0.8.2 的文本索引只存在于进程内）。
+        """没有 ``.text`` 侧文件时，用 payload 在进程内重灌文本索引。
 
-        实测：``index_text`` + ``build_text_index`` 的结果不随 ``flush``/``close`` 持久化，
-        重开后 ``search_hybrid`` 的文本分量恒为空——``hybrid_alpha`` 形同虚设、退化为纯向量。
-        因此每次打开都用 payload 里的 ``text`` 重灌一遍（3k 节点 <0.1s）。失败不静默：
-        记入 ``db_error`` 并让 ``retrieve`` 抛 ``TriviumRetrievalError``。
+        ``index_text`` + ``build_text_index`` 的结果不会**自动**落盘：重开后
+        ``search_hybrid`` 的文本分量恒为空——``hybrid_alpha`` 形同虚设、退化为纯向量。
+        （紧跟一次 ``flush()`` 才会写出 ``.text`` 侧文件，那条路见模块说明的
+        ``persisted``。）因此这里用 payload 里的 ``text`` 重灌一遍（3k 节点 <0.1s）。
+        失败不静默：记入 ``db_error`` 并让 ``retrieve`` 抛 ``TriviumRetrievalError``。
         """
         assert self._db is not None
         try:
@@ -227,6 +363,8 @@ class TriviumRetriever(Retriever):
             "db_error": self._db_error,
             "text_index_ready": self._text_index_ready,
             "text_indexed_nodes": self._text_indexed_nodes,
+            "text_index_source": self._text_index_source,
+            "access_mode": self._access_mode,
             "db_opened": self._db_opened,
         }
 
