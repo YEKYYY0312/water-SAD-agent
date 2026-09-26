@@ -44,13 +44,12 @@ class _FakeSession:
         query: str,
         *,
         run_id: str,
-        project_id: UUID | None,
         memory_context: object | None,
         on_token,
         on_event,
         cancel_check,
     ) -> dict:
-        del query, run_id, project_id, memory_context
+        del query, run_id, memory_context
         self.started.set()
         on_event("values", {"status": "running", "messages": []})
         if self.wait_for_cancel:

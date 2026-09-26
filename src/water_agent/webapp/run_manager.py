@@ -402,7 +402,6 @@ class RunManager:
                     session.aask(
                         query,
                         run_id=handle.run_id,
-                        project_id=handle.project_id,
                         memory_context=memory_context,
                         on_token=lambda token: self._on_token(handle, token),
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
@@ -421,14 +420,17 @@ class RunManager:
         except SQLAlchemyError:
             self._finish(handle, status="blocked", payload={"error": "run persistence unavailable"})
         except Exception as exc:  # noqa: BLE001 -- worker must convert failures to a terminal run state
-            # 异常类型只进服务端 trace，不进 SSE：浏览器侧保持既有的通用文案
-            # （不泄漏内部结构），但服务端必须留下"到底炸在哪"的线索——此前这里
-            # 整类失败都只留一句 "agent run failed"，装配期的 FileNotFoundError
-            # 与模型超时在日志里长得一模一样，没法分诊。
+            # 异常类型+消息+traceback 只进服务端 trace，不进 SSE：浏览器侧保持既有的
+            # 通用文案（不泄漏内部结构），但服务端必须留下"到底炸在哪"的线索。
+            import traceback
             self._record_trace_event(
                 session,
                 "run_failed",
-                {"exception_type": type(exc).__name__},
+                {
+                    "exception_type": type(exc).__name__,
+                    "exception_message": _safe_text(str(exc), limit=500),
+                    "traceback": _safe_text(traceback.format_exc(), limit=2000),
+                },
                 status="failed",
                 node="run",
             )
