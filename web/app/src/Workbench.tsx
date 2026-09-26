@@ -77,6 +77,7 @@ export function Workbench() {
             <SettingsPanel
               capabilities={workspace.capabilities}
               onCapabilitiesChanged={workspace.refreshCapabilities}
+              onBack={() => workspace.setSettingsOpen(false)}
             />
           </section>
         ) : workspace.memoryOpen ? (

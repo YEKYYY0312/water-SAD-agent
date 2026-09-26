@@ -31,10 +31,12 @@ function CredentialCard({
   row,
   onSave,
   onClear,
+  onBack,
 }: {
   row: ReturnType<typeof credentialRows>[number];
   onSave: (name: string, value: string) => Promise<void>;
   onClear: (name: string) => Promise<void>;
+  onBack?: () => void;
 }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,6 +107,11 @@ function CredentialCard({
       {saved && (
         <div className="workspace-feedback feedback-info" role="status">
           已保存，下一次提问即使用新密钥。
+          {onBack && (
+            <button type="button" className="button-primary" onClick={onBack}>
+              返回会话提问
+            </button>
+          )}
         </div>
       )}
 
@@ -125,9 +132,11 @@ function CredentialCard({
 export function SettingsPanel({
   capabilities,
   onCapabilitiesChanged,
+  onBack,
 }: {
   capabilities: SystemCapabilities | null;
   onCapabilitiesChanged: () => void;
+  onBack?: () => void;
 }) {
   const [statuses, setStatuses] = useState<CredentialStatus[] | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
@@ -173,6 +182,11 @@ export function SettingsPanel({
           status={modelReadinessTone(realLlm)}
           message={modelReadinessMessage(realLlm)}
         />
+        {onBack && (
+          <button type="button" className="quiet-button" onClick={onBack}>
+            返回会话
+          </button>
+        )}
       </div>
 
       <PanelError error={error} />
@@ -195,7 +209,7 @@ export function SettingsPanel({
       {rows.length > 0 && (
         <div className="settings-card-list">
           {rows.map((row) => (
-            <CredentialCard key={row.name} row={row} onSave={save} onClear={clear} />
+            <CredentialCard key={row.name} row={row} onSave={save} onClear={clear} onBack={onBack} />
           ))}
         </div>
       )}
