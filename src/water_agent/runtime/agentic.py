@@ -22,6 +22,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
+from water_agent.domain.models import RetrievedClause
 from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
 from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
 from water_agent.ingestion.version_registry import get_version_registry
@@ -43,7 +44,12 @@ from water_agent.retrieval.rerank import (
     RerankingRetriever,
     build_bailian_reranker,
 )
-from water_agent.retrieval.trivium import TriviumRetriever
+from water_agent.retrieval.trivium import DEFAULT_INDEX_DIR as TRIVIUM_INDEX_DIR
+from water_agent.retrieval.trivium import (
+    IndexSelectionError,
+    TriviumRetriever,
+    resolve_index_path,
+)
 from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
@@ -62,7 +68,9 @@ from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 # root is parents[3] here, not parents[2].
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
-DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
+# 索引目录与选择规则归 retrieval.trivium 统一维护（CLI/Web/harness 共用一套）；
+# 这里保留别名，历史调用方与测试仍按 agentic.DEFAULT_INDEX_DIR 引用。
+DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 
 
 def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
@@ -79,6 +87,36 @@ def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) ->
     return resolve_secret("DEEPSEEK_API_KEY", getenv=environment) is not None
 
 
+def embedding_required(args: argparse.Namespace | None = None) -> bool:
+    """本次装配是否会构造真实 embedding provider。
+
+    只有"非 mock 生成器"且"确实选出了真实索引"时才需要：没有索引时检索走 fixture
+    兜底，不碰 embedding。选索引本身出错（歧义/配置指向不存在）按"需要"处理，让
+    预检把问题暴露出来，而不是当作无索引悄悄降级。
+    """
+
+    if args is not None and getattr(args, "mock_generator", False):
+        return False
+    try:
+        return _resolve_db_path(args if args is not None else argparse.Namespace()) is not None
+    except ValueError:
+        return True
+
+
+def embedding_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
+    """Inspect only whether the embedding key exists，解析顺序与 chat model 一致。
+
+    ``embedding.build_embedding_provider`` 直读 ``os.environ``，靠 webapp 启动时的
+    ``load_credentials_into_environ()`` 把 ``_FILE``/凭据卷回填进来；这里改用
+    ``resolve_secret`` 是为了让预检与实际构造**在回填之前也一致**，否则会重演
+    chat model 那个「预检放行、真跑报错」的老问题。
+    """
+
+    from water_agent.config.credentials import resolve_secret
+
+    return resolve_secret("DASHSCOPE_API_KEY", getenv=environment) is not None
+
+
 def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:
     """Build the real embedding provider using the dimension stored in the index."""
 
@@ -87,7 +125,10 @@ def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tupl
         try:
             import triviumdb
 
-            probe = triviumdb.TriviumDB(str(db_path))
+            # 只读打开：探测只要 dim()，而 read_write 在只读根文件系统（compose 的
+            # read_only: true）上连打开都会失败，静默退成默认 512 维——维度猜错会让
+            # 整条检索链路无声劣化，所以这里必须按库的真实模式打开。
+            probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
             dim = int(probe.dim())
             probe.close()
         except Exception:  # noqa: BLE001 -- preserve the existing fallback behavior
@@ -103,18 +144,38 @@ def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tupl
 
 
 def _resolve_db_path(args: argparse.Namespace) -> Path | None:
-    """Resolve the retrieval index without silently accepting an explicit bad path."""
+    """Resolve the retrieval index without silently accepting an explicit bad path.
+
+    ``mock_generator`` 只关掉"目录下的默认索引"这一层兜底，不再顺手把显式配置一起
+    吞掉。"假模型"与"没索引"是两件事：harness 与单测要的是前者——默认走 fixture
+    语料才能保证 ``baseline.json`` 可复现；而容器 smoke 要的正是"假模型 + 真索引"
+    这个组合，才能在没有远端模型凭据的部署里跑通真实检索链路。此前这里先短路、
+    后才轮到 ``WATER_AGENT_INDEX_PATH``，部署侧配了索引也会被无声忽略。
+    """
 
     explicit = getattr(args, "db_path", None)
-    if explicit:
-        path = Path(explicit)
-        if not path.exists():
-            raise ValueError(f"--db-path 不存在：{path}")
-        return path
-    if getattr(args, "mock_generator", False):
-        return None
-    candidates = sorted(DEFAULT_INDEX_DIR.glob("*.db")) if DEFAULT_INDEX_DIR.exists() else []
-    return candidates[-1] if candidates else None
+    try:
+        return resolve_index_path(
+            explicit, allow_default=not getattr(args, "mock_generator", False)
+        )
+    except IndexSelectionError as exc:
+        # 既有契约：显式 --db-path 不存在报 ValueError（CLI 据此给用法错误）。
+        raise ValueError(str(exc)) from exc
+
+
+def _load_fixture_clauses() -> list[RetrievedClause]:
+    """加载 fallback fixture；文件缺失时降级为空列表而不是让装配崩掉。
+
+    fixture 只是真实库不可用时的兜底语料，它自己缺失**不该**让整个 session 起不来
+    （此前镜像没打进 ``data/`` 时，这里抛 FileNotFoundError 直接打死 Web 的每一次
+    问答）。降级后 ``TriviumRetriever`` 的 fallback 为空：真实库在位就照常检索，
+    真实库也不在位则检索返回空、由上层按"无依据"处理，两者都不会假装成功。
+    """
+
+    try:
+        return load_clauses_jsonl(DEFAULT_FIXTURE)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
 
 
 def _build_retriever(
@@ -122,7 +183,7 @@ def _build_retriever(
 ) -> tuple[Retriever, str]:
     """Build the same retriever used by the existing CLI agentic path."""
 
-    fixture = load_clauses_jsonl(DEFAULT_FIXTURE)
+    fixture = _load_fixture_clauses()
     db_path = _resolve_db_path(args)
     if db_path is None:
         return TriviumRetriever(db_path=None, fallback_clauses=fixture), ""
@@ -131,7 +192,7 @@ def _build_retriever(
     if getattr(args, "mock_generator", False):
         import triviumdb
 
-        probe = triviumdb.TriviumDB(str(db_path))
+        probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
         dim = dim or int(probe.dim())
         probe.close()
         from water_agent.retrieval.trivium import mock_embed
@@ -191,8 +252,12 @@ def build_cli_checkpointer(session_dir: str | Path, stack: ExitStack):
     """Build the existing SQLite checkpointer used by CLI and legacy flows."""
 
     db_path = session_db_path(session_dir)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        # mkdir 必须在 try 内：镜像把 /app/data 打成只读（Dockerfile 的 chmod -R a-w）
+        # 且不收 data/sessions，所以容器里 `--mode agentic` 会在建目录这一步就抛
+        # OSError(Errno 30) —— 装配还没开始就死，和"sqlite 不可用"完全同类的故障，
+        # 却走了不同结局。并进同一条降级路径：仍然照实写 stderr，不静默。
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         from langgraph.checkpoint.sqlite import SqliteSaver
 
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -541,6 +606,8 @@ __all__ = [
     "_initial_messages_with_runtime_context",
     "build_agentic_session",
     "build_cli_checkpointer",
+    "embedding_configured",
+    "embedding_required",
     "real_llm_configured",
 ]
 
