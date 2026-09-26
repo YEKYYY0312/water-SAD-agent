@@ -688,6 +688,22 @@ class RunManager:
                 cursor = event.event_id
                 yield event.sse()
             if terminal:
+                # 发送显式结束标记，让前端区分"正常结束"与"异常断开"。
+                # 只发给尚未看到 finalize 的客户端：cursor 已越过 finalize 的重连
+                # 不该再收到任何帧（语义与 tests/test_web_sse.py 的空尾断言一致）。
+                finalize_seen = any(
+                    event.event_type == "finalize" and event.event_id <= cursor
+                    for event in handle.events
+                )
+                if not finalize_seen:
+                    yield RunEvent(
+                        event_id=cursor + 1,
+                        event_type="stream_end",
+                        run_id=handle.run_id,
+                        thread_id=handle.thread_id,
+                        time=_now(),
+                        payload={"status": handle.status},
+                    ).sse()
                 return
 
     @staticmethod
