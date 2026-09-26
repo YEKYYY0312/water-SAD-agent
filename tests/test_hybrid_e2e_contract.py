@@ -79,10 +79,12 @@ class _ZeroVectorProvider(StubProvider):
         return [0.0] * self.dim
 
 
-def test_text_index_rebuilt_on_reopen_so_hybrid_is_not_pure_vector():
-    """triviumdb 文本索引不落盘：重开库后必须由 TriviumRetriever 重建，否则 hybrid 退化为纯向量。
+def test_text_index_available_on_reopen_so_hybrid_is_not_pure_vector():
+    """重开库后文本分量必须仍然有效，否则 hybrid 静默退化为纯向量。
 
     用零向量 + hybrid_alpha=0.0 强制只看文本分量：能按 query 关键词命中对应条款才算文本索引有效。
+    这里不约束走哪条路（入库会 flush 出 ``.text`` 侧文件，因此实际走 persisted）；
+    两条路各自的归属由下面两个测试分别钉住。
     """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -105,3 +107,78 @@ def test_text_index_rebuilt_on_reopen_so_hybrid_is_not_pure_vector():
         hits = retriever.retrieve("城市排水工程规划期限", top_k=1)
         assert hits and hits[0].source_id == "GB50318-2017 9.0.3", [h.source_id for h in hits]
         retriever.close()
+
+
+def _ingest_mini(root: Path) -> Path:
+    clause = root / "clauses"
+    clause.mkdir()
+    (clause / "mini.jsonl").write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in MINI), encoding="utf-8"
+    )
+    db = root / "index.db"
+    ingest_to_trivium(clause / "mini.jsonl", db, embedding_provider=StubProvider(256), curated=True)
+    return db
+
+
+def test_missing_text_sidecar_falls_back_to_in_process_rebuild():
+    """没有 ``.text`` 侧文件的库必须退回 read_write + 进程内重建，命中与 persisted 一致。
+
+    只读模式下 ``index_text`` 会被 triviumdb 拒绝，所以这条路不能也用只读打开。
+    旧库、以及增量重跑后丢掉侧文件的库都会走到这里。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = _ingest_mini(Path(tmp))
+        zero = _ZeroVectorProvider(256)
+        query = "排水体制 分流制 合流制"
+
+        sidecar = Path(str(db) + ".text")
+        assert sidecar.is_file(), "入库时的 build_text_index + flush 应写出持久化文本索引"
+        persisted = TriviumRetriever(db_path=db, embedding_fn=zero.embed, dim=256, hybrid_alpha=0.0)
+        assert persisted.runtime_status["access_mode"] == "read_only"
+        assert persisted.runtime_status["text_index_source"] == "persisted"
+        expected = [h.source_id for h in persisted.retrieve(query, top_k=1)]
+        persisted.close()
+        assert expected == ["GB50014-2021 9.0.2"]
+
+        sidecar.unlink()
+        Path(str(db) + ".text.meta").unlink(missing_ok=True)
+        rebuilt = TriviumRetriever(db_path=db, embedding_fn=zero.embed, dim=256, hybrid_alpha=0.0)
+        assert rebuilt.runtime_status["access_mode"] == "read_write"
+        assert rebuilt.runtime_status["text_index_source"] == "rebuilt"
+        assert rebuilt.text_index_ready is True
+        assert rebuilt.db_error is None
+        assert [h.source_id for h in rebuilt.retrieve(query, top_k=1)] == expected
+        rebuilt.close()
+
+
+def test_retrieval_works_on_a_read_only_filesystem():
+    """只读根文件系统（compose 的 ``read_only: true``）下必须仍能真库检索。
+
+    triviumdb 默认的 ``access_mode="read_write"`` 在打开阶段就要求文件可写、``close()``
+    还要求目录可写，容器里会直接失败并静默退成 fixture 兜底。这条测试钉住只读部署，
+    是 B1 的验收条件，不能靠"本机目录恰好可写"蒙过去。
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        db = _ingest_mini(root)
+        index_dir = db.parent
+        written = sorted(index_dir.glob(db.name + "*"))
+        try:
+            for path in written:
+                path.chmod(0o444)
+            index_dir.chmod(0o555)
+
+            retriever = TriviumRetriever(
+                db_path=db, embedding_fn=_ZeroVectorProvider(256).embed, dim=256, hybrid_alpha=0.0
+            )
+            assert retriever.runtime_status["access_mode"] == "read_only"
+            assert retriever.is_fallback is False, retriever.db_error
+            assert retriever.text_index_ready is True
+            hits = retriever.retrieve("排水体制 分流制 合流制", top_k=1)
+            assert hits and hits[0].source_id == "GB50014-2021 9.0.2"
+            retriever.close()
+        finally:
+            # TemporaryDirectory 的清理需要写权限
+            index_dir.chmod(0o755)
+            for path in written:
+                path.chmod(0o644)
