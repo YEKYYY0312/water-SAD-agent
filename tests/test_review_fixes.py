@@ -58,8 +58,8 @@ class TestIngestFailureReporting:
             real_open = triviumdb.TriviumDB
 
             class FlakyIndexDB:
-                def __init__(self, path: str, dim: int = 1536):
-                    self._inner = real_open(path, dim=dim)
+                def __init__(self, path: str, dim: int = 1536, load_text_index: bool = False):
+                    self._inner = real_open(path, dim=dim, load_text_index=load_text_index)
                     self._indexed: set[int] = set()
 
                 def insert_with_id(self, node_id, vector, payload):
@@ -76,6 +76,9 @@ class TestIngestFailureReporting:
 
                 def all_node_ids(self):
                     return self._inner.all_node_ids()
+
+                def build_text_index(self):
+                    self._inner.build_text_index()
 
                 def flush(self):
                     self._inner.flush()

@@ -5,21 +5,30 @@ package rather than ``scripts/`` so the image can execute it: ``.dockerignore``
 denies everything by default and only ``src/`` (among code) is re-included, so a
 script under ``scripts/`` would need the whole directory shipped to the image.
 
-It talks to the running app over HTTP only — no database credentials, no
-direct engine access — so a passing run proves the **deployed** service works,
-not that a Python function does.  Checks are grouped by the P5 completion
-definition: identity, authorization, memory lifecycle, SSE surface, and the
-honest reporting of a missing remote model.
+The Web surface is checked over HTTP only — no database credentials, no direct
+engine access — so a passing run proves the **deployed** service works, not that
+a Python function does.  Checks are grouped by the P5 completion definition:
+identity, authorization, memory lifecycle, SSE surface, and the honest reporting
+of a missing remote model.
+
+One check is deliberately not HTTP: :func:`_run_agentic_probe` executes a full
+agentic run inside this container (see its docstring for why the HTTP path
+cannot do it) and asserts the retriever ran against the shipped corpus rather
+than the fixture fallback.
 
 Nothing here prints a secret: the admin password is read from a secret file and
-is never echoed, and no request/response body is logged verbatim.
+is never echoed, and no request/response body is logged verbatim.  The agentic
+probe uses a mock model, so no API key is involved in it at all.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
@@ -32,6 +41,10 @@ ADMIN_SECRET_PATH = Path(
     os.environ.get("SMOKE_ADMIN_PASSWORD_FILE", "/run/secrets/admin_password")
 )
 EXPECTED_MIGRATION_HEAD = os.environ.get("SMOKE_EXPECTED_MIGRATION_HEAD", "")
+# 真实条款问题：必须能在语料里命中，否则 mock 模型拿不到 hits、答不出引用，
+# 检查会以"检索没结果"的面目失败，掩盖真正想测的"索引到底有没有打开"。
+AGENTIC_QUERY = os.environ.get("SMOKE_AGENTIC_QUERY", "给水管道的设计秒流量如何确定")
+AGENTIC_TIMEOUT_SECONDS = float(os.environ.get("SMOKE_AGENTIC_TIMEOUT", "300"))
 
 
 class SmokeFailure(RuntimeError):
@@ -98,6 +111,93 @@ def _read_secret(path: Path) -> str:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def _short(value: object, limit: int = 300) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else f"{text[:limit]}…"
+
+
+def _last_line(text: str) -> str:
+    lines = [line for line in (text or "").splitlines() if line.strip()]
+    return _short(lines[-1]) if lines else ""
+
+
+def _run_agentic_probe() -> tuple[dict, str]:
+    """在镜像内真跑一次 agentic run（假模型 + 真索引），返回 ``(payload, failure)``。
+
+    为什么不走 HTTP：``POST /api/sessions/{id}/messages`` 需要远端模型凭据，没配就
+    诚实地返回 424（见 ``run_routes.create_message``），而冒烟不该为了跑通链路去要
+    真密钥、烧真 token、依赖外网。把模型换成确定性的 ``_ScriptedAgenticModel``
+    （``--mock-generator``）即可：它照样先调 ``retrieve_clauses``、再 ``cite_clauses``，
+    检索与引用校验全是真的，只有"写字"那一步是假的。
+
+    为什么值得测：这一条断言覆盖的是**只在镜像里才会犯的错**——索引或侧文件没打进
+    镜像、只读根文件系统上打不开库、fixture 缺失让装配崩掉。这些在本机一律测不出来
+    （仓库里文件都在、目录都可写），过去也正是这样漏出去的。检索一旦回落 fixture，
+    答案照样"成功"生成，只是脱离了真实语料——所以必须直接断言
+    ``runtime_status.is_fallback is False``，而不是只看 ``status == succeeded``。
+
+    索引路径显式传给 CLI：``resolve_index_path()`` 是唯一的选择规则来源（默认索引名
+    写在 ``retrieval.trivium.DEFAULT_INDEX_NAME``），在这里复制一份文件名就等于埋下
+    第二处待同步的常量。
+    """
+
+    from water_agent.retrieval.trivium import IndexSelectionError, resolve_index_path
+
+    try:
+        index_path = resolve_index_path()
+    except IndexSelectionError as exc:
+        return {}, f"index selection failed: {_short(exc)}"
+    if index_path is None:
+        return {}, "image ships no retrieval index; every run would answer from the fixture"
+
+    # 会话库指向 tmpfs：镜像内 data/ 是只读的，落在那里会退成进程内 MemorySaver，
+    # 那样测的就不是真实 checkpointer 路径了。trace 落点刻意不覆盖，用部署给的
+    # WATER_AGENT_TRACE_DIR——它写不动的话这次运行会在收尾处失败，正是要测的。
+    workdir = tempfile.mkdtemp(prefix="smoke-agentic-")
+    command = [
+        sys.executable,
+        "-m",
+        "water_agent.cli",
+        AGENTIC_QUERY,
+        "--mode",
+        "agentic",
+        "--mock-generator",
+        "--json",
+        "--db-path",
+        str(index_path),
+        "--session-dir",
+        str(Path(workdir) / "sessions"),
+    ]
+    try:
+        # 固定 argv、不过 shell、没有用户输入拼接（AGENTIC_QUERY 只从部署侧环境变量来）。
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=AGENTIC_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {}, f"agentic run exceeded {AGENTIC_TIMEOUT_SECONDS:.0f}s"
+    except OSError as exc:
+        return {}, f"agentic run could not start: {_short(exc)}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    if completed.returncode != 0:
+        return {}, f"exit={completed.returncode} stderr={_last_line(completed.stderr)}"
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {}, (
+            f"stdout was not JSON ({len(completed.stdout)} bytes); "
+            f"stderr={_last_line(completed.stderr)}"
+        )
+    if not isinstance(payload, dict):
+        return {}, f"unexpected JSON payload type {type(payload).__name__}"
+    return payload, ""
 
 
 def main() -> int:
@@ -267,14 +367,43 @@ def main() -> int:
         )
         if status == 424:
             description = (
-                "no remote model configured; live agent execution is not exercised by this smoke run"
+                "no remote model configured; the HTTP run path refuses instead of simulating "
+                "(the agentic_run_* checks below exercise the graph with a mock model)"
             )
         elif status == 202:
             run_id = (message.get("data") or {}).get("run_id")
             description = f"run started: {bool(run_id)}"
         else:  # pragma: no cover - guarded by the check above
             description = "unexpected status"
-        skipped.append(f"live_agent_run: {description}")
+        skipped.append(f"live_agent_run_over_http: {description}")
+
+    # 真实 agentic run：本容器内跑，断言检索没有回落 fixture。见 _run_agentic_probe。
+    agentic, failure = _run_agentic_probe()
+    runtime = agentic.get("retriever_runtime_status") or {}
+    citations = agentic.get("citations") or []
+    record(
+        "agentic_run_completes_in_image",
+        not failure and agentic.get("status") == "succeeded",
+        failure or f"status={agentic.get('status')} errors={_short(agentic.get('errors'), 200)}",
+    )
+    record(
+        "agentic_run_used_the_shipped_corpus",
+        runtime.get("is_fallback") is False and runtime.get("db_opened") is True,
+        f"is_fallback={runtime.get('is_fallback')} db_opened={runtime.get('db_opened')} "
+        f"kind={runtime.get('fallback_kind')} reason={_short(runtime.get('fallback_reason'), 120)} "
+        f"db_error={_short(runtime.get('db_error'), 200)}",
+    )
+    record(
+        "agentic_run_has_a_text_index",
+        runtime.get("text_index_ready") is True,
+        f"ready={runtime.get('text_index_ready')} source={runtime.get('text_index_source')} "
+        f"access_mode={runtime.get('access_mode')}",
+    )
+    record(
+        "agentic_run_cited_the_corpus",
+        bool(citations),
+        f"citations={len(citations)}",
+    )
 
     ok = all(check["status"] == "PASS" for check in checks)
     print(
