@@ -153,6 +153,12 @@ export function useWorkspaceController(): WorkspaceController {
             void api.getTrace(runId).then((trace) => setRun((current) => ({ ...current, trace }))).catch(() => undefined);
             void api.listSessions(selectedProjectId).then((data) => setSessions(data.sessions)).catch(() => undefined);
           }
+          if (event.type === "stream_end") {
+            // 后端显式告知流正常结束：以 payload.status 为准收口，不再重连。
+            setStreaming(false);
+            const finalStatus = event.payload.status;
+            if (typeof finalStatus === "string") runStatus.current = finalStatus;
+          }
         },
       });
       if (!isTerminalStatus(runStatus.current) && !controller.signal.aborted) {
