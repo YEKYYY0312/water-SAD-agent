@@ -53,6 +53,41 @@ def test_compose_wires_the_llm_credential_sources() -> None:
     assert "app_credentials:/var/lib/water-agent/" not in compose
 
 
+def test_compose_gives_traces_a_writable_volume_outside_the_backup_scope() -> None:
+    """trace 必须有可写落点，且不能落进备份包。
+
+    镜像把 ``/app/data`` 打成只读（Dockerfile 的 ``chmod -R a-w``），``data/traces``
+    连镜像都没进（``.dockerignore``）。不配 ``WATER_AGENT_TRACE_DIR`` 时每次运行
+    收尾都会 ``OSError: trace write failed`` —— 恰好在最需要现场的那一刻什么都不留。
+
+    落点同时不能在 ``/var/lib/water-agent`` 之内：``scripts/backup.sh`` 用
+    ``tar -C /var/lib/water-agent .`` 打整个目录，而 trace 含用户问题与答案原文
+    （docs/design/p5-release-data-inventory.md 的 E 类），不该随用户文件备份流转。
+    """
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+
+    assert "WATER_AGENT_TRACE_DIR: /var/lib/water-agent-traces" in compose
+    assert "app_traces:/var/lib/water-agent-traces" in compose
+    assert "\n  app_traces:\n" in compose, "named volume 必须在顶层 volumes 注册"
+    assert "app_traces:/var/lib/water-agent/" not in compose
+
+    # 备份脚本打包的根目录不得是 trace 落点的祖先
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认 trace 落点"
+
+    # 卷挂载前镜像里必须已有这个目录且归 wateragent：Docker 只在首次填充空卷时
+    # 从镜像抄属主与权限，镜像里没有的路径会变成 root 所有、非 root 用户写不进去。
+    def _line(marker: str) -> str:
+        matches = [line for line in dockerfile.splitlines() if marker in line]
+        assert len(matches) == 1, f"Dockerfile 里 {marker!r} 命中 {len(matches)} 行，断言已失焦"
+        return matches[0]
+
+    assert "/var/lib/water-agent-traces" in _line("mkdir -p /var/lib/water-agent-credentials")
+    assert "/var/lib/water-agent-traces" in _line("chown -R wateragent:wateragent")
+    assert "/var/lib/water-agent-traces" in _line("chmod 700"), "trace 含用户原文，不得对其他用户可读"
+
+
 def test_container_uses_a_non_root_runtime_user_and_a_multistage_build() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
@@ -75,7 +110,9 @@ def test_docker_context_excludes_secrets_and_non_publishable_runtime_data() -> N
         "data/eval/reports/",
         "data/eval/traces/",
         "data/sessions/",
-        "data/indexes/",
+        # data/indexes/ 刻意**不**在这个列表里：它由 .dockerignore 末尾的 re-include
+        # 打进镜像（否则每次检索都回落 fixture）。那条规则的归属见
+        # tests/test_container_smoke.py::TestProbePremises。
         "*.db",
         "web/app/node_modules/",
         "web/app/dist/",

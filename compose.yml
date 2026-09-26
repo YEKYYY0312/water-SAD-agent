@@ -76,6 +76,10 @@ services:
       # secret 可以只是占位符。解析顺序见 water_agent/config/credentials.py。
       DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
       DASHSCOPE_API_KEY_FILE: /run/secrets/dashscope_api_key
+      # trace 的落盘位置。镜像内 /app/data 是只读的（Dockerfile 里 chmod -R a-w），
+      # 不改这个变量的话每次运行结束 JsonTraceRecorder.finish() 都会 OSError，
+      # 恰好在最需要现场的时候什么都不留。
+      WATER_AGENT_TRACE_DIR: /var/lib/water-agent-traces
     secrets:
       - postgres_password
       - deepseek_api_key
@@ -96,6 +100,9 @@ services:
       # scripts/backup.sh 打包的是那个目录整体（tar -C /var/lib/water-agent .），
       # 挂进去会把密钥明文写进 user_files.tar。
       - app_credentials:/var/lib/water-agent-credentials
+      # 运行 trace 同理放在 /var/lib/water-agent 之外：trace 里有用户问题与答案原文
+      # （见 docs/design/p5-release-data-inventory.md 的 E 类），不该随用户文件备份流转。
+      - app_traces:/var/lib/water-agent-traces
     healthcheck:
       test:
         [
@@ -123,6 +130,10 @@ services:
       SMOKE_BASE_URL: http://app:8000
       SMOKE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
       SMOKE_EXPECTED_MIGRATION_HEAD: "0004_step44_workspace"
+      # 冒烟自己要在本容器内跑一次 agentic run（见 webapp/smoke.py 的
+      # _run_agentic_probe），运行收尾要写 trace。这里指向下面的 tmpfs：
+      # 根文件系统只读，app 的 app_traces 卷也不该被冒烟写脏。
+      WATER_AGENT_TRACE_DIR: /tmp/water-agent-traces
     depends_on:
       app:
         condition: service_healthy
@@ -192,6 +203,7 @@ volumes:
   app_uploads:
   app_exports:
   app_credentials:
+  app_traces:
   local_model_data:
   caddy_data:
   caddy_config:
