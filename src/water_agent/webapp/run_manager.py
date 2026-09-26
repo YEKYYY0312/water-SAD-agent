@@ -22,7 +22,7 @@ from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import MemoryStoreUnavailableError
 from water_agent.memory.providers import MemoryProvider
 from water_agent.memory.recall import MemoryRecallResult, MemoryRecallService
-from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.observability.json_trace import JsonTraceRecorder, resolve_trace_dir
 from water_agent.runtime.agentic import RunCancelled, build_agentic_session
 from water_agent.runtime.governance.contracts import Principal
 from water_agent.storage.checkpoint import postgres_checkpointer
@@ -135,14 +135,16 @@ class WebAgenticSessionFactory:
         database: Database,
         sessions: WebSessionRepository,
         *,
-        trace_dir: str | os.PathLike[str] = "data/traces",
+        trace_dir: str | os.PathLike[str] | None = None,
         session_dir: str | os.PathLike[str] = "data/sessions",
         mock_generator: bool | None = None,
         agent_args: argparse.Namespace | None = None,
     ) -> None:
         self.database = database
         self.sessions = sessions
-        self.trace_dir = str(trace_dir)
+        # None ⇒ 交给 resolve_trace_dir 读 WATER_AGENT_TRACE_DIR；容器里 /app/data 只读，
+        # 写死 "data/traces" 会让 recorder.finish() 必然 OSError（见 json_trace 模块文档）
+        self.trace_dir = str(resolve_trace_dir(trace_dir))
         self.session_dir = str(session_dir)
         self.mock_generator = (
             os.getenv("WEB_MOCK_GENERATOR", "false").lower() == "true"
@@ -223,7 +225,7 @@ class RunManager:
         tenant_id: UUID = DEFAULT_TENANT_ID,
         memory_enabled: bool | None = None,
         memory_provider: MemoryProvider | None = None,
-        trace_dir: str | os.PathLike[str] = "data/traces",
+        trace_dir: str | os.PathLike[str] | None = None,
         session_dir: str | os.PathLike[str] = "data/sessions",
         max_workers: int = 4,
     ) -> None:
@@ -418,7 +420,18 @@ class RunManager:
             self._finish(handle, status="cancelled", payload={"status": "cancelled"})
         except SQLAlchemyError:
             self._finish(handle, status="blocked", payload={"error": "run persistence unavailable"})
-        except Exception:  # noqa: BLE001 -- worker must convert failures to a terminal run state
+        except Exception as exc:  # noqa: BLE001 -- worker must convert failures to a terminal run state
+            # 异常类型只进服务端 trace，不进 SSE：浏览器侧保持既有的通用文案
+            # （不泄漏内部结构），但服务端必须留下"到底炸在哪"的线索——此前这里
+            # 整类失败都只留一句 "agent run failed"，装配期的 FileNotFoundError
+            # 与模型超时在日志里长得一模一样，没法分诊。
+            self._record_trace_event(
+                session,
+                "run_failed",
+                {"exception_type": type(exc).__name__},
+                status="failed",
+                node="run",
+            )
             self._finish(handle, status="failed", payload={"error": "agent run failed"})
 
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
@@ -574,12 +587,13 @@ class RunManager:
         data: dict[str, Any],
         *,
         status: str,
+        node: str = "memory",
     ) -> None:
         recorder = getattr(session, "recorder", None)
         if recorder is None or not getattr(recorder, "started", False):
             return
         try:
-            recorder.record(node="memory", event=event_type, query="", status=status, data=data)
+            recorder.record(node=node, event=event_type, query="", status=status, data=data)
         except Exception:  # noqa: BLE001 -- telemetry cannot alter run disposition
             return
 
