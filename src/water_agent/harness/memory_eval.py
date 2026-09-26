@@ -1869,13 +1869,12 @@ class _DeterministicSession:
         query: str,
         *,
         run_id: str,
-        project_id: UUID | None,
         memory_context: object | None,
         on_token,
         on_event,
         cancel_check,
     ) -> dict[str, Any]:
-        del query, run_id, project_id
+        del query, run_id
         self.started.set()
         self.memory_contexts.append(memory_context)
         on_event("values", {"status": "running", "messages": []})
