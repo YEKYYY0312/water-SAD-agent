@@ -126,6 +126,53 @@ def _parents_path(db_path: str | Path) -> Path:
     return db.with_suffix(db.suffix + ".parents.json")
 
 
+def _text_sidecars(db_path: str | Path) -> tuple[Path, Path]:
+    """持久化文本索引的一对侧文件：``.text`` 与 ``.text.meta``（缺一不可用）。"""
+    base = str(db_path)
+    return Path(base + ".text"), Path(base + ".text.meta")
+
+
+def _has_complete_text_sidecars(db_path: str | Path) -> bool:
+    """两个侧文件都在且 ``.text`` 非空。缺 ``.text.meta`` 时 ``load_text_index`` 用不了。"""
+    text, meta = _text_sidecars(db_path)
+    try:
+        return text.is_file() and text.stat().st_size > 0 and meta.is_file()
+    except OSError:
+        return False
+
+
+def _snapshot_text_sidecars(db_path: str | Path) -> bool:
+    """入库前把已有文本索引侧文件复制成 ``.bak``，返回是否存在完整的一对。
+
+    以 read_write 打开的 TriviumDB 在 ``close()`` 时会按**进程内**文本索引重写侧文件，
+    进程内为空就把两个侧文件一起删掉（实测）。也就是说只要本次入库一条文本都没灌进
+    索引（空语料、全部失败、或全被 manifest 跳过），关库就会毁掉上一次辛苦建好的索引。
+    ``index_text`` 现在对 manifest 命中也照灌，正常路径已不会落空；这里是兜底，保证
+    "一次没写入任何东西的入库" 绝不破坏既有索引。
+    """
+    if not _has_complete_text_sidecars(db_path):
+        return False
+    import shutil
+
+    text, meta = _text_sidecars(db_path)
+
+    shutil.copy2(text, text.with_suffix(text.suffix + ".bak"))
+    shutil.copy2(meta, meta.with_suffix(meta.suffix + ".bak"))
+    return True
+
+
+def _settle_text_sidecars(db_path: str | Path, *, restore: bool) -> None:
+    """按需还原 ``.bak`` 快照，随后无论如何都清掉快照文件。"""
+    for path in _text_sidecars(db_path):
+        backup = path.with_suffix(path.suffix + ".bak")
+        if not backup.is_file():
+            continue
+        if restore:
+            backup.replace(path)
+        else:
+            backup.unlink()
+
+
 def _manifest_path(db_path: str | Path) -> Path:
     db = Path(db_path)
     return db.with_suffix(db.suffix + ".manifest.json")
@@ -230,11 +277,20 @@ def ingest_to_trivium(
         child_payloads=len(payloads),
     )
     issues: list[IngestIssue] = []
+    # 本次进程内成功灌进文本索引的节点数，决定能否安全 build+flush（见下方说明）。
+    indexed_text_nodes = 0
 
     import triviumdb
 
     dim = int(getattr(provider_config, "dimensions", None) or 1536)
-    db = triviumdb.TriviumDB(str(db_path), dim=dim)
+    had_text_sidecars = _snapshot_text_sidecars(db_path)
+    # 必须把已有文本索引载进来：文本索引是**按进程**的，而入库是**按文件**的
+    # （scripts/build_index.py 对 data/curated/clauses/*.jsonl 逐个调用本函数）。
+    # 不加载就 build_text_index()，落盘的只有本文件这一批节点——实测 3313 个节点的
+    # 3.5MB 索引，重跑一遍后只剩末位文件 81 个节点的 80KB。侧文件仍在、仍非空，
+    # 检索侧照样以只读打开并信任它，于是 97% 的语料静默失去文本检索能力，
+    # hybrid 退化成纯向量而没有任何一处报错。
+    db = triviumdb.TriviumDB(str(db_path), dim=dim, load_text_index=had_text_sidecars)
     manifest_ids = load_manifest(db_path)
     try:
         try:
@@ -261,6 +317,19 @@ def ingest_to_trivium(
             was_existing_manifest = node_id in manifest_ids
             was_existing_db = node_id in existing_ids
             if was_existing_manifest:
+                # manifest 命中只跳过**重新嵌入**（云调用，贵），文本索引必须照灌：
+                # 它只存在于进程内，本次进程还没建过。漏掉这一步的后果不是"少建一个
+                # 索引"，而是下面的 build_text_index() + flush() 会拿一个空索引覆盖
+                # 已有的 .text 侧文件——实测直接删除。于是语料没变时重跑一次入库就把
+                # 持久化文本索引清了：本机检索还能退回进程内重建所以看不出来，而容器
+                # 以只读根文件系统运行时 read_write 打不开，会一路静默退到 fixture。
+                try:
+                    db.index_text(node_id, text)
+                except Exception as exc:  # noqa: BLE001 — 与新增路径同语义：记录后继续
+                    issues.append(IngestIssue(source_file, chunk_id, "index_text", str(exc)))
+                    stats.failed += 1
+                    continue
+                indexed_text_nodes += 1
                 stats.skipped_existing += 1
                 continue
             try:
@@ -285,6 +354,7 @@ def ingest_to_trivium(
                 issues.append(IngestIssue(source_file, chunk_id, "index_text", str(exc)))
                 stats.failed += 1
                 continue
+            indexed_text_nodes += 1
             # 只有写入 + 文本索引都成功才进 manifest；否则下次重跑会被当成"已入库"永不重试
             existing_ids.add(node_id)
             if was_existing_manifest:
@@ -294,10 +364,12 @@ def ingest_to_trivium(
             else:
                 stats.inserted += 1
         try:
-            # 文本索引只存在于进程内（TriviumRetriever 打开时会重建）；这里 build 一次
-            # 让同进程内紧接着的检索也能用到文本分量。
-            db.build_text_index()
-            db.flush()
+            # build + flush 把文本索引落成 .text 侧文件，检索侧据此以只读方式打开库
+            # （见 TriviumRetriever）。一条文本都没灌成功时跳过：空索引没有落盘价值，
+            # 且下面的还原逻辑会把入库前的侧文件放回去。
+            if indexed_text_nodes:
+                db.build_text_index()
+                db.flush()
         except Exception as exc:  # noqa: BLE001 — flush 失败记录为 IngestIssue
             issues.append(IngestIssue(source_file, "*", "flush", str(exc)))
             stats.failed += 1
@@ -306,6 +378,23 @@ def ingest_to_trivium(
             db.close()
         except Exception:  # noqa: BLE001, S110 — 关闭失败不影响已入库数据
             pass
+        # 不变量：一次入库绝不能让持久化文本索引比入库前更糟。close() 未留下完整侧
+        # 文件时（进程内索引为空、或 build/flush 失败）用入库前的快照还原。
+        survived = _has_complete_text_sidecars(db_path)
+        _settle_text_sidecars(db_path, restore=not survived)
+        if not survived and payloads:
+            # 有子块要入库却没落出文本索引：真实工作丢了，必须响。侧文件已还原，
+            # 所以既有索引无损，但这次入库不能算成功。
+            issues.append(
+                IngestIssue(
+                    source_file,
+                    "*",
+                    "text_index",
+                    "本次入库未落出持久化文本索引"
+                    + ("，已还原入库前的 .text 侧文件" if had_text_sidecars else ""),
+                )
+            )
+            stats.failed += 1
 
     parents_path = save_parent_store(parents, db_path)
     save_manifest(db_path, existing_ids)
