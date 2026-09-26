@@ -126,6 +126,10 @@ class MappingResult:
     assumptions: list[str] = field(default_factory=list)
     #: 图纸单位是否已知（原样承自 `DrawingExtraction`，便于下游不必回看）。
     unit_known: bool = False
+    #: 单位声明存在但不可信（英制，原样承自 `DrawingExtraction`）。
+    #: ``unit_known=True`` 且 ``unit_suspicious=True`` 时长度**仍未换算**——
+    #: 下游判断"长度类规则是否该被跳过"要看这个字段，不能只看 `unit_known`。
+    unit_suspicious: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -147,6 +151,7 @@ class MappingResult:
             "missing_inputs": list(self.missing_inputs),
             "assumptions": list(self.assumptions),
             "unit_known": self.unit_known,
+            "unit_suspicious": self.unit_suspicious,
         }
 
 
@@ -221,6 +226,12 @@ def parse_material(text: str) -> str | None:
     return None
 
 
+#: dxf_reader 生成的两条单位相关 assumption 的识别标记（见 `map_pipes`
+#: 对 `extraction.assumptions` 的过滤：这两条会被下面重新表述为
+#: missing_inputs，不能原样带入造成同一件事重复两遍）。
+_EXTRACTION_UNIT_ASSUMPTION_MARKERS = ("解析器不做单位假定", "解析器不据此换算")
+
+
 def metres_per_drawing_unit(insunits: int | None) -> float | None:
     """`$INSUNITS` → 每图纸单位的米数；未知或不支持时不猜。"""
     if insunits is None:
@@ -293,22 +304,50 @@ def map_pipes(extraction: DrawingExtraction) -> MappingResult:
     步骤：管线图元定长度 → 邻近标注补 dn/material → 单位换算（可用时）。
     每一步缺什么就如实留空 + 记 missing_inputs，**不填默认值**。
     """
-    result = MappingResult(unit_known=extraction.unit_known)
+    result = MappingResult(
+        unit_known=extraction.unit_known,
+        unit_suspicious=extraction.unit_suspicious,
+        # extraction 层的假设（截断警告等）原样带入——截断警告只在
+        # DrawingExtraction 里生成一次，映射层若不透传，用户就永远看不到
+        # "这份报告只覆盖了图纸的一部分"（B4）。
+        # 单位相关的两条 assumption 除外：本函数下面会按 missing_inputs 的
+        # 语义（"拒绝算"而非"算了但要核对"）重新表述一遍，原样带入会造成
+        # 同一件事一句 assumption、一句 missing_input 各说一次。
+        assumptions=[
+            a
+            for a in extraction.assumptions
+            if not any(marker in a for marker in _EXTRACTION_UNIT_ASSUMPTION_MARKERS)
+        ],
+    )
     if not extraction.ok:
         result.missing_inputs.append(
             "图纸抽取失败，无可映射图元（先解决 DrawingExtraction.errors）"
         )
         return result
 
-    scale = metres_per_drawing_unit(extraction.insunits) if extraction.unit_known else None
+    # unit_known 只说"$INSUNITS 有值"，不说"这个值可信"（规格 §5.1 之外的
+    # 实测补丁）：英制声明（unit_suspicious）在中文市政图纸里几乎恒为模板
+    # 残留值，一样要 fail-closed，不能因为字段"存在"就换算。
+    scale = (
+        metres_per_drawing_unit(extraction.insunits)
+        if extraction.unit_known and not extraction.unit_suspicious
+        else None
+    )
     if scale is None:
         # 规格 §5.2：这里是硬性的 missing_inputs，不是 assumption。
         # assumption 的语义是"我算了但你要核对"，这里是"我拒绝算"。
-        result.missing_inputs.append(
-            "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），"
-            "长度无法换算为米。请人工确认图纸单位后重新提供，"
-            "解析器不按默认单位换算（估算的长度会变成错误的工程量）"
-        )
+        if extraction.unit_suspicious:
+            result.missing_inputs.append(
+                f"drawing_unit：$INSUNITS={extraction.insunits}（英寸/英尺）"
+                "在中文市政图纸中极罕见，视为不可信声明，长度无法换算为米。"
+                "请人工确认图纸真实单位后重新提供"
+            )
+        else:
+            result.missing_inputs.append(
+                "drawing_unit：图纸未声明单位（$INSUNITS 缺失/为 0/为不支持的单位），"
+                "长度无法换算为米。请人工确认图纸单位后重新提供，"
+                "解析器不按默认单位换算（估算的长度会变成错误的工程量）"
+            )
 
     pipes_raw = [e for e in extraction.entities if e.kind in _PIPE_KINDS and len(e.points) >= 2]
     texts = [e for e in extraction.entities if e.kind in _TEXT_KINDS and e.points]

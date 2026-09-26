@@ -328,12 +328,23 @@ def read_drawing(
     insunits = int(insunits_raw) if isinstance(insunits_raw, int) else None
     # 单位未声明或 unitless → 不猜（规格 §5.1）。
     unit_known = insunits is not None and insunits != 0
+    # $INSUNITS 存在但取值是英寸/英尺（1/2）：实测（2026-09-22 对 18 份真实样本）
+    # 中文市政给排水图纸几乎不用英制，这两个值更像 ODA/AutoCAD 模板残留而非
+    # 真实图纸单位。不能直接当可信换算依据，但也不是"未声明"——是"声明了但
+    # 不可信"，两者要分开表述，见 mapping.map_pipes 的处理。
+    unit_suspicious = unit_known and insunits in (1, 2)
 
     assumptions: list[str] = []
     if not unit_known:
         assumptions.append(
             "图纸未声明单位（$INSUNITS 缺失或为 0），长度类结论需人工核对，"
             "解析器不做单位假定"
+        )
+    elif unit_suspicious:
+        assumptions.append(
+            f"$INSUNITS={insunits}（英寸/英尺）在中文市政图纸中极罕见，"
+            "视为不可信声明而非真实图纸单位，长度类结论需人工核对，"
+            "解析器不据此换算"
         )
 
     entities: list[DrawingEntity] = []
@@ -420,6 +431,7 @@ def read_drawing(
         dxf_version=str(doc.dxfversion),
         insunits=insunits,
         unit_known=unit_known,
+        unit_suspicious=unit_suspicious,
         layers=tuple(sorted(str(layer.dxf.name) for layer in doc.layers)),
         entities=tuple(entities),
         truncated=truncated,
