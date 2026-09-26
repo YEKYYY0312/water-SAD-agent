@@ -24,7 +24,11 @@ from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generato
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.calc import build_calc_graph, detect_intent, parse_calc_query
 from water_agent.graphs.rag import build_rag_graph
-from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.observability.json_trace import (
+    TRACE_DIR_ENV,
+    JsonTraceRecorder,
+    resolve_trace_dir,
+)
 from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.trivium import TriviumRetrievalError
@@ -105,7 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="docgen 文档类型：auto（默认，计算意图→计算书，其余→设计说明）/ calculation_book 计算书 / design_note 设计说明",
     )
-    p.add_argument("--trace-dir", default=str(DEFAULT_TRACE_DIR), help="Trace 输出目录")
+    # 默认在解析时算，好让容器里的 WATER_AGENT_TRACE_DIR 生效：镜像内 /app/data 是只读的
+    p.add_argument(
+        "--trace-dir",
+        default=str(resolve_trace_dir(default=DEFAULT_TRACE_DIR)),
+        help=f"Trace 输出目录（默认读 ${TRACE_DIR_ENV}，未设置时 {DEFAULT_TRACE_DIR}）",
+    )
     p.add_argument(
         "--drawing-root",
         default=None,

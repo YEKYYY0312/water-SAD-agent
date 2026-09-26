@@ -78,7 +78,8 @@ def create_app(
     memory_enabled: bool | None = None,
     memory_provider: MemoryProvider | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
-    trace_dir: str | Path = "data/traces",
+    # None ⇒ 由 WATER_AGENT_TRACE_DIR 决定（容器里指向可写卷；见 json_trace 模块文档）
+    trace_dir: str | Path | None = None,
     session_dir: str | Path = "data/sessions",
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""

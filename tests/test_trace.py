@@ -10,7 +10,12 @@ from water_agent.domain.models import TraceEvent
 from water_agent.domain.state import STATUS_FAILED, STATUS_SUCCEEDED, default_state
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.rag import build_rag_graph
-from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.observability.json_trace import (
+    DEFAULT_TRACE_DIR,
+    TRACE_DIR_ENV,
+    JsonTraceRecorder,
+    resolve_trace_dir,
+)
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 
@@ -61,6 +66,60 @@ class TestJsonTraceRecorder:
         recorder.output_dir.write_text("not a directory", encoding="utf-8")
         with pytest.raises(OSError, match="trace write failed"):
             recorder.finish(status="failed")
+
+
+class TestTraceDirResolution:
+    """trace 落点必须可配，否则容器里一条 trace 都留不下。
+
+    镜像把 ``/app/data`` 打成只读（Dockerfile 的 ``chmod -R a-w``），而
+    ``data/traces`` 连进镜像都没进（``.dockerignore``）。写死默认值时
+    ``finish()`` 每次都 ``OSError``——恰好在最需要现场的那一刻什么都不留。
+    """
+
+    def test_explicit_argument_wins_over_environment(self, tmp_path: Path) -> None:
+        explicit = tmp_path / "explicit"
+        resolved = resolve_trace_dir(explicit, getenv={TRACE_DIR_ENV: str(tmp_path / "env")}.get)
+        assert resolved == explicit
+
+    def test_environment_wins_over_the_default(self, tmp_path: Path) -> None:
+        resolved = resolve_trace_dir(getenv={TRACE_DIR_ENV: str(tmp_path / "env")}.get)
+        assert resolved == tmp_path / "env"
+
+    def test_default_applies_when_nothing_is_configured(self) -> None:
+        assert resolve_trace_dir(getenv=lambda _name: None) == DEFAULT_TRACE_DIR
+        # 空串/纯空白的环境变量视为未配置，而不是解析成当前目录
+        assert resolve_trace_dir(getenv={TRACE_DIR_ENV: "   "}.get) == DEFAULT_TRACE_DIR
+
+    def test_caller_supplied_default_is_honoured(self, tmp_path: Path) -> None:
+        """CLI 传的是仓库内绝对路径，换工作目录不该把 trace 撒到别处。"""
+        assert resolve_trace_dir(default=tmp_path / "cli", getenv=lambda _n: None) == tmp_path / "cli"
+
+    def test_recorder_without_arguments_follows_the_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(TRACE_DIR_ENV, str(tmp_path / "volume"))
+        recorder = JsonTraceRecorder()
+        assert recorder.output_dir == tmp_path / "volume"
+        recorder.start(run_id="run-1", trace_id="trace-1", query="测试")
+        path = recorder.finish(status="succeeded")
+        assert path.parent == tmp_path / "volume"
+        assert json.loads(path.read_text(encoding="utf-8"))["status"] == "succeeded"
+
+    def test_explicit_argument_still_beats_the_environment_on_the_recorder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """测试与 ``--trace-dir`` 必须永远说话最响，否则环境变量会劫持它们。"""
+        monkeypatch.setenv(TRACE_DIR_ENV, str(tmp_path / "volume"))
+        recorder = JsonTraceRecorder(tmp_path / "chosen")
+        assert recorder.output_dir == tmp_path / "chosen"
+
+    def test_assigning_none_falls_back_to_configuration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(TRACE_DIR_ENV, str(tmp_path / "volume"))
+        recorder = JsonTraceRecorder(tmp_path / "chosen")
+        recorder.output_dir = None
+        assert recorder.output_dir == tmp_path / "volume"
 
 
 class TestGraphTrace:

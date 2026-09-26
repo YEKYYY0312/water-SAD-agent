@@ -31,7 +31,6 @@ data/traces/
 data/eval/reports/
 data/eval/traces/
 data/sessions/
-data/indexes/
 *.db
 *.db-*
 *.sqlite
@@ -47,3 +46,44 @@ tests/
 .git/
 .venv/
 _venv/
+
+# Retrieval data must ship in the image, or every agentic run dies on assembly:
+# _load_fixture_clauses reads data/fixtures/, the version registry reads
+# data/versions.json, and without data/indexes/ the retriever silently answers
+# from a 2 KB fixture instead of the corpus.  These re-includes come LAST on
+# purpose: .dockerignore resolves by last match, and *.db / *.vec / *.wal above
+# would otherwise strip the index apart file by file.
+#
+# The index is treated as a versioned build artifact, not a runtime mount: it is
+# produced by scripts/build_index.py (which needs DASHSCOPE_API_KEY and so must
+# never run inside docker build) and then COPYed in, so a given image tag always
+# retrieves from a known corpus with no operator setup step.  It is served with
+# access_mode="read_only", which is what lets it live on the read-only root
+# filesystem -- see TriviumRetriever.  Ship the directory whole: .lock and
+# .flush_ok are required to open it, and .text/.text.meta are required for the
+# hybrid text component (without them retrieval degrades to pure vector).
+#
+# data/eval/reports/, data/traces/ and data/sessions/ stay denied above; nothing
+# here re-includes them (scripts/check_image.sh asserts the first is absent).
+!data/
+!data/fixtures/
+!data/fixtures/**
+!data/curated/
+!data/curated/**
+!data/versions.json
+!data/indexes/
+!data/indexes/**
+
+# `!data/` above is needed so the build context descends into data/, but Docker
+# counts a matching parent as matching its children -- which silently revives
+# every deny further up (measured: traces/, sessions/, eval/reports/ and the
+# 160 MB drawings/ all landed in the image).  So re-deny the rest of data/ HERE,
+# after the re-includes, because last match wins.  Keep this list in sync when
+# a new data/ subdirectory appears: the default is "does not ship".
+data/eval/
+data/traces/
+data/sessions/
+data/quality/
+data/drawings/
+data/mcp_servers.json
+**/.DS_Store

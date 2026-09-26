@@ -1,8 +1,23 @@
-"""将 RAG 运行事件持久化为独立 JSON 文件。"""
+"""将 RAG 运行事件持久化为独立 JSON 文件。
+
+落盘位置
+--------
+默认写仓库内的 ``data/traces``，供 CLI 与本机开发使用。容器里这条路不通：
+镜像把 ``/app/data`` 以 0444/0555 只读方式打包（见 Dockerfile），而
+``.dockerignore`` 本就不收 ``data/traces``，于是 :meth:`JsonTraceRecorder.finish`
+必然抛 ``OSError("trace write failed")`` —— 一次本可诊断的运行失败连现场都留不下。
+
+所以位置必须可配：``WATER_AGENT_TRACE_DIR`` 指向一个可写卷。它刻意挂在
+``/var/lib/water-agent`` **之外**（与凭据卷同理，见 ``config/credentials.py``）：
+``scripts/backup.sh`` 打包的是那个目录整体，而 trace 里有用户问题原文，
+不该随用户文件备份一起流转。
+"""
 from __future__ import annotations
 
 import json
+import os
 import time
+from collections.abc import Callable
 from collections.abc import Sequence as _Seq
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,12 +27,33 @@ from uuid import uuid4
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.models import Citation, RetrievedClause
 
+DEFAULT_TRACE_DIR = Path("data/traces")
+TRACE_DIR_ENV = "WATER_AGENT_TRACE_DIR"
+
+
+def resolve_trace_dir(
+    explicit: str | os.PathLike[str] | None = None,
+    *,
+    default: str | os.PathLike[str] = DEFAULT_TRACE_DIR,
+    getenv: Callable[[str], str | None] = os.environ.get,
+) -> Path:
+    """trace 落盘目录：显式参数 → ``WATER_AGENT_TRACE_DIR`` → ``default``。
+
+    显式参数优先，保证 CLI 的 ``--trace-dir`` 和测试传的 ``tmp_path`` 永远说话最响；
+    环境变量是部署层的旋钮；两者都没有时回到 ``default``（CLI 传仓库内绝对路径，
+    这样换工作目录也不会把 trace 撒在别处）。
+    """
+    if explicit is not None and str(explicit) != "":
+        return Path(explicit)
+    configured = (getenv(TRACE_DIR_ENV) or "").strip()
+    return Path(configured) if configured else Path(default)
+
 
 class JsonTraceRecorder:
     """进程内收集一次运行事件，并在 finish 时原子写入独立 JSON 文件。"""
 
-    def __init__(self, output_dir: str | Path = "data/traces") -> None:
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir: str | os.PathLike[str] | None = None) -> None:
+        self.output_dir = resolve_trace_dir(output_dir)
         self._document: dict[str, Any] | None = None
         self._started_monotonic = 0.0
         self._node_starts: dict[str, float] = {}
@@ -501,5 +537,6 @@ class JsonTraceRecorder:
         return self._output_dir
 
     @output_dir.setter
-    def output_dir(self, value: str | Path) -> None:
-        self._output_dir = Path(value)
+    def output_dir(self, value: str | os.PathLike[str] | None) -> None:
+        # 走同一个解析函数：赋 None 等于"回到配置决定的位置"，而不是 Path(None) 崩掉
+        self._output_dir = resolve_trace_dir(value)
