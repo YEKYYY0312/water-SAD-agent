@@ -96,7 +96,10 @@ class Client:
         try:
             parsed = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
-            parsed = {"_non_json": True, "_length": len(raw)}
+            # 非 JSON 响应（HTML/JS/CSS）保留原文：GET / 与 GET /assets/*.js 的
+            # bundle 标记断言（P5-S47）需要读它；JSON 响应不带 "raw"，避免大响应体
+            # 在内存里双份驻留。
+            parsed = {"_non_json": True, "_length": len(raw), "raw": raw}
         return status, parsed
 
     def csrf_token(self) -> str | None:
@@ -241,6 +244,34 @@ def main() -> int:
 
     status, _ = anonymous.request("POST", "/api/auth/register", {"username": "x"})
     record("public_registration_disabled", status == 404, f"status={status}")
+
+    # P5-S47：登录已并入 React，匿名三态探针是 AuthGate 的唯一判定来源。
+    status, auth_status_body = anonymous.request("GET", "/api/auth/status")
+    record(
+        "auth_status_probe",
+        status == 200 and (auth_status_body.get("data") or {}).get("authenticated") is False,
+        f"status={status}",
+    )
+
+    # 工作台入口页必须把带登录面板的 bundle 发给匿名浏览器：登录并入 React 后，
+    # 「/ 返回的 index.html 引用的 JS 里有 AuthGate 标记」就是「匿名用户能看到
+    # 登录表单」的可部署证据。标记字符串与 LoginPanel.tsx 的 aria-labelledby 一致。
+    status, index_page = anonymous.request("GET", "/")
+    bundle_marker_found = False
+    if status == 200:
+        import re as _re
+
+        asset_refs = _re.findall(r'src="(/assets/[^"]+\.js)"', index_page.get("raw", ""))
+        for ref in asset_refs:
+            asset_status, asset_body = anonymous.request("GET", ref)
+            if asset_status == 200 and "auth-gate" in asset_body.get("raw", ""):
+                bundle_marker_found = True
+                break
+    record(
+        "workbench_bundle_contains_login",
+        bundle_marker_found,
+        "GET / + bundle marker auth-gate",
+    )
 
     password = _read_secret(ADMIN_SECRET_PATH)
     if not password:

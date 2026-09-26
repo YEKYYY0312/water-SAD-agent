@@ -3,6 +3,7 @@
 Implements:
   POST /api/auth/login
   POST /api/auth/logout
+  GET  /api/auth/status   (P5-S47: unconditional three-state probe for AuthGate)
   GET  /api/auth/me
   POST /api/auth/change-pass
   GET  /api/auth/register  → 404 (public registration disabled)
@@ -44,7 +45,7 @@ from water_agent.webapp.auth.password import (
     verify_password,
 )
 from water_agent.webapp.auth.rate_limit import get_rate_limiter
-from water_agent.webapp.auth.session_store import get_session_store
+from water_agent.webapp.auth.session_store import SessionNotFoundError, get_session_store
 from water_agent.webapp.auth.user_store import (
     UsernameTakenError,
     UserNotFoundError,
@@ -188,6 +189,48 @@ async def logout(
     response = JSONResponse(status_code=200, content=_ok({"logged_out": True}))
     _clear_session_cookies(response)
     return response
+
+
+# ---------------------------------------------------------------------------
+# Auth status (unconditional probe for the React AuthGate)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/auth/status")
+async def auth_status(wa_session: str | None = Cookie(default=None)) -> JSONResponse:
+    """Unconditional three-state probe for the frontend auth gate.
+
+    Always 200.  ``authenticated`` carries the state so the frontend can
+    distinguish "not logged in" from "logged in but must change password"
+    without tripping the 401/403 guards on /api/auth/me.  Never leaks user
+    fields when unauthenticated; never consumes login rate-limit budget.
+    """
+    if not wa_session:
+        return JSONResponse(status_code=200, content=_ok({"authenticated": False}))
+    session_store = get_session_store()
+    user_store = get_user_store()
+    try:
+        session = session_store.get(wa_session)
+    except SessionNotFoundError:
+        return JSONResponse(status_code=200, content=_ok({"authenticated": False}))
+    if session.is_expired():
+        session_store.delete(wa_session)
+        return JSONResponse(status_code=200, content=_ok({"authenticated": False}))
+    try:
+        user = user_store.get_by_id(session.user_id)
+    except UserNotFoundError:
+        return JSONResponse(status_code=200, content=_ok({"authenticated": False}))
+    if not user.is_active:
+        return JSONResponse(status_code=200, content=_ok({"authenticated": False}))
+    return JSONResponse(
+        status_code=200,
+        content=_ok(
+            {
+                "authenticated": True,
+                "user": user.safe_dict(),
+                "must_change_password": user.must_change_password,
+            }
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
