@@ -2,6 +2,7 @@ import {
   ConversationPanel,
   ProjectSidebar,
 } from "./workspaceComponents";
+import { authApi } from "./authApi";
 import { MemoryWorkspace } from "./MemoryWorkspace";
 import { SettingsPanel } from "./SettingsPanel";
 import { useWorkspaceController } from "./useWorkspaceController";
@@ -12,6 +13,16 @@ export function Workbench() {
   const modelState = workspace.capabilities
     ? (workspace.capabilities.real_llm ? "real model" : "mock / 未配置")
     : "loading";
+
+  const logout = async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      // 即使请求失败也回登录页：本地 cookie 可能已失效，AuthGate 的 status
+      // 探针会给出真实状态；用 reload 让 AuthGate 重新走一遍三态判定。
+      window.location.reload();
+    }
+  };
   // 两个面板互斥：主区只有一处，同时打开会让「返回会话」按钮的含义变得含糊。
   const openMemory = () => {
     workspace.setSettingsOpen(false);
@@ -43,6 +54,7 @@ export function Workbench() {
           <span>● {serviceState}</span>
           <button type="button" className="workspace-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={openMemory}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
           <button type="button" className="icon-button settings-toggle" aria-pressed={workspace.settingsOpen} aria-label={workspace.settingsOpen ? "返回会话" : "设置"} title="设置" onClick={openSettings}>⚙</button>
+          <button type="button" className="quiet-button" onClick={logout} title="退出登录">退出</button>
         </div>
         <button type="button" className="workspace-memory-toggle mobile-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={openMemory}>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</button>
       </header>

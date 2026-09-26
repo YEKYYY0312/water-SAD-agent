@@ -16,7 +16,6 @@ from uuid import UUID
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
@@ -92,19 +91,10 @@ def create_app(
 
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
 
-    # CORS configuration for development (allow localhost:8001 for login.html)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:8001",
-            "http://localhost:8001",
-            "http://127.0.0.1:8000",
-            "http://localhost:8000",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # No CORSMiddleware: the React bundle is served by this same app (see the
+    # StaticFiles mount below), so browsers never issue a cross-origin preflight.
+    # The previous 8001-origin exception existed only for the standalone
+    # login.html scaffolding, which P5-S47 removed.
 
     app.include_router(auth_router)
     app.include_router(run_router)
