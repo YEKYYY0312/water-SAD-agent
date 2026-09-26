@@ -179,6 +179,19 @@ export function SettingsPanel({
 
       {statuses === null && !error && <p className="muted-copy">正在读取凭据状态…</p>}
 
+      {error?.code === "AUTH_SESSION_INVALID" && (
+        <div className="dialog-error" role="alert">
+          <span>会话已失效。</span>
+          <button
+            type="button"
+            className="button-primary"
+            onClick={() => window.dispatchEvent(new Event("water-agent:auth-expired"))}
+          >
+            返回登录
+          </button>
+        </div>
+      )}
+
       {rows.length > 0 && (
         <div className="settings-card-list">
           {rows.map((row) => (

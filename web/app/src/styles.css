@@ -261,3 +261,12 @@ h3 { margin-bottom: .55rem; font-size: .75rem; font-weight: 650; }
 .settings-card input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .settings-footnote { max-width: 46rem; line-height: 1.65; }
 @media (max-width: 44rem) { .settings-panel { padding: .85rem; } }
+
+/* P5-S47 auth gate: 登录/改密面板。复用 workbench 的 CSS 变量与 dialog 系列类。 */
+.auth-gate { min-height: 100vh; display: grid; place-items: center; background: var(--bg); padding: 1rem; }
+.auth-card { width: 100%; max-width: 24rem; border: 1px solid var(--line); background: var(--panel); }
+.auth-brand { padding: 1.25rem 1rem .5rem; }
+.auth-card .dialog-form { padding-top: .5rem; }
+.auth-card .dialog-actions { justify-content: flex-end; }
+.auth-hint { padding: 0 1rem 1rem; }
+.auth-hint code { display: inline-block; margin-top: .2rem; color: var(--accent-soft); font: .66rem ui-monospace, monospace; }

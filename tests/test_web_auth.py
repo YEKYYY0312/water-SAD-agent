@@ -427,6 +427,70 @@ def test_must_change_password_allows_change_pass():
 
 
 # ---------------------------------------------------------------------------
+# 13b. /api/auth/status: the unconditional three-state probe (P5-S47)
+# ---------------------------------------------------------------------------
+
+def test_status_anonymous_is_200_unauthenticated():
+    client, _us, _ss, _rl = _make_app_with_stores()
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    assert r.json()["data"] == {"authenticated": False}
+
+
+def test_status_authenticated_returns_safe_dict_without_hash():
+    client, us, _ss, _rl = _make_app_with_stores()
+    us.create_user("laura", "LauraPass2026!", UserRole.MEMBER)
+    client.post("/api/auth/login", json={"username": "laura", "password": "LauraPass2026!"})
+
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["authenticated"] is True
+    assert data["user"]["username"] == "laura"
+    assert data["must_change_password"] is False
+    # 不泄漏：密码哈希与明文都不出现在响应里
+    user = us.get_by_username("laura")
+    assert user.password_hash not in r.text
+    assert "LauraPass2026!" not in r.text
+
+
+def test_status_must_change_password_is_not_blocked():
+    """must_change_password 用户必须能从 status 拿到三态，否则永远进不了改密面板。"""
+    client, us, _ss, _rl = _make_app_with_stores()
+    us.create_user("mike", "MikePass2026!", UserRole.MEMBER, must_change_password=True)
+    client.post("/api/auth/login", json={"username": "mike", "password": "MikePass2026!"})
+
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200  # 不是 403——这正是 /me 做不到的事
+    data = r.json()["data"]
+    assert data["authenticated"] is True
+    assert data["must_change_password"] is True
+
+
+def test_status_tampered_cookie_is_200_unauthenticated():
+    client, _us, _ss, _rl = _make_app_with_stores()
+    client.cookies.set("wa_session", "forged-session-id")
+    r = client.get("/api/auth/status")
+    assert r.status_code == 200
+    assert r.json()["data"] == {"authenticated": False}
+
+
+def test_status_does_not_consume_login_rate_limit():
+    """status 是只读探针：连续调用不得消耗登录限流额度。"""
+    client, us, _ss, rl = _make_app_with_stores()
+    us.create_user("nina", "NinaPass2026!", UserRole.MEMBER)
+
+    for _ in range(20):
+        r = client.get("/api/auth/status")
+        assert r.status_code == 200
+
+    # 限流器里没有留下任何失败计数，登录照常
+    assert rl.failure_count("nina") == 0
+    r = client.post("/api/auth/login", json={"username": "nina", "password": "NinaPass2026!"})
+    assert r.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # 14. Login audit events do not contain passwords
 # ---------------------------------------------------------------------------
 
