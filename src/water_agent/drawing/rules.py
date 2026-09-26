@@ -321,7 +321,12 @@ def check_min_diameter(result: MappingResult) -> tuple[list[Finding], list[str]]
     依赖 P5.1 增强的系统类型识别（从标注文本推断）来保持召回率。
     """
     findings: list[Finding] = []
-    skipped = [p for p in result.pipes if p.system == "drainage" and p.dn_mm is None]
+    missing_dn = [p for p in result.pipes if p.system == "drainage" and p.dn_mm is None]
+    # 系统归属未知（图层名/标注都没能表达给水或排水）的管段：不是"确认不是
+    # 排水管所以跳过"，是"不知道是不是"。真实图纸里这类管段常见（图层命名
+    # 不规范），静默跳过会让本规则一条都没跑却在 summary 里显示"未发现问题"
+    # ——这正是 B2：得如实计入 not_checked，而不是当作"不适用"悄悄放过。
+    unknown_system = [p for p in result.pipes if p.system is None]
 
     for pipe in result.pipes:
         # 只检查明确标识为排水系统的管段
@@ -343,13 +348,16 @@ def check_min_diameter(result: MappingResult) -> tuple[list[Finding], list[str]]
                 )
             )
 
-    not_checked = (
-        [
-            f"{RULE_DRAIN_MIN_DN.rule_id}：{len(skipped)} 条排水管段无管径标注，未检查"
-        ]
-        if skipped
-        else []
-    )
+    not_checked: list[str] = []
+    if missing_dn:
+        not_checked.append(
+            f"{RULE_DRAIN_MIN_DN.rule_id}：{len(missing_dn)} 条排水管段无管径标注，未检查"
+        )
+    if unknown_system:
+        not_checked.append(
+            f"{RULE_DRAIN_MIN_DN.rule_id}：{len(unknown_system)} 条管段系统归属未知"
+            "（图层名/标注均未表达给水或排水），无法判定是否属于排水管，**未检查**"
+        )
     return findings, not_checked
 
 
@@ -364,8 +372,22 @@ def check_slope(result: MappingResult) -> tuple[list[Finding], list[str]]:
     保留这条规则并**如实报告未检查**，而不是删掉它：删掉会让报告读起来
     "坡度没问题"，而事实是"坡度根本没查"。这正是 `success_hallucination`
     检测器盯的那类失败。
+
+    ``system`` 全为 ``None``（归属未知，不是"确认为给水"）时同样要报未检查
+    ——B2：否则一张系统归属全部识别失败的真实图纸会因为"没有 drainage 管段"
+    而直接 ``return [], []``，规则表现为"跑过且没发现问题"。
     """
-    if not any(p.system == "drainage" for p in result.pipes):
+    drainage_pipes = [p for p in result.pipes if p.system == "drainage"]
+    unknown_system = sum(1 for p in result.pipes if p.system is None)
+    if not drainage_pipes:
+        if unknown_system:
+            return [], [
+                (
+                    f"{RULE_DRAIN_SLOPE.rule_id}：{unknown_system} 条管段系统归属未知"
+                    "（图层名/标注均未表达给水或排水），坡度规则的适用范围无法判定，"
+                    "**未检查**"
+                )
+            ]
         return [], []
     return [], [
         (
@@ -387,8 +409,22 @@ def check_pressure_velocity(result: MappingResult) -> tuple[list[Finding], list[
     - RULE_PRESSURE_VELOCITY：压力流设计流速 0.7-2.0 m/s（GB50014-2021 5.2.9）
     - RULE_DRAIN_MAX_VELOCITY：按管材分类的最大流速（同一条文，塑料管/铸铁管 5.0，混凝土管/钢管 10.0）
     两者都需要流量数据，当前都报未检查。
+
+    同 `check_slope`：``system`` 全为 ``None`` 时也要报未检查，不能因为
+    "没有识别到 drainage 管段"就当作规则不适用而静默放过（B2）。
     """
-    if not any(p.system == "drainage" for p in result.pipes):
+    drainage_pipes = [p for p in result.pipes if p.system == "drainage"]
+    unknown_system = sum(1 for p in result.pipes if p.system is None)
+    if not drainage_pipes:
+        if unknown_system:
+            return [], [
+                (
+                    f"{RULE_PRESSURE_VELOCITY.rule_id}：{unknown_system} 条管段系统归属未知"
+                    "（图层名/标注均未表达给水或排水），压力流速规则的适用范围无法判定，"
+                    "**未检查**"
+                ),
+                f"{RULE_DRAIN_MAX_VELOCITY.rule_id}：同上，系统归属未知，**未检查**",
+            ]
         return [], []
     return [], [
         (
@@ -430,5 +466,12 @@ def review_drawing(result: MappingResult) -> ReviewResult:
     if not result.unit_known:
         review.not_checked.append(
             "长度类规则：图纸单位未声明，长度未换算，**任何依赖长度的检查都未执行**"
+        )
+    elif result.unit_suspicious:
+        # unit_known=True 但 unit_suspicious=True（B3）：字段"有值"不等于
+        # "可信"，长度依然没换算，这条披露不能只看 unit_known。
+        review.not_checked.append(
+            "长度类规则：图纸声明的单位不可信（英制，中文市政图纸中极罕见），"
+            "长度未换算，**任何依赖长度的检查都未执行**"
         )
     return review
