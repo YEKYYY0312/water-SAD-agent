@@ -93,6 +93,11 @@ class DrawingExtraction(BaseModel):
     #: 单位是否已知。``$INSUNITS`` 缺失或为 0 时为 ``False`` ——
     #: 此时**不得**假定毫米或米（规格 §5.1，同 `UsageRecord.usage_known` 纪律）。
     unit_known: bool = False
+    #: ``$INSUNITS`` 存在但取值在中文市政图纸场景下不可信（如英寸/英尺，
+    #: 实测为 ODA/AutoCAD 模板残留值而非真实图纸单位）。``unit_known`` 仍为
+    #: ``True``（值确实存在），但下游**不得**据此换算长度 —— 见
+    #: `mapping.map_pipes` 对 ``unit_suspicious`` 的处理。
+    unit_suspicious: bool = False
     layers: tuple[str, ...] = ()
     entities: tuple[DrawingEntity, ...] = ()
     #: 因 ``max_entities`` 或返回字节上限而截断。
