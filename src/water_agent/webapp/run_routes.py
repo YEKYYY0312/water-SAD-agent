@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from water_agent.runtime.agentic import real_llm_configured
+from water_agent.runtime.agentic import (
+    embedding_configured,
+    embedding_required,
+    real_llm_configured,
+)
 from water_agent.storage.repository import (
     ResourceNotFoundError,
     RunRepository,
@@ -75,6 +79,19 @@ def _not_found() -> JSONResponse:
     )
 
 
+def _not_configured(code: str, message: str) -> JSONResponse:
+    """424：依赖的凭据/配置缺失。每种缺失给独立 code，便于自助排查。"""
+
+    return JSONResponse(
+        status_code=424,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {"code": code, "message": message},
+        },
+    )
+
+
 @router.post(
     "/api/sessions/{thread_id}/messages",
     dependencies=[Depends(validate_csrf)],
@@ -102,17 +119,19 @@ async def create_message(
         return _not_found()
 
     factory = manager.session_factory
-    if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator and not real_llm_configured():
-            return JSONResponse(
-                status_code=424,
-                content={
-                    "version": _API_VERSION,
-                    "ok": False,
-                    "error": {
-                        "code": "WEB_MODEL_NOT_CONFIGURED",
-                        "message": "Real agent model is not configured",
-                    },
-                },
+    if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator:
+        if not real_llm_configured():
+            return _not_configured(
+                "WEB_MODEL_NOT_CONFIGURED", "Real agent model is not configured"
+            )
+        # 检索用的 embedding 凭据独立于对话模型。两者配齐才算可跑：只配了对话模型
+        # 时，装配会在构造 embedding provider 时抛 ValueError，浏览器只看到通用的
+        # "agent run failed"，而这纯粹是配置缺失——独立错误码让它可自助排查。
+        # 刻意不降级为 fixture 检索：那会让答案看似正常、实则脱离真实语料。
+        if embedding_required(factory.agent_args) and not embedding_configured():
+            return _not_configured(
+                "WEB_EMBEDDING_NOT_CONFIGURED",
+                "Retrieval embedding credential is not configured",
             )
 
     try:

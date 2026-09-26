@@ -63,7 +63,8 @@ from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.retrieval.rerank import RerankingRetriever
-from water_agent.retrieval.trivium import TriviumRetriever
+from water_agent.retrieval.trivium import DEFAULT_INDEX_DIR as TRIVIUM_INDEX_DIR
+from water_agent.retrieval.trivium import TriviumRetriever, resolve_index_path
 from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
@@ -80,7 +81,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVAL_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
 DEFAULT_TRACE_DIR = REPO_ROOT / "data" / "eval" / "traces"
 DEFAULT_FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
-DEFAULT_INDEX_DIR = REPO_ROOT / "data" / "indexes"
+# 索引目录与选择规则归 retrieval.trivium 统一维护；别名保留既有引用点。
+DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 DEFAULT_DB_DIMENSIONS = 512
 DEFAULT_MODEL = "deepseek-chat"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -177,11 +179,13 @@ def citation_ok_for_result(r: EvalResult) -> bool:
 
 
 def _pick_index(db_path: str | Path | None = None) -> Path | None:
-    """选择真实 TriviumDB 索引路径。优先显式指定，否则取 data/indexes 下最新 db。"""
-    if db_path and Path(db_path).exists():
-        return Path(db_path)
-    candidates = sorted(Path(DEFAULT_INDEX_DIR).glob("*.db")) if DEFAULT_INDEX_DIR.exists() else []
-    return candidates[-1] if candidates else None
+    """选择真实 TriviumDB 索引路径，规则与 CLI/Web 共用 :func:`resolve_index_path`。
+
+    保留"显式路径不存在就当没指定"的既有宽松语义（harness 据此给 SKIP 而不是
+    崩掉）；选不出索引的歧义情形由 ``resolve_index_path`` 抛错，不静默换库。
+    """
+    explicit = db_path if db_path and Path(db_path).exists() else None
+    return resolve_index_path(explicit)
 
 
 class HarnessRunner:
@@ -282,7 +286,9 @@ class HarnessRunner:
         assert index is not None, "real retriever requires an index"
         dim = self.dimensions
         if dim is None:
-            probe = triviumdb.TriviumDB(str(index))
+            # 只读打开：探测只需要 dim()，read_write 会要求索引可写（见
+            # TriviumRetriever 的说明），在只读挂载的索引上会无谓失败。
+            probe = triviumdb.TriviumDB(str(index), access_mode="read_only")
             try:
                 dim = int(probe.dim())
             finally:
