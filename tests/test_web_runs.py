@@ -392,6 +392,55 @@ def test_no_model_key_returns_structured_precondition_failure(
     }
 
 
+def test_no_embedding_key_returns_its_own_precondition_failure(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """配了对话模型但没配 embedding 凭据时，必须在预检拒绝并给独立错误码。
+
+    此前这种配置会通过预检，然后在装配 embedding provider 时抛 ValueError，浏览器
+    只看到通用的 "agent run failed" —— 一个纯配置问题被伪装成运行失败。
+    """
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-configured-chat-model-key")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    client, _, thread_id = _client(database, tmp_path)
+    response = client.post(
+        f"/api/sessions/{thread_id}/messages",
+        json={"message": "问题"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 424
+    assert response.json() == {
+        "version": "v1",
+        "ok": False,
+        "error": {
+            "code": "WEB_EMBEDDING_NOT_CONFIGURED",
+            "message": "Retrieval embedding credential is not configured",
+        },
+    }
+
+
+def test_embedding_key_is_not_required_without_a_real_index(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """没有真实索引时检索走 fixture 兜底，不该因为缺 embedding 凭据而拒绝。"""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-configured-chat-model-key")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    monkeypatch.setattr(
+        "water_agent.retrieval.trivium.DEFAULT_INDEX_DIR", tmp_path / "no-indexes"
+    )
+    client, _, thread_id = _client(database, tmp_path)
+    response = client.post(
+        f"/api/sessions/{thread_id}/messages",
+        json={"message": "问题"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 202, response.text
+
+
 def test_recall_store_failure_degrades_to_a_warning(
     database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -445,3 +494,25 @@ def test_cli_and_web_use_the_same_agentic_assembly_function() -> None:
     assert "build_agentic_session" in Path(
         "src/water_agent/webapp/run_manager.py"
     ).read_text(encoding="utf-8")
+
+
+def test_web_trace_dir_follows_the_deployment_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Web 的 trace 落点必须跟随 ``WATER_AGENT_TRACE_DIR``，一路传到 agent args。
+
+    容器里 ``/app/data`` 是只读的，写死 ``data/traces`` 会让每次运行收尾都
+    ``OSError: trace write failed``。这里钉住整条链：工厂属性 → agent Namespace。
+    """
+    from water_agent.observability.json_trace import TRACE_DIR_ENV
+    from water_agent.webapp.run_manager import WebAgenticSessionFactory
+
+    volume = tmp_path / "var-lib-water-agent-traces"
+    monkeypatch.setenv(TRACE_DIR_ENV, str(volume))
+    factory = WebAgenticSessionFactory(None, None)  # type: ignore[arg-type]
+    assert factory.trace_dir == str(volume)
+    assert factory._args().trace_dir == str(volume)
+
+    # 显式参数仍然优先：CLI 与测试传的路径不该被环境变量劫持
+    explicit = WebAgenticSessionFactory(None, None, trace_dir=tmp_path / "chosen")  # type: ignore[arg-type]
+    assert explicit.trace_dir == str(tmp_path / "chosen")
