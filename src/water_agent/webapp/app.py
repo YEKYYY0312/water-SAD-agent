@@ -43,6 +43,7 @@ from water_agent.webapp.run_manager import (
 )
 from water_agent.webapp.run_routes import router as run_router
 from water_agent.webapp.settings_routes import router as settings_router
+from water_agent.webapp.upload_routes import router as upload_router
 from water_agent.webapp.workspace_routes import router as workspace_router
 
 API_ENVELOPE_VERSION = "v1"
@@ -80,6 +81,10 @@ def create_app(
     # None ⇒ 由 WATER_AGENT_TRACE_DIR 决定（容器里指向可写卷；见 json_trace 模块文档）
     trace_dir: str | Path | None = None,
     session_dir: str | Path = "data/sessions",
+    # None ⇒ 由 resolve_upload_dir / resolve_export_dir 决定（容器里指向 compose 卷；
+    # 见 documents/storage.py 模块文档）。测试传 tmp_path 以免写进真实卷。
+    upload_dir: str | Path | None = None,
+    export_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     # Backfill LLM credentials from the Compose secret files and the writable
@@ -101,6 +106,7 @@ def create_app(
     app.include_router(workspace_router)
     app.include_router(memory_router)
     app.include_router(settings_router)
+    app.include_router(upload_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
@@ -127,6 +133,8 @@ def create_app(
     )
     app.state.tenant_id = tenant_id
     app.state.memory_provider = memory_provider
+    app.state.upload_dir = upload_dir
+    app.state.export_dir = export_dir
     # One write service per app: its pending-candidate store is in-process (15 min
     # TTL), so preview and confirmation must reach the same worker.  Memory
     # governance itself is never re-implemented here (Step 45 audit note).
