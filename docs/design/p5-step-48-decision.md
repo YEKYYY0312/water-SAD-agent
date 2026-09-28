@@ -1,6 +1,6 @@
 # Decision: P5-S48 多模态文件输入与输出（后端 Step 1–4）
 
-> 状态：**后端 Step 1–4 已交付**（2026-09-28）；前端 Step 5（📎 上传按钮 + 文件卡片 + 下载按钮）**未做**，按用户拍板留到下一轮。
+> 状态：**Step 1–5 全部交付**（2026-09-28）。前端 Step 5 同时按用户参考图把工作台整体改为浅色设计。
 > 规格：`docs/design/p5-step-48-multimodal-upload-export.md`；执行 prompt：`docs/execution-prompts/P5-S48-multimodal-upload-export.md`。
 
 ## 用户拍板（本轮开工前）
@@ -62,7 +62,7 @@
 
 ## 已知边界（不得越过的声明）
 
-- **前端未做**：工作台里没有 📎 与下载按钮，"Web 端能上传/下载"目前只对 API 成立。
+- 前端 Excel 按钮以「本次 `material_stats` 成功」为显示条件；后端若因材料表畸形丢弃整表，点击后返回 404 并原地提示。
 - **导出只服务进程内 run**：重启后 404，与 `/trace` 同限制。
 - **召回是字面匹配**：SQLite 下只有字面分，PG 多一层 FTS 排序加成；**不得声称支持任意中文表达的召回**，也没有任何召回质量评测集（机制测试 ≠ 质量证据）。
 - **Trivium/向量召回 blocked**：需 DASHSCOPE_API_KEY + 可写索引卷 + 与 curated 索引维度一致。
