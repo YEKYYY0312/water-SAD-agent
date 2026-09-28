@@ -104,6 +104,12 @@ class _RunHandle:
     seen_tool_calls: set[str] = field(default_factory=set)
     seen_tool_messages: set[str] = field(default_factory=set)
     calculations: list[dict[str, Any]] = field(default_factory=list)
+    # P5-S48 导出专用，**不进 SSE**（前端事件契约不变）：最后一次 material_stats 的
+    # 材料表，以及与 calc_velocity 结果按 tool_call_id 配对的数值输入参数。
+    # 材料表取"最后一次"而不是累加：模型对同一批管段重复调用时，累加就是重复计量。
+    material_table: dict[str, Any] | None = None
+    calc_inputs: dict[str, float] = field(default_factory=dict)
+    tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _now() -> str:
@@ -586,6 +592,11 @@ class RunManager:
         if not isinstance(messages, (list, tuple)):
             return
         for message in messages:
+            for call in getattr(message, "tool_calls", None) or []:
+                call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
+                args = call.get("args") if isinstance(call, dict) else None
+                if call_id and isinstance(args, dict):
+                    handle.tool_call_args[call_id] = args
             tool_name = getattr(message, "name", None)
             if not isinstance(tool_name, str) or not tool_name:
                 continue
@@ -622,7 +633,76 @@ class RunManager:
             if calculation is not None:
                 result_payload["calculation"] = calculation
                 handle.calculations.append(calculation)
+                # 输入只取调用参数里的数值：它们是模型传给程序化工具的原值，
+                # 计算书把它们原样列出，不做任何换算。
+                for key, value in handle.tool_call_args.get(tool_call_id, {}).items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        handle.calc_inputs[str(key)] = value
+            if tool_name == "material_stats" and not failed:
+                table = self._material_table(payload)
+                if table is not None:
+                    handle.material_table = table
             self._append(handle, "tool_result", result_payload)
+
+    @staticmethod
+    def _material_table(payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Keep the programmatic material table only when every row is well formed.
+
+        A table with one malformed row is dropped whole rather than filtered:
+        exporting "most of" a bill of quantities is a wrong bill of quantities.
+        """
+
+        rows = payload.get("rows")
+        total = payload.get("total_length_m")
+        if not isinstance(rows, list) or not rows:
+            return None
+        if isinstance(total, bool) or not isinstance(total, (int, float)):
+            return None
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("material"):
+                return None
+            quantity = row.get("quantity")
+            if isinstance(quantity, bool) or not isinstance(quantity, (int, float)):
+                return None
+        return {
+            "rows": [dict(row) for row in rows],
+            "total_length_m": total,
+            "assumptions": [str(item) for item in payload.get("assumptions") or []],
+        }
+
+    def export_snapshot(self, run_id: UUID | str) -> dict[str, Any]:
+        """Export material for a finalized run of this process (P5-S48 Step 4).
+
+        Same lifetime as :meth:`trace`: the run's result lives only in the
+        in-process handle, so a run this process never executed (or executed
+        before a restart) raises :class:`RunNotManagedError`.  A run that has not
+        finalized yet also raises it -- exporting a half-written answer would
+        produce a document that silently disagrees with what the user sees once
+        the stream ends.
+
+        Callers must authorize first; this method does no ownership check.
+        """
+
+        handle = self._get_handle(run_id)
+        with handle.condition:
+            if not handle.finalized:
+                raise RunNotManagedError("run has not finalized")
+            finalize = next(
+                (event for event in reversed(handle.events) if event.event_type == "finalize"),
+                None,
+            )
+            payload = dict(finalize.payload) if finalize is not None else {}
+            return {
+                "run_id": handle.run_id,
+                "status": handle.status,
+                "answer": str(payload.get("answer") or ""),
+                "citations": list(payload.get("citations") or []),
+                "calculations": list(handle.calculations),
+                "calc_inputs": dict(handle.calc_inputs),
+                "material_table": (
+                    None if handle.material_table is None else dict(handle.material_table)
+                ),
+            }
 
     @staticmethod
     def _tool_payload(content: Any) -> dict[str, Any]:

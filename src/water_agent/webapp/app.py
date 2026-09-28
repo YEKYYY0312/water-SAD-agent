@@ -35,6 +35,7 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
+from water_agent.webapp.export_routes import router as export_router
 from water_agent.webapp.memory_routes import router as memory_router
 from water_agent.webapp.run_manager import (
     DEFAULT_TENANT_ID,
@@ -107,6 +108,7 @@ def create_app(
     app.include_router(memory_router)
     app.include_router(settings_router)
     app.include_router(upload_router)
+    app.include_router(export_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
