@@ -225,6 +225,7 @@ class RunManager:
         tenant_id: UUID = DEFAULT_TENANT_ID,
         memory_enabled: bool | None = None,
         memory_provider: MemoryProvider | None = None,
+        uploads_enabled: bool | None = None,
         trace_dir: str | os.PathLike[str] | None = None,
         session_dir: str | os.PathLike[str] = "data/sessions",
         max_workers: int = 4,
@@ -239,6 +240,13 @@ class RunManager:
             else memory_enabled
         )
         self.memory_provider = memory_provider
+        # 特性开关（AGENTS.md「未完成功能用特性开关护住」）：召回层可单独关掉而不用
+        # 回退上传能力本身——文件照旧能上传和下载，只是不进提示词。
+        self.uploads_enabled = (
+            os.getenv("UPLOAD_RECALL_ENABLED", "true").lower() != "false"
+            if uploads_enabled is None
+            else uploads_enabled
+        )
         self.session_factory = session_factory or WebAgenticSessionFactory(
             database,
             self.sessions,
@@ -398,6 +406,15 @@ class RunManager:
                         )
                         return
 
+                upload_context = self._recall_uploads(handle, session, query)
+                # 只在确有召回时才传 upload_context：AgentSessionFactory 是协议，现有实现
+                # （harness/memory_eval.py 的评测会话、各测试夹具）的 aask 并不认识这个
+                # 关键字。无条件传会让它们全部 TypeError → 被下方兜底改写成 run failed，
+                # 即一个与上传无关的会话因为本步而静默失败。有召回却不支持时照旧响亮失败。
+                extra: dict[str, Any] = (
+                    {"upload_context": upload_context} if upload_context is not None else {}
+                )
+
                 result = asyncio.run(
                     session.aask(
                         query,
@@ -406,6 +423,7 @@ class RunManager:
                         on_token=lambda token: self._on_token(handle, token),
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
                         cancel_check=lambda: self._is_cancel_requested(handle),
+                        **extra,
                     )
                 )
             if self._is_cancel_requested(handle):
@@ -435,6 +453,64 @@ class RunManager:
                 node="run",
             )
             self._finish(handle, status="failed", payload={"error": "agent run failed"})
+
+    def _recall_uploads(self, handle: _RunHandle, session: Any, query: str) -> Any | None:
+        """Recall uploaded project material for this query, or degrade loudly.
+
+        Unlike memory recall this has **no blocked branch**: uploaded documents
+        are project material the caller is already authorized for, not a
+        cross-tenant surface, so an unavailable index is a degradation and not a
+        reason to kill an otherwise valid question.  The degradation is still
+        reported as a warning event -- silently answering without the document
+        the user just uploaded is exactly the confusing case to avoid.
+        """
+
+        if not self.uploads_enabled:
+            return None
+        from water_agent.documents.retrieval import (
+            UploadRecallUnavailableError,
+            recall_uploads,
+        )
+
+        try:
+            result = recall_uploads(
+                self.database,
+                tenant_id=self.tenant_id,
+                actor_user_id=handle.owner_user_id,
+                project_id=handle.project_id,
+                query=query,
+            )
+        except (UploadRecallUnavailableError, ValueError, TypeError):
+            self._record_trace_event(
+                session,
+                "upload_recall_degraded",
+                {"code": "UPLOAD_RECALL_DEGRADED"},
+                status="running",
+                node="upload",
+            )
+            self._append(
+                handle,
+                "warning",
+                {
+                    "code": "UPLOAD_RECALL_DEGRADED",
+                    "message": "Uploaded material could not be searched; continued without it",
+                },
+            )
+            return None
+        # 事件只带计数与 upload_id，**不带正文**：SSE 会进浏览器，上传正文属用户资料。
+        self._append(
+            handle,
+            "upload_recall",
+            {
+                "returned_count": len(result.hits),
+                "candidate_count": result.candidate_count,
+                "omitted_count": result.omitted_count,
+                "character_budget": result.character_budget,
+                "upload_ids": result.upload_ids,
+                "suspicious_count": sum(1 for hit in result.hits if hit.suspicious),
+            },
+        )
+        return result if result.hits else None
 
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
         with handle.condition:

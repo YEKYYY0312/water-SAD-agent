@@ -16,6 +16,12 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
+from water_agent.documents.retrieval import (
+    MAX_UPLOAD_CONTEXT_CHARACTERS,
+    UploadRecallHit,
+    UploadRecallResult,
+    render_upload_context,
+)
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.memory.recall import (
     MAX_MEMORY_CONTEXT_CHARACTERS,
@@ -37,11 +43,14 @@ SEGMENT_BUDGETS: dict[str, int] = {
     "formula_specs": 400,
     "tool_guide": 800,
     "memory_context": MAX_MEMORY_CONTEXT_CHARACTERS,
+    # P5-S48：上传资料召回段。与 memory_context 同预算——两段都是外部数据，
+    # 没有理由让上传占得更多；再大会挤掉检索到的规范条文。
+    "upload_context": MAX_UPLOAD_CONTEXT_CHARACTERS,
 }
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-step41-memory-context-2026-09-13"
+PROMPT_TEMPLATE_VERSION = "p5-step48-upload-context-2026-09-27"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -149,6 +158,11 @@ class PromptAssembler:
             _truncate_to_budget(
                 self._build_memory_context(state), SEGMENT_BUDGETS["memory_context"]
             ),
+            # 上传资料放在最后：最易变的一段（每次查询召回不同块），放在末尾对
+            # provider prompt cache 最友好。
+            _truncate_to_budget(
+                self._build_upload_context(state), SEGMENT_BUDGETS["upload_context"]
+            ),
         ]
         content = "\n\n".join(seg for seg in segments if seg)
         return SystemMessage(content=content)
@@ -208,3 +222,38 @@ class PromptAssembler:
                     raise TypeError("memory_context must be a recall result or memory envelopes")
             return render_memory_context(items)
         raise TypeError("memory_context must be a recall result, text, or memory envelopes")
+
+    @staticmethod
+    def _build_upload_context(state: dict[str, Any]) -> str:
+        """Render only caller-provided uploaded-document data as its own segment.
+
+        Accepts a recall result or ``RETRIEVED_FILE`` envelopes and **nothing
+        else**.  The tag check is not decoration: it is the assembly-time refusal
+        to let a caller relabel uploaded text as session memory or, worse, as
+        anything instruction-bearing.  A plain string is accepted for the
+        already-rendered case, exactly as ``memory_context`` does.
+        """
+
+        value = state.get("upload_context")
+        if value is None:
+            return ""
+        if isinstance(value, UploadRecallResult):
+            return value.context_text
+        if isinstance(value, str):
+            return "" if not value.strip() else value
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            items: list[UploadRecallHit] = []
+            envelopes: list[ContentEnvelope] = []
+            for item in value:
+                if isinstance(item, UploadRecallHit):
+                    items.append(item)
+                elif isinstance(item, ContentEnvelope):
+                    if item.source_tag is not SourceTag.RETRIEVED_FILE:
+                        raise ValueError("upload_context must contain RETRIEVED_FILE data")
+                    envelopes.append(item)
+                else:
+                    raise TypeError("upload_context must be a recall result or upload envelopes")
+            if items and envelopes:
+                raise TypeError("upload_context must not mix recall hits and envelopes")
+            return render_upload_context(envelopes if envelopes else items)
+        raise TypeError("upload_context must be a recall result, text, or upload envelopes")
