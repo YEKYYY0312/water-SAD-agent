@@ -396,7 +396,14 @@ def ingest_to_trivium(
             )
             stats.failed += 1
 
-    parents_path = save_parent_store(parents, db_path)
+    # 合并而不是覆盖：入库按文件逐个调用（scripts/build_index.py 对
+    # data/curated/clauses/*.jsonl 各调一次），直接写本文件的父块会把此前文件的
+    # 父块全部冲掉——与上面 .text 侧文件是同一类缺陷。实测已发布的 512 维索引
+    # parents.json 只剩末位文件 GB50318 的 24 个父块（应为 147），检索命中另外三本
+    # 规范时"父块上下文回填"静默失效（review 09-28 #5）。chunk_id 含 spec_id 与
+    # 内容哈希，同一父块重入库得到同一个键，合并天然幂等。
+    merged_parents = {**load_parent_store(db_path), **parents}
+    parents_path = save_parent_store(merged_parents, db_path)
     save_manifest(db_path, existing_ids)
 
     if issues:

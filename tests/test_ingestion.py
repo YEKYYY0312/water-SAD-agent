@@ -292,3 +292,29 @@ def test_build_index_dry_run_needs_no_api_key(tmp_path, monkeypatch):
 
     out = _json.loads(proc.stdout)
     assert out["dry_run"] is True and out["total"]["child_payloads"] > 0
+
+
+def test_multi_file_ingest_keeps_parents_from_every_file():
+    """review 09-28 #5：parents.json 曾被逐文件覆盖，只剩最后一个文件的父块。
+
+    scripts/build_index.py 对 data/curated/clauses/*.jsonl 逐个调用 ingest_to_trivium，
+    实测已发布索引的父块只剩末位 GB50318 的 24 个（应 147）。用两本真实入库规范验证。
+    """
+    curated = Path("data/curated/clauses")
+    first, second = curated / "GB50013-2018.jsonl", curated / "GB50318-2017.jsonl"
+    with TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "multi.db"
+        ingest_to_trivium(first, db_path)
+        after_first = load_parent_store(db_path)
+        ingest_to_trivium(second, db_path)
+        after_both = load_parent_store(db_path)
+        # 再跑一遍第一本：幂等，不增不减
+        ingest_to_trivium(first, db_path)
+        after_rerun = load_parent_store(db_path)
+
+    specs_first = {chunk.spec_id for chunk in after_first.values()}
+    specs_both = {chunk.spec_id for chunk in after_both.values()}
+    assert specs_first == {"GB50013-2018"}
+    assert specs_both == {"GB50013-2018", "GB50318-2017"}, "第二个文件冲掉了第一个文件的父块"
+    assert set(after_first) <= set(after_both)
+    assert after_rerun.keys() == after_both.keys()
