@@ -200,18 +200,56 @@ class TestGuardrailFailClosed:
         )
         assert capability_for_tool("mcp_demo_query") is Capability.MCP_INVOKE
 
-    def test_duplicate_binding_rejected(self) -> None:
+    def test_conflicting_binding_for_the_same_name_is_rejected(self) -> None:
+        """另一个 server 的工具不得静默顶替已登记的名字——这才是重名拒绝要防的。"""
+        from water_agent.runtime.governance.contracts import Capability
+
+        register_mcp_tool_binding(
+            McpToolBinding(
+                tool_name="mcp_dup_query",
+                server_id="demo",
+                remote_tool="query",
+                capability=Capability.MCP_INVOKE,
+            )
+        )
+        for impostor in (
+            {"server_id": "other"},
+            {"remote_tool": "drop_table"},
+            {"requires_human_confirmation": True},
+        ):
+            with pytest.raises(ValueError, match="已登记"):
+                register_mcp_tool_binding(
+                    McpToolBinding(
+                        **{
+                            "tool_name": "mcp_dup_query",
+                            "server_id": "demo",
+                            "remote_tool": "query",
+                            "capability": Capability.MCP_INVOKE,
+                            **impostor,
+                        }
+                    )
+                )
+
+    def test_identical_binding_is_idempotent(self) -> None:
+        """同一份绑定再次登记必须幂等（review 09-28 #3）。
+
+        每个 Web run 都重新装配 AgenticSession、重新打开桥接。此前第二次登记即
+        ValueError → MCP_NAME_COLLISION → 工具被跳过，进程里只有第一个会话能用 MCP。
+        """
         from water_agent.runtime.governance.contracts import Capability
 
         binding = McpToolBinding(
-            tool_name="mcp_dup_query",
+            tool_name="mcp_same_query",
             server_id="demo",
             remote_tool="query",
             capability=Capability.MCP_INVOKE,
         )
         register_mcp_tool_binding(binding)
-        with pytest.raises(ValueError, match="已登记"):
-            register_mcp_tool_binding(binding)
+        register_mcp_tool_binding(binding)
+        register_mcp_tool_binding(binding.model_copy())
+        from water_agent.runtime.governance.inventory import mcp_tool_bindings
+
+        assert [b.tool_name for b in mcp_tool_bindings()].count("mcp_same_query") == 1
 
     def test_tool_name_pattern_enforced_by_toolspec(self) -> None:
         """桥接名必须过 ToolSpec 的 snake_case 校验（桥接层不得绕开）。"""
@@ -242,3 +280,21 @@ class TestGuardrailFailClosed:
         )
         assert spec.name == "mcp_demo_query"
         assert capability_for_tool(spec.name) is Capability.MCP_INVOKE
+
+
+class TestRepeatedAssembly:
+    """review 09-28 #3：每个 Web run 都重新打开桥接，第二次不得因"已登记"被跳过。"""
+
+    def test_second_bridge_to_the_same_server_still_exposes_the_tool(self) -> None:
+        first = open_bridge(_config("ok"), MCPGatewayConfig())
+        second = open_bridge(_config("ok"), MCPGatewayConfig())
+        try:
+            assert [tool.name for tool in first.result.tools] == ["mcp_fake_project_echo_query"]
+            assert [tool.name for tool in second.result.tools] == ["mcp_fake_project_echo_query"], (
+                second.result.skipped
+            )
+            assert not [s for s in second.result.skipped if s.code == "MCP_NAME_COLLISION"]
+        finally:
+            for session in (first, second):
+                if session.client is not None:
+                    session.client.close()
