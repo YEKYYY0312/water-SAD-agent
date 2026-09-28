@@ -486,6 +486,7 @@ class AgenticSession:
         *,
         run_id: str | None = None,
         memory_context: MemoryRecallResult | None = None,
+        upload_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
@@ -516,6 +517,7 @@ class AgenticSession:
             on_event=checked_event,
             messages=initial_messages,
             memory_context=memory_context,
+            upload_context=upload_context,
         )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
