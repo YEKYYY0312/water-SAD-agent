@@ -91,3 +91,9 @@ test("API preserves server error codes and never invents authorization", async (
   );
   delete globalThis.fetch;
 });
+
+test("run-level failure message is surfaced, not just a failed badge", () => {
+  const state = applyRunEvent(emptyRunState(), event("finalize", { status: "failed", error: "agent run failed" }));
+  assert.equal(state.status, "failed");
+  assert.deepEqual(state.errors, ["agent run failed"]);
+});

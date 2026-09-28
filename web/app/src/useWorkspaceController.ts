@@ -11,6 +11,8 @@ import {
 } from "./workspaceApi";
 import { applyRunEvent, emptyRunState, isTerminalStatus, type WorkspaceRunState } from "./workspaceState";
 import type { ConversationMessage } from "./workspaceComponents";
+import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
+import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
 const SESSION_STORAGE_PREFIX = "water-agent:selected-session:";
@@ -30,6 +32,19 @@ function apiMessage(error: unknown): string {
   if (error instanceof WorkspaceApiError) return `${error.code}：${error.message}`;
   return "请求未完成，请检查服务端状态后重试";
 }
+
+/** 输入框上方的一张文件卡片：上传中 / 已入库 / 失败。 */
+export type Attachment = {
+  key: string;
+  filename: string;
+  sizeBytes: number;
+  status: "uploading" | "ready" | "failed";
+  progress: number;
+  record?: UploadRecord;
+  error?: string;
+};
+
+export type ExportState = { format: ExportFormat; status: "downloading" | "done" | "failed"; message?: string } | null;
 
 export type WorkspaceController = {
   capabilities: SystemCapabilities | null;
@@ -59,10 +74,20 @@ export type WorkspaceController = {
   sendMessage: (event: FormEvent<HTMLFormElement>) => void;
   cancelRun: () => void;
   submitFeedback: (rating: "useful" | "not_useful") => void;
+  attachments: Attachment[];
+  uploads: UploadRecord[];
+  uploadsError: string | null;
+  attachFiles: (files: FileList | File[]) => void;
+  dismissAttachment: (key: string) => void;
+  deleteUpload: (uploadId: string) => void;
+  exportState: ExportState;
+  downloadExport: (format: ExportFormat) => void;
 };
 
 export function useWorkspaceController(): WorkspaceController {
   const api = useRef(new WorkspaceApi()).current;
+  const uploadApi = useRef(new UploadApi()).current;
+  const exportApi = useRef(new ExportApi()).current;
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
@@ -77,6 +102,10 @@ export function useWorkspaceController(): WorkspaceController {
   const [feedbackState, setFeedbackState] = useState<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploads, setUploads] = useState<UploadRecord[]>([]);
+  const [uploadsError, setUploadsError] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<ExportState>(null);
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
@@ -124,6 +153,17 @@ export function useWorkspaceController(): WorkspaceController {
       .catch((error) => { if (active) setPageError(apiMessage(error)); });
     return () => { active = false; };
   }, [api, selectedProjectId]);
+
+  const refreshUploads = useCallback(() => {
+    void uploadApi.list(selectedProjectId)
+      .then((items) => { setUploads(items); setUploadsError(null); })
+      .catch((error) => setUploadsError(error instanceof WorkspaceApiError ? uploadErrorMessage(error.code, error.message) : "资料列表加载失败"));
+  }, [uploadApi, selectedProjectId]);
+
+  useEffect(() => {
+    setAttachments([]);
+    refreshUploads();
+  }, [refreshUploads]);
 
   const stopStream = useCallback(() => {
     streamAbort.current?.abort();
@@ -201,12 +241,16 @@ export function useWorkspaceController(): WorkspaceController {
   };
 
   const selectSession = (threadId: string) => {
+    // 再点一次当前会话不做任何事：下面会清空消息与运行态，但 selectedThreadId 没变、
+    // 加载会话的 effect 不会重跑，结果是当前回答被清掉且再也回不来。
+    if (threadId === selectedThreadId) return;
     stopStream();
     setSelectedThreadId(threadId);
     saveValue(`${SESSION_STORAGE_PREFIX}${selectedProjectId ?? "personal"}`, threadId);
     setMessages([]);
     setRun(emptyRunState());
     setFeedbackState(null);
+    setExportState(null);
     setPageError(null);
   };
 
@@ -237,10 +281,14 @@ export function useWorkspaceController(): WorkspaceController {
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedThreadId || !draft.trim()) return;
+    if (attachments.some((item) => item.status === "uploading")) return;
     const message = draft.trim();
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
+    setExportState(null);
+    // 已入库的附件随本次提问"寄出"：它们已进项目资料，后端按问题检索，卡片功成身退。
+    setAttachments((current) => current.filter((item) => item.status === "failed"));
     setMessages((current) => [...current, { role: "user", text: message }]);
     setRun(emptyRunState());
     cursor.current = "0";
@@ -267,6 +315,55 @@ export function useWorkspaceController(): WorkspaceController {
     void api.submitFeedback(run.runId, rating)
       .then(() => setFeedbackState("saved"))
       .catch((error) => setFeedbackState(apiMessage(error)));
+  };
+
+  const attachFiles = (files: FileList | File[]) => {
+    for (const file of Array.from(files)) {
+      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const base: Attachment = { key, filename: file.name, sizeBytes: file.size, status: "uploading", progress: 0 };
+      const precheck = precheckUpload(file);
+      if (precheck) {
+        setAttachments((current) => [...current, { ...base, status: "failed", error: uploadErrorMessage(precheck) }]);
+        continue;
+      }
+      setAttachments((current) => [...current, base]);
+      const patch = (next: Partial<Attachment>) =>
+        setAttachments((current) => current.map((item) => (item.key === key ? { ...item, ...next } : item)));
+      void uploadApi.upload(file, { projectId: selectedProjectId, onProgress: (progress) => patch({ progress }) })
+        .then((record) => {
+          patch({ status: "ready", progress: 1, record });
+          setUploads((current) => [record, ...current.filter((item) => item.upload_id !== record.upload_id)]);
+        })
+        .catch((error) => patch({
+          status: "failed",
+          error: error instanceof WorkspaceApiError ? uploadErrorMessage(error.code, error.message) : uploadErrorMessage("UPLOAD_NETWORK_FAILED"),
+        }));
+    }
+  };
+
+  const dismissAttachment = (key: string) => setAttachments((current) => current.filter((item) => item.key !== key));
+
+  const deleteUpload = (uploadId: string) => {
+    void uploadApi.remove(uploadId)
+      .then(() => {
+        setUploads((current) => current.filter((item) => item.upload_id !== uploadId));
+        setAttachments((current) => current.filter((item) => item.record?.upload_id !== uploadId));
+      })
+      .catch((error) => setUploadsError(error instanceof WorkspaceApiError ? uploadErrorMessage(error.code, error.message) : "删除未完成"));
+  };
+
+  const downloadExport = (format: ExportFormat) => {
+    if (!run.runId) return;
+    setExportState({ format, status: "downloading" });
+    void exportApi.download(run.runId, format)
+      .then((filename) => setExportState({ format, status: "done", message: filename }))
+      .catch((error) => setExportState({
+        format,
+        status: "failed",
+        message: error instanceof WorkspaceApiError
+          ? exportErrorMessage(error.code, error.message) + (error.code === "WEB_EXPORT_SELF_CHECK_FAILED" ? `（${error.message}）` : "")
+          : "下载未完成",
+      }));
   };
 
   // 设置面板写入密钥后调用：topbar 的 model 指示与 Inspector 的能力状态都读
@@ -305,5 +402,13 @@ export function useWorkspaceController(): WorkspaceController {
     sendMessage,
     cancelRun,
     submitFeedback,
+    attachments,
+    uploads,
+    uploadsError,
+    attachFiles,
+    dismissAttachment,
+    deleteUpload,
+    exportState,
+    downloadExport,
   };
 }

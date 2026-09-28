@@ -46,7 +46,7 @@ export function LoginPanel({ onLoggedIn }: LoginPanelProps) {
           <span className="brand-mark" aria-hidden="true">WA</span>
           <div>
             <h1 id="login-heading">给排水 Agent 工作台</h1>
-            <p>TRACEABLE ENGINEERING WORKSPACE</p>
+            <p>规范问答 · 计算 · 审查</p>
           </div>
         </div>
 
