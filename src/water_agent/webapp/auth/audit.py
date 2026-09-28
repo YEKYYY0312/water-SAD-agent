@@ -11,13 +11,42 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
+from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("water_agent.auth.audit")
 
-# In-memory buffer: used by tests to assert events were recorded.
-_events: list[dict[str, Any]] = []
+
+def _ensure_stdout_handler() -> None:
+    """让审计事件在 uvicorn 下真的落到 stdout（review 09-28 #6）。
+
+    uvicorn 只给自己的 ``uvicorn.*`` logger 配 handler；``water_agent.*`` 没有
+    handler 时走 Python 的 lastResort，它只输出 WARNING 及以上——于是所有
+    ``logger.info`` 的审计事件在容器日志里**一条都没有**，而模块文档声称
+    "written to structured logs (stdout JSON lines)"。
+
+    自带一个只输出消息本身（已是一行 JSON）的 stdout handler，并关掉向根 logger
+    的传播，避免部署方另配根 handler 时每条事件打两遍。只装一次（幂等）。
+    """
+    if any(getattr(handler, "_wa_audit", False) for handler in logger.handlers):
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler._wa_audit = True  # type: ignore[attr-defined]
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+_ensure_stdout_handler()
+
+#: 进程内缓冲：测试用它断言事件已记录。**有界**——此前是无界 list，生产进程里
+#: 每次登录尝试都往里追加、从不清理，是一个随请求量线性增长的内存泄漏。
+#: 持久审计仍是部署层的事（见模块文档）；这里只保留最近若干条供诊断。
+_EVENT_BUFFER_LIMIT = 1000
+_events: deque[dict[str, Any]] = deque(maxlen=_EVENT_BUFFER_LIMIT)
 
 
 def _utc_now() -> str:
