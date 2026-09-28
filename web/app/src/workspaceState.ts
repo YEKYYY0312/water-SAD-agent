@@ -130,6 +130,10 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
     const finalStatus = asString(payload.status) ?? "failed";
     const finalAnswer = asString(payload.answer) ?? next.tokens;
     const errors = Array.isArray(payload.errors) ? payload.errors.filter((value): value is string => typeof value === "string") : [];
+    // 运行级失败（装配失败、持久化不可用等）只带一个 error 字段、没有 errors 数组；
+    // 不收进来的话界面只剩一个「失败」徽标，用户不知道发生了什么。
+    const runError = asString(payload.error);
+    if (runError && !errors.includes(runError)) errors.push(runError);
     const warnings = Array.isArray(payload.warnings) ? payload.warnings.filter((value): value is string => typeof value === "string") : next.warnings;
     return {
       ...next,
