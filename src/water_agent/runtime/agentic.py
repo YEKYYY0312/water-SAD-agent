@@ -24,7 +24,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
-from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
+from water_agent.graphs.agent_rag import PER_TURN_RESET, astream_agentic, build_agentic_app
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.wiring import (
     load_mcp_gateway,
@@ -538,6 +538,7 @@ class AgenticSession:
                     "query": query,
                     "memory_context": None,
                     "upload_context": None,
+                    **PER_TURN_RESET,
                 },
                 config=self.config,
             )

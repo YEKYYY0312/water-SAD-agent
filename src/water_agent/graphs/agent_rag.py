@@ -806,6 +806,20 @@ def build_agentic_app(
     return app.with_config({"recursion_limit": RECURSION_LIMIT})
 
 
+#: 每轮开始时必须归零的**本轮**状态。它们和两个 *_context 一样是无 reducer 的键、
+#: 随 checkpoint 持久化：不归零的话，第 1 轮的引用重试/空引用回流次数会吃掉第 2 轮
+#: 的重试预算，第 1 轮的 errors/citations 会出现在第 2 轮的结果里（两轮实测）。
+#: ``messages`` 不在此列——它有 add_messages reducer，跨轮累积是会话记忆本身。
+PER_TURN_RESET: dict[str, Any] = {
+    "answer": "",
+    "status": "",
+    "citations": [],
+    "errors": [],
+    "retry_count": 0,
+    "empty_citation_reflows": 0,
+}
+
+
 async def astream_agentic(
     app,
     query: str,
@@ -847,6 +861,7 @@ async def astream_agentic(
         "query": query,
         "memory_context": memory_context,
         "upload_context": upload_context,
+        **PER_TURN_RESET,
     }
     async for event in app.astream(
         input_state,
