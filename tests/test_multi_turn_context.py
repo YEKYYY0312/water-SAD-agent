@@ -135,3 +135,81 @@ def test_sync_cli_path_clears_leftover_context_from_a_web_turn(tmp_path: Path) -
         cli = build_agentic_session(_args(tmp_path), stack=stack, thread_id="t-2", checkpointer=saver)
         result = cli.ask("污水管道最小坡度")
     assert result["status"] == "succeeded", result.get("errors")
+
+
+# ---------------------------------------------------------------------------
+# Review 2026-09-28 #2: per-turn state and tool events must not replay
+# ---------------------------------------------------------------------------
+
+
+def test_per_turn_counters_and_citations_start_fresh(tmp_path: Path) -> None:
+    """第 1 轮的 retry/errors/citations 不得带进第 2 轮（会吃掉第 2 轮的重试预算）。"""
+
+    saver = InMemorySaver(serde=default_checkpoint_serde())
+    with ExitStack() as stack:
+        first = build_agentic_session(_args(tmp_path), stack=stack, thread_id="t-3", checkpointer=saver)
+        asyncio.run(first.aask("给水干管管径是多少", run_id="r-1"))
+        # 人为污染第 1 轮留下的状态：模拟一轮耗尽重试后失败的会话
+        config = {"configurable": {"thread_id": "t-3"}}
+        first.app.update_state(
+            config,
+            {"retry_count": 99, "empty_citation_reflows": 99, "errors": ["上一轮的错误"], "status": "failed"},
+        )
+        second = build_agentic_session(_args(tmp_path), stack=stack, thread_id="t-3", checkpointer=saver)
+        result = asyncio.run(second.aask("污水管道最小坡度", run_id="r-2"))
+    assert result["status"] == "succeeded", result.get("errors")
+    assert "上一轮的错误" not in result["errors"]
+
+
+def test_run_manager_projects_only_the_current_turns_tool_messages() -> None:
+    """values 事件带的是整条 thread 的消息；只有最后一条 HumanMessage 之后才是本轮。"""
+
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from water_agent.webapp.run_manager import RunManager
+
+    history = [
+        HumanMessage(content="[运行时上下文]\n…"),
+        HumanMessage(content="第一问"),
+        AIMessage(content="", tool_calls=[{"id": "old", "name": "calc_velocity", "args": {"flow_lps": 1}}]),
+        ToolMessage(name="calc_velocity", tool_call_id="old", content='{"velocity_mps": 0.1}'),
+        AIMessage(content="第一问的回答"),
+        HumanMessage(content="[运行时上下文]\n…"),
+        HumanMessage(content="第二问"),
+        AIMessage(content="", tool_calls=[{"id": "new", "name": "retrieve_clauses", "args": {}}]),
+        ToolMessage(name="retrieve_clauses", tool_call_id="new", content="[]"),
+    ]
+    current = RunManager._current_turn(history)
+    assert [getattr(m, "tool_call_id", None) for m in current if m.type == "tool"] == ["new"]
+    # 没有 HumanMessage（异常输入）时退回全量，不丢事件
+    assert RunManager._current_turn(history[2:4]) == history[2:4]
+
+
+def test_second_real_turn_emits_only_its_own_tool_results(tmp_path: Path) -> None:
+    """真实会话两轮，经 RunManager 的观察器投影：第 2 轮只看到自己的 tool_result。"""
+
+    from water_agent.webapp.run_manager import RunManager, _RunHandle
+
+    saver = InMemorySaver(serde=default_checkpoint_serde())
+
+    def run_turn(stack: ExitStack, query: str, run_id: str) -> _RunHandle:
+        session = build_agentic_session(_args(tmp_path), stack=stack, thread_id="t-4", checkpointer=saver)
+        handle = _RunHandle(run_id=run_id, thread_id="t-4", owner_user_id=None, project_id=None)  # type: ignore[arg-type]
+        handle.session = session
+        manager = RunManager.__new__(RunManager)  # 只用观察器，不需要数据库
+        events: list[tuple[str, dict]] = []
+        manager._append = lambda h, kind, payload: events.append((kind, payload))  # type: ignore[method-assign]
+        asyncio.run(session.aask(query, run_id=run_id, on_event=lambda mode, p: manager._on_agent_event(handle, mode, p)))
+        handle.events = events  # type: ignore[assignment]
+        return handle
+
+    with ExitStack() as stack:
+        first = run_turn(stack, "给水干管管径是多少", "r-1")
+        second = run_turn(stack, "污水管道最小坡度", "r-2")
+
+    def tool_results(handle: _RunHandle) -> list[str]:
+        return [payload["tool_name"] for kind, payload in handle.events if kind == "tool_result"]  # type: ignore[union-attr]
+
+    assert tool_results(first), "第 1 轮应有真实工具调用"
+    # 修复前第 2 轮会把第 1 轮的 retrieve/cite 结果再发一遍，数量翻倍
+    assert len(tool_results(second)) == len(tool_results(first))
