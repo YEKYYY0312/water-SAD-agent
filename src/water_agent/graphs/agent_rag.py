@@ -140,6 +140,8 @@ class AgenticRAGState(TypedDict):
     empty_citation_reflows: NotRequired[int]  # 空引用回流计数（与 invalid 引用 retry 分开）
     #: Web Step 42 注入的长期记忆结果；PromptAssembler 只把它作为 SESSION_MEMORY 数据段渲染。
     memory_context: NotRequired[Any]
+    #: P5-S48 注入的上传资料召回结果；PromptAssembler 只把它作为 RETRIEVED_FILE 数据段渲染。
+    upload_context: NotRequired[Any]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -813,6 +815,7 @@ async def astream_agentic(
     messages: Sequence[BaseMessage] | None = None,
     on_event: Callable[[str, Any], None] | None = None,
     memory_context: Any | None = None,
+    upload_context: Any | None = None,
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
@@ -826,7 +829,9 @@ async def astream_agentic(
     - ``on_event``：可选的只读 stream 观察回调。回调收到 ``messages`` 或 ``values``
       原始事件，调用方必须自行决定安全摘要，不能把完整 state 直接发送给浏览器；
     - ``memory_context``：可选的已授权长期记忆召回结果，只进入独立 data 段，不能改变
-      registry、capability、引用校验或程序化计算路径。
+      registry、capability、引用校验或程序化计算路径；
+    - ``upload_context``：可选的已授权上传资料召回结果，同上——只是一个 RETRIEVED_FILE
+      数据段，不承载指令、不参与数值推导、不改变引用校验。
     """
     final_state: dict[str, Any] = {}
     if messages is None:
@@ -834,6 +839,8 @@ async def astream_agentic(
     input_state: dict[str, Any] = {"messages": messages, "query": query}
     if memory_context is not None:
         input_state["memory_context"] = memory_context
+    if upload_context is not None:
+        input_state["upload_context"] = upload_context
     async for event in app.astream(
         input_state,
         config=config,
