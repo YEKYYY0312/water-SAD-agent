@@ -173,8 +173,14 @@ export function SettingsPanel({
 
   return (
     <section className="settings-panel" aria-labelledby="settings-heading">
-      <p className="kicker">SETTINGS</p>
-      <h2 id="settings-heading">模型与密钥</h2>
+      <div className="settings-heading-row">
+        <h2 id="settings-heading">模型与密钥</h2>
+        {onBack && (
+          <button type="button" className="quiet-button" onClick={onBack}>
+            返回会话
+          </button>
+        )}
+      </div>
 
       <div className="settings-readiness">
         <CapabilityStatus
@@ -182,11 +188,6 @@ export function SettingsPanel({
           status={modelReadinessTone(realLlm)}
           message={modelReadinessMessage(realLlm)}
         />
-        {onBack && (
-          <button type="button" className="quiet-button" onClick={onBack}>
-            返回会话
-          </button>
-        )}
       </div>
 
       <PanelError error={error} />
