@@ -530,8 +530,16 @@ class AgenticSession:
             # the session checkpointer is a sync SqliteSaver, which LangGraph
             # refuses to drive through its async methods.  Only the streaming
             # and Web paths need ``aask``.
+            # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，
+            # 不清空就会读到 checkpoint 里上一轮残留的值（见 astream_agentic 的说明）。
             state = self.app.invoke(
-                {"messages": self._initial_messages(query), "query": query}, config=self.config
+                {
+                    "messages": self._initial_messages(query),
+                    "query": query,
+                    "memory_context": None,
+                    "upload_context": None,
+                },
+                config=self.config,
             )
             return self._payload(state, query=query, streamed=False)
         payload = asyncio.run(

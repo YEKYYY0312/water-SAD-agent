@@ -836,11 +836,18 @@ async def astream_agentic(
     final_state: dict[str, Any] = {}
     if messages is None:
         messages = [HumanMessage(content=query)]
-    input_state: dict[str, Any] = {"messages": messages, "query": query}
-    if memory_context is not None:
-        input_state["memory_context"] = memory_context
-    if upload_context is not None:
-        input_state["upload_context"] = upload_context
+    # 两个 *_context 是**本轮**的召回结果，必须每轮无条件写入（没有就写 None）。
+    # 它们是无 reducer 的 state 键，会随 checkpoint 持久化：只在"有值"时才写，
+    # 下一轮不传时图里留着的是上一轮的值——而且经生产 serde（allowed_msgpack_modules
+    # 只放行 CitationClaim）读回来已不是 MemoryRecallResult/UploadRecallResult，
+    # 只是个 dict，PromptAssembler 当场 TypeError（第二问与上传无关、或记忆降级即崩，
+    # 两轮实测复现）。即便类型能读回，把上一问的检索资料塞进这一问也是错的上下文。
+    input_state: dict[str, Any] = {
+        "messages": messages,
+        "query": query,
+        "memory_context": memory_context,
+        "upload_context": upload_context,
+    }
     async for event in app.astream(
         input_state,
         config=config,
