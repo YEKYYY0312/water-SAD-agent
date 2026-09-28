@@ -848,6 +848,11 @@ class RunManager:
         is_authorized: Callable[[], bool],
     ):
         cursor = parse_last_event_id(last_event_id)
+        # stream_end 是否该发，只取决于客户端**连上时**的游标：连上时就已越过
+        # finalize 的重连不该再收到任何帧（test_web_sse 的空尾断言）。
+        # 不能用"发完 pending 之后的 cursor"判断——finalize 恒为最后一条事件，
+        # 发完之后 cursor 必然越过它，stream_end 于是永远不发（review 09-28 #4）。
+        connect_cursor = cursor
         handle = self._get_handle(run_id)
         while True:
             if not self._authorization_check(is_authorized):
@@ -867,11 +872,11 @@ class RunManager:
                 # 发送显式结束标记，让前端区分"正常结束"与"异常断开"。
                 # 只发给尚未看到 finalize 的客户端：cursor 已越过 finalize 的重连
                 # 不该再收到任何帧（语义与 tests/test_web_sse.py 的空尾断言一致）。
-                finalize_seen = any(
-                    event.event_type == "finalize" and event.event_id <= cursor
+                finalize_seen_before_connect = any(
+                    event.event_type == "finalize" and event.event_id <= connect_cursor
                     for event in handle.events
                 )
-                if not finalize_seen:
+                if not finalize_seen_before_connect:
                     yield RunEvent(
                         event_id=cursor + 1,
                         event_type="stream_end",
