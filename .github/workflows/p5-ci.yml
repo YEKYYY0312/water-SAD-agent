@@ -23,6 +23,9 @@ jobs:
       # harnesses + the baseline comparison all live inside scripts/ci_gate.sh.
       # Do not re-list its steps here: that would create a second source of truth.
       - name: Run the PR gate
+        # uv sync 建的是 .venv；显式传入，不靠脚本里的探测顺序。
+        env:
+          VENV: .venv
         run: bash scripts/ci_gate.sh
       - name: Upload the P5 report
         if: always()

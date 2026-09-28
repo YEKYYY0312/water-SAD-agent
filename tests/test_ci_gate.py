@@ -572,3 +572,37 @@ class TestRealQualityJudgement:
         assert report.quality_low_score_count == 0
         assert report.judge_dimension_averages["faithfulness"] == 5.0
         assert report.judge_dimension_averages["completeness"] == 4.0
+
+
+def test_gate_resolves_the_venv_instead_of_hardcoding_underscore_venv() -> None:
+    """GitHub runner 上 uv sync 产出 .venv；门禁硬编码 _venv 时 p5-ci 必挂（review 09-28）。"""
+
+    import re
+    from pathlib import Path
+
+    gate = Path("scripts/ci_gate.sh").read_text(encoding="utf-8")
+    # 除解析块本身外，不得再出现写死的 _venv/bin/<tool>
+    body = gate.split('PY="$VENV/bin/python"', 1)[1]
+    assert not re.search(r"(?<![\w$])_venv/bin/", body), "门禁主体仍有写死的 _venv/bin 路径"
+    assert '"$VENV/bin/pytest"' in gate
+    assert '[ -x ".venv/bin/python" ]' in gate
+    workflow = Path(".github/workflows/p5-ci.yml").read_text(encoding="utf-8")
+    assert "VENV: .venv" in workflow
+
+
+def test_gate_refuses_to_run_without_a_venv(tmp_path) -> None:
+    """找不到虚拟环境时响亮失败（exit 2），不退回系统 python 跑出假绿。"""
+
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copy(Path("scripts/ci_gate.sh"), scripts / "ci_gate.sh")
+    env = {k: v for k, v in __import__("os").environ.items() if k != "VENV"}
+    result = subprocess.run(
+        ["bash", str(scripts / "ci_gate.sh")], cwd=tmp_path, capture_output=True, text=True, env=env
+    )
+    assert result.returncode == 2
+    assert "找不到虚拟环境" in result.stderr
