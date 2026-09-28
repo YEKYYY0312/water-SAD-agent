@@ -582,6 +582,24 @@ class RunManager:
             "calculations": list(handle.calculations) if handle is not None else [],
         }
 
+    @staticmethod
+    def _current_turn(messages: list[Any] | tuple[Any, ...]) -> list[Any]:
+        """Messages produced by this run: everything after the last human turn.
+
+        ``values`` events carry the **whole thread** state, which the
+        checkpointer restores from previous runs.  Scanning all of it replayed
+        turn N's tool cards and calculation results in turn N+1 (and fed them
+        into the export snapshot, so a Word calculation book could carry numbers
+        from an earlier question).  The current question is the last
+        ``HumanMessage``; the runtime-context preamble is also a HumanMessage but
+        is always inserted *before* the question, so taking the last one is right.
+        """
+
+        for index in range(len(messages) - 1, -1, -1):
+            if getattr(messages[index], "type", None) == "human":
+                return list(messages[index + 1 :])
+        return list(messages)
+
     def _observe_tool_messages(self, handle: _RunHandle, messages: Any) -> None:
         """Project real ToolMessages into safe UI events.
 
@@ -591,7 +609,7 @@ class RunManager:
 
         if not isinstance(messages, (list, tuple)):
             return
-        for message in messages:
+        for message in self._current_turn(messages):
             for call in getattr(message, "tool_calls", None) or []:
                 call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
                 args = call.get("args") if isinstance(call, dict) else None
