@@ -74,10 +74,12 @@ export type WorkspaceController = {
   feedbackState: string | null;
   memoryOpen: boolean;
   settingsOpen: boolean;
+  drawingOpen: boolean;
   setNewProjectName: (value: string) => void;
   setDraft: (value: string) => void;
   setMemoryOpen: (value: boolean | ((current: boolean) => boolean)) => void;
   setSettingsOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  setDrawingOpen: (value: boolean | ((current: boolean) => boolean)) => void;
   refreshCapabilities: () => void;
   createProject: (event: FormEvent<HTMLFormElement>) => void;
   selectProject: (projectId: string | null) => void;
@@ -114,6 +116,7 @@ export function useWorkspaceController(): WorkspaceController {
   const [feedbackState, setFeedbackState] = useState<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [drawingOpen, setDrawingOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
@@ -440,10 +443,12 @@ export function useWorkspaceController(): WorkspaceController {
     feedbackState,
     memoryOpen,
     settingsOpen,
+    drawingOpen,
     setNewProjectName,
     setDraft,
     setMemoryOpen,
     setSettingsOpen,
+    setDrawingOpen,
     refreshCapabilities,
     createProject,
     selectProject,
