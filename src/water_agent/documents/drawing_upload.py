@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +99,88 @@ def _header(counts: DrawingReviewText) -> str:
     )
 
 
+#: 图面信息摘要的上限。整张总图的标注文字 ~170 条、去重后 ~130 条，4000 字足够；
+#: 再大就挤占审查报告与问题本身的预算。
+SUMMARY_MAX_CHARACTERS = 4000
+_COORD_RE = re.compile(r"^\s*[AXBY]\s*[=＝]\s*-?\d+(?:\.\d+)?\s*$", re.IGNORECASE)
+_ELEV_RE = re.compile(r"^\s*[±+\-]?\d{1,4}\.\d{2,3}\s*(?:m)?\s*$")
+_SPEC_RE = re.compile(
+    r"(?:DN|De|Φ|φ|%%c)\s*\d+"          # 公称直径 / 直径符号（%%c 是 AutoCAD 的 Φ 转义）
+    r"|\bd\s*\d+(?:\.\d+)?\s*[x×X*]\s*\d"  # 外径×壁厚：D219×7、d630X9
+    r"|\b(?:Q|H|N|Pg|PN|T)\s*[=＝]\s*\d"  # 设备参数：Q=1250、N=75Kw、Pg=10
+    r"|\d+\s*(?:mm|MPa|kPa|m³|m3|L/s|m/h|‰|%)",
+    re.IGNORECASE,
+)
+_CODE_RE = re.compile(r"^[A-Z]{1,4}[-_]?\d{1,3}(?:[-_]\d{1,3})*$")
+#: 图签/会签栏的固定字样：对审图没有信息量，还会挤掉真正的标注。只按整条精确匹配
+#: （去空白后），不做模糊判断——宁可漏滤，不误删工程标注。
+_TITLE_BLOCK = frozenset(
+    {
+        "会", "签", "审核", "审定", "校对", "设计", "制图", "图号", "张数", "张号", "修改内容", "修改人", "日期", "版次",
+        "设计号", "图名", "设计阶段", "比例", "项目", "业主", "项目负责人", "子项名称", "子", "号", "项", "备注", "AUDIT",
+        "APPR.", "CHKD.", "PROJ.M.", "DESN.", "DRN.", "DRN.No.", "T.PAGE", "PAGE", "PROJECT",
+        "INVESTOR", "DESN.No.", "TITLE", "STAGE", "DATE", "SCALE", "项目:", "业主:", "图名:",
+    }
+)
+
+
+def _is_title_block(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    return compact in _TITLE_BLOCK or compact.startswith("[") or bool(re.search(r"[A-Za-z]{4,}.*,", text))
+
+
+def _drawing_summary(extraction: object) -> str:
+    """图面信息摘要：标注文字按类型归组 + 图层/图元/图块计数。
+
+    这是**图纸原文数据**（已过内容护栏、已脱敏），与上面的审查结论分开成节，
+    让模型能回答"图上标了哪些构筑物、标高、坐标"，而不是只能说"报告里没有"。
+    不做任何推导：不把标高相减算坡度、不把坐标连成管线——那是规则引擎的事，
+    缺标高结构化解析时规则如实报"未检查"。命中注入规则的标注不进摘要，只计数。
+    """
+
+    from collections import Counter
+
+    entities = getattr(extraction, "entities", ())
+    texts: list[str] = []
+    for entity in entities:
+        if entity.kind.value in ("text", "mtext") and entity.text.strip() and not entity.suspicious:
+            texts.append(" ".join(entity.text.split()))
+    unique = [text for text in dict.fromkeys(texts) if not _is_title_block(text)]
+    groups: dict[str, list[str]] = {"编号": [], "坐标": [], "标高": [], "规格/参数": [], "其他文字": []}
+    for text in unique:
+        if _COORD_RE.match(text):
+            groups["坐标"].append(text)
+        elif _ELEV_RE.match(text):
+            groups["标高"].append(text)
+        elif _CODE_RE.match(text):
+            groups["编号"].append(text)
+        elif _SPEC_RE.search(text):
+            groups["规格/参数"].append(text)
+        else:
+            groups["其他文字"].append(text)
+    kinds = Counter(entity.kind.value for entity in entities)
+    blocks = Counter(entity.block_name for entity in entities if entity.block_name)
+    layers = [layer for layer in getattr(extraction, "layers", ()) if not layer.startswith("$TD_AUDIT")]
+    lines = [
+        (
+            "【图面信息摘要】以下是图纸上的标注文字与图元统计（图纸原文数据，不是审查结论）。"
+            "只列出了文字标注；管线走向、连接关系、尺寸线几何未转写，不得据此推断图面没有的内容。"
+        ),
+        "图元：" + "，".join(f"{kind} {count}" for kind, count in kinds.most_common()),
+    ]
+    if layers:
+        lines.append(f"图层（{len(layers)} 个）：" + "、".join(layers[:40]))
+    if blocks:
+        lines.append("图块：" + "、".join(f"{name}×{count}" for name, count in blocks.most_common(20)))
+    for name, items in groups.items():
+        if items:
+            lines.append(f"{name}（{len(items)} 条）：" + "；".join(items))
+    rendered = "\n".join(lines)
+    if len(rendered) > SUMMARY_MAX_CHARACTERS:
+        rendered = rendered[:SUMMARY_MAX_CHARACTERS].rsplit("；", 1)[0] + "；…（摘要超长已截断）"
+    return rendered
+
+
 def review_uploaded_dxf(data: bytes, *, display_name: str = "") -> DrawingReviewText:
     """在只含这一张图的临时目录里跑完整审查，返回报告文本。
 
@@ -146,6 +229,7 @@ def review_uploaded_dxf(data: bytes, *, display_name: str = "") -> DrawingReview
             f"== 图纸审查报告：{display_name or '上传图纸'} ==",
             1,
         )
+        summary = _drawing_summary(extraction)
     counts = DrawingReviewText(
         text="",
         pipes_reviewed=report.pipes_reviewed,
@@ -155,7 +239,7 @@ def review_uploaded_dxf(data: bytes, *, display_name: str = "") -> DrawingReview
         truncated=extraction.truncated,
     )
     return DrawingReviewText(
-        text=f"{_header(counts)}\n\n{report_text}",
+        text=f"{_header(counts)}\n\n{report_text}\n\n{summary}",
         pipes_reviewed=counts.pipes_reviewed,
         findings=counts.findings,
         not_checked=counts.not_checked,
