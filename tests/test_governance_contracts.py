@@ -518,10 +518,13 @@ class TestInventoryCoverage:
         图纸解析是纯本地读文件，不新增任何 provider 调用点。这两个数分开验证是
         刻意的：如果哪天有人给图纸链路加了 vision 模型调用，
         `provider_call_sites` 会对不上而立刻红灯。
+
+        P5-S52 后远程出口由 6 变 7：CAD 导出 PDF 的视觉审阅（``bailian_vision_pdf_review``）
+        正是上面预言的那种 vision 调用——登记进清单、经 gateway，计数随之更新。
         """
         assert governance_coverage() == {
-            "provider_call_sites": 6,
-            "provider_governed": 6,
+            "provider_call_sites": 7,
+            "provider_governed": 7,
             "tools": 5,
             "tools_guardrail_validated": 5,
         }
