@@ -1,6 +1,7 @@
 """上传文件的文本提取（P5-S48 Step 1）。
 
-支持 ``.docx`` / ``.pdf`` / ``.txt`` / ``.md``，**不做 OCR、不做图片、不解析表格
+支持 ``.docx`` / ``.pdf`` / ``.txt`` / ``.md``，以及 ``.dxf``（P5-S50：抽取产物是
+确定性审查报告，见 ``drawing_upload``），**不做 OCR、不做图片、不解析表格
 类文件**（spec D5）。提取结果是纯文本，后续由护栏包成 ``RETRIEVED_FILE`` 信封，
 因此这里只负责"把字取出来"，不负责信任判定。
 
@@ -35,7 +36,7 @@ from water_agent.documents.errors import (
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 #: 扩展名白名单。白名单而非黑名单：新格式要显式加，默认不收。
-ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md"})
+ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md", ".dxf"})
 
 #: 扩展名 → 文件头魔数。仅对有稳定魔数的二进制格式校验；.txt/.md 没有魔数。
 MAGIC_PREFIXES: dict[str, bytes] = {
@@ -61,6 +62,9 @@ class ExtractedDocument:
     text: str
     page_count: int | None
     engine: str
+    #: 抽取阶段就已判定的可疑（P5-S50：DXF 图元文字命中注入规则）。审查报告只含规则
+    #: 结论、不含图元原文，分块护栏因此看不到那些文字——可疑必须从这里带出来。
+    suspicious: bool = False
 
     @property
     def text_length(self) -> int:
@@ -239,6 +243,7 @@ def extract_text(
     suffix: str,
     *,
     getenv: Callable[[str], str | None] = os.environ.get,
+    display_name: str = "",
 ) -> ExtractedDocument:
     """按扩展名提取文本。大小与魔数校验已在此处再做一遍（纵深防御）。
 
@@ -255,6 +260,17 @@ def extract_text(
         allowed = "、".join(sorted(ALLOWED_SUFFIXES))
         raise UploadError(CODE_UPLOAD_TYPE_NOT_ALLOWED, f"不支持的文件类型 {suffix}；仅支持 {allowed}")
     check_magic(data, suffix)
+    if suffix == ".dxf":
+        # P5-S50：图纸的"文本"是程序化审查报告，不是图元文字（见 drawing_upload）。
+        from water_agent.documents.drawing_upload import review_uploaded_dxf
+
+        review = review_uploaded_dxf(data, display_name=display_name)
+        return ExtractedDocument(
+            text=review.text,
+            page_count=None,
+            engine="dxf-review",
+            suspicious=review.suspicious_entities > 0,
+        )
     if suffix == ".docx":
         return _extract_docx(data)
     if suffix == ".pdf":
