@@ -449,7 +449,7 @@ export function ConversationPanel({
               hidden
               onChange={(event) => { if (event.target.files?.length) onAttach(event.target.files); event.target.value = ""; }}
             />
-            <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
+            <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF/DWG 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" />
             </button>
             {uploading && <span className="composer-hint">文件上传完成后才能发送</span>}

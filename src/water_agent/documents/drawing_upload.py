@@ -70,10 +70,15 @@ def check_dxf_magic(data: bytes) -> None:
     if data.startswith(_DWG_PREFIX):
         raise UploadError(
             CODE_UPLOAD_MAGIC_MISMATCH,
-            "这是 DWG 文件（扩展名写成了 .dxf）。网页端暂不支持 DWG，请在 CAD 中另存为 DXF 后上传",
+            "这是 DWG 文件，但扩展名写成了 .dxf。请把扩展名改回 .dwg 后上传",
         )
-    head = data[:256].lstrip(b"\xef\xbb\xbf").decode("ascii", errors="replace").split()
-    if len(head) < 2 or head[0] != "0" or head[1].upper() != "SECTION":
+    lines = data[:1024].lstrip(b"\xef\xbb\xbf").decode("ascii", errors="replace").splitlines()
+    # 组码/值成对出现。开头允许任意条 999 注释（LibreDWG、许多 CAD 导出器都会写一行
+    # "999 / LibreDWG 0.14" 之类的注释，属于合法 DXF——S51 实测）。
+    pairs = [(lines[i].strip(), lines[i + 1].strip()) for i in range(0, len(lines) - 1, 2)]
+    while pairs and pairs[0][0] == "999":
+        pairs.pop(0)
+    if not pairs or pairs[0][0] != "0" or pairs[0][1].upper() != "SECTION":
         raise UploadError(
             CODE_UPLOAD_MAGIC_MISMATCH,
             "文件内容不是 DXF（文件头应为组码 0 / SECTION）",
@@ -181,7 +186,9 @@ def _drawing_summary(extraction: object) -> str:
     return rendered
 
 
-def review_uploaded_dxf(data: bytes, *, display_name: str = "") -> DrawingReviewText:
+def review_uploaded_dxf(
+    data: bytes, *, display_name: str = "", source_note: str = ""
+) -> DrawingReviewText:
     """在只含这一张图的临时目录里跑完整审查，返回报告文本。
 
     Raises:
@@ -239,7 +246,7 @@ def review_uploaded_dxf(data: bytes, *, display_name: str = "") -> DrawingReview
         truncated=extraction.truncated,
     )
     return DrawingReviewText(
-        text=f"{_header(counts)}\n\n{report_text}\n\n{summary}",
+        text=f"{_header(counts)}{source_note}\n\n{report_text}\n\n{summary}",
         pipes_reviewed=counts.pipes_reviewed,
         findings=counts.findings,
         not_checked=counts.not_checked,

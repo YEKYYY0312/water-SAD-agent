@@ -226,6 +226,10 @@ def _guard_text(
     """
     if not text:
         return "", ()
+    # 孤立代理项（\udcXX）：ezdxf 以 surrogateescape 读入编码不符的字节时产生，LibreDWG
+    # 转出的 DXF 实测会有（S51）。它不是合法字符，下游任何 .encode("utf-8") 都会抛
+    # UnicodeEncodeError 打死整张图；换成 U+FFFD，文字其余部分照常可读。
+    text = text.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
     clipped = text[:_SINGLE_TEXT_CAP]
     envelope = ContentEnvelope(
         source_tag=SourceTag.RETRIEVED_FILE,

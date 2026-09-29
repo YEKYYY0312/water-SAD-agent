@@ -36,7 +36,7 @@ from water_agent.documents.errors import (
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 #: 扩展名白名单。白名单而非黑名单：新格式要显式加，默认不收。
-ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md", ".dxf"})
+ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md", ".dxf", ".dwg"})
 
 #: 扩展名 → 文件头魔数。仅对有稳定魔数的二进制格式校验；.txt/.md 没有魔数。
 MAGIC_PREFIXES: dict[str, bytes] = {
@@ -271,6 +271,26 @@ def extract_text(
         allowed = "、".join(sorted(ALLOWED_SUFFIXES))
         raise UploadError(CODE_UPLOAD_TYPE_NOT_ALLOWED, f"不支持的文件类型 {suffix}；仅支持 {allowed}")
     check_magic(data, suffix)
+    if suffix == ".dwg":
+        # P5-S51：LibreDWG 转 DXF（入库侧受控子进程），再走与 .dxf 完全相同的审查链。
+        from water_agent.documents.drawing_upload import review_uploaded_dxf
+        from water_agent.documents.dwg_convert import convert_dwg
+
+        conversion = convert_dwg(data)
+        review = review_uploaded_dxf(
+            conversion.dxf,
+            display_name=display_name,
+            source_note=(
+                f"本图由 DWG 经 LibreDWG {conversion.version} 转换为 DXF 后审查"
+                f"（转换器报告 {conversion.warnings} 条警告；代理实体、部分动态块可能未被转换）。"
+            ),
+        )
+        return ExtractedDocument(
+            text=review.text,
+            page_count=None,
+            engine=f"libredwg-{conversion.version}+dxf-review"[:32],
+            suspicious=review.suspicious_entities > 0,
+        )
     if suffix == ".dxf":
         # P5-S50：图纸的"文本"是程序化审查报告，不是图元文字（见 drawing_upload）。
         from water_agent.documents.drawing_upload import review_uploaded_dxf
