@@ -295,10 +295,28 @@ class TestNotes:
     def test_every_sheet_carries_the_fixed_disclaimer_and_its_rule_notes(self, building_type: BuildingType) -> None:
         rules = load_building_rules()
         for sheet in _sheets(_request(building_type)):
-            text = "\n".join(line for note in sheet.notes for line in note.lines)
-            assert DISCLAIMER in text
+            # 说明按宽度折行（续行缩进），比对时去掉空白。
+            text = "".join("".join(line for block in sheet.notes for line in block.lines).split())
+            assert "".join(DISCLAIMER.split()) in text
             for rule_id in sheet.rule_ids:
-                assert rules.rule(rule_id).rendered_note() in text, f"{sheet.sheet_id}：{rule_id} 的说明不是从规则表渲染的"
+                note = "".join(rules.rule(rule_id).rendered_note().split())
+                assert note in text, f"{sheet.sheet_id}：{rule_id} 的说明不是从规则表渲染的"
+
+    def test_note_lines_are_wrapped_to_a_bounded_width(self) -> None:
+        """每行 ≤ 60 个中文字宽：出图可读，也让 GBK 下每行不超过 R2000 字符串的 255 字节。"""
+
+        from water_agent.drawing.layout_engine import NOTE_LINE_UNITS, wrap_note_line
+
+        for request in SWEEP[:12]:
+            for sheet in _sheets(request):
+                for note in sheet.notes:
+                    for line in note.lines:
+                        assert len(line.encode("gbk")) <= 255, line
+                        units = sum(1.0 if ord(c) > 0x2E7F else 0.55 for c in line)
+                        assert units <= NOTE_LINE_UNITS + 12, line  # 单个长西文词不拆，允许略超
+        parts = wrap_note_line("甲" * 70 + " GB50013-2018 6.3.5 乙")
+        assert len(parts) == 2 and parts[1].startswith("   ")
+        assert all("GB50013-2018" not in part[:-1] or "GB50013-2018" in part for part in parts)
 
     def test_out_of_band_velocity_is_annotated_on_the_drawing(self) -> None:
         rules = load_building_rules()
