@@ -97,3 +97,78 @@ test("run-level failure message is surfaced, not just a failed badge", () => {
   assert.equal(state.status, "failed");
   assert.deepEqual(state.errors, ["agent run failed"]);
 });
+
+// ---------------------------------------------------------------------------
+// P5-S49: the conversation keeps every turn; failures stay visible
+// ---------------------------------------------------------------------------
+
+import { archiveRun, mergeHistory } from "../src/workspaceState.ts";
+
+function finished(status, answer) {
+  return applyRunEvent(emptyRunState(), event("finalize", { status, answer, errors: status === "failed" ? ["空引用收口失败"] : [] }));
+}
+
+test("archives the previous answer before the next question is sent", () => {
+  const first = [{ role: "user", text: "能读 DXF 吗" }];
+  const archived = archiveRun(first, finished("succeeded", "网页端暂不支持 DXF。"));
+  assert.deepEqual(archived, [
+    { role: "user", text: "能读 DXF 吗" },
+    { role: "agent", text: "网页端暂不支持 DXF。", status: "succeeded" },
+  ]);
+});
+
+test("a failed run with an answer is archived with its failed status, never as a plain answer", () => {
+  const archived = archiveRun([], finished("failed", "未通过校验的回答"));
+  assert.equal(archived[0].status, "failed");
+  assert.equal(archived[0].text, "未通过校验的回答");
+});
+
+test("an unfinished run is not archived", () => {
+  const running = applyRunEvent(emptyRunState(), event("token", { text: "半截" }));
+  assert.deepEqual(archiveRun([], running), []);
+});
+
+test("history drops the latest turn's answer because the run replay renders it", () => {
+  const history = [
+    { role: "user", text: "问 1" },
+    { role: "agent", text: "答 1" },
+    { role: "user", text: "问 2" },
+    { role: "agent", text: "答 2" },
+  ];
+  assert.deepEqual(mergeHistory(history, true).map((m) => m.text), ["问 1", "答 1", "问 2"]);
+  assert.deepEqual(mergeHistory(history, false).map((m) => m.text), ["问 1", "答 1", "问 2", "答 2"]);
+});
+
+test("a withheld history answer stays withheld", () => {
+  const [, agent] = mergeHistory([{ role: "user", text: "问" }, { role: "agent", text: "", withheld: true }], false);
+  assert.equal(agent.withheld, true);
+  assert.equal(agent.status, "blocked");
+});
+
+test("sendMessage only sends attachments when there are some", async () => {
+  const bodies = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ version: "v1", ok: true, data: { run_id: runId, thread_id: threadId, status: "queued" } }), { status: 202, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const api = new WorkspaceApi();
+    await api.sendMessage(threadId, "问题");
+    await api.sendMessage(threadId, "读这个", ["u-1"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(bodies, [{ message: "问题" }, { message: "读这个", attachments: ["u-1"] }]);
+});
+
+test("answers render through Markdown without raw HTML", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const markdown = await readFile(new URL("../src/AnswerMarkdown.tsx", import.meta.url), "utf8");
+  const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
+  assert.match(markdown, /skipHtml/);
+  assert.doesNotMatch(markdown, /rehype-raw|dangerouslySetInnerHTML/);
+  assert.match(components, /<AnswerMarkdown text=\{answer\} \/>/);
+  // 有回答的失败运行也必须显示横幅（此前只在"没有回答"时才显示错误）
+  assert.match(components, /isTerminal\(run\.status\) && <UnverifiedBanner/);
+});
