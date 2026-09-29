@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Sequence
 
 from water_agent.drawing.building_rules import (
@@ -277,18 +278,48 @@ def compose_notes(
     return ["说明："] + [f"{index}. {line}" for index, line in enumerate(body, start=1)]
 
 
+#: 说明每行的最大宽度（中文字数计，西文按 0.55 个）。也让每行在 GBK 下不超过 255 字节：
+#: R2000 的字符串字段有这个上限，实验性 DWG 的源文件用得到（见 `generator`）。
+NOTE_LINE_UNITS = 60.0
+_NOTE_TOKEN = re.compile(r"[A-Za-z0-9_.\-/:~+%±]+|.")
+
+
+def _units(token: str) -> float:
+    return sum(1.0 if ord(char) > 0x2E7F else 0.55 for char in token)
+
+
+def wrap_note_line(line: str, *, max_units: float = NOTE_LINE_UNITS, indent: str = "   ") -> list[str]:
+    """按宽度折行：西文词、规范号、数值不从中间断开；续行缩进。"""
+
+    wrapped: list[str] = []
+    current, width = "", 0.0
+    for token in _NOTE_TOKEN.findall(line):
+        size = _units(token)
+        if current and width + size > max_units:
+            wrapped.append(current.rstrip())
+            current, width = indent, _units(indent)
+            if token == " ":
+                continue
+        current += token
+        width += size
+    if current.strip():
+        wrapped.append(current.rstrip())
+    return wrapped or [line]
+
+
 def note_blocks(
     lines: Sequence[str], *, left: float, top: float, height: float
 ) -> tuple[list[NoteBlockPlan], float]:
-    """说明 + 固定声明两块 MTEXT，返回 (块, 最低处 y)。"""
+    """说明 + 固定声明两块 MTEXT，返回 (块, 最低处 y)。长行按 `NOTE_LINE_UNITS` 折行。"""
 
     spacing = height * 5.0 / 3.0
+    lines = [part for line in lines for part in wrap_note_line(line)]
     notes = NoteBlockPlan(
         lines=tuple(lines), point=rounded((left, top)), height=height, layer=LAYER_TEXT, role="notes"
     )
     disclaimer_top = top - spacing * len(lines) - height * 2
     disclaimer = NoteBlockPlan(
-        lines=(DISCLAIMER,),
+        lines=tuple(wrap_note_line(DISCLAIMER)),
         point=rounded((left, disclaimer_top)),
         height=height,
         layer=LAYER_TEXT,
@@ -647,6 +678,7 @@ __all__ = [
     "FITTING_GAP_MM",
     "LABEL_GAP_MM",
     "LABEL_OFFSET",
+    "NOTE_LINE_UNITS",
     "PLAN_SCALE",
     "RISER_TAG_TEXT",
     "SYMBOL_LENGTH_MM",
@@ -668,4 +700,5 @@ __all__ = [
     "rule_lines",
     "text_width",
     "unit_count",
+    "wrap_note_line",
 ]

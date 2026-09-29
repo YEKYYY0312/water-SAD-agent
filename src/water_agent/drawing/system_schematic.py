@@ -330,7 +330,7 @@ def plan_schematic(request: GenerationRequest, rules: BuildingRules) -> Schemati
     )
     extra = [
         (
-            "系统图按 45° 斜等测示意；楼层标高 = (层号 − 1) × 层高（输入），±0.000 为首层建筑地面；"
+            "系统图按 45° 斜等测示意；楼层标高 = (层号 - 1) × 层高（输入），±0.000 为首层建筑地面；"
             f"引入管位置为示意，未标注标高；立管全高按主管 {main.value}，未做逐层变径"
         ),
         f"横干管安装高度 {mount_label(request, typed)}（h 为本层建筑地面标高，数值见 {routing.rule_id}）；各层布置相同",
