@@ -15,6 +15,7 @@ import {
   emptyRunState,
   isTerminalStatus,
   mergeHistory,
+  replayUnavailable,
   type ConversationMessage,
   type WorkspaceRunState,
 } from "./workspaceState";
@@ -22,6 +23,8 @@ import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
+/** 非 404 的连接失败最多重试几次（指数退避，封顶 10 s）。 */
+const MAX_STREAM_RETRIES = 8;
 const SESSION_STORAGE_PREFIX = "water-agent:selected-session:";
 
 function storedValue(key: string): string | null {
@@ -117,6 +120,9 @@ export function useWorkspaceController(): WorkspaceController {
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
   const runStatus = useRef("idle");
+  // 切会话时拿到的历史；实时回放不可用时退回它（见 connectRun 的 404 分支）。
+  const historyRef = useRef<{ role: "user" | "agent"; text: string; withheld?: boolean }[]>([]);
+  const retries = useRef(0);
 
   const selectedSession = sessions.find((item) => item.thread_id === selectedThreadId) ?? null;
 
@@ -208,14 +214,32 @@ export function useWorkspaceController(): WorkspaceController {
           }
         },
       });
+      retries.current = 0;
       if (!isTerminalStatus(runStatus.current) && !controller.signal.aborted) {
         setPageError("SSE 连接已结束，正在等待后端事件继续恢复");
         reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 500);
       }
     } catch (error) {
       if (controller.signal.aborted) return;
+      // 404 是永久性的：运行的实时事件只存在于服务进程内存里，服务重启后就没了，
+      // 重试多少次都不会回来。此前这里无条件每 800 ms 重试（本地实测 30 分钟 1,992 次），
+      // "正在检索与计算…"永不消失，历史回答也因等着回放而不显示。
+      if (error instanceof WorkspaceApiError && error.status === 404) {
+        setStreaming(false);
+        setRun(emptyRunState());
+        setMessages(replayUnavailable(historyRef.current, runStatus.current));
+        setPageError(null);
+        return;
+      }
+      retries.current += 1;
+      if (retries.current > MAX_STREAM_RETRIES) {
+        setStreaming(false);
+        setPageError(`实时连接多次失败，已停止重试：${apiMessage(error)}。刷新页面可再试一次。`);
+        return;
+      }
       setPageError(`SSE 连接中断，正在从事件 ${cursor.current} 恢复：${apiMessage(error)}`);
-      reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 800);
+      const delay = Math.min(800 * 2 ** (retries.current - 1), 10_000);
+      reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), delay);
     }
   }, [api, selectedProjectId]);
 
@@ -234,6 +258,8 @@ export function useWorkspaceController(): WorkspaceController {
         if (!active) return;
         setSessions((current) => current.map((item) => item.thread_id === selectedThreadId ? session : item));
         const latest = session.latest_run;
+        historyRef.current = history.messages;
+        retries.current = 0;
         setMessages(mergeHistory(history.messages, Boolean(latest)));
         if (latest) {
           setStreaming(true);
@@ -312,6 +338,7 @@ export function useWorkspaceController(): WorkspaceController {
     setRun(emptyRunState());
     cursor.current = "0";
     runStatus.current = "queued";
+    retries.current = 0;
     setStreaming(true);
     void api.sendMessage(selectedThreadId, message, attachmentIds)
       .then((created) => {
