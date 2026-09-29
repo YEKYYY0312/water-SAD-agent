@@ -110,7 +110,7 @@ def test_non_dxf_content_is_rejected_by_the_header_check(body: bytes) -> None:
 def test_renamed_dwg_gets_an_actionable_message() -> None:
     with pytest.raises(UploadError) as info:
         check_dxf_magic(b"AC1032" + b"\x00" * 64)
-    assert "另存为 DXF" in str(info.value)
+    assert "扩展名改回 .dwg" in str(info.value)
 
 
 def test_ascii_and_binary_dxf_headers_are_accepted(tmp_path: Path) -> None:
@@ -260,7 +260,8 @@ def test_capability_note_says_dxf_is_reviewed_and_dwg_is_not_supported() -> None
     ).content
     assert "DXF 图纸：可上传" in content
     assert "程序化审查" in content
-    assert "DWG 暂不支持" in content
+    # S51：DWG 能力随转换器是否安装推导（test_dwg_upload 另有两种状态的断言）。
+    assert "DWG 也可上传" in content or "DWG 暂不支持" in content
     assert "网页端暂不支持上传和读取" not in content
 
 
