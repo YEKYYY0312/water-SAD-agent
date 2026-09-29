@@ -159,6 +159,92 @@ class FeedbackCandidateRow(Base):
     )
 
 
+class UploadRow(Base):
+    """One uploaded document (P5-S48).
+
+    The file itself and its extracted text live on the uploads volume, not here:
+    ``/app/data`` is read-only in the image, and a document body in this table
+    would land in ``user_files.tar`` through a different path than the operator
+    expects.  This row is the authorization and metadata record; the body is
+    reachable only through :class:`UploadChunkRow`, which is what retrieval and
+    prompt injection actually read.
+
+    ``suspicious`` means the guardrail's injection detector fired on at least one
+    chunk.  It never blocks the upload -- uploaded text is data, not instruction
+    (the real guarantee is ``SourceTag.RETRIEVED_FILE`` not being
+    instruction-bearing) -- but it must stay visible so an answer built on a
+    poisoned document can be recognised as such.
+    """
+
+    __tablename__ = "uploads"
+
+    upload_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    safe_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    suffix: Mapped[str] = mapped_column(String(16), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    extracted_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extract_engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    suspicious: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    redacted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "suffix IN ('.docx', '.pdf', '.txt', '.md')",
+            name="ck_uploads_suffix",
+        ),
+        CheckConstraint("size_bytes > 0", name="ck_uploads_size_positive"),
+        CheckConstraint("extracted_chars >= 0", name="ck_uploads_extracted_chars"),
+        CheckConstraint(
+            "page_count IS NULL OR page_count >= 0", name="ck_uploads_page_count"
+        ),
+        Index("ix_uploads_tenant_id", "tenant_id"),
+        Index("ix_uploads_owner_user_id", "owner_user_id"),
+        Index("ix_uploads_project_id", "project_id"),
+    )
+
+
+class UploadChunkRow(Base):
+    """A bounded text block of an uploaded document (P5-S48).
+
+    Chunks are the retrieval and prompt-injection unit.  ``content`` is already
+    PII/credential-redacted before it is written: unredacted external text must
+    never reach persistent storage (same discipline as
+    ``GuardrailPipeline.sanitize_for_persistence``).
+    """
+
+    __tablename__ = "upload_chunks"
+
+    chunk_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    upload_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("uploads.upload_id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="ck_upload_chunks_ordinal"),
+        CheckConstraint("page IS NULL OR page >= 1", name="ck_upload_chunks_page"),
+        UniqueConstraint("upload_id", "ordinal", name="uq_upload_chunks_upload_ordinal"),
+        Index("ix_upload_chunks_upload_id", "upload_id"),
+    )
+
+
 class MemoryRecordRow(Base):
     __tablename__ = "memory_records"
 

@@ -13,23 +13,41 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-PY="_venv/bin/python"
+# 虚拟环境：显式 VENV > 本机约定的 _venv > uv sync 默认产出的 .venv。
+# 此前硬编码 _venv，而 GitHub runner 上 `uv sync` 建的是 .venv，p5-ci 的
+# python-gate 因此必然 "No such file or directory"（review 09-28）。找不到就响亮
+# 失败，不退回系统 python——那会用错依赖版本跑出一个假绿。
+if [ -n "${VENV:-}" ]; then
+    :
+elif [ -x "_venv/bin/python" ]; then
+    VENV="_venv"
+elif [ -x ".venv/bin/python" ]; then
+    VENV=".venv"
+else
+    echo "!! 找不到虚拟环境（_venv/ 或 .venv/）；先 uv sync --extra dev，或设置 VENV=路径" >&2
+    exit 2
+fi
+PY="$VENV/bin/python"
 FAILED=0
 
 step() { echo "==> $1"; }
 fail() { echo "!! $1"; FAILED=1; }
 
 step "pytest（全量离线单测）"
-if ! _venv/bin/pytest -q > /tmp/ci_gate_pytest.log 2>&1; then
-    tail -20 /tmp/ci_gate_pytest.log
+# -rfE：失败/错误用例的摘要行；--tb=short：失败时打印精简 traceback。
+# 此前只 tail -20，traceback 全被截掉——GitHub 上首次运行出现一条本机复现不了的
+# 失败，日志里只剩一行 "AssertionError:"，无从判断原因。失败时打印 FAILURES 小节。
+if ! "$VENV/bin/pytest" -q -rfE --tb=short > /tmp/ci_gate_pytest.log 2>&1; then
+    awk '/^=+ (FAILURES|ERRORS) =+$/{show=1} show' /tmp/ci_gate_pytest.log | head -400
+    tail -30 /tmp/ci_gate_pytest.log
     fail "pytest"
 fi
 
 step "ruff check src"
-if ! _venv/bin/ruff check src; then fail "ruff"; fi
+if ! "$VENV/bin/ruff" check src; then fail "ruff"; fi
 
 step "mypy src/water_agent（Step 10 要求清零）"
-if ! _venv/bin/mypy src/water_agent > /tmp/ci_gate_mypy.log 2>&1; then
+if ! "$VENV/bin/mypy" src/water_agent > /tmp/ci_gate_mypy.log 2>&1; then
     tail -20 /tmp/ci_gate_mypy.log
     fail "mypy"
 fi

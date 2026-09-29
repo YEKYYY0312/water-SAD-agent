@@ -300,8 +300,18 @@ _MCP_RUNTIME_BINDINGS: dict[str, McpToolBinding] = {}
 
 
 def register_mcp_tool_binding(binding: McpToolBinding) -> None:
-    """登记一个 MCP 动态工具绑定；重名拒绝（防同名校验被静默覆盖）。"""
+    """登记一个 MCP 动态工具绑定；**不同的**绑定抢同一个名字时拒绝。
+
+    同一份绑定（server / 远端工具 / 能力 / 确认标记全部相同）再次登记是幂等的：
+    每个 Web run 都会装配一次 ``AgenticSession``、重新打开 MCP 桥接，此前第二次
+    登记即 ``ValueError`` → 桥接层记为 ``MCP_NAME_COLLISION`` 并跳过，于是**进程里
+    只有第一个会话拿得到 MCP 工具**（review 09-28 #3，实测）。
+    重名拒绝要防的是"另一个 server 的工具静默顶替已登记的名字"，那种情况照旧拒绝；
+    幂等不削弱它，因为 ``McpToolBinding`` 是 frozen 的，相等即每个治理字段都相等。
+    """
     existing = _MCP_RUNTIME_BINDINGS.get(binding.tool_name)
+    if existing == binding:
+        return
     if existing is not None:
         raise ValueError(
             f"MCP 工具绑定 {binding.tool_name!r} 已登记（server={existing.server_id}）；"

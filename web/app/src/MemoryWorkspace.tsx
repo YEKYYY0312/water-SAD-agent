@@ -110,7 +110,7 @@ function MemoryDetail({
   }
   return (
     <section className="memory-detail" aria-labelledby="memory-detail-title">
-      <div className="detail-header"><div><p className="kicker">MEMORY RECORD</p><h3 id="memory-detail-title"><ScopeMark scope={memory.scope_type} />{memory.semantic_key}</h3></div><span className={`status-text status-${memory.status}`}>{statusLabels[memory.status]}</span></div>
+      <div className="detail-header"><div><h3 id="memory-detail-title"><ScopeMark scope={memory.scope_type} />{memory.semantic_key}</h3></div><span className={`status-text status-${memory.status}`}>{statusLabels[memory.status]}</span></div>
       <p className="detail-content">{memory.content || "（无正文）"}</p>
       <dl className="record-facts">
         <div><dt>类型</dt><dd>{kindLabels[memory.kind]}</dd></div>
@@ -121,8 +121,8 @@ function MemoryDetail({
         <div><dt>revision</dt><dd>{memory.revision}</dd></div>
         <div><dt>过期时间</dt><dd>{formatDate(memory.expires_at)}</dd></div>
       </dl>
-      <div className="detail-section"><div className="section-heading"><span className="kicker">USAGE</span><span>{loading ? "读取中" : `${usage.length} 条服务端记录`}</span></div>{error ? <div className="inline-error" role="alert"><strong>{error.code}</strong><span>{error.message}</span></div> : usage.length === 0 ? <p className="muted">尚无使用记录；不会从 trace 猜测使用情况。</p> : <ul className="usage-list">{usage.map((item, index) => <li key={item.usage_id ?? `${item.created_at}-${index}`}><span>{formatDate(item.created_at)}</span><span>run {item.run_id ?? "未提供"}</span><span>score {formatScore(item.score)}</span></li>)}</ul>}</div>
-      <div className="detail-section"><div className="section-heading"><span className="kicker">AUDIT EVENTS</span><span>{loading ? "读取中" : `${events.length} 条`}</span></div>{error ? null : events.length === 0 ? <p className="muted">暂无事件摘要。</p> : <ul className="event-list">{events.map((event) => <li key={event.event_id}><span>{event.event_type}</span><span>revision {event.revision}</span><span>{formatDate(event.created_at)}</span></li>)}</ul>}</div>
+      <div className="detail-section"><div className="section-heading"><span className="kicker">使用记录</span><span>{loading ? "读取中" : `${usage.length} 条服务端记录`}</span></div>{error ? <div className="inline-error" role="alert"><strong>{error.code}</strong><span>{error.message}</span></div> : usage.length === 0 ? <p className="muted">尚无使用记录；不会从 trace 猜测使用情况。</p> : <ul className="usage-list">{usage.map((item, index) => <li key={item.usage_id ?? `${item.created_at}-${index}`}><span>{formatDate(item.created_at)}</span><span>run {item.run_id ?? "未提供"}</span><span>score {formatScore(item.score)}</span></li>)}</ul>}</div>
+      <div className="detail-section"><div className="section-heading"><span className="kicker">变更记录</span><span>{loading ? "读取中" : `${events.length} 条`}</span></div>{error ? null : events.length === 0 ? <p className="muted">暂无事件摘要。</p> : <ul className="event-list">{events.map((event) => <li key={event.event_id}><span>{event.event_type}</span><span>revision {event.revision}</span><span>{formatDate(event.created_at)}</span></li>)}</ul>}</div>
       <div className="detail-actions"><button type="button" className="button-secondary" onClick={onCorrect} disabled={memory.status !== "active"}>更正</button><button type="button" className="button-danger" onClick={onForget}>忘记此记忆</button></div>
     </section>
   );
@@ -251,12 +251,12 @@ export function MemoryWorkspace({ api: suppliedApi }: { api?: MemoryApiClient })
   return (
     <div className="memory-workspace">
       <header className="memory-workspace-header">
-        <div><p className="kicker">LONG-TERM MEMORY</p><h2 id="memory-heading">记忆面板</h2><p className="memory-subtitle">只管理经过服务端授权和确认的长期记忆。</p></div>
+        <div><h2 id="memory-heading">记忆面板</h2><p className="memory-subtitle">只管理经过服务端授权和确认的长期记忆。</p></div>
         <button type="button" className="button-primary" onClick={openRemember}>＋ 记住此信息</button>
       </header>
 
       <section className="answer-usage" role="log" aria-live="polite" aria-labelledby="answer-usage-title">
-        <div className="section-heading"><div><span className="kicker">CURRENT ANSWER</span><h3 id="answer-usage-title">当前回答使用的记忆</h3></div><label className="switch-control"><input type="checkbox" role="switch" checked={autoRecallEnabled} onChange={(event) => setAutoRecallEnabled(event.target.checked)} /><span>{autoRecallEnabled ? "自动召回已开" : "自动召回已关"}</span></label></div>
+        <div className="section-heading"><div><h3 id="answer-usage-title">当前回答使用的记忆</h3></div><label className="switch-control"><input type="checkbox" role="switch" checked={autoRecallEnabled} onChange={(event) => setAutoRecallEnabled(event.target.checked)} /><span>{autoRecallEnabled ? "自动召回已开" : "自动召回已关"}</span></label></div>
         {!autoRecallEnabled ? <p className="muted">已关闭本工作台的自动读取展示；已有记忆不会被删除。</p> : currentAnswerMemories.length === 0 ? <p className="muted">本次列表响应没有提供当前回答的记忆使用摘要；不会从 trace 猜测正文。</p> : <div className="answer-memory-list">{currentAnswerMemories.map((memory) => <button type="button" key={memory.memory_id} onClick={() => setSelectedId(memory.memory_id)}><ScopeMark scope={memory.scope_type} /><span>{memory.content}</span><small>revision {memory.revision}</small></button>)}</div>}
       </section>
 
