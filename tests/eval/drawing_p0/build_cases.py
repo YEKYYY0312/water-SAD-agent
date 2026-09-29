@@ -98,9 +98,13 @@ CASE_SPECS: list[dict] = [
     },
     {
         "drawing_id": "dw-005-water-supply-out-of-scope",
-        "description": "给水管 DN200（<300）不适用排水最小管径 → 无缺陷（规则作用域不误伤）",
+        "description": (
+            "给水管 DN200（<300）不适用排水最小管径 → 无缺陷（规则作用域不误伤）；"
+            "但给水管段没有任何规则去查，必须如实报未检查、结论不含合规判断（P6-S1 修正）"
+        ),
         "expected_status": "succeeded",
-        "expected_summary_contains": ["均未发现问题"],
+        "expected_summary_contains": ["未对任何管段执行规则判定", "不含任何合规判断"],
+        "expected_not_checked_contains": ["给水管段"],
         "water_pipes": [
             {"x1": 0.0, "y1": 0.0, "x2": 40.0, "y2": 0.0, "label": "DN200 球墨铸铁"},
         ],
