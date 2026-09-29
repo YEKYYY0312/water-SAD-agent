@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from water_agent.documents.attachments import MAX_ATTACHMENTS_PER_MESSAGE
+from water_agent.documents.repository import UploadRepository
 from water_agent.runtime.agentic import (
     embedding_configured,
     embedding_required,
@@ -40,6 +42,8 @@ class MessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=16_000)
+    #: P5-S49：随消息附上的上传 id。上限与 documents.attachments 一致。
+    attachments: list[UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
     @field_validator("message")
     @classmethod
@@ -134,6 +138,16 @@ async def create_message(
                 "Retrieval embedding credential is not configured",
             )
 
+    # 附件归属在建 run 之前校验：不可见与不存在同答 404，且不留下 queued run。
+    attachment_ids = [str(item) for item in dict.fromkeys(body.attachments)]
+    if attachment_ids:
+        uploads = UploadRepository(database)
+        try:
+            for upload_id in attachment_ids:
+                uploads.get_for_user(upload_id, user.user_id)
+        except ResourceNotFoundError:
+            return _not_found()
+
     try:
         run = RunRepository(database).create(thread_id, user.user_id)
     except ResourceNotFoundError:
@@ -147,6 +161,7 @@ async def create_message(
             principal=principal,
             project_id=web_session.project_id,
             query=body.message,
+            attachment_ids=attachment_ids,
         )
     except (RuntimeError, ValueError):
         # A run row without a managed event log is not a successful API call.

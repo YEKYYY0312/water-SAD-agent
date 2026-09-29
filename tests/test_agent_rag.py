@@ -14,7 +14,12 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from water_agent.graphs.agent_rag import build_agentic_app
+from water_agent.graphs.agent_rag import (
+    PER_TURN_RESET,
+    WARNING_NON_NORMATIVE_NO_CITATION,
+    build_agentic_app,
+    current_turn_messages,
+)
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.tools.calc_velocity import calc_velocity_spec
@@ -379,6 +384,121 @@ class TestAgenticApp:
         assert state.get("answer")
 
 
+class TestTurnScopedCitationValidator:
+    """P5-S49：零引用校验按轮次取信号，非规范性回答确定性豁免，回流要求面向用户作答。
+
+    复现截图：第 1 轮检索过，第 2 轮问"能读 PDF 吗"——旧实现扫描整条 thread，把上一轮
+    的检索结果当成本轮的，强制回流后只剩"本轮我未引用任何规范条款…结论重申"。
+    """
+
+    @staticmethod
+    def _invoke(app, text: str, thread: str = "t-s49"):
+        return app.invoke(
+            {"messages": [HumanMessage(content=text)], **PER_TURN_RESET},
+            config={"configurable": {"thread_id": thread}},
+        )
+
+    def test_capability_question_without_retrieval_is_exempt_with_visible_warning(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[
+            _assistant("可以。上传 Word、PDF 或 TXT 后，我能读取其中的文字内容；DXF 图纸目前在网页端还不能直接读取。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = self._invoke(app, "你能读取 PDF 文件吗")
+        assert out["status"] == "succeeded", out["errors"]
+        assert out["citations"] == []
+        assert out.get("empty_citation_reflows", 0) == 0
+        assert out["warnings"] == [WARNING_NON_NORMATIVE_NO_CITATION]
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "生活给水管道流速一般不宜大于 2 m/s。",
+            "按 GB50015 的要求确定。",
+            "依据 3.6.1 条执行。",
+            "干管可选 DN100。",
+            "坡度不小于 0.3%。",
+        ],
+    )
+    def test_normative_looking_answer_without_citation_still_reflows(self, retriever, answer: str) -> None:
+        """凭记忆给出规范号/条款号/带单位数值的回答不得借豁免绕过引用（铁律 2）。"""
+        model = FakeMessagesListChatModel(responses=[_assistant(answer), _assistant(answer)])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = self._invoke(app, "给水管道流速多少合适")
+        assert out["status"] == "failed"
+        assert out["empty_citation_reflows"] == 1
+        assert WARNING_NON_NORMATIVE_NO_CITATION not in out.get("warnings", [])
+
+    def test_previous_turn_retrieval_does_not_force_reflow_on_capability_question(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[
+            _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
+            _assistant("设计秒流量按规范条文确定。"),
+            _assistant("可以读取有文字层的 PDF；CAD 导出的矢量图纸大多没有文字层，暂时读不到内容。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            first = self._invoke(app, "设计秒流量如何确定")
+            second = self._invoke(app, "那我给你 CAD 设计图的 PDF，你能读取吗")
+        assert first["status"] == "succeeded"
+        assert second["status"] == "succeeded", second["errors"]
+        assert second.get("empty_citation_reflows", 0) == 0
+        assert second["citations"] == []
+        # 本轮消息里不得出现校验器回流
+        turn = current_turn_messages(second["messages"])
+        assert not any(isinstance(m, ToolMessage) and m.name == "citation_validator" for m in turn)
+
+    def test_previous_turn_citation_does_not_count_for_this_turn(self, retriever) -> None:
+        """第 2 轮有检索但零引用：上一轮的 cite_clauses 不得让本轮通过。"""
+        model = FakeMessagesListChatModel(responses=[
+            _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
+            _assistant("第一轮回答。"),
+            _assistant("", tool_calls=[{"name": "retrieve_clauses", "args": {"query": "排水", "top_k": 5}, "id": "c-r2"}]),
+            _assistant("第二轮回答，未声明引用。"),
+            _assistant("第二轮回流后仍未声明引用。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            self._invoke(app, "设计秒流量如何确定")
+            second = self._invoke(app, "排水管道怎么设计")
+        assert second["status"] == "failed"
+        assert second["empty_citation_reflows"] == 1
+
+    def test_reflow_feedback_asks_for_a_user_facing_answer(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[
+            _retrieve_call(retriever),
+            _assistant("给出回答但没有声明引用。"),
+            _cite_call(["FIX 1.1.1"], call_id="c-cite-2"),
+            _assistant("设计秒流量按规范条文确定。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = self._invoke(app, "设计秒流量如何确定")
+        feedback = [
+            str(m.content) for m in out["messages"]
+            if isinstance(m, ToolMessage) and m.name == "citation_validator"
+        ]
+        assert feedback and all("面向用户" in f and "结论重申" in f for f in feedback)
+        # 上一轮有检索、本轮也检索过 → 选"本轮已返回相关条款"的文案
+        assert "本轮 retrieve_clauses 已返回相关条款" in feedback[0]
+
+    def test_warnings_reset_between_turns(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[
+            _assistant("你好，我是给排水设计助手，可以帮你查规范、做水力计算。"),
+            _retrieve_call(retriever),
+            _cite_call(["FIX 1.1.1"]),
+            _assistant("设计秒流量按规范条文确定。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            first = self._invoke(app, "你好")
+            second = self._invoke(app, "设计秒流量如何确定")
+        assert first["warnings"] == [WARNING_NON_NORMATIVE_NO_CITATION]
+        assert second["warnings"] == []
+
+
 class TestCliAgenticOffline:
     def test_run_agentic_once_works_without_api_keys(self, tmp_path, monkeypatch) -> None:
         """离线闭环：--mode agentic + --mock-generator 时无 DEEPSEEK/DASHSCOPE Key 也跑通（fixture 回落）。"""
@@ -429,3 +549,42 @@ class TestAgenticTrace:
         assert llm_calls[-1]["data"]["response_preview"] == "最终回答。"
         assert document["status"] == "succeeded"
         assert any(e["event_type"] == "run_end" for e in document["events"])
+
+
+class TestMentionedClauseReflow:
+    """P5-S50 附件问答实测：模型正文写"GB 50014-2021 第 7.4.3 条"却不调 cite_clauses。"""
+
+    def test_mentioned_ids_are_matched_against_the_retrieval_context_only(self) -> None:
+        from water_agent.graphs.agent_rag import _mentioned_source_ids
+
+        answer = (
+            "GB 50014-2021 第 7.4.3 条规定停留时间宜大于 5 min；GB50014—2021 第7.1.1条；"
+            "GB 50014-2021 表 9.9.9（检索里没有）。"
+        )
+        assert _mentioned_source_ids(answer, ["GB50014-2021 7.4.3", "GB50014-2021 7.1.1"]) == [
+            "GB50014-2021 7.4.3",
+            "GB50014-2021 7.1.1",
+        ]
+
+    def test_reflow_lists_the_mentioned_clauses_but_never_declares_them(self) -> None:
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        from water_agent.graphs.agent_rag import make_citation_validator
+
+        state = {
+            "messages": [
+                HumanMessage(content="曝气沉砂池停留时间取 2.5 min 合适吗"),
+                AIMessage(content="", tool_calls=[{"id": "r1", "name": "retrieve_clauses", "args": {}}]),
+                ToolMessage(
+                    name="retrieve_clauses",
+                    tool_call_id="r1",
+                    content='{"hits": [{"source_id": "GB50014-2021 7.4.3"}, {"source_id": "GB50014-2021 7.4.4"}]}',
+                ),
+                AIMessage(content="GB 50014-2021 第 7.4.3 条规定停留时间宜大于 5 min，取值偏小。"),
+            ]
+        }
+        out = make_citation_validator()(state)
+        feedback = out["messages"][-1].content
+        assert "GB50014-2021 7.4.3" in feedback and "7.4.4" not in feedback
+        assert "调用 cite_clauses" in feedback
+        assert "citations" not in out, "校验器只提示，绝不代为声明引用"

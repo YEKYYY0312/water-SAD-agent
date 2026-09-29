@@ -129,7 +129,7 @@ services:
     environment:
       SMOKE_BASE_URL: http://app:8000
       SMOKE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
-      SMOKE_EXPECTED_MIGRATION_HEAD: "0005_step48_uploads"
+      SMOKE_EXPECTED_MIGRATION_HEAD: "0007_step51_dwg_uploads"
       # 冒烟自己要在本容器内跑一次 agentic run（见 webapp/smoke.py 的
       # _run_agentic_probe），运行收尾要写 trace。这里指向下面的 tmpfs：
       # 根文件系统只读，app 的 app_traces 卷也不该被冒烟写脏。

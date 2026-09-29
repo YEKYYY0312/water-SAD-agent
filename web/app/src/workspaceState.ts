@@ -49,6 +49,68 @@ export const emptyRunState = (): WorkspaceRunState => ({
   lastEventId: "0",
 });
 
+/** 对话里的一条消息。agent 消息带收口状态：失败的回答也要留在对话里，但必须标出来。 */
+export type ConversationMessage = {
+  role: "user" | "agent";
+  text: string;
+  status?: string;
+  withheld?: boolean;
+};
+
+const TERMINAL = new Set(["succeeded", "failed", "blocked", "cancelled"]);
+
+/**
+ * 发下一条消息前，把上一轮已收口的回答归档进对话。
+ *
+ * 此前回答只活在 run 状态里，发第二问时 setRun(emptyRunState()) 直接把它清掉——
+ * 截图里两个问题只剩一个回答就是这个原因（P5-S49）。
+ */
+export function archiveRun(messages: ConversationMessage[], run: WorkspaceRunState): ConversationMessage[] {
+  if (!TERMINAL.has(run.status)) return messages;
+  const text = run.answer || run.tokens;
+  if (!text && run.status === "succeeded") return messages;
+  return [...messages, { role: "agent", text, status: run.status }];
+}
+
+/**
+ * 切换会话时合并后端历史与"最新一次运行"的回放。
+ *
+ * 最新运行会经 SSE 重放进 run 状态并单独渲染；历史里它的回答若不去掉就会出现两遍。
+ * 只去掉最后一个用户问题之后的 agent 消息——问题本身保留（run 视图不渲染问题）。
+ */
+export function mergeHistory(
+  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  hasLatestRun: boolean,
+): ConversationMessage[] {
+  const messages: ConversationMessage[] = history.map((item) => (
+    item.role === "agent"
+      ? { role: "agent", text: item.text, status: item.withheld ? "blocked" : "succeeded", withheld: Boolean(item.withheld) }
+      : { role: "user", text: item.text }
+  ));
+  if (!hasLatestRun) return messages;
+  let lastUser = -1;
+  messages.forEach((item, index) => { if (item.role === "user") lastUser = index; });
+  return lastUser === -1 ? messages : messages.slice(0, lastUser + 1);
+}
+
+/**
+ * 最新运行的实时回放已不可用（服务重启后事件日志随进程消失）时，对话退回完整历史。
+ *
+ * - 已收口的运行：它的最终回答就在历史里，原样显示；
+ * - 未收口的运行（queued/running）：服务重启打断了它，补一条明确的中断说明——
+ *   不能让"正在检索与计算…"一直挂着，也不能什么都不显示。
+ */
+export function replayUnavailable(
+  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  latestStatus: string,
+): ConversationMessage[] {
+  const messages = mergeHistory(history, false);
+  if (TERMINAL.has(latestStatus)) return messages;
+  const last = messages[messages.length - 1];
+  if (last && last.role === "agent") return messages;
+  return [...messages, { role: "agent", text: "这次运行因服务重启中断，没有完成。可以重新发送问题。", status: "failed" }];
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
