@@ -172,3 +172,29 @@ test("answers render through Markdown without raw HTML", async () => {
   // 有回答的失败运行也必须显示横幅（此前只在"没有回答"时才显示错误）
   assert.match(components, /isTerminal\(run\.status\) && <UnverifiedBanner/);
 });
+
+// ---------------------------------------------------------------------------
+// Replay after a server restart: the event log is gone, the history is not
+// ---------------------------------------------------------------------------
+
+import { replayUnavailable } from "../src/workspaceState.ts";
+
+test("a finished run whose replay is gone falls back to the full history", () => {
+  const history = [{ role: "user", text: "问" }, { role: "agent", text: "答" }];
+  assert.deepEqual(replayUnavailable(history, "failed").map((m) => m.text), ["问", "答"]);
+});
+
+test("an unfinished run interrupted by a restart says so instead of spinning", () => {
+  const messages = replayUnavailable([{ role: "user", text: "问" }], "running");
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].status, "failed");
+  assert.match(messages[1].text, /服务重启中断/);
+});
+
+test("the stream controller treats 404 as permanent and caps other retries", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/useWorkspaceController.ts", import.meta.url), "utf8");
+  assert.match(source, /error\.status === 404/);
+  assert.match(source, /MAX_STREAM_RETRIES/);
+  assert.doesNotMatch(source, /setTimeout\(\(\) => void connectRun\(runId, cursor\.current\), 800\)/);
+});
