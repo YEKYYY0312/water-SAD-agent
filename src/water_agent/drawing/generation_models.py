@@ -108,6 +108,14 @@ class PipeSpec(BaseModel):
     material: PipeMaterial
 
 
+#: 取值范围（执行 prompt Step 2）。前端表单经 ``GET /api/drawings/options`` 读这里，不另写一份。
+FLOORS_RANGE = (1, 33)
+UNITS_RANGE = (1, 8)
+PRESSURE_RANGE_MPA = (0.1, 1.0)
+FLOOR_HEIGHT_RANGE_M = (2.4, 6.0)
+DEFAULT_FLOOR_HEIGHT_M = 3.0
+
+
 class GenerationRequest(BaseModel):
     """一次出图的输入（spec D1 + 执行 prompt Step 2 的取值范围）。"""
 
@@ -115,8 +123,8 @@ class GenerationRequest(BaseModel):
 
     system_type: Literal["给水"] = SUPPORTED_SYSTEM
     building_type: BuildingType
-    floors: int = Field(ge=1, le=33)
-    units_per_floor: int = Field(ge=1, le=8)
+    floors: int = Field(ge=FLOORS_RANGE[0], le=FLOORS_RANGE[1])
+    units_per_floor: int = Field(ge=UNITS_RANGE[0], le=UNITS_RANGE[1])
     #: 缺省时取规则表默认（spec D2"用户指定或规则默认"），结果里如实写明用了默认。
     riser_position: str | None = Field(default=None, min_length=1, max_length=16)
     main_pipe: PipeSpec
@@ -124,8 +132,13 @@ class GenerationRequest(BaseModel):
     flow_rate_lps: float = Field(gt=0, allow_inf_nan=False)
     #: 支管设计流量。缺省 = 支管流速不校核（进 missing_inputs），不按总流量均分估算。
     branch_flow_rate_lps: float | None = Field(default=None, gt=0, allow_inf_nan=False)
-    pressure_mpa: float = Field(ge=0.1, le=1.0, allow_inf_nan=False)
-    floor_height_m: float = Field(default=3.0, ge=2.4, le=6.0, allow_inf_nan=False)
+    pressure_mpa: float = Field(ge=PRESSURE_RANGE_MPA[0], le=PRESSURE_RANGE_MPA[1], allow_inf_nan=False)
+    floor_height_m: float = Field(
+        default=DEFAULT_FLOOR_HEIGHT_M,
+        ge=FLOOR_HEIGHT_RANGE_M[0],
+        le=FLOOR_HEIGHT_RANGE_M[1],
+        allow_inf_nan=False,
+    )
     #: 实验性 DWG 输出（LibreDWG），需显式勾选；不影响任何几何。
     include_dwg: bool = False
 
@@ -634,8 +647,11 @@ def validate_sheet(sheet: SheetPlan) -> list[str]:
 
 __all__ = [
     "COORD_DECIMALS",
+    "DEFAULT_FLOOR_HEIGHT_M",
     "DIAMETER_BASIS_NOTE",
     "FITTING_SYMBOL",
+    "FLOORS_RANGE",
+    "FLOOR_HEIGHT_RANGE_M",
     "GENERATION_ERROR_STATUS",
     "GEN_INVALID_INPUT",
     "GEN_RENDER_FAILED",
@@ -650,9 +666,11 @@ __all__ = [
     "LAYER_TEXT",
     "LAYER_VALVE",
     "PIPE_LAYERS",
+    "PRESSURE_RANGE_MPA",
     "RENDER_FAILED_MESSAGE",
     "STANDARD_LAYERS",
     "SUPPORTED_SYSTEM",
+    "UNITS_RANGE",
     "CalculationRecord",
     "CirclePlan",
     "DetailPlan",
