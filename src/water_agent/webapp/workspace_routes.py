@@ -13,6 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.storage.repository import (
@@ -305,6 +306,44 @@ async def get_session(
     return JSONResponse(
         status_code=200,
         content=_ok(_session_payload(session, runs)),
+    )
+
+
+@router.get("/api/sessions/{thread_id}/messages")
+async def get_session_messages(
+    thread_id: UUID,
+    request: Request,
+    auth: tuple = Depends(require_password_changed),
+) -> JSONResponse:
+    """Conversation history for the workbench (P5-S49).
+
+    Ownership is checked against ``web_sessions`` **before** the checkpointer is
+    opened (same order as ``POST .../messages``): an unowned thread answers 404
+    and never costs a checkpoint read.  The saver re-authorizes as well.
+    """
+
+    user, _ = auth
+    database = _database(request)
+    manager = getattr(request.app.state, "run_manager", None)
+    if database is None or manager is None:
+        return _database_unavailable()
+    try:
+        WebSessionRepository(database).get_for_user(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    try:
+        messages = manager.thread_messages(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    except (RuntimeError, OSError, SQLAlchemyError):
+        return _error(
+            "WEB_HISTORY_UNAVAILABLE",
+            "Conversation history could not be loaded",
+            status_code=503,
+        )
+    return JSONResponse(
+        status_code=200,
+        content=_ok({"thread_id": str(thread_id), "messages": messages}),
     )
 
 
