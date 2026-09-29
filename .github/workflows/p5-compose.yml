@@ -35,6 +35,11 @@ jobs:
           # then asserts the honest 424 instead of starting a billable call.
           printf '%s' "${{ secrets.WATER_AGENT_DEEPSEEK_API_KEY }}" > secrets/deepseek_api_key
           printf '%s' "${{ secrets.WATER_AGENT_DASHSCOPE_API_KEY }}" > secrets/dashscope_api_key
+          # Compose (non-swarm) bind-mounts `file:` secrets with the host owner
+          # and mode, so a 0600 runner-owned file is unreadable for the image's
+          # uid 10001 and migrate falls over. Widen to read-only once the
+          # values are on disk; the runner is single-tenant and discarded.
+          chmod 0444 secrets/*
       - name: Show the compose version and validate the config
         run: |
           docker compose version
