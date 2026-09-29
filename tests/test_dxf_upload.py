@@ -276,3 +276,43 @@ def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
         "tools_guardrail_validated": 5,
     }
     assert json.dumps  # keep import used when the dict above changes shape
+
+
+# ---------------------------------------------------------------------------
+# 5. Drawing annotation summary (P5-S50 follow-up: "no drawing-reading ability")
+# ---------------------------------------------------------------------------
+
+
+def test_upload_text_carries_a_separate_annotation_summary(tmp_path: Path) -> None:
+    review = review_uploaded_dxf(_synthetic(tmp_path), display_name="a.dxf")
+    report, _, summary = review.text.partition("【图面信息摘要】")
+    assert summary, "审查结论之外必须附图面信息，否则模型只能答'报告之外看不到'"
+    assert "【未检查项" in report and "【未检查项" not in summary, "摘要与审查结论分节，互不混写"
+    assert "图元：" in summary
+    assert "不得据此推断图面没有的内容" in summary
+
+
+def test_injected_annotation_never_enters_the_summary(tmp_path: Path) -> None:
+    review = review_uploaded_dxf(_synthetic(tmp_path, inject_annotation=_INJECTION), display_name="a.dxf")
+    assert _INJECTION not in review.text
+
+
+def test_summary_groups_codes_coordinates_elevations_and_drops_title_block() -> None:
+    from types import SimpleNamespace
+
+    from water_agent.documents.drawing_upload import _drawing_summary
+    from water_agent.drawing.models import DrawingEntity, DrawingEntityKind
+
+    def text(value: str, handle: str) -> DrawingEntity:
+        return DrawingEntity(handle=handle, kind=DrawingEntityKind.TEXT, dxftype="TEXT", layer="0", text=value)
+
+    values = ["TK-04", "A=9969.000", "22.100", "D219×7", "污泥贮池", "审  核", "DESN.", "[ADDRESS]"]
+    extraction = SimpleNamespace(entities=tuple(text(v, str(i)) for i, v in enumerate(values)), layers=("0", "$TD_AUDIT_GENERATED_(1)"))
+    summary = _drawing_summary(extraction)
+    assert "编号（1 条）：TK-04" in summary
+    assert "坐标（1 条）：A=9969.000" in summary
+    assert "标高（1 条）：22.100" in summary
+    assert "规格/参数（1 条）：D219×7" in summary
+    assert "污泥贮池" in summary
+    for noise in ("审  核", "DESN.", "[ADDRESS]", "$TD_AUDIT"):
+        assert noise not in summary
