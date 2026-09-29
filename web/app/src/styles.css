@@ -325,6 +325,27 @@ code { font-family: var(--mono); font-size: .92em; }
 .settings-card-name { color: var(--faint); font: .76rem var(--mono); }
 .settings-footnote { max-width: 46rem; }
 
+/* ---------- 生成图纸（P6-S1）：复用设置页的版式，只补表单错误与结果区 ---------- */
+.drawing-panel { width: min(72rem, 100%); }
+.drawing-form .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.drawing-form label.has-error input, .drawing-form label.has-error select { border-color: var(--bad); }
+.field-error { color: var(--bad); font-size: .78rem; font-weight: 400; }
+.drawing-result { display: grid; gap: .9rem; }
+.drawing-result h3 { font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+.drawing-block h4, .drawing-sheet h4 { margin: 0 0 .4rem; font-size: .9rem; font-weight: 600; }
+.drawing-block ul { display: grid; gap: .25rem; margin: 0; padding-left: 1.2rem; font-size: .86rem; line-height: 1.6; }
+.drawing-block summary, .drawing-sheet summary { color: var(--muted); font-size: .84rem; cursor: pointer; }
+.drawing-sheets { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: .75rem; }
+.drawing-sheet { display: grid; align-content: start; gap: .35rem; font-size: .86rem; }
+.drawing-sheet code { color: var(--faint); font-size: .76rem; font-weight: 400; }
+.drawing-unchecked { color: var(--warn); font-size: .84rem; }
+.drawing-review-text { color: var(--ink-soft); font-size: .84rem; }
+.drawing-form .choice-row { display: flex; align-items: center; gap: .5rem; font-weight: 400; }
+.drawing-form .choice-row input { width: 1rem; height: 1rem; min-height: 0; padding: 0; accent-color: var(--ink); }
+.drawing-report { max-height: 20rem; margin: .4rem 0 0; padding: .6rem .75rem; overflow: auto; border-radius: var(--r-item); background: var(--surface); font: .74rem/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 64rem) { .drawing-form .form-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 52rem) { .drawing-form .form-grid { grid-template-columns: 1fr; } }
+
 /* ---------- 弹窗与表单 ---------- */
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(24 24 27 / 32%); }
 .modal { width: min(38rem, 100%); max-height: min(45rem, calc(100vh - 2rem)); overflow: auto; border-radius: var(--r-field); background: var(--canvas); box-shadow: 0 20px 60px rgb(24 24 27 / 18%); }

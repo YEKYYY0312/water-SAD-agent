@@ -48,6 +48,7 @@ from water_agent.drawing.generation_models import (
     PipeMaterial,
     SheetPlan,
     check_velocities,
+    drawing_velocity_note,
     parse_generation_request,
     resolve_riser_position,
     validate_sheet,
@@ -156,7 +157,10 @@ class GenerationResult:
             "riser_position": plan.riser_position,
             "riser_position_defaulted": plan.riser_position_defaulted,
             "rules_version": plan.rules_version,
-            "calculations": [record.model_dump(mode="json") for record in plan.calculations],
+            # note 与图面上的流速标注同一句话（drawing_velocity_note），前端原样显示，不自己格式化数字。
+            "calculations": [
+                {**record.model_dump(mode="json"), "note": drawing_velocity_note(record)} for record in plan.calculations
+            ],
             "warnings": list(plan.warnings) + self._dwg_warnings(),
             "missing_inputs": list(plan.missing_inputs),
             "assumptions": list(plan.assumptions),
