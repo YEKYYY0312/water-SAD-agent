@@ -685,6 +685,51 @@ class TestMinDiameterRule:
         review = review_drawing(result)
         assert [f for f in review.findings if f.rule is RULE_DRAIN_MIN_DN] == []
 
+    def test_all_water_supply_drawing_is_never_read_as_checked(self) -> None:
+        """P6-S1 实测修正：纯给水图曾报"已检查的规则均未发现问题，未检查 0 项"。
+
+        三条规则全只作用于排水管段，给水管段一条规则都没跑过——与零管段同理，
+        结论不得出现"未发现问题"，给水管段必须如实计入未检查。
+        """
+
+        pipes = [
+            MappedPipe(
+                segment_id=f"WS#{i}",
+                handle=str(i),
+                layer="WS-PIPE-MAIN",
+                system="water_supply",
+                length_raw=40.0,
+                length_m=40.0,
+                dn_mm=50,
+                material="PPR",
+            )
+            for i in (1, 2, 3)
+        ]
+        review = review_drawing(MappingResult(unit_known=True, pipes=pipes))
+        assert review.findings == []
+        assert review.water_supply_pipes == review.pipes_reviewed == 3
+        assert any("给水管段" in n and "3 条给水管段" in n and "未检查" in n for n in review.not_checked)
+        summary = review.summary()
+        assert "未发现问题" not in summary
+        assert "未对任何管段执行规则判定" in summary and "不含任何合规判断" in summary
+        assert review.to_dict()["water_supply_pipes"] == 3
+
+    def test_mixed_drawing_still_reports_water_supply_as_unchecked(self) -> None:
+        pipes = [
+            MappedPipe(segment_id="WS#1", handle="1", layer="WS-PIPE", system="water_supply",
+                       length_raw=40.0, length_m=40.0, dn_mm=50, material="PPR"),
+            MappedPipe(segment_id="DR#2", handle="2", layer=LAYER_DRAIN_PIPE, system="drainage",
+                       length_raw=40.0, length_m=40.0, dn_mm=400, material="钢筋混凝土"),
+        ]
+        review = review_drawing(MappingResult(unit_known=True, pipes=pipes))
+        assert any("1 条给水管段" in n for n in review.not_checked)
+        assert "不等于图纸无问题" in review.summary()
+
+    def test_scope_note_matches_the_rule_list(self) -> None:
+        """"现有规则全部只适用于排水管段"是对 ALL_RULES 的断言：加了给水规则就得改这条说明。"""
+
+        assert all(rule.rule_id.startswith("drain.") for rule in ALL_RULES)
+
     def test_suspicious_nearby_is_disclosed_in_detail(self) -> None:
         """判定旁边有被忽略的可疑标注时，读者有权知道。"""
         result = MappingResult(
