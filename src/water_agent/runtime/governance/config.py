@@ -197,6 +197,12 @@ class GovernanceConfig(BaseModel):
                 timeout_seconds=60.0,
                 retry=RetryPolicy(max_attempts=2),
             ),
+            # P5-S52 视觉审阅：单页实测 plus 39.7 s / flash 18.6 s，120 s 留足余量；
+            # 一次上传 ≤4 页、每页一次调用。重试 2 次：视觉调用贵，不做重试风暴。
+            ProviderKind.BAILIAN_VISION: ProviderProfile(
+                timeout_seconds=120.0,
+                retry=RetryPolicy(max_attempts=2),
+            ),
         }
     )
     prices: dict[str, ModelPrice] = Field(

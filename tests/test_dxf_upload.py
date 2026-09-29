@@ -271,8 +271,8 @@ def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
     from water_agent.runtime.governance.inventory import governance_coverage
 
     assert governance_coverage() == {
-        "provider_call_sites": 6,
-        "provider_governed": 6,
+        "provider_call_sites": 7,
+        "provider_governed": 7,
         "tools": 5,
         "tools_guardrail_validated": 5,
     }

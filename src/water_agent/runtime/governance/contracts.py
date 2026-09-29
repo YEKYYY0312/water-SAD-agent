@@ -511,6 +511,8 @@ class ProviderKind(str, Enum):
     DEEPSEEK_CHAT = "deepseek_chat"
     BAILIAN_EMBEDDING = "bailian_embedding"
     BAILIAN_RERANK = "bailian_rerank"
+    #: P5-S52：CAD 导出 PDF 的视觉审阅（百炼 Qwen-VL，OpenAI 兼容端点）。
+    BAILIAN_VISION = "bailian_vision"
 
 
 class CallCategory(str, Enum):
@@ -523,6 +525,7 @@ class CallCategory(str, Enum):
     EMBEDDING_QUERY = "embedding_query"
     EMBEDDING_INGEST = "embedding_ingest"
     RERANK = "rerank"
+    VISION_REVIEW = "vision_review"
 
 
 class ProviderCall(BaseModel):
