@@ -1,6 +1,6 @@
 # Spec: P5-S48 多模态文件输入与输出（Upload & Export）
 
-> 状态：待用户确认。本 Step 交付文件上传（Word/PDF 读取）与文件输出（Excel/Word 下载）的最小闭环，不引入向量存储或 OCR。
+> 状态：**后端 Step 1–4 已交付（2026-09-28），前端 Step 5 未做**。实现与本 spec 的偏离（存储位置、SourceTag、检索实现、PDF 引擎）以 `docs/design/p5-step-48-decision.md` 为准。本 Step 交付文件上传（Word/PDF 读取）与文件输出（Excel/Word 下载）的最小闭环，不引入向量存储或 OCR。
 
 ## Objective
 
@@ -158,4 +158,4 @@ Web 工作台支持：
 
 - **R1 PDF 文本提取质量**：pymupdf 对扫描件 PDF 无效（无文本层）。本阶段只支持文字版 PDF，扫描件返回 `extracted_text_length=0` 并提示用户。
 - **R2 docx 样式简陋**：python-docx 默认样式较朴素。P5-S48 只做"能打开、内容正确"，美观迭代留到后续。
-- **R3 上传文件清理**：24 小时 TTL 是硬编码，不暴露配置。长期运行需监控 `uploads/` 目录大小。
+- **R3 上传文件清理**：~~24 小时 TTL 是硬编码~~（已作废：与「入库长期保存」拍板冲突）。当前无 retention，长期运行需监控 `uploads/` 卷大小。

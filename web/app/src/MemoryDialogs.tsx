@@ -244,7 +244,7 @@ export function RememberModal({
           </dl>
           {candidate.conflict && (
             <div className="conflict-panel" aria-labelledby="conflict-title">
-              <div className="conflict-heading"><span className="kicker">CONFLICT</span><strong id="conflict-title">同一语义键已有活动记忆 · revision {candidate.conflict.revision}</strong></div>
+              <div className="conflict-heading"><span className="kicker">有冲突</span><strong id="conflict-title">同一语义键已有活动记忆 · revision {candidate.conflict.revision}</strong></div>
               <div className="comparison-grid">
                 <section><span>现有值</span><p>{candidate.conflict.current_content}</p></section>
                 <section><span>新值</span><p>{candidate.conflict.proposed_content}</p></section>

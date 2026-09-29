@@ -46,6 +46,24 @@ def verify_password(plaintext: str, stored_hash: str) -> bool:
         return False
 
 
+#: 用户不存在时拿来空验一次的哈希。参数与真实哈希完全相同（同一个 _PH），
+#: 所以 Argon2 的耗时一致。懒生成：模块导入时不白花 ~50 ms。
+_DUMMY_HASH: str | None = None
+
+
+def burn_password_check(plaintext: str) -> None:
+    """对一个不存在的账号做一次与真实校验等价的 Argon2 计算，结果丢弃。
+
+    登录时"用户不存在"若直接返回，耗时约 0.5 ms，而"存在但密码错"要跑一次
+    Argon2（实测约 51 ms）——响应时间本身就告诉攻击者哪些用户名存在
+    （review 09-28 #6）。两条失败路径都必须付出同样的哈希成本。
+    """
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = _PH.hash("water-agent-timing-equalizer")
+    verify_password(plaintext, _DUMMY_HASH)
+
+
 def needs_rehash(stored_hash: str) -> bool:
     """True if the stored hash was created with outdated parameters."""
     return _PH.check_needs_rehash(stored_hash)

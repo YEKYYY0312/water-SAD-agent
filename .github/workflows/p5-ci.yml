@@ -23,6 +23,9 @@ jobs:
       # harnesses + the baseline comparison all live inside scripts/ci_gate.sh.
       # Do not re-list its steps here: that would create a second source of truth.
       - name: Run the PR gate
+        # uv sync 建的是 .venv；显式传入，不靠脚本里的探测顺序。
+        env:
+          VENV: .venv
         run: bash scripts/ci_gate.sh
       - name: Upload the P5 report
         if: always()
@@ -90,15 +93,17 @@ jobs:
           data/eval/memory_p0.jsonl
           --out data/eval/reports/memory_p0_head.json
       - name: Assert only the documented environmental skip occurred
-        run: >-
-          .venv/bin/python -c "
-          import json, pathlib, sys;
-          report = json.loads(pathlib.Path('data/eval/reports/memory_p0_head.json').read_text(encoding='utf-8'));
-          skipped = [(c['case_id'], c.get('requires'), c.get('skip_reason')) for c in report['cases'] if c.get('skipped')];
-          unexpected = [s for s in skipped if s[1] != 'docker'];
-          print(json.dumps({'skipped': skipped, 'unexpected': unexpected}, ensure_ascii=False, indent=2));
+        # 用字面块 `|` + heredoc：原先的 `>-` 折叠块会把续行的缩进原样保留进
+        # python -c 的字符串，GitHub runner 上直接 IndentationError（首次远端运行实测）。
+        run: |
+          .venv/bin/python - <<'PY'
+          import json, pathlib, sys
+          report = json.loads(pathlib.Path("data/eval/reports/memory_p0_head.json").read_text(encoding="utf-8"))
+          skipped = [(c["case_id"], c.get("requires"), c.get("skip_reason")) for c in report["cases"] if c.get("skipped")]
+          unexpected = [s for s in skipped if s[1] != "docker"]
+          print(json.dumps({"skipped": skipped, "unexpected": unexpected}, ensure_ascii=False, indent=2))
           sys.exit(1 if unexpected or len(skipped) > 1 else 0)
-          "
+          PY
       - name: Compare memory_p0 against the main baseline
         run: >-
           .venv/bin/python scripts/compare_memory_p0.py

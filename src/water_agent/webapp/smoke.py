@@ -102,6 +102,37 @@ class Client:
             parsed = {"_non_json": True, "_length": len(raw), "raw": raw}
         return status, parsed
 
+    def upload(self, path: str, filename: str, content: bytes) -> tuple[int, dict]:
+        """multipart/form-data 单文件上传（P5-S48）。仍然只用标准库。"""
+
+        boundary = f"----wa-smoke-{uuid.uuid4().hex}"
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            "Content-Type: text/plain\r\n\r\n"
+        ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        }
+        token = self.csrf_token()
+        if token:
+            headers["X-CSRF-Token"] = token
+        request = urllib.request.Request(
+            f"{self.base_url}{path}", data=body, headers=headers, method="POST"
+        )
+        try:
+            with self.opener.open(request, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+                status = response.status
+        except urllib.error.HTTPError as error:
+            raw = error.read().decode("utf-8")
+            status = error.code
+        try:
+            return status, json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return status, {"_non_json": True, "_length": len(raw)}
+
     def csrf_token(self) -> str | None:
         for cookie in self.jar:
             if cookie.name == "wa_csrf":
@@ -407,6 +438,27 @@ def main() -> int:
         else:  # pragma: no cover - guarded by the check above
             description = "unexpected status"
         skipped.append(f"live_agent_run_over_http: {description}")
+
+    # P5-S48 上传与导出。上传落在 app_uploads 卷上——镜像根文件系统只读，
+    # 这条是"卷挂上了且 uid 10001 可写"唯一的镜像内证据（本机目录永远可写）。
+    status, uploaded = admin.upload(
+        "/api/uploads", "smoke.txt", "冒烟上传：本工程热水系统采用闭式循环。".encode()
+    )
+    upload_data = uploaded.get("data") or {}
+    upload_id = upload_data.get("upload_id")
+    record(
+        "upload_txt_persisted_on_volume",
+        status == 201 and bool(upload_id) and (upload_data.get("chunk_count") or 0) >= 1,
+        f"status={status} code={(uploaded.get('error') or {}).get('code')} "
+        f"chunks={upload_data.get('chunk_count')}",
+    )
+    if upload_id:
+        status, _ = admin.request("DELETE", f"/api/uploads/{upload_id}", csrf=True)
+        record("upload_deleted", status == 200, f"status={status}")
+    status, _ = admin.request("GET", f"/api/runs/{uuid.uuid4()}/export?format=xlsx")
+    record("unknown_run_export_404", status == 404, f"status={status}")
+    status, _ = admin.request("GET", f"/api/runs/{uuid.uuid4()}/export?format=pdf")
+    record("export_unsupported_format_400", status == 400, f"status={status}")
 
     # 真实 agentic run：本容器内跑，断言检索没有回落 fixture。见 _run_agentic_probe。
     agentic, failure = _run_agentic_probe()
