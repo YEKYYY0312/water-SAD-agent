@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "rules_version": "p6-s1-2026-09-29",
+  "corpus_checked_at": "2026-09-29",
+  "velocity": {
+    "rule_id": "ws.pipe_velocity",
+    "statement": "建筑给水管道在设计秒流量下的流速不宜大于约 2.0 m/s，常规取值约 0.6~1.2 m/s",
+    "basis": "informal_summary",
+    "source_id": "GB50015-2019 3.7.3",
+    "corpus_quote": "建筑给水管道在设计秒流量下的流速不宜大于约 2.0 米每秒，常规取值约 0.6 至 1.2 米每秒",
+    "basis_note": "语料原文为联网整理的设计要点综述，自述非正式规范条文。建议区间取其常规取值 0.6~1.2 m/s，上限取其“不宜大于约 2.0 m/s”；超出只提示复核，不阻断生成",
+    "recommended_min_mps": 0.6,
+    "recommended_max_mps": 1.2,
+    "limit_max_mps": 2.0
+  },
+  "backflow_prevention": {
+    "rule_id": "ws.backflow_prevention",
+    "statement": "生活饮用水系统应采取倒流污染防护措施（止回阀、空气隔断或防回流装置）",
+    "basis": "informal_summary",
+    "source_id": "GB50015-2019 3.3.1",
+    "corpus_quote": "倒流污染防护应设置止回阀、空气隔断、防回流装置",
+    "basis_note": "语料原文为设计要点综述，自述非正式规范条文；止回阀与倒流防止器的选用须按现行正式条文确定",
+    "applied_as": "引入管水表后设止回阀示意"
+  },
+  "pump_suction_valve": {
+    "rule_id": "ws.pump_suction_valve",
+    "statement": "最高进水液位高于离心泵进水管时，应设置手动检修阀门",
+    "basis": "formal_clause",
+    "source_id": "GB50013-2018 6.3.3",
+    "corpus_quote": "最高进水液位高于离心泵进水管时，应设置手动检修阀门",
+    "basis_note": "《室外给水设计标准》泵房条文。本图按自灌式吸水示意（水箱最高液位高于水泵进水管）；建筑内加压泵房是否适用本条需设计人确认",
+    "scope_note": "《室外给水设计标准》的泵房条文，用于建筑内加压泵房须经设计人确认适用性",
+    "applied_as": "每台水泵进水管设检修阀（闸阀）"
+  },
+  "pump_discharge_valves": {
+    "rule_id": "ws.pump_discharge_valves",
+    "statement": "离心泵出水管应设置工作阀和检修阀，出水管不应采用无缓闭功能的普通逆止阀",
+    "basis": "formal_clause",
+    "source_id": "GB50013-2018 6.3.5",
+    "corpus_quote": "离心泵出水管应设置工作阀和检修阀",
+    "basis_note": "《室外给水设计标准》泵房条文；建筑内加压泵房是否适用本条需设计人确认",
+    "scope_note": "《室外给水设计标准》的泵房条文，用于建筑内加压泵房须经设计人确认适用性",
+    "applied_as": "每台水泵出水管依次设缓闭止回阀、工作阀、检修阀"
+  },
+  "building_types": {
+    "住宅": {
+      "unit_label": "户",
+      "branch_end_text": "接户内给水管",
+      "grid": {
+        "rule_id": "res.grid",
+        "statement": "轴网按住宅常用开间 3.6 m、进深 3.6 m 示意：每户 3 开间，楼梯间 1 开间，进深 3 跨",
+        "basis": "engineering_practice",
+        "basis_note": "即 spec D2 的默认柱网 3.6 m × 3.6 m；不是规范条文，须按建筑条件图调整",
+        "bay_x_mm": 3600,
+        "bay_y_mm": 3600,
+        "bays_per_unit": 3,
+        "depth_bays": 3,
+        "core_bays": 1
+      },
+      "riser": {
+        "rule_id": "res.riser_position",
+        "statement": "给水立管设于楼梯间或公共管道井内，便于检修与分户计量",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的住宅立管位置；本仓语料无对应正式条文",
+        "default_position": "楼梯间",
+        "positions": {
+          "楼梯间": {
+            "x_ref": "core",
+            "x_value": 0.3,
+            "dy_from_route_mm": -1800
+          },
+          "管道井": {
+            "x_ref": "core",
+            "x_value": 0.75,
+            "dy_from_route_mm": -1800
+          }
+        }
+      },
+      "routing": {
+        "rule_id": "res.routing",
+        "statement": "楼层给水横干管沿公共区墙边明装敷设，至各户入户处分支",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的住宅敷设方式（沿墙）；安装高度为示意值，本仓语料无对应正式条文",
+        "method": "沿墙",
+        "route_axis": 3,
+        "route_offset_mm": 1200,
+        "branch_direction": -1,
+        "branch_length_mm": 2400,
+        "mount": "floor",
+        "mount_offset_m": 0.3
+      },
+      "fittings": {
+        "rule_id": "res.fittings",
+        "statement": "每户设水表分户计量，水表前设截止阀，表阀设于户外公共部位",
+        "basis": "engineering_practice",
+        "basis_note": "住宅分户计量的常见做法；本仓语料无对应正式条文",
+        "floor_valve": null,
+        "floor_meter": false,
+        "unit_valve": "截止阀",
+        "unit_meter": true
+      },
+      "entry": {
+        "rule_id": "res.entry",
+        "statement": "引入管上设总水表井，井内依次设闸阀、水表、止回阀、闸阀",
+        "basis": "engineering_practice",
+        "basis_note": "总水表井的常见组成；止回阀的依据见 ws.backflow_prevention",
+        "components": [
+          "闸阀",
+          "水表",
+          "止回阀",
+          "闸阀"
+        ],
+        "entry_text": "引入管（接室外给水管网，见水表井大样）",
+        "related_rules": [
+          "ws.backflow_prevention"
+        ]
+      },
+      "detail": {
+        "rule_id": "res.detail",
+        "statement": "住宅节点大样选总水表井",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2：住宅选水表井大样",
+        "detail_type": "水表井",
+        "title": "水表井大样图（平面）",
+        "components": [
+          {
+            "kind": "闸阀",
+            "label": "闸阀"
+          },
+          {
+            "kind": "水表",
+            "label": "水表"
+          },
+          {
+            "kind": "止回阀",
+            "label": "止回阀"
+          },
+          {
+            "kind": "闸阀",
+            "label": "闸阀"
+          }
+        ],
+        "related_rules": [
+          "ws.backflow_prevention"
+        ]
+      }
+    },
+    "办公": {
+      "unit_label": "用水单元",
+      "branch_end_text": "接卫生间/茶水间用水点",
+      "grid": {
+        "rule_id": "off.grid",
+        "statement": "轴网按办公常用柱网 8.4 m × 8.4 m 示意：每个用水单元 1 跨，核心筒 2 跨，进深 3 跨",
+        "basis": "engineering_practice",
+        "basis_note": "办公建筑常用柱网；不是规范条文，须按建筑条件图调整",
+        "bay_x_mm": 8400,
+        "bay_y_mm": 8400,
+        "bays_per_unit": 1,
+        "depth_bays": 3,
+        "core_bays": 2
+      },
+      "riser": {
+        "rule_id": "off.riser_position",
+        "statement": "给水立管设于核心筒管井内",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的办公立管位置；本仓语料无对应正式条文",
+        "default_position": "核心筒",
+        "positions": {
+          "核心筒": {
+            "x_ref": "core",
+            "x_value": 0.45,
+            "dy_from_route_mm": 3000
+          }
+        }
+      },
+      "routing": {
+        "rule_id": "off.routing",
+        "statement": "楼层给水干管在走廊吊顶内敷设，至各用水单元分支",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的办公敷设方式（沿走廊吊顶）；安装高度为示意值，本仓语料无对应正式条文",
+        "method": "沿走廊吊顶",
+        "route_axis": 1,
+        "route_offset_mm": 4200,
+        "branch_direction": -1,
+        "branch_length_mm": 5400,
+        "mount": "ceiling",
+        "mount_offset_m": 0.4
+      },
+      "fittings": {
+        "rule_id": "off.fittings",
+        "statement": "每层干管起端设检修闸阀与楼层水表，各用水单元支管设闸阀",
+        "basis": "engineering_practice",
+        "basis_note": "办公楼层计量的常见做法；本仓语料无对应正式条文",
+        "floor_valve": "闸阀",
+        "floor_meter": true,
+        "unit_valve": "闸阀",
+        "unit_meter": false
+      },
+      "entry": {
+        "rule_id": "off.entry",
+        "statement": "引入管上设总水表，水表前设闸阀、表后设止回阀",
+        "basis": "engineering_practice",
+        "basis_note": "总水表的常见组成；止回阀的依据见 ws.backflow_prevention",
+        "components": [
+          "闸阀",
+          "水表",
+          "止回阀"
+        ],
+        "entry_text": "引入管（接室外给水管网）",
+        "related_rules": [
+          "ws.backflow_prevention"
+        ]
+      },
+      "detail": {
+        "rule_id": "off.detail",
+        "statement": "吊顶内楼层阀门组按闸阀、水表、闸阀设置，其下方吊顶留检修口",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2：办公选吊顶内阀门组大样；检修口做法为工程惯例",
+        "detail_type": "吊顶内阀门组",
+        "title": "吊顶内阀门组大样图（立面）",
+        "components": [
+          {
+            "kind": "闸阀",
+            "label": "闸阀"
+          },
+          {
+            "kind": "水表",
+            "label": "楼层水表"
+          },
+          {
+            "kind": "闸阀",
+            "label": "闸阀"
+          }
+        ],
+        "related_rules": []
+      }
+    },
+    "商业": {
+      "unit_label": "商铺",
+      "branch_end_text": "接商铺内给水管",
+      "grid": {
+        "rule_id": "com.grid",
+        "statement": "轴网按商业常用柱网 8.4 m × 8.4 m 示意：每个商铺 1 跨，进深 2 跨",
+        "basis": "engineering_practice",
+        "basis_note": "商业建筑常用柱网；不是规范条文，须按建筑条件图调整",
+        "bay_x_mm": 8400,
+        "bay_y_mm": 8400,
+        "bays_per_unit": 1,
+        "depth_bays": 2,
+        "core_bays": 0
+      },
+      "riser": {
+        "rule_id": "com.riser_position",
+        "statement": "给水立管设于建筑边角（靠外墙或柱边），不占用营业空间",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的商业立管位置；本仓语料无对应正式条文",
+        "default_position": "边角",
+        "positions": {
+          "边角": {
+            "x_ref": "building_edge",
+            "x_value": 600,
+            "dy_from_route_mm": 7700
+          }
+        }
+      },
+      "routing": {
+        "rule_id": "com.routing",
+        "statement": "楼层给水干管沿柱网（柱边）在吊顶内敷设，至各商铺分支",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2 的商业敷设方式（沿柱网）；安装高度为示意值，本仓语料无对应正式条文",
+        "method": "沿柱网",
+        "route_axis": 1,
+        "route_offset_mm": -500,
+        "branch_direction": -1,
+        "branch_length_mm": 3000,
+        "mount": "ceiling",
+        "mount_offset_m": 0.6
+      },
+      "fittings": {
+        "rule_id": "com.fittings",
+        "statement": "每层干管起端设检修闸阀，各商铺独立设水表计量，表前设闸阀",
+        "basis": "engineering_practice",
+        "basis_note": "商铺独立计量的常见做法；本仓语料无对应正式条文",
+        "floor_valve": "闸阀",
+        "floor_meter": false,
+        "unit_valve": "闸阀",
+        "unit_meter": true
+      },
+      "entry": {
+        "rule_id": "com.entry",
+        "statement": "给水立管由加压泵房出水干管供水，入口设检修闸阀",
+        "basis": "engineering_practice",
+        "basis_note": "按 spec D2 商业选泵房接管示意的供水方式；实际供水方式由设计人确定",
+        "components": [
+          "闸阀"
+        ],
+        "entry_text": "接加压泵房出水干管（见泵房接管大样）",
+        "related_rules": []
+      },
+      "detail": {
+        "rule_id": "com.detail",
+        "statement": "加压泵组 1 用 1 备，每台水泵进水管设检修阀，出水管设缓闭止回阀、工作阀与检修阀",
+        "basis": "engineering_practice",
+        "basis_note": "spec D2：商业选泵房接管大样；1 用 1 备为示意配置，阀门设置的条文依据见 related_rules",
+        "detail_type": "泵房接管",
+        "title": "泵房接管大样图（平面）",
+        "components": [
+          {
+            "kind": "闸阀",
+            "label": "检修阀"
+          },
+          {
+            "kind": "水泵",
+            "label": "水泵"
+          },
+          {
+            "kind": "缓闭止回阀",
+            "label": "缓闭止回阀"
+          },
+          {
+            "kind": "闸阀",
+            "label": "工作阀"
+          },
+          {
+            "kind": "闸阀",
+            "label": "检修阀"
+          }
+        ],
+        "related_rules": [
+          "ws.pump_suction_valve",
+          "ws.pump_discharge_valves"
+        ],
+        "pump_count": 2
+      }
+    }
+  }
+}
