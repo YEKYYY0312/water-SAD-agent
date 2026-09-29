@@ -48,6 +48,10 @@ pdf-enhanced = ["pymupdf>=1.24,<2"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# P6-S1：建筑类型规则表随包分发（几何规划读它，不读仓库路径）。
+[tool.setuptools.package-data]
+"water_agent.drawing" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
