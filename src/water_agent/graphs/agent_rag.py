@@ -513,6 +513,29 @@ def _is_non_normative_answer(answer: str) -> bool:
     return not any(pattern.search(answer) for pattern in _NORMATIVE_MARKERS)
 
 
+# 正文里写出的条款号（P5-S50 附件问答实测：模型在正文写"GB 50014-2021 第 7.4.3 条"，
+# 却两次都不调 cite_clauses，于是整轮失败）。只做**提示**：把正文提到、且在检索上下文
+# 里真实存在的 source_id 列给模型，让它补一次声明；是否引用仍由 cite_clauses + 校验器
+# 裁定，这里绝不代为声明（代填就回到了 legacy 的"系统代填、citation_ok 恒真"）。
+_MENTIONED_CLAUSE_RE = re.compile(
+    r"(GB|CJJ|CECS|JGJ)\s*/?\s*T?\s*(\d{4,5})\s*[-—–]\s*(\d{4})"
+    r"[^\d\n]{0,24}?(\d{1,2}(?:\.\d{1,3}){1,3})"
+)
+
+
+def _mentioned_source_ids(answer: str, context_ids: Sequence[str]) -> list[str]:
+    """正文里提到、且在检索上下文中存在的 source_id（保持出现顺序）。"""
+
+    available = set(context_ids)
+    found: list[str] = []
+    for match in _MENTIONED_CLAUSE_RE.finditer(answer):
+        prefix, number, year, article = match.groups()
+        candidate = f"{prefix.upper()}{number}-{year} {article}"
+        if candidate in available and candidate not in found:
+            found.append(candidate)
+    return found
+
+
 # 回流后模型是在回复校验器的 ToolMessage，不提醒就会写"本轮我未引用…结论重申"。
 _USER_FACING_SUFFIX = (
     "\n\n请直接给出面向用户的完整回答：不要提及本次校验、引用检查、"
@@ -619,7 +642,15 @@ def make_citation_validator(version_registry: Any | None = None):
             return {"status": STATUS_FAILED, "errors": errors}
 
         if empty_reflows < EMPTY_CITATION_MAX_REFLOWS:
-            if retrieved_this_turn and context_ids:
+            mentioned = _mentioned_source_ids(answer_text, context_ids)
+            if mentioned:
+                feedback = (
+                    "你的回答正文引用了规范条款，但没有调用 cite_clauses 声明。正文提到、且在检索"
+                    f"结果中存在的条款：{mentioned}。请调用 cite_clauses 声明你实际依据的条款"
+                    "（只声明真正支撑结论的那几条），然后给出完整回答；正文里提到但检索结果里"
+                    "没有的条款号，请删去或注明\"未检索到原文\"。"
+                )
+            elif retrieved_this_turn and context_ids:
                 feedback = (
                     "本轮 retrieve_clauses 已返回相关条款，但你的回答没有调用 cite_clauses "
                     "声明引用。请基于检索结果调用 cite_clauses 声明回答依据的条款 id"

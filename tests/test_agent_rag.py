@@ -549,3 +549,42 @@ class TestAgenticTrace:
         assert llm_calls[-1]["data"]["response_preview"] == "最终回答。"
         assert document["status"] == "succeeded"
         assert any(e["event_type"] == "run_end" for e in document["events"])
+
+
+class TestMentionedClauseReflow:
+    """P5-S50 附件问答实测：模型正文写"GB 50014-2021 第 7.4.3 条"却不调 cite_clauses。"""
+
+    def test_mentioned_ids_are_matched_against_the_retrieval_context_only(self) -> None:
+        from water_agent.graphs.agent_rag import _mentioned_source_ids
+
+        answer = (
+            "GB 50014-2021 第 7.4.3 条规定停留时间宜大于 5 min；GB50014—2021 第7.1.1条；"
+            "GB 50014-2021 表 9.9.9（检索里没有）。"
+        )
+        assert _mentioned_source_ids(answer, ["GB50014-2021 7.4.3", "GB50014-2021 7.1.1"]) == [
+            "GB50014-2021 7.4.3",
+            "GB50014-2021 7.1.1",
+        ]
+
+    def test_reflow_lists_the_mentioned_clauses_but_never_declares_them(self) -> None:
+        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+        from water_agent.graphs.agent_rag import make_citation_validator
+
+        state = {
+            "messages": [
+                HumanMessage(content="曝气沉砂池停留时间取 2.5 min 合适吗"),
+                AIMessage(content="", tool_calls=[{"id": "r1", "name": "retrieve_clauses", "args": {}}]),
+                ToolMessage(
+                    name="retrieve_clauses",
+                    tool_call_id="r1",
+                    content='{"hits": [{"source_id": "GB50014-2021 7.4.3"}, {"source_id": "GB50014-2021 7.4.4"}]}',
+                ),
+                AIMessage(content="GB 50014-2021 第 7.4.3 条规定停留时间宜大于 5 min，取值偏小。"),
+            ]
+        }
+        out = make_citation_validator()(state)
+        feedback = out["messages"][-1].content
+        assert "GB50014-2021 7.4.3" in feedback and "7.4.4" not in feedback
+        assert "调用 cite_clauses" in feedback
+        assert "citations" not in out, "校验器只提示，绝不代为声明引用"

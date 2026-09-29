@@ -146,9 +146,13 @@ def _extract_docx(data: bytes) -> ExtractedDocument:
             CODE_UPLOAD_EXTRACTION_FAILED,
             "解析 .docx 需要 python-docx：安装 water-agent 依赖后重试",
         ) from exc
+    from water_agent.documents.omml import count_ole_objects, paragraph_text
+
     try:
         document = docx.Document(io.BytesIO(data))
-        blocks = [paragraph.text for paragraph in document.paragraphs]
+        # paragraph.text 会整段跳过 Word 公式（m:oMath）；计算书的数值几乎都在公式里。
+        blocks = [paragraph_text(paragraph._p) for paragraph in document.paragraphs]
+        ole_objects = count_ole_objects([document.element.body])
         # 表格文本必须一起取：给排水的设计说明把管径/流量表格当正文用，
         # 只取 paragraphs 会丢掉最有检索价值的那部分。
         for table in document.tables:
@@ -163,7 +167,14 @@ def _extract_docx(data: bytes) -> ExtractedDocument:
             CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .docx 失败：{type(exc).__name__}"
         ) from exc
     text = "\n".join(block for block in blocks if block.strip())
-    return ExtractedDocument(text=text, page_count=None, engine="python-docx")
+    if ole_objects:
+        # MathType/OLE 公式只有图片，读不到。如实写进正文末尾，模型才不会把"没读到"
+        # 说成"文档里没有"。
+        text += (
+            f"\n【抽取说明】文档另含 {ole_objects} 个 OLE 嵌入对象（MathType 公式或嵌入图），"
+            "其内容是图片，未能读取；相关数值请以原文件为准。"
+        )
+    return ExtractedDocument(text=text, page_count=None, engine="python-docx+omml")
 
 
 def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
