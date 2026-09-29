@@ -73,7 +73,6 @@ CONTRIBUTING.md
 LICENSE
 TROUBLESHOOTING.md
 blender_addon/
-deploy/
 docs/LLM_ENV.md
 docs/api-reference.md
 docs/ifcopenshell_api_docs.txt

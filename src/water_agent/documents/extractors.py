@@ -200,7 +200,7 @@ def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
 
 def _extract_pdf_pymupdf(data: bytes) -> ExtractedDocument:
     try:
-        import pymupdf  # type: ignore[import-untyped]
+        import pymupdf  # type: ignore[import-untyped,import-not-found,unused-ignore]  # 可选 extra，runner 上未装
     except ImportError as exc:
         raise UploadError(
             CODE_UPLOAD_EXTRACTION_FAILED,

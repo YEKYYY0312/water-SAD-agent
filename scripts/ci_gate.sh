@@ -34,8 +34,12 @@ step() { echo "==> $1"; }
 fail() { echo "!! $1"; FAILED=1; }
 
 step "pytest（全量离线单测）"
-if ! "$VENV/bin/pytest" -q > /tmp/ci_gate_pytest.log 2>&1; then
-    tail -20 /tmp/ci_gate_pytest.log
+# -rfE：失败/错误用例的摘要行；--tb=short：失败时打印精简 traceback。
+# 此前只 tail -20，traceback 全被截掉——GitHub 上首次运行出现一条本机复现不了的
+# 失败，日志里只剩一行 "AssertionError:"，无从判断原因。失败时打印 FAILURES 小节。
+if ! "$VENV/bin/pytest" -q -rfE --tb=short > /tmp/ci_gate_pytest.log 2>&1; then
+    awk '/^=+ (FAILURES|ERRORS) =+$/{show=1} show' /tmp/ci_gate_pytest.log | head -400
+    tail -30 /tmp/ci_gate_pytest.log
     fail "pytest"
 fi
 
