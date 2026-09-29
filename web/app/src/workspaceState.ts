@@ -93,6 +93,24 @@ export function mergeHistory(
   return lastUser === -1 ? messages : messages.slice(0, lastUser + 1);
 }
 
+/**
+ * 最新运行的实时回放已不可用（服务重启后事件日志随进程消失）时，对话退回完整历史。
+ *
+ * - 已收口的运行：它的最终回答就在历史里，原样显示；
+ * - 未收口的运行（queued/running）：服务重启打断了它，补一条明确的中断说明——
+ *   不能让"正在检索与计算…"一直挂着，也不能什么都不显示。
+ */
+export function replayUnavailable(
+  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  latestStatus: string,
+): ConversationMessage[] {
+  const messages = mergeHistory(history, false);
+  if (TERMINAL.has(latestStatus)) return messages;
+  const last = messages[messages.length - 1];
+  if (last && last.role === "agent") return messages;
+  return [...messages, { role: "agent", text: "这次运行因服务重启中断，没有完成。可以重新发送问题。", status: "failed" }];
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
