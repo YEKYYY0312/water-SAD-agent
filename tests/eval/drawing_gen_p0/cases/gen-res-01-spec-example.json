@@ -1,0 +1,85 @@
+{
+  "case_id": "gen-res-01-spec-example",
+  "description": "spec D1 原例：住宅 6 层每层 2 户，主管 DN50 流速 1.27 m/s 超出建议区间（只提示不阻断）；支管未给流量 → 不校核",
+  "request": {
+    "system_type": "给水",
+    "building_type": "住宅",
+    "floors": 6,
+    "units_per_floor": 2,
+    "riser_position": "楼梯间",
+    "main_pipe": {
+      "dn": "DN50",
+      "material": "PPR"
+    },
+    "branch_pipe": {
+      "dn": "DN25",
+      "material": "PPR"
+    },
+    "flow_rate_lps": 2.5,
+    "pressure_mpa": 0.35
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "楼梯间",
+    "riser_position_defaulted": false,
+    "main_velocity_mps": 1.2732,
+    "branch_velocity_mps": null,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "above",
+    "warnings_contains": [
+      "超出建议区间",
+      "支管流速未校核"
+    ],
+    "missing_inputs_contains": [
+      "branch_flow_rate_lps"
+    ],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 5,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 25,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 80
+      },
+      "detail": {
+        "pipe_runs": 1,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 6,
+    "branch_groups": 6,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}

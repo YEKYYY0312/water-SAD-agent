@@ -1,0 +1,83 @@
+{
+  "case_id": "gen-off-02-low-velocity",
+  "description": "办公 1 层 1 个用水单元，主管 DN65 流速 0.45 m/s 低于建议区间下限",
+  "request": {
+    "system_type": "给水",
+    "building_type": "办公",
+    "floors": 1,
+    "units_per_floor": 1,
+    "main_pipe": {
+      "dn": "DN65",
+      "material": "PPR"
+    },
+    "branch_pipe": {
+      "dn": "DN25",
+      "material": "PPR"
+    },
+    "flow_rate_lps": 1.5,
+    "pressure_mpa": 0.3
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "核心筒",
+    "riser_position_defaulted": true,
+    "main_velocity_mps": 0.452,
+    "branch_velocity_mps": null,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "below",
+    "warnings_contains": [
+      "超出建议区间"
+    ],
+    "missing_inputs_contains": [
+      "branch_flow_rate_lps"
+    ],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 3,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 4,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 27
+      },
+      "detail": {
+        "pipe_runs": 1,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 1,
+    "branch_groups": 1,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}
