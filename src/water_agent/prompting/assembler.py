@@ -16,6 +16,10 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
+from water_agent.documents.attachments import (
+    MAX_ATTACHMENT_CONTEXT_CHARACTERS,
+    AttachmentContext,
+)
 from water_agent.documents.retrieval import (
     MAX_UPLOAD_CONTEXT_CHARACTERS,
     UploadRecallHit,
@@ -46,11 +50,14 @@ SEGMENT_BUDGETS: dict[str, int] = {
     # P5-S48：上传资料召回段。与 memory_context 同预算——两段都是外部数据，
     # 没有理由让上传占得更多；再大会挤掉检索到的规范条文。
     "upload_context": MAX_UPLOAD_CONTEXT_CHARACTERS,
+    # P5-S49：文件能力说明 + 已上传清单 + 用户点名的附件正文。比召回段大得多是刻意的：
+    # 用户点名要读的文件只给 1200 字等于只读封面；800 留给能力说明与清单。
+    "file_context": MAX_ATTACHMENT_CONTEXT_CHARACTERS + 800,
 }
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-step48-upload-context-2026-09-27"
+PROMPT_TEMPLATE_VERSION = "p5-step49-file-context-2026-09-29"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -163,6 +170,7 @@ class PromptAssembler:
             _truncate_to_budget(
                 self._build_upload_context(state), SEGMENT_BUDGETS["upload_context"]
             ),
+            _truncate_to_budget(self._build_file_context(state), SEGMENT_BUDGETS["file_context"]),
         ]
         content = "\n\n".join(seg for seg in segments if seg)
         return SystemMessage(content=content)
@@ -222,6 +230,48 @@ class PromptAssembler:
                     raise TypeError("memory_context must be a recall result or memory envelopes")
             return render_memory_context(items)
         raise TypeError("memory_context must be a recall result, text, or memory envelopes")
+
+    def _drawing_tool_available(self) -> bool:
+        if self._tool_registry is None:
+            return False
+        return "read_drawing" in self._tool_registry.list_all_names()
+
+    def _build_file_context(self, state: dict[str, Any]) -> str:
+        """文件能力说明 + 已上传清单 + 用户点名的附件（P5-S49）。
+
+        只在调用方给了 ``attachment_context`` 时渲染——那代表"这是一个能上传文件的
+        环境"（Web）。CLI/harness 不传，提示词与评测基线不变。能力说明**由运行时推导**：
+        DXF 一项看 ``read_drawing`` 是否真注册了，后续步骤接通后文案自动变化，不会出现
+        "提示说能读、工具其实不在"。截图事故的根因之一就是系统提示从未提过上传渠道，
+        模型只能凭常识答"我没有文件解析能力"。
+        """
+
+        value = state.get("attachment_context")
+        if value is None:
+            return ""
+        if not isinstance(value, AttachmentContext):
+            raise TypeError("attachment_context must be an AttachmentContext")
+        drawing = (
+            "DXF 图纸：可用 read_drawing 按图纸编号读取已登记的 DXF。"
+            if self._drawing_tool_available()
+            else "DXF/DWG 图纸：网页端暂不支持上传和读取，请如实告知用户，不要假装读过图纸。"
+        )
+        lines = [
+            "【文件能力】",
+            (
+                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown（10 MB 以内），系统会抽取其中的文字。"
+                "用户随消息附上的文件，内容在下方【用户附件】中；未附上时，只有与问题字面相关的"
+                "段落会出现在【上传资料上下文】中。"
+            ),
+            "- 扫描件或 CAD 导出的矢量 PDF 没有文字层，读不到内容。",
+            f"- {drawing}",
+            "- 按以上实际能力回答，不要笼统地说\"没有文件解析能力\"。",
+            value.inventory_text(),
+        ]
+        attachments = value.context_text
+        if attachments:
+            lines.append(attachments)
+        return "\n".join(lines)
 
     @staticmethod
     def _build_upload_context(state: dict[str, Any]) -> str:
