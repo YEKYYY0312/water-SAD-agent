@@ -51,7 +51,7 @@ export function ChangePasswordPanel({ onChanged }: ChangePasswordPanelProps) {
           <span className="brand-mark" aria-hidden="true">WA</span>
           <div>
             <h1 id="change-password-heading">首次登录请修改密码</h1>
-            <p>PASSWORD CHANGE REQUIRED</p>
+            <p>设置一个只有你知道的新密码</p>
           </div>
         </div>
 

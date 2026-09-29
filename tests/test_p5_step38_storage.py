@@ -21,7 +21,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, inspect, text
 
-from water_agent.storage.database import CHECKPOINT_MIGRATION_HEAD, MIGRATION_HEAD, Database
+from water_agent.storage.database import (
+    CHECKPOINT_MIGRATION_HEAD,
+    MIGRATION_HEAD,
+    Database,
+    DatabasePasswordFileError,
+    database_url_from_environment,
+)
 from water_agent.storage.models import Base
 from water_agent.storage.repository import (
     ProjectRepository,
@@ -131,6 +137,46 @@ def test_migration_failure_is_nonzero_and_ready_is_not_ready(tmp_path: Path, mon
     assert response.status_code == 503
     assert response.json()["data"]["status"] == "not_ready"
     assert response.json()["data"]["checks"]["database"] == "unavailable"
+
+
+def test_unusable_password_file_fails_loudly_instead_of_connecting_without_it(
+    tmp_path: Path,
+) -> None:
+    # CI 2026-09-29: a 0600 runner-owned secret was unreadable for uid 10001;
+    # the old reader returned None and migrate connected password-less.
+    url = "postgresql+psycopg://water_agent@postgres:5432/water_agent"
+    empty = tmp_path / "empty"
+    empty.write_text("  \n", encoding="utf-8")
+    unreadable = tmp_path / "a-directory"
+    unreadable.mkdir()
+    for path, reason in ((empty, "empty"), (unreadable, "not readable")):
+        with pytest.raises(DatabasePasswordFileError, match=reason):
+            database_url_from_environment(
+                {"DATABASE_URL": url, "DATABASE_PASSWORD_FILE": str(path)}
+            )
+    # Unset keeps the URL-carries-its-own-credentials path for local development.
+    assert database_url_from_environment({"DATABASE_URL": url}) == url
+    good = tmp_path / "good"
+    good.write_text("s3cret\n", encoding="utf-8")
+    assert "s3cret" in database_url_from_environment(
+        {"DATABASE_URL": url, "DATABASE_PASSWORD_FILE": str(good)}
+    )
+
+
+def test_migrate_names_the_unusable_password_file(tmp_path: Path, monkeypatch) -> None:
+    empty = tmp_path / "postgres_password"
+    empty.write_text("", encoding="utf-8")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://water_agent@127.0.0.1:1/water_agent")
+    monkeypatch.setenv("DATABASE_PASSWORD_FILE", str(empty))
+    result = subprocess.run(
+        [sys.executable, "-m", "water_agent.webapp.lifecycle", "migrate"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "DATABASE_PASSWORD_FILE is empty" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_bootstrap_database_failure_does_not_expose_connection_details(

@@ -21,6 +21,15 @@ dependencies = [
     "langchain-openai>=0.3",
     "openpyxl>=3.1,<4",
     "ezdxf>=1.4,<2",
+    # P5-S48 多模态输入输出：.docx 读写（上传解析 + 计算书导出）与 .pdf 文本层提取。
+    # pypdf 是默认 PDF 引擎，BSD-3 许可；pymupdf 提取质量更好但是 AGPL-3.0，
+    # 对自托管商业部署有传染性，因此只作为 pdf-enhanced extra 显式 opt-in。
+    "python-docx>=1.1,<2",
+    "pypdf>=6.0,<7",
+    # multipart/form-data 解析器。FastAPI 的 UploadFile/Form 缺它会在**请求期**抛
+    # RuntimeError（不是 import 期），即"装不全也能启动、一上传就 500"，所以它是
+    # 运行时必需依赖而不是可选项。
+    "python-multipart>=0.0.20,<0.1",
     "fastapi>=0.141,<0.142",
     "uvicorn>=0.52,<0.53",
     "argon2-cffi>=23.1,<24",
@@ -29,6 +38,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
+# AGPL-3.0。启用即承担相应开源义务，故不进运行时依赖、不做"装了就用"的自动探测：
+# 只有显式设置 UPLOAD_PDF_ENGINE=pymupdf 才会走这条路径（documents/extractors.py）。
+pdf-enhanced = ["pymupdf>=1.24,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

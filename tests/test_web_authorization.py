@@ -317,7 +317,8 @@ def test_cross_user_ids_answer_404_and_reveal_nothing(
     assert owner_client.get(f"/api/sessions/{ids['thread_id']}").status_code == 200
     events = owner_client.get(f"/api/runs/{run_id}/events")
     assert events.status_code == 200
-    assert [item["type"] for item in _parse_sse(events)][-1] == "finalize"
+    # 完整事件流：终态 finalize 后跟显式 stream_end（review 09-28 #4 修复后才真正发出）。
+    assert [item["type"] for item in _parse_sse(events)][-2:] == ["finalize", "stream_end"]
     assert owner_client.get(f"/api/runs/{run_id}/trace").status_code == 200
     assert (
         owner_client.post(

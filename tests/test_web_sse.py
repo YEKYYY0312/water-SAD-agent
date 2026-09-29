@@ -377,3 +377,35 @@ def test_app_shutdown_hook_returns_the_drain_result(database: Database, tmp_path
     assert drain["runs"] >= 1
     assert drain["graceful"] is True
     assert drain["finalized"] == drain["runs"]
+
+
+def test_a_fresh_stream_ends_with_an_explicit_stream_end(
+    database: Database, tmp_path: Path
+) -> None:
+    """review 09-28 #4：stream_end 原先永远不发（判断用了发完 finalize 之后的游标）。
+
+    前端靠它区分"正常结束"与"连接异常断开"；收不到就会误报并尝试重连。
+    """
+
+    factory = _FakeFactory(tmp_path / "traces")
+    _uid, username, thread_id = _user(database, "sse-end")
+    client = _client(database, tmp_path, username, "WebSsePass2026!", factory=factory)
+    run_id = _start_run(client, thread_id)
+
+    events = _parse_sse(client.get(f"/api/runs/{run_id}/events"))
+    types = [item["type"] for item in events]
+    assert types[-2:] == ["finalize", "stream_end"]
+    assert events[-1]["payload"]["status"] == events[-2]["payload"]["status"]
+
+    # 重连且游标在 finalize 之前：照样收到尾部 + stream_end
+    before_finalize = int(events[-2]["event_id"]) - 1
+    tail = _parse_sse(
+        client.get(f"/api/runs/{run_id}/events", headers={"Last-Event-ID": str(before_finalize)})
+    )
+    assert [item["type"] for item in tail] == ["finalize", "stream_end"]
+
+    # 游标已越过 finalize（浏览器把 stream_end 的 id 回传也一样）：零帧
+    for cursor in (events[-2]["event_id"], events[-1]["event_id"]):
+        assert _parse_sse(
+            client.get(f"/api/runs/{run_id}/events", headers={"Last-Event-ID": cursor})
+        ) == []
