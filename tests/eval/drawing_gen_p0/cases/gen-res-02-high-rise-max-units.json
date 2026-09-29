@@ -1,0 +1,82 @@
+{
+  "case_id": "gen-res-02-high-rise-max-units",
+  "description": "住宅上限：33 层每层 8 户，管道井立管，钢塑复合；主/支管流速均在建议区间内",
+  "request": {
+    "system_type": "给水",
+    "building_type": "住宅",
+    "floors": 33,
+    "units_per_floor": 8,
+    "riser_position": "管道井",
+    "main_pipe": {
+      "dn": "DN100",
+      "material": "钢塑复合"
+    },
+    "branch_pipe": {
+      "dn": "DN32",
+      "material": "钢塑复合"
+    },
+    "flow_rate_lps": 6.0,
+    "branch_flow_rate_lps": 0.5,
+    "pressure_mpa": 0.45,
+    "floor_height_m": 2.9
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "管道井",
+    "riser_position_defaulted": false,
+    "main_velocity_mps": 0.7639,
+    "branch_velocity_mps": 0.6217,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "within",
+    "warnings_contains": [],
+    "missing_inputs_contains": [],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 11,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 331,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 944
+      },
+      "detail": {
+        "pipe_runs": 1,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 33,
+    "branch_groups": 33,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}
