@@ -330,6 +330,7 @@ export function ConversationPanel({
   const [dragging, setDragging] = useState(false);
   const answer = run.answer || run.tokens;
   const uploading = attachments.some((item) => item.status === "uploading");
+  const hasReadyAttachment = attachments.some((item) => item.status === "ready");
   const empty = session !== null && messages.length === 0 && !answer && !streaming && run.status === "idle";
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -452,11 +453,12 @@ export function ConversationPanel({
               <Icon name="paperclip" />
             </button>
             {uploading && <span className="composer-hint">文件上传完成后才能发送</span>}
+            {!uploading && hasReadyAttachment && !draft.trim() && <span className="composer-hint">可以直接发送，或写下想问的问题</span>}
             <span className="spacer" />
             {streaming ? (
               <button type="button" className="stop-button" onClick={onCancel}><Icon name="stop" />停止</button>
             ) : (
-              <button type="submit" className="send-button" aria-label="发送" disabled={!session || !draft.trim() || uploading}>
+              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || (!draft.trim() && !hasReadyAttachment)}>
                 <Icon name="arrowUp" />
               </button>
             )}
