@@ -324,7 +324,16 @@ class TestFormatAndSizeGuards:
         assert "EXECUTE_SHELL" in detail
         assert "ODA File Converter" in detail
 
-    @pytest.mark.parametrize("payload", ("not a dxf at all\n", "", "\x00\x01\x02"))
+    @pytest.mark.parametrize(
+        "payload",
+        (
+            "not a dxf at all\n",
+            "",
+            "\x00\x01\x02",
+            # P5-S50 上传实测：头部合法但缺 EOF，ezdxf 在 dxf_info 里抛 StopIteration。
+            "  0\nSECTION\n  2\nHEADER\n  0\nGARBAGE-WITHOUT-EOF",
+        ),
+    )
     def test_corrupt_file_is_unreadable(
         self, drawings: Path, policy: ToolPolicy, payload: str
     ) -> None:

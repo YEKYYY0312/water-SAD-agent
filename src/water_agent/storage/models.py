@@ -204,7 +204,7 @@ class UploadRow(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "suffix IN ('.docx', '.pdf', '.txt', '.md')",
+            "suffix IN ('.docx', '.pdf', '.txt', '.md', '.dxf')",
             name="ck_uploads_suffix",
         ),
         CheckConstraint("size_bytes > 0", name="ck_uploads_size_positive"),

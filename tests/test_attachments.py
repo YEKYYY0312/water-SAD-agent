@@ -335,25 +335,23 @@ def test_capability_note_renders_even_before_anything_is_uploaded() -> None:
     assert "Word(.docx)、PDF、TXT" in content
     assert "已上传资料：暂无" in content
     assert "没有文字层" in content
-    assert "网页端暂不支持" in content, "read_drawing 未注册时不得声称能读 DXF"
+    # S50 起 DXF 走上传审查；能力说明随白名单变化（test_dxf_upload 另有断言）。
+    assert "DXF 图纸：可上传" in content
+    assert "DWG 暂不支持" in content
     assert "用户随本条消息附上了以下文件" not in content, "没有附件时不得渲染附件段"
 
 
-def test_capability_note_follows_the_read_drawing_registration(tmp_path: Path) -> None:
-    from water_agent.drawing.synth import build_synthetic_drawing
-    from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
+def test_capability_note_follows_the_upload_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """能力说明由运行时推导：白名单不含 .dxf 时退回 read_drawing 是否注册的判断。"""
 
-    root = tmp_path / "drawings"
-    build_synthetic_drawing(root, drawing_id="P-01")
-    tool, _ = maybe_build_read_drawing_tool(str(root))
-    assert tool is not None
-    registry = ToolRegistry()
-    registry.register(tool)
-    content = PromptAssembler(tool_registry=registry).assemble_prompt(
+    from water_agent.prompting import assembler
+
+    monkeypatch.setattr(assembler, "ALLOWED_SUFFIXES", frozenset({".docx", ".pdf", ".txt", ".md"}))
+    content = PromptAssembler(tool_registry=ToolRegistry()).assemble_prompt(
         {"messages": [], "attachment_context": AttachmentContext()}
     ).content
-    assert "可用 read_drawing" in content
-    assert "网页端暂不支持" not in content
+    assert "网页端暂不支持上传和读取" in content
+    assert "DXF 图纸：可上传" not in content
 
 
 def test_file_context_rejects_other_types() -> None:
