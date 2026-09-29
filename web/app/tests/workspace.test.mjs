@@ -198,3 +198,11 @@ test("the stream controller treats 404 as permanent and caps other retries", asy
   assert.match(source, /MAX_STREAM_RETRIES/);
   assert.doesNotMatch(source, /setTimeout\(\(\) => void connectRun\(runId, cursor\.current\), 800\)/);
 });
+
+test("a ready attachment alone is enough to send", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
+  const controller = await readFile(new URL("../src/useWorkspaceController.ts", import.meta.url), "utf8");
+  assert.match(components, /disabled=\{!session \|\| uploading \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
+  assert.match(controller, /draft\.trim\(\) \|\| \(attachmentIds\.length > 0 \? ATTACHMENT_ONLY_PROMPT : ""\)/);
+});
