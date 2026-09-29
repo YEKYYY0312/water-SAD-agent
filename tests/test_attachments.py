@@ -195,7 +195,8 @@ def test_attached_file_is_injected_even_with_zero_literal_overlap(database: Data
 def test_long_attachment_declares_it_was_not_read_in_full(database: Database, tmp_path: Path) -> None:
     factory = _Factory(tmp_path / "traces")
     client, user_id = _client(database, tmp_path, factory)
-    paragraphs = [f"第{i}节：管道敷设要求说明，编号 S{i:03d}，" + "施工内容描述" * 40 for i in range(60)]
+    # 必须超过附件预算（MAX_ATTACHMENT_CONTEXT_CHARACTERS）才测得到"未读全"。
+    paragraphs = [f"第{i}节：管道敷设要求说明，编号 S{i:03d}，" + "施工内容描述" * 40 for i in range(300)]
     upload_id = _upload(client, "长说明.txt", "\n\n".join(paragraphs).encode("utf-8"))
     thread = WebSessionRepository(database).create(user_id, title="长附件")
 
@@ -215,8 +216,8 @@ def test_long_attachment_declares_it_was_not_read_in_full(database: Database, tm
 def test_long_attachment_also_reads_the_chunks_the_question_is_about(database: Database, tmp_path: Path) -> None:
     factory = _Factory(tmp_path / "traces")
     client, user_id = _client(database, tmp_path, factory)
-    paragraphs = [f"第{i}节：一般施工说明，" + "常规内容描述" * 40 for i in range(60)]
-    paragraphs[45] = "第45节：屋面雨水采用虹吸排水系统，溢流口设于女儿墙。"
+    paragraphs = [f"第{i}节：一般施工说明，" + "常规内容描述" * 40 for i in range(300)]
+    paragraphs[245] = "第245节：屋面雨水采用虹吸排水系统，溢流口设于女儿墙。"
     upload_id = _upload(client, "长说明.txt", "\n\n".join(paragraphs).encode("utf-8"))
     thread = WebSessionRepository(database).create(user_id, title="长附件")
 
