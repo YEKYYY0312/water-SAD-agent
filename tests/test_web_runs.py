@@ -403,6 +403,15 @@ def test_no_embedding_key_returns_its_own_precondition_failure(
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
     monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    # "需要 embedding"的前提是确实选出了真实索引。此前这条用例依赖 data/indexes/ 下
+    # 恰好有默认索引——那是不入库的构建产物，干净克隆（GitHub runner）里没有，
+    # 预检于是判"不需要 embedding"放行，用例必挂（202 != 424）。现用 fixture 语料
+    # 现建一个小索引并经 WATER_AGENT_INDEX_PATH 显式指定，不再依赖本机文件。
+    from water_agent.ingestion.pipeline import ingest_to_trivium
+
+    index = tmp_path / "index" / "tiny.db"
+    ingest_to_trivium(Path("data/fixtures/rag_fixture.jsonl"), index)
+    monkeypatch.setenv("WATER_AGENT_INDEX_PATH", str(index))
     client, _, thread_id = _client(database, tmp_path)
     response = client.post(
         f"/api/sessions/{thread_id}/messages",
