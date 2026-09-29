@@ -25,6 +25,8 @@ import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
 /** 非 404 的连接失败最多重试几次（指数退避，封顶 10 s）。 */
 const MAX_STREAM_RETRIES = 8;
+/** 只附文件、没写问题时代发的提问（出现在对话里，用户看得见发了什么）。 */
+export const ATTACHMENT_ONLY_PROMPT = "请阅读我附上的文件，概括主要内容，并指出需要注意或核对的问题。";
 const SESSION_STORAGE_PREFIX = "water-agent:selected-session:";
 
 function storedValue(key: string): string | null {
@@ -321,12 +323,14 @@ export function useWorkspaceController(): WorkspaceController {
 
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedThreadId || !draft.trim()) return;
+    if (!selectedThreadId) return;
     if (attachments.some((item) => item.status === "uploading")) return;
-    const message = draft.trim();
     const attachmentIds = attachments
       .filter((item) => item.status === "ready" && item.record)
       .map((item) => item.record!.upload_id);
+    // 只附文件、不写问题也能发：此前发送键要求输入框非空，附上文件后按钮一直是灰的。
+    const message = draft.trim() || (attachmentIds.length > 0 ? ATTACHMENT_ONLY_PROMPT : "");
+    if (!message) return;
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
