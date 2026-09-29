@@ -2,7 +2,7 @@ import { csrfToken, WorkspaceApiError, type ApiEnvelope } from "./workspaceApi.t
 
 /** 与后端 documents/extractors.py 同一口径；前端先拦只是省一次往返，服务端仍是权威。 */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-export const ALLOWED_UPLOAD_SUFFIXES = [".docx", ".pdf", ".txt", ".md", ".dxf"] as const;
+export const ALLOWED_UPLOAD_SUFFIXES = [".docx", ".pdf", ".txt", ".md", ".dxf", ".dwg"] as const;
 export const UPLOAD_ACCEPT = ALLOWED_UPLOAD_SUFFIXES.join(",");
 
 export type UploadRecord = {
@@ -25,7 +25,7 @@ export type UploadRecord = {
 /** 错误码 → 用户能照着做的文案。未登记的码回落到服务端 message。 */
 const UPLOAD_ERROR_COPY: Record<string, string> = {
   UPLOAD_TOO_LARGE: "文件超过 10 MB，请拆分后再上传。",
-  UPLOAD_TYPE_NOT_ALLOWED: "只支持 Word（.docx）、PDF、TXT、Markdown 和 DXF 图纸。DWG 请在 CAD 中另存为 DXF。",
+  UPLOAD_TYPE_NOT_ALLOWED: "只支持 Word（.docx）、PDF、TXT、Markdown 和 DXF/DWG 图纸。",
   UPLOAD_MAGIC_MISMATCH: "文件内容和扩展名不一致，请用原始文件重新上传。",
   UPLOAD_EXTRACTION_FAILED: "文件无法读取，可能已损坏或加密。",
   UPLOAD_INJECTION_BLOCKED: "文件内容未通过安全检查。",
@@ -74,7 +74,7 @@ function drawingNotice(record: UploadRecord): { tone: "ok" | "warn"; text: strin
 }
 
 export function uploadNotice(record: UploadRecord): { tone: "ok" | "warn"; text: string } {
-  if (record.suffix === ".dxf") return drawingNotice(record);
+  if (record.suffix === ".dxf" || record.suffix === ".dwg") return drawingNotice(record);
   if (record.extracted_text_length === 0) {
     return { tone: "warn", text: "没有读到文字，可能是扫描件。Agent 无法引用它。" };
   }
