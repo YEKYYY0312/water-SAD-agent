@@ -20,6 +20,31 @@ COPY alembic ./alembic
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
+# P5-S51: LibreDWG (GPLv3) for DWG -> DXF conversion on upload.  Debian bookworm
+# and trixie ship no libredwg package (checked), so it is built from the pinned
+# GNU release, verified by sha256.  Only dwg2dxf, the shared library and the
+# licence travel to the runtime stage; it is invoked as a separate process, never
+# linked into Python (docs/design/p5-step-51-dwg-read.md D8).  The build takes
+# ~7 min cold; the layer is cached as long as the version and checksum are unchanged.
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS libredwg
+ARG LIBREDWG_VERSION=0.14
+ARG LIBREDWG_SHA256=cb6ee0b078c6d9e0f09d66f1feac33ba6342df88ae544e9f9335fab475218351
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential pkg-config curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl -fsSL -o libredwg.tar.gz "https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.gz" \
+    && echo "${LIBREDWG_SHA256}  libredwg.tar.gz" | sha256sum -c - \
+    && tar -xzf libredwg.tar.gz --strip-components=1 \
+    && ./configure --prefix=/opt/libredwg --disable-bindings --disable-werror --disable-docs \
+    && make -j"$(nproc)" \
+    && make install-strip \
+    && mkdir -p /opt/libredwg-runtime/bin /opt/libredwg-runtime/lib /opt/libredwg-runtime/share \
+    && cp /opt/libredwg/bin/dwg2dxf /opt/libredwg-runtime/bin/ \
+    && cp -P /opt/libredwg/lib/libredwg.so* /opt/libredwg-runtime/lib/ \
+    && cp COPYING /opt/libredwg-runtime/share/COPYING \
+    && echo "LibreDWG ${LIBREDWG_VERSION} https://ftp.gnu.org/gnu/libredwg/libredwg-${LIBREDWG_VERSION}.tar.gz sha256=${LIBREDWG_SHA256}" > /opt/libredwg-runtime/share/SOURCE
+
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS runtime
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \
@@ -46,6 +71,10 @@ COPY --from=python-build /app/alembic.ini /app/alembic.ini
 COPY --from=python-build /app/alembic /app/alembic
 COPY --from=python-build /app/src /app/src
 COPY --from=frontend /web/app/dist /app/web/app/dist
+COPY --from=libredwg /opt/libredwg-runtime /opt/libredwg
+ENV WATER_AGENT_DWG2DXF=/opt/libredwg/bin/dwg2dxf \
+    LD_LIBRARY_PATH=/opt/libredwg/lib
+RUN /opt/libredwg/bin/dwg2dxf --version
 # Retrieval data: fixtures + curated corpus + version registry + the prebuilt
 # TriviumDB index.  The index is a build artifact produced beforehand by
 # scripts/build_index.py -- it is deliberately NOT built here, because that needs

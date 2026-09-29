@@ -26,6 +26,9 @@ dependencies = [
     # 对自托管商业部署有传染性，因此只作为 pdf-enhanced extra 显式 opt-in。
     "python-docx>=1.1,<2",
     "pypdf>=6.0,<7",
+    # P5-S52：CAD 导出 PDF 的页面渲染（给视觉模型看图）。BSD-3/Apache-2.0，自带
+    # PDFium 二进制轮子；刻意不用 AGPL 的 pymupdf（与 S48 同一决策）。
+    "pypdfium2>=5,<6",
     # multipart/form-data 解析器。FastAPI 的 UploadFile/Form 缺它会在**请求期**抛
     # RuntimeError（不是 import 期），即"装不全也能启动、一上传就 500"，所以它是
     # 运行时必需依赖而不是可选项。

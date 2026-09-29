@@ -9,12 +9,24 @@ import {
   type SystemCapabilities,
   type WorkspaceSession,
 } from "./workspaceApi";
-import { applyRunEvent, emptyRunState, isTerminalStatus, type WorkspaceRunState } from "./workspaceState";
-import type { ConversationMessage } from "./workspaceComponents";
+import {
+  applyRunEvent,
+  archiveRun,
+  emptyRunState,
+  isTerminalStatus,
+  mergeHistory,
+  replayUnavailable,
+  type ConversationMessage,
+  type WorkspaceRunState,
+} from "./workspaceState";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
+/** 非 404 的连接失败最多重试几次（指数退避，封顶 10 s）。 */
+const MAX_STREAM_RETRIES = 8;
+/** 只附文件、没写问题时代发的提问（出现在对话里，用户看得见发了什么）。 */
+export const ATTACHMENT_ONLY_PROMPT = "请阅读我附上的文件，概括主要内容，并指出需要注意或核对的问题。";
 const SESSION_STORAGE_PREFIX = "water-agent:selected-session:";
 
 function storedValue(key: string): string | null {
@@ -110,6 +122,9 @@ export function useWorkspaceController(): WorkspaceController {
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
   const runStatus = useRef("idle");
+  // 切会话时拿到的历史；实时回放不可用时退回它（见 connectRun 的 404 分支）。
+  const historyRef = useRef<{ role: "user" | "agent"; text: string; withheld?: boolean }[]>([]);
+  const retries = useRef(0);
 
   const selectedSession = sessions.find((item) => item.thread_id === selectedThreadId) ?? null;
 
@@ -201,25 +216,53 @@ export function useWorkspaceController(): WorkspaceController {
           }
         },
       });
+      retries.current = 0;
       if (!isTerminalStatus(runStatus.current) && !controller.signal.aborted) {
         setPageError("SSE 连接已结束，正在等待后端事件继续恢复");
         reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 500);
       }
     } catch (error) {
       if (controller.signal.aborted) return;
+      // 404 是永久性的：运行的实时事件只存在于服务进程内存里，服务重启后就没了，
+      // 重试多少次都不会回来。此前这里无条件每 800 ms 重试（本地实测 30 分钟 1,992 次），
+      // "正在检索与计算…"永不消失，历史回答也因等着回放而不显示。
+      if (error instanceof WorkspaceApiError && error.status === 404) {
+        setStreaming(false);
+        setRun(emptyRunState());
+        setMessages(replayUnavailable(historyRef.current, runStatus.current));
+        setPageError(null);
+        return;
+      }
+      retries.current += 1;
+      if (retries.current > MAX_STREAM_RETRIES) {
+        setStreaming(false);
+        setPageError(`实时连接多次失败，已停止重试：${apiMessage(error)}。刷新页面可再试一次。`);
+        return;
+      }
       setPageError(`SSE 连接中断，正在从事件 ${cursor.current} 恢复：${apiMessage(error)}`);
-      reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 800);
+      const delay = Math.min(800 * 2 ** (retries.current - 1), 10_000);
+      reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), delay);
     }
   }, [api, selectedProjectId]);
 
   useEffect(() => {
     if (!selectedThreadId) return;
     let active = true;
-    void api.getSession(selectedThreadId)
-      .then((session) => {
+    void Promise.all([
+      api.getSession(selectedThreadId),
+      // 历史读不到不该挡住会话本身：降级为空历史并提示，最新运行照常回放。
+      api.getMessages(selectedThreadId).catch((error) => {
+        if (active) setPageError(`历史消息加载失败：${apiMessage(error)}`);
+        return { thread_id: selectedThreadId, messages: [] };
+      }),
+    ])
+      .then(([session, history]) => {
         if (!active) return;
         setSessions((current) => current.map((item) => item.thread_id === selectedThreadId ? session : item));
         const latest = session.latest_run;
+        historyRef.current = history.messages;
+        retries.current = 0;
+        setMessages(mergeHistory(history.messages, Boolean(latest)));
         if (latest) {
           setStreaming(true);
           cursor.current = "0";
@@ -280,21 +323,28 @@ export function useWorkspaceController(): WorkspaceController {
 
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedThreadId || !draft.trim()) return;
+    if (!selectedThreadId) return;
     if (attachments.some((item) => item.status === "uploading")) return;
-    const message = draft.trim();
+    const attachmentIds = attachments
+      .filter((item) => item.status === "ready" && item.record)
+      .map((item) => item.record!.upload_id);
+    // 只附文件、不写问题也能发：此前发送键要求输入框非空，附上文件后按钮一直是灰的。
+    const message = draft.trim() || (attachmentIds.length > 0 ? ATTACHMENT_ONLY_PROMPT : "");
+    if (!message) return;
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
     setExportState(null);
-    // 已入库的附件随本次提问"寄出"：它们已进项目资料，后端按问题检索，卡片功成身退。
+    // 已入库的附件随本次提问寄出：后端按原文顺序读进提示词，卡片功成身退。
     setAttachments((current) => current.filter((item) => item.status === "failed"));
-    setMessages((current) => [...current, { role: "user", text: message }]);
+    // 先把上一轮的回答归档进对话，再清空运行态——否则第一轮回答随 setRun 一起消失。
+    setMessages((current) => [...archiveRun(current, run), { role: "user", text: message }]);
     setRun(emptyRunState());
     cursor.current = "0";
     runStatus.current = "queued";
+    retries.current = 0;
     setStreaming(true);
-    void api.sendMessage(selectedThreadId, message)
+    void api.sendMessage(selectedThreadId, message, attachmentIds)
       .then((created) => {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");

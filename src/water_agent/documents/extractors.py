@@ -1,6 +1,7 @@
 """上传文件的文本提取（P5-S48 Step 1）。
 
-支持 ``.docx`` / ``.pdf`` / ``.txt`` / ``.md``，**不做 OCR、不做图片、不解析表格
+支持 ``.docx`` / ``.pdf`` / ``.txt`` / ``.md``，以及 ``.dxf``（P5-S50：抽取产物是
+确定性审查报告，见 ``drawing_upload``），**不做 OCR、不做图片、不解析表格
 类文件**（spec D5）。提取结果是纯文本，后续由护栏包成 ``RETRIEVED_FILE`` 信封，
 因此这里只负责"把字取出来"，不负责信任判定。
 
@@ -35,7 +36,7 @@ from water_agent.documents.errors import (
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 #: 扩展名白名单。白名单而非黑名单：新格式要显式加，默认不收。
-ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md"})
+ALLOWED_SUFFIXES: frozenset[str] = frozenset({".docx", ".pdf", ".txt", ".md", ".dxf", ".dwg"})
 
 #: 扩展名 → 文件头魔数。仅对有稳定魔数的二进制格式校验；.txt/.md 没有魔数。
 MAGIC_PREFIXES: dict[str, bytes] = {
@@ -61,6 +62,9 @@ class ExtractedDocument:
     text: str
     page_count: int | None
     engine: str
+    #: 抽取阶段就已判定的可疑（P5-S50：DXF 图元文字命中注入规则）。审查报告只含规则
+    #: 结论、不含图元原文，分块护栏因此看不到那些文字——可疑必须从这里带出来。
+    suspicious: bool = False
 
     @property
     def text_length(self) -> int:
@@ -142,9 +146,13 @@ def _extract_docx(data: bytes) -> ExtractedDocument:
             CODE_UPLOAD_EXTRACTION_FAILED,
             "解析 .docx 需要 python-docx：安装 water-agent 依赖后重试",
         ) from exc
+    from water_agent.documents.omml import count_ole_objects, paragraph_text
+
     try:
         document = docx.Document(io.BytesIO(data))
-        blocks = [paragraph.text for paragraph in document.paragraphs]
+        # paragraph.text 会整段跳过 Word 公式（m:oMath）；计算书的数值几乎都在公式里。
+        blocks = [paragraph_text(paragraph._p) for paragraph in document.paragraphs]
+        ole_objects = count_ole_objects([document.element.body])
         # 表格文本必须一起取：给排水的设计说明把管径/流量表格当正文用，
         # 只取 paragraphs 会丢掉最有检索价值的那部分。
         for table in document.tables:
@@ -159,7 +167,14 @@ def _extract_docx(data: bytes) -> ExtractedDocument:
             CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .docx 失败：{type(exc).__name__}"
         ) from exc
     text = "\n".join(block for block in blocks if block.strip())
-    return ExtractedDocument(text=text, page_count=None, engine="python-docx")
+    if ole_objects:
+        # MathType/OLE 公式只有图片，读不到。如实写进正文末尾，模型才不会把"没读到"
+        # 说成"文档里没有"。
+        text += (
+            f"\n【抽取说明】文档另含 {ole_objects} 个 OLE 嵌入对象（MathType 公式或嵌入图），"
+            "其内容是图片，未能读取；相关数值请以原文件为准。"
+        )
+    return ExtractedDocument(text=text, page_count=None, engine="python-docx+omml")
 
 
 def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
@@ -239,6 +254,7 @@ def extract_text(
     suffix: str,
     *,
     getenv: Callable[[str], str | None] = os.environ.get,
+    display_name: str = "",
 ) -> ExtractedDocument:
     """按扩展名提取文本。大小与魔数校验已在此处再做一遍（纵深防御）。
 
@@ -255,13 +271,89 @@ def extract_text(
         allowed = "、".join(sorted(ALLOWED_SUFFIXES))
         raise UploadError(CODE_UPLOAD_TYPE_NOT_ALLOWED, f"不支持的文件类型 {suffix}；仅支持 {allowed}")
     check_magic(data, suffix)
+    if suffix == ".dwg":
+        # P5-S51：LibreDWG 转 DXF（入库侧受控子进程），再走与 .dxf 完全相同的审查链。
+        from water_agent.documents.drawing_upload import review_uploaded_dxf
+        from water_agent.documents.dwg_convert import convert_dwg
+
+        conversion = convert_dwg(data)
+        review = review_uploaded_dxf(
+            conversion.dxf,
+            display_name=display_name,
+            source_note=(
+                f"本图由 DWG 经 LibreDWG {conversion.version} 转换为 DXF 后审查"
+                f"（转换器报告 {conversion.warnings} 条警告；代理实体、部分动态块可能未被转换）。"
+            ),
+        )
+        return ExtractedDocument(
+            text=review.text,
+            page_count=None,
+            engine=f"libredwg-{conversion.version}+dxf-review"[:32],
+            suspicious=review.suspicious_entities > 0,
+        )
+    if suffix == ".dxf":
+        # P5-S50：图纸的"文本"是程序化审查报告，不是图元文字（见 drawing_upload）。
+        from water_agent.documents.drawing_upload import review_uploaded_dxf
+
+        review = review_uploaded_dxf(data, display_name=display_name)
+        return ExtractedDocument(
+            text=review.text,
+            page_count=None,
+            engine="dxf-review",
+            suspicious=review.suspicious_entities > 0,
+        )
     if suffix == ".docx":
         return _extract_docx(data)
     if suffix == ".pdf":
         if pdf_engine_name(getenv) == _PYMUPDF_ENGINE:
-            return _extract_pdf_pymupdf(data)
-        return _extract_pdf_pypdf(data)
+            document = _extract_pdf_pymupdf(data)
+        else:
+            document = _extract_pdf_pypdf(data)
+        return _with_vision_review(document, data, getenv=getenv)
     return _extract_plain_text(data)
+
+
+#: 文本层"基本为空"的判定：每页平均不足这么多字。CAD 导出 PDF 常只剩页眉页码这类
+#: 零星文字（实测 0 字），扫描件同理；有正文的设计说明每页几百字以上。
+_SPARSE_TEXT_CHARS_PER_PAGE = 40
+VISION_ENABLED_ENV = "UPLOAD_VISION_ENABLED"
+
+
+def _with_vision_review(
+    document: ExtractedDocument, data: bytes, *, getenv: Callable[[str], str | None]
+) -> ExtractedDocument:
+    """文本层基本为空的 PDF（CAD 导出、扫描件）→ 追加视觉审阅（P5-S52）。
+
+    有正文的 PDF 不调视觉模型：文字已经读到了，再花钱看图只会引入误读。视觉失败时
+    **上传照样成功**，但在正文里写明"视觉审阅未执行及原因"——文本层为空本来就读不到，
+    视觉只是增强；静默失败会让模型以为"这份 PDF 没有任何内容"。
+    """
+
+    pages = document.page_count or 1
+    if len(document.text.strip()) >= _SPARSE_TEXT_CHARS_PER_PAGE * pages:
+        return document
+    if (getenv(VISION_ENABLED_ENV) or "true").strip().lower() == "false":
+        return document
+    from water_agent.vision import VisionUnavailableError, review_pdf_pages
+
+    try:
+        review = review_pdf_pages(data)
+    except VisionUnavailableError as exc:
+        note = (
+            f"【视觉审阅未执行】这份 PDF 几乎没有文字层（常见于 CAD 导出或扫描件），"
+            f"本应由视觉模型看图，但未能执行：{exc}。当前无法读取图面内容，不得猜测。"
+        )
+        text = f"{document.text}\n\n{note}".strip()
+        return ExtractedDocument(
+            text=text, page_count=document.page_count, engine=document.engine, suspicious=document.suspicious
+        )
+    text = f"{document.text}\n\n{review.text}".strip()
+    return ExtractedDocument(
+        text=text,
+        page_count=document.page_count,
+        engine=f"{document.engine}+vision"[:32],
+        suspicious=document.suspicious,
+    )
 
 
 __all__ = [
