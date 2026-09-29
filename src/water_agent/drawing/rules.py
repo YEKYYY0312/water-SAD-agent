@@ -161,6 +161,9 @@ class ReviewResult:
     #: 参与审查的管段数。**0 与"检查过且干净"必须分开表述** ——
     #: 一条规则都没跑过却说"未发现问题"，正是 success_hallucination。
     pipes_reviewed: int = 0
+    #: 其中识别为给水的管段数。现有规则只作用于排水管段，给水管段**没有任何规则去查**；
+    #: 全图都是给水时同样不得说"已检查的规则均未发现问题"（P6-S1 实测纯给水图时就是这么说的）。
+    water_supply_pipes: int = 0
 
     @property
     def checked_any(self) -> bool:
@@ -174,6 +177,7 @@ class ReviewResult:
             "missing_inputs": list(self.missing_inputs),
             "assumptions": list(self.assumptions),
             "pipes_reviewed": self.pipes_reviewed,
+            "water_supply_pipes": self.water_supply_pipes,
             "summary": self.summary(),
         }
 
@@ -193,6 +197,12 @@ class ReviewResult:
             return (
                 "**未执行任何管段审查**：无可审查的管段（图纸解析失败或图上无可识别管线图元），"
                 "本结论不含任何合规判断"
+            )
+        if self.water_supply_pipes == self.pipes_reviewed:
+            # 规则一条都不适用：与零管段同理，任何"未发现问题"的说法都是误导。
+            return (
+                f"**未对任何管段执行规则判定**：{self.pipes_reviewed} 条管段均识别为给水，"
+                "现有规则只适用于排水管段，本结论不含任何合规判断"
             )
         if self.not_checked:
             return (
@@ -438,8 +448,28 @@ def check_pressure_velocity(result: MappingResult) -> tuple[list[Finding], list[
     ]
 
 
+def check_rule_scope(result: MappingResult) -> tuple[list[Finding], list[str]]:
+    """规则作用域：给水管段不在任何规则的作用域内，如实计入未检查。
+
+    三条排水规则在图上没有排水管段时直接返回空（"不适用"），这对单条规则是对的；
+    但对整张给水图，读者看到的是"未检查 0 项 / 已检查的规则均未发现问题"——一条规则都
+    没查过却读成通过（P6-S1 参数化生成的给水图、以及上传的真实给水图都会这样）。
+    与 B2（系统归属未知）同一纪律：不能因为"不适用"就让规则静默消失。
+    """
+
+    water_supply = sum(1 for pipe in result.pipes if pipe.system == "water_supply")
+    if not water_supply:
+        return [], []
+    return [], [
+        (
+            f"给水管段：现有 {len(ALL_RULES)} 条规则全部只适用于排水管段（drain.*），"
+            f"{water_supply} 条给水管段不在任何规则的作用域内，**未检查**（不代表给水管段合规）"
+        )
+    ]
+
+
 #: 检查函数清单。顺序 = 报告里的规则顺序（确定性输出）。
-_CHECKS = (check_min_diameter, check_slope, check_pressure_velocity)
+_CHECKS = (check_min_diameter, check_slope, check_pressure_velocity, check_rule_scope)
 
 
 def review_drawing(result: MappingResult) -> ReviewResult:
@@ -453,6 +483,7 @@ def review_drawing(result: MappingResult) -> ReviewResult:
         missing_inputs=list(result.missing_inputs),
         assumptions=list(result.assumptions),
         pipes_reviewed=len(result.pipes),
+        water_supply_pipes=sum(1 for pipe in result.pipes if pipe.system == "water_supply"),
     )
     for check in _CHECKS:
         findings, not_checked = check(result)
