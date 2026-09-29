@@ -9,8 +9,15 @@ import {
   type SystemCapabilities,
   type WorkspaceSession,
 } from "./workspaceApi";
-import { applyRunEvent, emptyRunState, isTerminalStatus, type WorkspaceRunState } from "./workspaceState";
-import type { ConversationMessage } from "./workspaceComponents";
+import {
+  applyRunEvent,
+  archiveRun,
+  emptyRunState,
+  isTerminalStatus,
+  mergeHistory,
+  type ConversationMessage,
+  type WorkspaceRunState,
+} from "./workspaceState";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
@@ -215,11 +222,19 @@ export function useWorkspaceController(): WorkspaceController {
   useEffect(() => {
     if (!selectedThreadId) return;
     let active = true;
-    void api.getSession(selectedThreadId)
-      .then((session) => {
+    void Promise.all([
+      api.getSession(selectedThreadId),
+      // 历史读不到不该挡住会话本身：降级为空历史并提示，最新运行照常回放。
+      api.getMessages(selectedThreadId).catch((error) => {
+        if (active) setPageError(`历史消息加载失败：${apiMessage(error)}`);
+        return { thread_id: selectedThreadId, messages: [] };
+      }),
+    ])
+      .then(([session, history]) => {
         if (!active) return;
         setSessions((current) => current.map((item) => item.thread_id === selectedThreadId ? session : item));
         const latest = session.latest_run;
+        setMessages(mergeHistory(history.messages, Boolean(latest)));
         if (latest) {
           setStreaming(true);
           cursor.current = "0";
@@ -283,18 +298,22 @@ export function useWorkspaceController(): WorkspaceController {
     if (!selectedThreadId || !draft.trim()) return;
     if (attachments.some((item) => item.status === "uploading")) return;
     const message = draft.trim();
+    const attachmentIds = attachments
+      .filter((item) => item.status === "ready" && item.record)
+      .map((item) => item.record!.upload_id);
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
     setExportState(null);
-    // 已入库的附件随本次提问"寄出"：它们已进项目资料，后端按问题检索，卡片功成身退。
+    // 已入库的附件随本次提问寄出：后端按原文顺序读进提示词，卡片功成身退。
     setAttachments((current) => current.filter((item) => item.status === "failed"));
-    setMessages((current) => [...current, { role: "user", text: message }]);
+    // 先把上一轮的回答归档进对话，再清空运行态——否则第一轮回答随 setRun 一起消失。
+    setMessages((current) => [...archiveRun(current, run), { role: "user", text: message }]);
     setRun(emptyRunState());
     cursor.current = "0";
     runStatus.current = "queued";
     setStreaming(true);
-    void api.sendMessage(selectedThreadId, message)
+    void api.sendMessage(selectedThreadId, message, attachmentIds)
       .then((created) => {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");
