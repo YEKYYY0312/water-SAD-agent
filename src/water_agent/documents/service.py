@@ -77,6 +77,7 @@ class UploadIngestResult:
             "redacted": self.record.redacted,
             "project_id": self.record.project_id,
             "created_at": self.record.created_at.isoformat(),
+            "suffix": self.record.suffix,
         }
 
 
@@ -135,7 +136,7 @@ def ingest_upload(
     guardrails = pipeline if pipeline is not None else default_guardrail_pipeline()
     suffix = suffix_of(filename)
     stored_name = safe_filename(filename)
-    extracted = extract_text(payload, suffix)
+    extracted = extract_text(payload, suffix, display_name=stored_name)
 
     try:
         persisted_text, redaction_hits = guardrails.sanitize_for_persistence(extracted.text)
@@ -168,7 +169,7 @@ def ingest_upload(
         extracted_chars=len(persisted_text),
         page_count=extracted.page_count,
         extract_engine=extracted.engine,
-        suspicious=suspicious,
+        suspicious=suspicious or extracted.suspicious,
         redacted=bool(redaction_hits),
         chunks=chunks,
     )
