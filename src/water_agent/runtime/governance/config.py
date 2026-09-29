@@ -28,7 +28,7 @@ from water_agent.runtime.governance.contracts import (
 )
 
 #: 配置版本。**改任何阈值都要改它**（trace 用它回溯裁定依据）。
-GOVERNANCE_CONFIG_VERSION = "p2.5-step12-2026-09-05"
+GOVERNANCE_CONFIG_VERSION = "p5-step50-2026-09-29"
 
 
 class RetryPolicy(BaseModel):
@@ -78,10 +78,14 @@ class RateLimitPolicy(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    #: 桶容量（token）。单次 RAG 约数千 token，容量给到十万级 = 允许突发几十次。
-    bucket_capacity_tokens: int = Field(default=200_000, ge=1)
-    #: 补充速率（token/秒）。约 3.6M token/小时，远超人工节奏，只挡机器失控。
-    refill_tokens_per_second: float = Field(default=1_000.0, gt=0)
+    #: 桶容量（token）。P5-S50 起附件预算 50,000 字：带两份文件的一次提问实测
+    #: 4 次模型调用共 ~7–8 万 input token（agentic 每轮重送系统提示），旧的 200k
+    #: 在第 2–3 次提问就被打空（实测 "请求频率超过本地配额限制"）。1M ≈ 连续十几次
+    #: 带大附件的提问，仍远低于 daily_token_cap，失控循环照样撞限。
+    bucket_capacity_tokens: int = Field(default=1_000_000, ge=1)
+    #: 补充速率（token/秒）。5,000/s ≈ 18M token/小时；按人工节奏（一分钟一问）每问可回补
+    #: ~30 万，只挡机器失控。
+    refill_tokens_per_second: float = Field(default=5_000.0, gt=0)
     #: 每分钟请求数上限。人工提问不可能超过；agentic 循环失控会立刻撞到。
     max_requests_per_minute: int = Field(default=120, ge=1)
 

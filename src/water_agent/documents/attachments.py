@@ -40,9 +40,11 @@ from water_agent.storage.models import UploadChunkRow
 #: 每个文件都只剩一两块，模型对哪份都读不全。
 MAX_ATTACHMENTS_PER_MESSAGE = 5
 
-#: 显式附件的字符预算。比召回段（1200）大得多是刻意的：用户点名要读这份文件，
-#: 只给 1200 字等于只读封面。仍然有界——超出部分如实声明截断。
-MAX_ATTACHMENT_CONTEXT_CHARACTERS = 6000
+#: 显式附件的字符预算（2026-09-29 用户拍板由 6000 调到 50000）。6000 时两份文件平分，
+#: 39 段的计算书只读到 8 段。代价是每次模型调用多送 ~3–5 万 token，且 agentic 循环
+#: 每轮都重送系统提示——成本与延迟随之上升，见 p5-step-50-decision.md。仍然有界：超出
+#: 部分如实声明"未读全"。
+MAX_ATTACHMENT_CONTEXT_CHARACTERS = 50_000
 
 ATTACHMENT_CONTEXT_PREAMBLE = (
     "【用户附件】\n"
@@ -150,8 +152,13 @@ def render_attachment_context(
         lines.append(reading.header())
         lines.extend(_line(hit) for hit in sorted(reading.hits, key=lambda h: h.ordinal))
     rendered = "\n".join(lines)
-    # 选块阶段已按预算控制，这里只是最后一道保险：绝不在块中间截断正文。
-    return rendered if len(rendered) <= max_characters else rendered[:max_characters]
+    if len(rendered) <= max_characters:
+        return rendered
+    # 选块阶段已按预算控制；这里是最后一道保险。**绝不在块中间截断正文**（半截块会让
+    # 模型读到一句被切断的规定）：从末尾整行丢块，直到放得下。
+    while len(lines) > 1 and len("\n".join(lines)) > max_characters:
+        lines.pop()
+    return "\n".join(lines)
 
 
 def _select_chunks(
@@ -163,7 +170,9 @@ def _select_chunks(
 ) -> list[UploadRecallHit]:
     """先按原文顺序取开头，余量再补与问题字面相关的块；整块放不下就跳过。"""
 
-    header_cost = len(AttachmentReading(record, (), len(chunks)).header()) + 64
+    # 标题行按"未读全"那一版的最长形态预留（它随读到的段号变长）：预留不足时渲染阶段
+    # 只能丢块，而被丢的恰好是排在后面的"与问题相关"的块（实测）。
+    header_cost = len(AttachmentReading(record, (), len(chunks)).header()) + 8 * len(chunks) + 1
     remaining = budget - header_cost
     selected: dict[int, UploadRecallHit] = {}
 
