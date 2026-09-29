@@ -814,7 +814,7 @@ class HarnessRunner:
             )
         latency_ms = (time.perf_counter() - started) * 1000
 
-        context_articles, _ = _extract_validation_signal(result)
+        context_articles, _, _ = _extract_validation_signal(result)
         actual_citations = [c.source_id for c in result.get("citations", [])]
         scored = score_eval_case(
             case,

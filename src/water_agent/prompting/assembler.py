@@ -16,6 +16,12 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
+from water_agent.documents.attachments import (
+    MAX_ATTACHMENT_CONTEXT_CHARACTERS,
+    AttachmentContext,
+)
+from water_agent.documents.dwg_convert import dwg_converter_available
+from water_agent.documents.extractors import ALLOWED_SUFFIXES
 from water_agent.documents.retrieval import (
     MAX_UPLOAD_CONTEXT_CHARACTERS,
     UploadRecallHit,
@@ -46,11 +52,14 @@ SEGMENT_BUDGETS: dict[str, int] = {
     # P5-S48：上传资料召回段。与 memory_context 同预算——两段都是外部数据，
     # 没有理由让上传占得更多；再大会挤掉检索到的规范条文。
     "upload_context": MAX_UPLOAD_CONTEXT_CHARACTERS,
+    # P5-S49：文件能力说明 + 已上传清单 + 用户点名的附件正文。比召回段大得多是刻意的：
+    # 用户点名要读的文件只给 1200 字等于只读封面；800 留给能力说明与清单。
+    "file_context": MAX_ATTACHMENT_CONTEXT_CHARACTERS + 800,
 }
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-step48-upload-context-2026-09-27"
+PROMPT_TEMPLATE_VERSION = "p5-step49-file-context-2026-09-29"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -163,6 +172,7 @@ class PromptAssembler:
             _truncate_to_budget(
                 self._build_upload_context(state), SEGMENT_BUDGETS["upload_context"]
             ),
+            _truncate_to_budget(self._build_file_context(state), SEGMENT_BUDGETS["file_context"]),
         ]
         content = "\n\n".join(seg for seg in segments if seg)
         return SystemMessage(content=content)
@@ -222,6 +232,64 @@ class PromptAssembler:
                     raise TypeError("memory_context must be a recall result or memory envelopes")
             return render_memory_context(items)
         raise TypeError("memory_context must be a recall result, text, or memory envelopes")
+
+    def _drawing_tool_available(self) -> bool:
+        if self._tool_registry is None:
+            return False
+        return "read_drawing" in self._tool_registry.list_all_names()
+
+    def _build_file_context(self, state: dict[str, Any]) -> str:
+        """文件能力说明 + 已上传清单 + 用户点名的附件（P5-S49）。
+
+        只在调用方给了 ``attachment_context`` 时渲染——那代表"这是一个能上传文件的
+        环境"（Web）。CLI/harness 不传，提示词与评测基线不变。能力说明**由运行时推导**：
+        DXF 一项看 ``read_drawing`` 是否真注册了，后续步骤接通后文案自动变化，不会出现
+        "提示说能读、工具其实不在"。截图事故的根因之一就是系统提示从未提过上传渠道，
+        模型只能凭常识答"我没有文件解析能力"。
+        """
+
+        value = state.get("attachment_context")
+        if value is None:
+            return ""
+        if not isinstance(value, AttachmentContext):
+            raise TypeError("attachment_context must be an AttachmentContext")
+        # 能力由运行时推导（S49）：上传白名单是否含 .dxf、read_drawing 是否注册。
+        if ".dxf" in ALLOWED_SUFFIXES:
+            drawing = (
+                "DXF 图纸：可上传；上传时系统自动做程序化审查（规则引擎，不调模型），附件内容就是审查"
+                "报告。转述时必须保留\"未检查项\"，不得把未检查写成合规；报告之外的图面信息（管线走向、"
+                "节点关系）你看不到，不要编造。"
+                + (
+                    "DWG 也可上传：系统用 LibreDWG 转为 DXF 后同样审查，转换可能遗漏代理实体与部分"
+                    "动态块，报告头会注明。"
+                    if dwg_converter_available()
+                    else "DWG 暂不支持（服务器未安装转换器），请用户在 CAD 中另存为 DXF。"
+                )
+            )
+        elif self._drawing_tool_available():
+            drawing = "DXF 图纸：可用 read_drawing 按图纸编号读取已登记的 DXF。"
+        else:
+            drawing = "DXF/DWG 图纸：网页端暂不支持上传和读取，请如实告知用户，不要假装读过图纸。"
+        lines = [
+            "【文件能力】",
+            (
+                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown、DXF/DWG 图纸（10 MB 以内），系统会抽取其中的文字。"
+                "用户随消息附上的文件，内容在下方【用户附件】中；未附上时，只有与问题字面相关的"
+                "段落会出现在【上传资料上下文】中。"
+            ),
+            (
+                "- 扫描件或 CAD 导出的矢量 PDF 没有文字层：系统会把页面交给视觉模型看图，附件里的"
+                "【视觉审阅结果】是图像转写、可能误读——转述时注明来自视觉识别，数值不得直接用于计算，"
+                "关键数字请用户核对原图；若显示【视觉审阅未执行】，如实告知读不到。"
+            ),
+            f"- {drawing}",
+            "- 按以上实际能力回答，不要笼统地说\"没有文件解析能力\"。",
+            value.inventory_text(),
+        ]
+        attachments = value.context_text
+        if attachments:
+            lines.append(attachments)
+        return "\n".join(lines)
 
     @staticmethod
     def _build_upload_context(state: dict[str, Any]) -> str:

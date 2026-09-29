@@ -5,9 +5,10 @@ import { Icon } from "./icons";
 import { formatBytes, UPLOAD_ACCEPT, uploadNotice, type UploadRecord } from "./uploadApi.ts";
 import type { Attachment, ExportState } from "./useWorkspaceController";
 import type { Project, WorkspaceSession } from "./workspaceApi";
-import type { WorkspaceRunState } from "./workspaceState";
+import type { ConversationMessage, WorkspaceRunState } from "./workspaceState";
+import { AnswerMarkdown } from "./AnswerMarkdown.tsx";
 
-export type ConversationMessage = { role: "user" | "agent"; text: string };
+export type { ConversationMessage } from "./workspaceState.ts";
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "等待提问",
@@ -260,6 +261,20 @@ function runFailureCopy(run: WorkspaceRunState): string {
   return (first && RUN_ERROR_COPY[first]) ?? first ?? "运行没有返回结果，可以重试一次。";
 }
 
+/**
+ * 有回答但运行没通过（例如两次零引用后结构化失败）：回答照样显示，但必须标明。
+ * 此前错误块只在"没有回答"时出现，失败的运行看起来和正常回答一模一样（P5-S49）。
+ */
+function UnverifiedBanner({ status, detail }: { status: string; detail?: string }) {
+  const title = status === "cancelled" ? "已停止，回答不完整" : "未通过校验，请勿直接采用";
+  return (
+    <div className="error-state answer-banner" role="alert">
+      <strong>{title}</strong>
+      {detail}
+    </div>
+  );
+}
+
 const STARTERS = [
   "DN100 给水管流量 12.5 L/s，流速是多少？",
   "污水管道最小设计坡度的规范依据",
@@ -315,6 +330,7 @@ export function ConversationPanel({
   const [dragging, setDragging] = useState(false);
   const answer = run.answer || run.tokens;
   const uploading = attachments.some((item) => item.status === "uploading");
+  const hasReadyAttachment = attachments.some((item) => item.status === "ready");
   const empty = session !== null && messages.length === 0 && !answer && !streaming && run.status === "idle";
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -367,13 +383,25 @@ export function ConversationPanel({
         ) : (
           <div className="message-column">
             {messages.map((message, index) => (
-              <article className={`message message-${message.role}`} key={`${message.role}-${index}`} aria-label={message.role === "user" ? "你的问题" : "Agent 回答"}>
-                {message.text}
-              </article>
+              message.role === "user" ? (
+                <article className="message message-user" key={`user-${index}`} aria-label="你的问题">{message.text}</article>
+              ) : (
+                <article className={`message message-agent ${isTerminal(message.status ?? "") ? "is-unverified" : ""}`} key={`agent-${index}`} aria-label="Agent 回答">
+                  {message.withheld ? (
+                    <p className="answer-withheld">这条回答未通过输出校验，不予显示。</p>
+                  ) : (
+                    <>
+                      {isTerminal(message.status ?? "") && <UnverifiedBanner status={message.status ?? ""} />}
+                      <AnswerMarkdown text={message.text} />
+                    </>
+                  )}
+                </article>
+              )
             ))}
             {answer && run.status !== "idle" && (
-              <article className="message message-agent final-answer" aria-label="Agent 回答">
-                {answer}
+              <article className={`message message-agent final-answer ${isTerminal(run.status) ? "is-unverified" : ""}`} aria-label="Agent 回答">
+                {isTerminal(run.status) && <UnverifiedBanner status={run.status} detail={runFailureCopy(run)} />}
+                <AnswerMarkdown text={answer} />
                 <AnswerActions run={run} exportState={exportState} feedbackState={feedbackState} onDownload={onDownload} onFeedback={onFeedback} />
               </article>
             )}
@@ -421,15 +449,16 @@ export function ConversationPanel({
               hidden
               onChange={(event) => { if (event.target.files?.length) onAttach(event.target.files); event.target.value = ""; }}
             />
-            <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
+            <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF/DWG 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" />
             </button>
             {uploading && <span className="composer-hint">文件上传完成后才能发送</span>}
+            {!uploading && hasReadyAttachment && !draft.trim() && <span className="composer-hint">可以直接发送，或写下想问的问题</span>}
             <span className="spacer" />
             {streaming ? (
               <button type="button" className="stop-button" onClick={onCancel}><Icon name="stop" />停止</button>
             ) : (
-              <button type="submit" className="send-button" aria-label="发送" disabled={!session || !draft.trim() || uploading}>
+              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || (!draft.trim() && !hasReadyAttachment)}>
                 <Icon name="arrowUp" />
               </button>
             )}

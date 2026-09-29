@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 import time
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, NotRequired, TypedDict, cast
@@ -136,12 +137,16 @@ class AgenticRAGState(TypedDict):
     status: NotRequired[str]
     retry_count: NotRequired[int]
     errors: NotRequired[list[str]]
+    #: 不影响 status 的可见标记（如非规范性回答零引用豁免），逐轮重置。
+    warnings: NotRequired[list[str]]
     remaining_steps: NotRequired[int]
     empty_citation_reflows: NotRequired[int]  # 空引用回流计数（与 invalid 引用 retry 分开）
     #: Web Step 42 注入的长期记忆结果；PromptAssembler 只把它作为 SESSION_MEMORY 数据段渲染。
     memory_context: NotRequired[Any]
     #: P5-S48 注入的上传资料召回结果；PromptAssembler 只把它作为 RETRIEVED_FILE 数据段渲染。
     upload_context: NotRequired[Any]
+    #: P5-S49 Web 文件上下文（能力说明 + 清单 + 点名附件）；只作为 RETRIEVED_FILE 数据段渲染。
+    attachment_context: NotRequired[Any]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -270,34 +275,56 @@ def _payload_of(message: ToolMessage) -> dict[str, Any]:
     return {}
 
 
-def _extract_validation_signal(state: AgenticRAGState) -> tuple[list[str], list[str]]:
-    """从消息历史提取 (context_source_ids, 本轮 cited_ids)。
+def current_turn_messages(messages: Sequence[Any]) -> list[Any]:
+    """本轮产生的消息：最后一条 human 消息之后的全部。
+
+    checkpointer 会把整条 thread 还原进 ``state["messages"]``；凡是"本轮做了什么"
+    的判断都必须先按这里切片，否则上一轮的检索/引用会被当成本轮的（P5-S49：上一轮
+    检索过、本轮问"能读 PDF 吗"被判成"已检索却零引用"而强制回流）。运行时上下文前言
+    也是 HumanMessage，但总插在问题之前，取最后一条即是问题本身。
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        if getattr(messages[index], "type", None) == "human":
+            return list(messages[index + 1 :])
+    return list(messages)
+
+
+def _extract_validation_signal(
+    state: AgenticRAGState,
+) -> tuple[list[str], list[str], bool]:
+    """从消息历史提取 (context_source_ids, 本轮 cited_ids, 本轮是否检索)。
 
     - context：所有 ``retrieve_clauses`` 结果里的 source_id（跨轮累积——检索结果
-      在会话内持续有效）；
-    - cited：仅统计最后一次校验器注入（``_VALIDATOR_CALL_ID``）之后的
-      ``cite_clauses`` 声明，避免上一轮的无效引用残留在本轮导致永远失败。
+      在会话内持续有效，引用上一轮检索到的条款是合法的）；
+    - cited：只看本轮，且仅统计本轮最后一次校验器注入（``_VALIDATOR_CALL_ID``）之后
+      的 ``cite_clauses`` 声明，避免无效引用残留导致永远失败，也避免上一轮的引用
+      被算进本轮；
+    - retrieved_this_turn：本轮是否调用过 ``retrieve_clauses``（决定零引用豁免与
+      回流文案，不能用跨轮的 context 判断）。
     """
     messages = state.get("messages", [])
     context_ids: list[str] = []
-    boundary = -1
-    for i, m in enumerate(messages):
-        if not isinstance(m, ToolMessage):
-            continue
-        if m.name == "retrieve_clauses":
+    for m in messages:
+        if isinstance(m, ToolMessage) and m.name == "retrieve_clauses":
             for hit in _payload_of(m).get("hits", []):
                 sid = hit.get("source_id")
                 if sid:
                     context_ids.append(sid)
-        elif m.name == "citation_validator":
+    turn = current_turn_messages(messages)
+    retrieved_this_turn = any(
+        isinstance(m, ToolMessage) and m.name == "retrieve_clauses" for m in turn
+    )
+    boundary = -1
+    for i, m in enumerate(turn):
+        if isinstance(m, ToolMessage) and m.name == "citation_validator":
             boundary = i
     cited_ids: list[str] = []
-    for m in messages[boundary + 1 :]:
+    for m in turn[boundary + 1 :]:
         if isinstance(m, ToolMessage) and m.name == "cite_clauses":
             for cid in _payload_of(m).get("cited", []) or []:
                 if cid not in cited_ids:
                     cited_ids.append(cid)
-    return context_ids, cited_ids
+    return context_ids, cited_ids, retrieved_this_turn
 
 
 def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) -> None:
@@ -463,6 +490,59 @@ def _declares_no_basis(answer: str) -> bool:
     return any(phrase in answer for phrase in _NO_BASIS_PHRASES)
 
 
+# 非规范性回答判定（P5-S49）：能力询问、寒暄、操作说明不需要条款依据，强制回流只会
+# 逼出"本轮我未引用任何规范条款…结论重申"这种写给校验器的话。判定是确定性规则、
+# 刻意保守：只要回答里出现规范号/条款号形态，或"数字 + 工程单位"，就视为规范性结论，
+# 仍须引用——防止模型凭记忆说"流速不大于 2 m/s"绕过铁律 2。
+WARNING_NON_NORMATIVE_NO_CITATION = "no_citation_non_normative"
+_NORMATIVE_MARKERS = (
+    re.compile(r"(?:GB|CJJ|CECS|JGJ|DBJ?|T/)\s*/?\s*T?\s*\d{3,5}", re.IGNORECASE),
+    re.compile(r"(?<![\d.])\d{1,2}\.\d{1,2}\.\d{1,3}(?![\d.])"),
+    re.compile(r"第\s*\d+(?:\.\d+)*\s*条"),
+    re.compile(r"\b(?:DN|De|dn)\s*\d+"),
+    re.compile(
+        r"\d(?:[\d.,]*)\s*(?:m/s|m³/h|m3/h|L/s|l/s|L/min|MPa|kPa|Pa\b|mm\b|cm\b|m\b|"
+        r"米|毫米|厘米|%|‰|℃|°C|kW|m³|m3|L\b|升|吨|t/d|m³/d|m3/d)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _is_non_normative_answer(answer: str) -> bool:
+    """回答是否不含任何规范性结论形态（规范号、条款号、带工程单位的数值）。"""
+    return not any(pattern.search(answer) for pattern in _NORMATIVE_MARKERS)
+
+
+# 正文里写出的条款号（P5-S50 附件问答实测：模型在正文写"GB 50014-2021 第 7.4.3 条"，
+# 却两次都不调 cite_clauses，于是整轮失败）。只做**提示**：把正文提到、且在检索上下文
+# 里真实存在的 source_id 列给模型，让它补一次声明；是否引用仍由 cite_clauses + 校验器
+# 裁定，这里绝不代为声明（代填就回到了 legacy 的"系统代填、citation_ok 恒真"）。
+_MENTIONED_CLAUSE_RE = re.compile(
+    r"(GB|CJJ|CECS|JGJ)\s*/?\s*T?\s*(\d{4,5})\s*[-—–]\s*(\d{4})"
+    r"[^\d\n]{0,24}?(\d{1,2}(?:\.\d{1,3}){1,3})"
+)
+
+
+def _mentioned_source_ids(answer: str, context_ids: Sequence[str]) -> list[str]:
+    """正文里提到、且在检索上下文中存在的 source_id（保持出现顺序）。"""
+
+    available = set(context_ids)
+    found: list[str] = []
+    for match in _MENTIONED_CLAUSE_RE.finditer(answer):
+        prefix, number, year, article = match.groups()
+        candidate = f"{prefix.upper()}{number}-{year} {article}"
+        if candidate in available and candidate not in found:
+            found.append(candidate)
+    return found
+
+
+# 回流后模型是在回复校验器的 ToolMessage，不提醒就会写"本轮我未引用…结论重申"。
+_USER_FACING_SUFFIX = (
+    "\n\n请直接给出面向用户的完整回答：不要提及本次校验、引用检查、"
+    "\"本轮\"或\"结论重申\"等字样。"
+)
+
+
 def _new_validator_call_id() -> str:
     """每次回流注入使用唯一 tool_call_id，避免 OpenAI 兼容 API 对重复 id 的歧义。"""
     return f"{_VALIDATOR_CALL_ID}-{uuid4().hex[:8]}"
@@ -507,9 +587,10 @@ def make_citation_validator(version_registry: Any | None = None):
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
         messages = state.get("messages", [])
-        context_ids, cited_ids = _extract_validation_signal(state)
+        context_ids, cited_ids, retrieved_this_turn = _extract_validation_signal(state)
         check = validate_citations(cited_ids, context_ids, version_registry=version_registry)
         errors = list(state.get("errors", []))
+        warnings = list(state.get("warnings", []))
         retry_count = int(state.get("retry_count", 0) or 0)
 
         if cited_ids:
@@ -526,7 +607,7 @@ def make_citation_validator(version_registry: Any | None = None):
             if retry_count < MAX_CITATION_RETRIES:
                 feedback = "\n".join(check.errors) or "引用校验未通过"
                 return {
-                    "messages": _validator_feedback_messages(feedback),
+                    "messages": _validator_feedback_messages(feedback + _USER_FACING_SUFFIX),
                     "retry_count": retry_count + 1,
                     "errors": errors,
                 }
@@ -537,9 +618,21 @@ def make_citation_validator(version_registry: Any | None = None):
         answer_text = _last_ai_answer_text(messages)
         empty_reflows = int(state.get("empty_citation_reflows", 0) or 0)
 
-        if not context_ids and answer_text and _declares_no_basis(answer_text):
-            # 无检索结果且模型明确说明"未检索到依据"：允许无引用收口，不伪造引用
+        if not retrieved_this_turn and answer_text and _declares_no_basis(answer_text):
+            # 本轮无检索且模型明确说明"未检索到依据"：允许无引用收口，不伪造引用
             return {"status": STATUS_SUCCEEDED, "citations": [], "errors": errors}
+
+        if not retrieved_this_turn and answer_text and _is_non_normative_answer(answer_text):
+            # 本轮未检索、回答不含规范号/条款号/带单位数值：非规范性回答（能力询问、
+            # 寒暄、操作说明），无引用收口；warning 保证豁免可见、可统计。
+            if WARNING_NON_NORMATIVE_NO_CITATION not in warnings:
+                warnings.append(WARNING_NON_NORMATIVE_NO_CITATION)
+            return {
+                "status": STATUS_SUCCEEDED,
+                "citations": [],
+                "errors": errors,
+                "warnings": warnings,
+            }
 
         if not answer_text:
             errors.append(
@@ -549,7 +642,15 @@ def make_citation_validator(version_registry: Any | None = None):
             return {"status": STATUS_FAILED, "errors": errors}
 
         if empty_reflows < EMPTY_CITATION_MAX_REFLOWS:
-            if context_ids:
+            mentioned = _mentioned_source_ids(answer_text, context_ids)
+            if mentioned:
+                feedback = (
+                    "你的回答正文引用了规范条款，但没有调用 cite_clauses 声明。正文提到、且在检索"
+                    f"结果中存在的条款：{mentioned}。请调用 cite_clauses 声明你实际依据的条款"
+                    "（只声明真正支撑结论的那几条），然后给出完整回答；正文里提到但检索结果里"
+                    "没有的条款号，请删去或注明\"未检索到原文\"。"
+                )
+            elif retrieved_this_turn and context_ids:
                 feedback = (
                     "本轮 retrieve_clauses 已返回相关条款，但你的回答没有调用 cite_clauses "
                     "声明引用。请基于检索结果调用 cite_clauses 声明回答依据的条款 id"
@@ -563,7 +664,7 @@ def make_citation_validator(version_registry: Any | None = None):
                     "明确说明未检索到相关内容，不得编造引用。"
                 )
             return {
-                "messages": _validator_feedback_messages(feedback),
+                "messages": _validator_feedback_messages(feedback + _USER_FACING_SUFFIX),
                 "retry_count": retry_count + 1,
                 "empty_citation_reflows": empty_reflows + 1,
                 "errors": errors,
@@ -691,7 +792,12 @@ def make_finalize(
                 citations=list(state.get("citations", [])),
                 retry_count=int(state.get("retry_count", 0)),
             )
-        return {"answer": answer, "status": status, "errors": errors}
+        return {
+            "answer": answer,
+            "status": status,
+            "errors": errors,
+            "warnings": list(state.get("warnings", [])),
+        }
 
     return finalize
 
@@ -815,6 +921,7 @@ PER_TURN_RESET: dict[str, Any] = {
     "status": "",
     "citations": [],
     "errors": [],
+    "warnings": [],
     "retry_count": 0,
     "empty_citation_reflows": 0,
 }
@@ -830,6 +937,7 @@ async def astream_agentic(
     on_event: Callable[[str, Any], None] | None = None,
     memory_context: Any | None = None,
     upload_context: Any | None = None,
+    attachment_context: Any | None = None,
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
@@ -861,6 +969,7 @@ async def astream_agentic(
         "query": query,
         "memory_context": memory_context,
         "upload_context": upload_context,
+        "attachment_context": attachment_context,
         **PER_TURN_RESET,
     }
     async for event in app.astream(

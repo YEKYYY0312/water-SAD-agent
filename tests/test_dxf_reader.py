@@ -324,7 +324,16 @@ class TestFormatAndSizeGuards:
         assert "EXECUTE_SHELL" in detail
         assert "ODA File Converter" in detail
 
-    @pytest.mark.parametrize("payload", ("not a dxf at all\n", "", "\x00\x01\x02"))
+    @pytest.mark.parametrize(
+        "payload",
+        (
+            "not a dxf at all\n",
+            "",
+            "\x00\x01\x02",
+            # P5-S50 上传实测：头部合法但缺 EOF，ezdxf 在 dxf_info 里抛 StopIteration。
+            "  0\nSECTION\n  2\nHEADER\n  0\nGARBAGE-WITHOUT-EOF",
+        ),
+    )
     def test_corrupt_file_is_unreadable(
         self, drawings: Path, policy: ToolPolicy, payload: str
     ) -> None:
@@ -612,3 +621,15 @@ class TestExtractionContract:
         entity = read_drawing("fz", root=drawings, policy=policy).entities[0]
         with pytest.raises(pydantic.ValidationError):
             entity.layer = "tampered"  # type: ignore[misc]
+
+
+
+def test_lone_surrogates_in_text_do_not_crash_the_reader(tmp_path: Path) -> None:
+    """S51：LibreDWG 转出的 DXF 实测含孤立代理项，曾让护栏 encode("utf-8") 崩溃。"""
+
+    from water_agent.drawing.dxf_reader import _guard_text
+    from water_agent.runtime.governance.pipeline import default_guardrail_pipeline
+
+    text, _ = _guard_text("DN100\udc90给水", handle="1", file_hash="x", pipeline=default_guardrail_pipeline())
+    assert text.startswith("DN100") and text.endswith("给水")
+    text.encode("utf-8")

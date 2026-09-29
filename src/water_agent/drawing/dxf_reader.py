@@ -226,6 +226,10 @@ def _guard_text(
     """
     if not text:
         return "", ()
+    # 孤立代理项（\udcXX）：ezdxf 以 surrogateescape 读入编码不符的字节时产生，LibreDWG
+    # 转出的 DXF 实测会有（S51）。它不是合法字符，下游任何 .encode("utf-8") 都会抛
+    # UnicodeEncodeError 打死整张图；换成 U+FFFD，文字其余部分照常可读。
+    text = text.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
     clipped = text[:_SINGLE_TEXT_CAP]
     envelope = ContentEnvelope(
         source_tag=SourceTag.RETRIEVED_FILE,
@@ -319,10 +323,14 @@ def read_drawing(
         )
 
     # ezdxf 对非 DXF 内容抛 OSError（实测，**不是** DXFError），故两者都捕获。
+    # 截断的 DXF（头部合法、缺 EOF）在 dxf_info 里抛 StopIteration（P5-S50 上传实测）；
+    # 本函数的契约是"永不抛异常"，逃出去的 StopIteration 在协程里还会变成
+    # RuntimeError，所以一并收进 DRAWING_UNREADABLE。
     try:
         doc = ezdxf.readfile(str(path))
-    except (OSError, ezdxf.DXFError) as exc:
-        return _failed(drawing_id, DRAWING_UNREADABLE, f"DXF 解析失败: {exc}")
+    except (OSError, ezdxf.DXFError, StopIteration, UnicodeDecodeError, ValueError) as exc:
+        detail = str(exc) or type(exc).__name__
+        return _failed(drawing_id, DRAWING_UNREADABLE, f"DXF 解析失败: {detail}")
 
     insunits_raw = doc.header.get("$INSUNITS")
     insunits = int(insunits_raw) if isinstance(insunits_raw, int) else None

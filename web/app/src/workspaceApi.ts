@@ -129,6 +129,9 @@ async function decodeEnvelope<T>(response: Response): Promise<T> {
   return envelope.data;
 }
 
+/** 历史对话的一条（后端只投影用户问题与每轮最终回答，被输出护栏拦下的回答 withheld）。 */
+export type HistoryMessage = { role: "user" | "agent"; text: string; withheld?: boolean };
+
 export class WorkspaceApi {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
@@ -169,11 +172,18 @@ export class WorkspaceApi {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}`);
   }
 
-  sendMessage(threadId: string, message: string): Promise<MessageRun> {
+  sendMessage(threadId: string, message: string, attachments: string[] = []): Promise<MessageRun> {
+    // 附件 id 随消息寄出：后端校验归属后把这些文件按原文顺序读进提示词（P5-S49）。
+    // 空数组不发送，保持与旧后端的请求体兼容。
+    const body = attachments.length > 0 ? { message, attachments } : { message };
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`, {
       method: "POST",
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(body),
     });
+  }
+
+  getMessages(threadId: string): Promise<{ thread_id: string; messages: HistoryMessage[] }> {
+    return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`);
   }
 
   getCapabilities(): Promise<SystemCapabilities> {

@@ -405,3 +405,118 @@ def test_personal_session_restores_through_postgresql(tmp_path: Path) -> None:
         )
     finally:
         database.dispose()
+
+
+# ---------------------------------------------------------------------------
+# P5-S49: conversation history for the workbench
+# ---------------------------------------------------------------------------
+
+
+def _history_client(database: Database, tmp_path: Path, username: str, saver) -> tuple[TestClient, UUID]:
+    from contextlib import contextmanager
+
+    client, user_id = _login(database, tmp_path, username)
+
+    @contextmanager
+    def factory(_database):
+        yield saver
+
+    client.app.state.run_manager.checkpointer_factory = factory
+    return client, user_id
+
+
+def _seed_thread(saver, thread_id: str) -> None:
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langgraph.graph import START, MessagesState, StateGraph
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("noop", lambda state: {})
+    graph.add_edge(START, "noop")
+    app = graph.compile(checkpointer=saver)
+    app.invoke(
+        {
+            "messages": [
+                HumanMessage(content="[运行时上下文]\n会话引用：x"),
+                HumanMessage(content="你好，我现在给你 dxf 图纸你可以直接读取吗"),
+                AIMessage(content="目前网页端还不能读取 DXF。"),
+                HumanMessage(content="那我给你 CAD 设计图的 PDF 呢"),
+                AIMessage(content="", tool_calls=[{"id": "c1", "name": "retrieve_clauses", "args": {}}]),
+                ToolMessage(name="retrieve_clauses", tool_call_id="c1", content="{\"hits\": []}"),
+                AIMessage(content="第一版回答（被校验器回流）。"),
+                AIMessage(content="", tool_calls=[{"id": "v1", "name": "citation_validator", "args": {}}]),
+                ToolMessage(name="citation_validator", tool_call_id="v1", content="请声明引用"),
+                AIMessage(content="有文字层的 PDF 可以读；CAD 矢量 PDF 读不到文字。"),
+            ]
+        },
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+
+def test_history_returns_every_turn_with_only_the_final_answer(database: Database, tmp_path: Path) -> None:
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    saver = InMemorySaver()
+    client, user_id = _history_client(database, tmp_path, f"hist-{uuid4()}", saver)
+    thread = WebSessionRepository(database).create(user_id, title="历史")
+    _seed_thread(saver, thread.thread_id)
+
+    response = client.get(f"/api/sessions/{thread.thread_id}/messages")
+    assert response.status_code == 200, response.text
+    messages = response.json()["data"]["messages"]
+    assert [m["role"] for m in messages] == ["user", "agent", "user", "agent"]
+    assert messages[1]["text"] == "目前网页端还不能读取 DXF。"
+    assert messages[3]["text"] == "有文字层的 PDF 可以读；CAD 矢量 PDF 读不到文字。"
+    body = response.text
+    for leaked in ("运行时上下文", "retrieve_clauses", "citation_validator", "请声明引用", "第一版回答"):
+        assert leaked not in body
+
+
+def test_history_of_another_users_thread_is_404(database: Database, tmp_path: Path) -> None:
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    saver = InMemorySaver()
+    _, owner_id = _history_client(database, tmp_path, f"owner-{uuid4()}", saver)
+    thread = WebSessionRepository(database).create(owner_id, title="私有")
+    _seed_thread(saver, thread.thread_id)
+
+    intruder, _ = _history_client(database, tmp_path, f"intruder-{uuid4()}", saver)
+    assert intruder.get(f"/api/sessions/{thread.thread_id}/messages").status_code == 404
+    assert intruder.get(f"/api/sessions/{uuid4()}/messages").status_code == 404
+
+
+def test_history_of_a_new_thread_is_empty(database: Database, tmp_path: Path) -> None:
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    client, user_id = _history_client(database, tmp_path, f"empty-{uuid4()}", InMemorySaver())
+    thread = WebSessionRepository(database).create(user_id, title="空")
+    response = client.get(f"/api/sessions/{thread.thread_id}/messages")
+    assert response.status_code == 200
+    assert response.json()["data"]["messages"] == []
+
+
+def test_history_reapplies_the_output_guardrail() -> None:
+    """checkpoint 存的是模型原文；刷新页面不得绕过 finalize 当时的输出护栏。"""
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from water_agent.webapp.run_manager import project_conversation
+
+    class _BlockAll:
+        def check_output(self, text, ctx):
+            del text, ctx
+
+            class _Outcome:
+                allowed = False
+                content = ""
+
+            return _Outcome()
+
+    projected = project_conversation(
+        [HumanMessage(content="问题"), AIMessage(content="被拦截的原文")],
+        thread_id="t",
+        pipeline=_BlockAll(),
+    )
+    assert projected == [
+        {"role": "user", "text": "问题"},
+        {"role": "agent", "text": "", "withheld": True},
+    ]

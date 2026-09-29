@@ -371,6 +371,9 @@ class RunCancelled(RuntimeError):
 class AgenticSession:
     """One thread, one governed registry and one checkpoint-backed Agentic app."""
 
+    #: RunManager 只给声明支持的会话传 ``attachment_context``（AgentSessionFactory 是协议）。
+    supports_attachment_context = True
+
     def __init__(
         self,
         args: argparse.Namespace,
@@ -487,6 +490,7 @@ class AgenticSession:
         run_id: str | None = None,
         memory_context: MemoryRecallResult | None = None,
         upload_context: Any | None = None,
+        attachment_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
@@ -518,6 +522,7 @@ class AgenticSession:
             messages=initial_messages,
             memory_context=memory_context,
             upload_context=upload_context,
+            attachment_context=attachment_context,
         )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
@@ -538,6 +543,7 @@ class AgenticSession:
                     "query": query,
                     "memory_context": None,
                     "upload_context": None,
+                    "attachment_context": None,
                     **PER_TURN_RESET,
                 },
                 config=self.config,
@@ -571,6 +577,7 @@ class AgenticSession:
             "status": state.get("status", ""),
             "citations": citations,
             "errors": state.get("errors", []),
+            "warnings": state.get("warnings", []),
             "retry_count": state.get("retry_count", 0),
             "intent": "agentic",
             "streamed": streamed,

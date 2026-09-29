@@ -139,8 +139,22 @@ code { font-family: var(--mono); font-size: .92em; }
 .message-column { display: grid; align-content: start; gap: 1.4rem; width: min(46rem, 100%); margin: 0 auto; padding: 1.5rem 1.5rem 2rem; }
 .message { font-size: .96rem; line-height: 1.75; overflow-wrap: anywhere; }
 .message-user { justify-self: end; max-width: 80%; padding: .6rem 1rem; border-radius: 18px 18px 6px 18px; background: var(--surface-strong); white-space: pre-wrap; }
-.message-agent { white-space: pre-wrap; }
-.final-answer { white-space: pre-wrap; }
+.message-agent { white-space: normal; }
+.final-answer { white-space: normal; }
+.message-agent.is-unverified { border-left: 3px solid var(--bad); padding-left: .75rem; }
+.answer-banner { margin-bottom: .6rem; }
+.answer-withheld { color: var(--muted, #6b7280); font-style: italic; margin: 0; }
+.answer-markdown > :first-child { margin-top: 0; }
+.answer-markdown > :last-child { margin-bottom: 0; }
+.answer-markdown p, .answer-markdown ul, .answer-markdown ol { margin: .45rem 0; line-height: 1.7; }
+.answer-markdown ul, .answer-markdown ol { padding-left: 1.3rem; }
+.answer-markdown h1, .answer-markdown h2, .answer-markdown h3, .answer-markdown h4 { font-size: 1rem; margin: .8rem 0 .35rem; }
+.answer-markdown code { font-family: var(--mono, ui-monospace, monospace); font-size: .88em; padding: .05rem .3rem; border-radius: 4px; background: var(--surface-2, rgba(0,0,0,.05)); }
+.answer-markdown pre { overflow-x: auto; padding: .6rem .75rem; border-radius: 6px; background: var(--surface-2, rgba(0,0,0,.05)); }
+.answer-markdown pre code { padding: 0; background: none; }
+.answer-markdown table { border-collapse: collapse; margin: .5rem 0; font-size: .9rem; display: block; overflow-x: auto; }
+.answer-markdown th, .answer-markdown td { border: 1px solid var(--line, rgba(0,0,0,.12)); padding: .3rem .55rem; text-align: left; }
+.answer-markdown blockquote { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--line, rgba(0,0,0,.15)); color: var(--muted, #6b7280); }
 .streaming-note { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .86rem; }
 .pulse { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--ink); animation: pulse 1.1s ease-in-out infinite alternate; }
 @keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
