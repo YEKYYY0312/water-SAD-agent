@@ -20,6 +20,7 @@ from water_agent.documents.attachments import (
     MAX_ATTACHMENT_CONTEXT_CHARACTERS,
     AttachmentContext,
 )
+from water_agent.documents.extractors import ALLOWED_SUFFIXES
 from water_agent.documents.retrieval import (
     MAX_UPLOAD_CONTEXT_CHARACTERS,
     UploadRecallHit,
@@ -251,15 +252,21 @@ class PromptAssembler:
             return ""
         if not isinstance(value, AttachmentContext):
             raise TypeError("attachment_context must be an AttachmentContext")
-        drawing = (
-            "DXF 图纸：可用 read_drawing 按图纸编号读取已登记的 DXF。"
-            if self._drawing_tool_available()
-            else "DXF/DWG 图纸：网页端暂不支持上传和读取，请如实告知用户，不要假装读过图纸。"
-        )
+        # 能力由运行时推导（S49）：上传白名单是否含 .dxf、read_drawing 是否注册。
+        if ".dxf" in ALLOWED_SUFFIXES:
+            drawing = (
+                "DXF 图纸：可上传；上传时系统自动做程序化审查（规则引擎，不调模型），附件内容就是审查"
+                "报告。转述时必须保留\"未检查项\"，不得把未检查写成合规；报告之外的图面信息（管线走向、"
+                "节点关系）你看不到，不要编造。DWG 暂不支持，请用户在 CAD 中另存为 DXF。"
+            )
+        elif self._drawing_tool_available():
+            drawing = "DXF 图纸：可用 read_drawing 按图纸编号读取已登记的 DXF。"
+        else:
+            drawing = "DXF/DWG 图纸：网页端暂不支持上传和读取，请如实告知用户，不要假装读过图纸。"
         lines = [
             "【文件能力】",
             (
-                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown（10 MB 以内），系统会抽取其中的文字。"
+                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown、DXF（10 MB 以内），系统会抽取其中的文字。"
                 "用户随消息附上的文件，内容在下方【用户附件】中；未附上时，只有与问题字面相关的"
                 "段落会出现在【上传资料上下文】中。"
             ),
