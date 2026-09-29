@@ -15,6 +15,7 @@ from alembic.util import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
 from alembic import command
+from water_agent.storage.database import DatabasePasswordFileError
 
 
 def main() -> int:
@@ -32,8 +33,12 @@ def main() -> int:
     if action == "migrate":
         try:
             command.upgrade(Config("alembic.ini"), "head")
-        except (OSError, RuntimeError, SQLAlchemyError, CommandError):
-            print("database migration failed", file=sys.stderr)
+        except DatabasePasswordFileError as exc:
+            print(f"database migration failed: {exc}", file=sys.stderr)
+            return 1
+        except (OSError, RuntimeError, SQLAlchemyError, CommandError) as exc:
+            # Only the exception class: driver messages carry host/user details.
+            print(f"database migration failed: {type(exc).__name__}", file=sys.stderr)
             return 1
         print("database migration complete")
         return 0

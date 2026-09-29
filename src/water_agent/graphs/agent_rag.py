@@ -140,6 +140,8 @@ class AgenticRAGState(TypedDict):
     empty_citation_reflows: NotRequired[int]  # 空引用回流计数（与 invalid 引用 retry 分开）
     #: Web Step 42 注入的长期记忆结果；PromptAssembler 只把它作为 SESSION_MEMORY 数据段渲染。
     memory_context: NotRequired[Any]
+    #: P5-S48 注入的上传资料召回结果；PromptAssembler 只把它作为 RETRIEVED_FILE 数据段渲染。
+    upload_context: NotRequired[Any]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -804,6 +806,20 @@ def build_agentic_app(
     return app.with_config({"recursion_limit": RECURSION_LIMIT})
 
 
+#: 每轮开始时必须归零的**本轮**状态。它们和两个 *_context 一样是无 reducer 的键、
+#: 随 checkpoint 持久化：不归零的话，第 1 轮的引用重试/空引用回流次数会吃掉第 2 轮
+#: 的重试预算，第 1 轮的 errors/citations 会出现在第 2 轮的结果里（两轮实测）。
+#: ``messages`` 不在此列——它有 add_messages reducer，跨轮累积是会话记忆本身。
+PER_TURN_RESET: dict[str, Any] = {
+    "answer": "",
+    "status": "",
+    "citations": [],
+    "errors": [],
+    "retry_count": 0,
+    "empty_citation_reflows": 0,
+}
+
+
 async def astream_agentic(
     app,
     query: str,
@@ -813,6 +829,7 @@ async def astream_agentic(
     messages: Sequence[BaseMessage] | None = None,
     on_event: Callable[[str, Any], None] | None = None,
     memory_context: Any | None = None,
+    upload_context: Any | None = None,
 ) -> dict[str, Any]:
     """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
 
@@ -826,14 +843,26 @@ async def astream_agentic(
     - ``on_event``：可选的只读 stream 观察回调。回调收到 ``messages`` 或 ``values``
       原始事件，调用方必须自行决定安全摘要，不能把完整 state 直接发送给浏览器；
     - ``memory_context``：可选的已授权长期记忆召回结果，只进入独立 data 段，不能改变
-      registry、capability、引用校验或程序化计算路径。
+      registry、capability、引用校验或程序化计算路径；
+    - ``upload_context``：可选的已授权上传资料召回结果，同上——只是一个 RETRIEVED_FILE
+      数据段，不承载指令、不参与数值推导、不改变引用校验。
     """
     final_state: dict[str, Any] = {}
     if messages is None:
         messages = [HumanMessage(content=query)]
-    input_state: dict[str, Any] = {"messages": messages, "query": query}
-    if memory_context is not None:
-        input_state["memory_context"] = memory_context
+    # 两个 *_context 是**本轮**的召回结果，必须每轮无条件写入（没有就写 None）。
+    # 它们是无 reducer 的 state 键，会随 checkpoint 持久化：只在"有值"时才写，
+    # 下一轮不传时图里留着的是上一轮的值——而且经生产 serde（allowed_msgpack_modules
+    # 只放行 CitationClaim）读回来已不是 MemoryRecallResult/UploadRecallResult，
+    # 只是个 dict，PromptAssembler 当场 TypeError（第二问与上传无关、或记忆降级即崩，
+    # 两轮实测复现）。即便类型能读回，把上一问的检索资料塞进这一问也是错的上下文。
+    input_state: dict[str, Any] = {
+        "messages": messages,
+        "query": query,
+        "memory_context": memory_context,
+        "upload_context": upload_context,
+        **PER_TURN_RESET,
+    }
     async for event in app.astream(
         input_state,
         config=config,

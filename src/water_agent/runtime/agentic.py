@@ -24,7 +24,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
-from water_agent.graphs.agent_rag import astream_agentic, build_agentic_app
+from water_agent.graphs.agent_rag import PER_TURN_RESET, astream_agentic, build_agentic_app
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.wiring import (
     load_mcp_gateway,
@@ -486,6 +486,7 @@ class AgenticSession:
         *,
         run_id: str | None = None,
         memory_context: MemoryRecallResult | None = None,
+        upload_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
@@ -516,6 +517,7 @@ class AgenticSession:
             on_event=checked_event,
             messages=initial_messages,
             memory_context=memory_context,
+            upload_context=upload_context,
         )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
@@ -528,8 +530,17 @@ class AgenticSession:
             # the session checkpointer is a sync SqliteSaver, which LangGraph
             # refuses to drive through its async methods.  Only the streaming
             # and Web paths need ``aask``.
+            # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，
+            # 不清空就会读到 checkpoint 里上一轮残留的值（见 astream_agentic 的说明）。
             state = self.app.invoke(
-                {"messages": self._initial_messages(query), "query": query}, config=self.config
+                {
+                    "messages": self._initial_messages(query),
+                    "query": query,
+                    "memory_context": None,
+                    "upload_context": None,
+                    **PER_TURN_RESET,
+                },
+                config=self.config,
             )
             return self._payload(state, query=query, streamed=False)
         payload = asyncio.run(

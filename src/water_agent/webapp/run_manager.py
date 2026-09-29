@@ -104,6 +104,12 @@ class _RunHandle:
     seen_tool_calls: set[str] = field(default_factory=set)
     seen_tool_messages: set[str] = field(default_factory=set)
     calculations: list[dict[str, Any]] = field(default_factory=list)
+    # P5-S48 导出专用，**不进 SSE**（前端事件契约不变）：最后一次 material_stats 的
+    # 材料表，以及与 calc_velocity 结果按 tool_call_id 配对的数值输入参数。
+    # 材料表取"最后一次"而不是累加：模型对同一批管段重复调用时，累加就是重复计量。
+    material_table: dict[str, Any] | None = None
+    calc_inputs: dict[str, float] = field(default_factory=dict)
+    tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _now() -> str:
@@ -225,6 +231,7 @@ class RunManager:
         tenant_id: UUID = DEFAULT_TENANT_ID,
         memory_enabled: bool | None = None,
         memory_provider: MemoryProvider | None = None,
+        uploads_enabled: bool | None = None,
         trace_dir: str | os.PathLike[str] | None = None,
         session_dir: str | os.PathLike[str] = "data/sessions",
         max_workers: int = 4,
@@ -239,6 +246,13 @@ class RunManager:
             else memory_enabled
         )
         self.memory_provider = memory_provider
+        # 特性开关（AGENTS.md「未完成功能用特性开关护住」）：召回层可单独关掉而不用
+        # 回退上传能力本身——文件照旧能上传和下载，只是不进提示词。
+        self.uploads_enabled = (
+            os.getenv("UPLOAD_RECALL_ENABLED", "true").lower() != "false"
+            if uploads_enabled is None
+            else uploads_enabled
+        )
         self.session_factory = session_factory or WebAgenticSessionFactory(
             database,
             self.sessions,
@@ -398,6 +412,15 @@ class RunManager:
                         )
                         return
 
+                upload_context = self._recall_uploads(handle, session, query)
+                # 只在确有召回时才传 upload_context：AgentSessionFactory 是协议，现有实现
+                # （harness/memory_eval.py 的评测会话、各测试夹具）的 aask 并不认识这个
+                # 关键字。无条件传会让它们全部 TypeError → 被下方兜底改写成 run failed，
+                # 即一个与上传无关的会话因为本步而静默失败。有召回却不支持时照旧响亮失败。
+                extra: dict[str, Any] = (
+                    {"upload_context": upload_context} if upload_context is not None else {}
+                )
+
                 result = asyncio.run(
                     session.aask(
                         query,
@@ -406,6 +429,7 @@ class RunManager:
                         on_token=lambda token: self._on_token(handle, token),
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
                         cancel_check=lambda: self._is_cancel_requested(handle),
+                        **extra,
                     )
                 )
             if self._is_cancel_requested(handle):
@@ -435,6 +459,64 @@ class RunManager:
                 node="run",
             )
             self._finish(handle, status="failed", payload={"error": "agent run failed"})
+
+    def _recall_uploads(self, handle: _RunHandle, session: Any, query: str) -> Any | None:
+        """Recall uploaded project material for this query, or degrade loudly.
+
+        Unlike memory recall this has **no blocked branch**: uploaded documents
+        are project material the caller is already authorized for, not a
+        cross-tenant surface, so an unavailable index is a degradation and not a
+        reason to kill an otherwise valid question.  The degradation is still
+        reported as a warning event -- silently answering without the document
+        the user just uploaded is exactly the confusing case to avoid.
+        """
+
+        if not self.uploads_enabled:
+            return None
+        from water_agent.documents.retrieval import (
+            UploadRecallUnavailableError,
+            recall_uploads,
+        )
+
+        try:
+            result = recall_uploads(
+                self.database,
+                tenant_id=self.tenant_id,
+                actor_user_id=handle.owner_user_id,
+                project_id=handle.project_id,
+                query=query,
+            )
+        except (UploadRecallUnavailableError, ValueError, TypeError):
+            self._record_trace_event(
+                session,
+                "upload_recall_degraded",
+                {"code": "UPLOAD_RECALL_DEGRADED"},
+                status="running",
+                node="upload",
+            )
+            self._append(
+                handle,
+                "warning",
+                {
+                    "code": "UPLOAD_RECALL_DEGRADED",
+                    "message": "Uploaded material could not be searched; continued without it",
+                },
+            )
+            return None
+        # 事件只带计数与 upload_id，**不带正文**：SSE 会进浏览器，上传正文属用户资料。
+        self._append(
+            handle,
+            "upload_recall",
+            {
+                "returned_count": len(result.hits),
+                "candidate_count": result.candidate_count,
+                "omitted_count": result.omitted_count,
+                "character_budget": result.character_budget,
+                "upload_ids": result.upload_ids,
+                "suspicious_count": sum(1 for hit in result.hits if hit.suspicious),
+            },
+        )
+        return result if result.hits else None
 
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
         with handle.condition:
@@ -500,6 +582,24 @@ class RunManager:
             "calculations": list(handle.calculations) if handle is not None else [],
         }
 
+    @staticmethod
+    def _current_turn(messages: list[Any] | tuple[Any, ...]) -> list[Any]:
+        """Messages produced by this run: everything after the last human turn.
+
+        ``values`` events carry the **whole thread** state, which the
+        checkpointer restores from previous runs.  Scanning all of it replayed
+        turn N's tool cards and calculation results in turn N+1 (and fed them
+        into the export snapshot, so a Word calculation book could carry numbers
+        from an earlier question).  The current question is the last
+        ``HumanMessage``; the runtime-context preamble is also a HumanMessage but
+        is always inserted *before* the question, so taking the last one is right.
+        """
+
+        for index in range(len(messages) - 1, -1, -1):
+            if getattr(messages[index], "type", None) == "human":
+                return list(messages[index + 1 :])
+        return list(messages)
+
     def _observe_tool_messages(self, handle: _RunHandle, messages: Any) -> None:
         """Project real ToolMessages into safe UI events.
 
@@ -509,7 +609,12 @@ class RunManager:
 
         if not isinstance(messages, (list, tuple)):
             return
-        for message in messages:
+        for message in self._current_turn(messages):
+            for call in getattr(message, "tool_calls", None) or []:
+                call_id = str(call.get("id") or "") if isinstance(call, dict) else ""
+                args = call.get("args") if isinstance(call, dict) else None
+                if call_id and isinstance(args, dict):
+                    handle.tool_call_args[call_id] = args
             tool_name = getattr(message, "name", None)
             if not isinstance(tool_name, str) or not tool_name:
                 continue
@@ -546,7 +651,76 @@ class RunManager:
             if calculation is not None:
                 result_payload["calculation"] = calculation
                 handle.calculations.append(calculation)
+                # 输入只取调用参数里的数值：它们是模型传给程序化工具的原值，
+                # 计算书把它们原样列出，不做任何换算。
+                for key, value in handle.tool_call_args.get(tool_call_id, {}).items():
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        handle.calc_inputs[str(key)] = value
+            if tool_name == "material_stats" and not failed:
+                table = self._material_table(payload)
+                if table is not None:
+                    handle.material_table = table
             self._append(handle, "tool_result", result_payload)
+
+    @staticmethod
+    def _material_table(payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Keep the programmatic material table only when every row is well formed.
+
+        A table with one malformed row is dropped whole rather than filtered:
+        exporting "most of" a bill of quantities is a wrong bill of quantities.
+        """
+
+        rows = payload.get("rows")
+        total = payload.get("total_length_m")
+        if not isinstance(rows, list) or not rows:
+            return None
+        if isinstance(total, bool) or not isinstance(total, (int, float)):
+            return None
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("material"):
+                return None
+            quantity = row.get("quantity")
+            if isinstance(quantity, bool) or not isinstance(quantity, (int, float)):
+                return None
+        return {
+            "rows": [dict(row) for row in rows],
+            "total_length_m": total,
+            "assumptions": [str(item) for item in payload.get("assumptions") or []],
+        }
+
+    def export_snapshot(self, run_id: UUID | str) -> dict[str, Any]:
+        """Export material for a finalized run of this process (P5-S48 Step 4).
+
+        Same lifetime as :meth:`trace`: the run's result lives only in the
+        in-process handle, so a run this process never executed (or executed
+        before a restart) raises :class:`RunNotManagedError`.  A run that has not
+        finalized yet also raises it -- exporting a half-written answer would
+        produce a document that silently disagrees with what the user sees once
+        the stream ends.
+
+        Callers must authorize first; this method does no ownership check.
+        """
+
+        handle = self._get_handle(run_id)
+        with handle.condition:
+            if not handle.finalized:
+                raise RunNotManagedError("run has not finalized")
+            finalize = next(
+                (event for event in reversed(handle.events) if event.event_type == "finalize"),
+                None,
+            )
+            payload = dict(finalize.payload) if finalize is not None else {}
+            return {
+                "run_id": handle.run_id,
+                "status": handle.status,
+                "answer": str(payload.get("answer") or ""),
+                "citations": list(payload.get("citations") or []),
+                "calculations": list(handle.calculations),
+                "calc_inputs": dict(handle.calc_inputs),
+                "material_table": (
+                    None if handle.material_table is None else dict(handle.material_table)
+                ),
+            }
 
     @staticmethod
     def _tool_payload(content: Any) -> dict[str, Any]:
@@ -674,6 +848,11 @@ class RunManager:
         is_authorized: Callable[[], bool],
     ):
         cursor = parse_last_event_id(last_event_id)
+        # stream_end 是否该发，只取决于客户端**连上时**的游标：连上时就已越过
+        # finalize 的重连不该再收到任何帧（test_web_sse 的空尾断言）。
+        # 不能用"发完 pending 之后的 cursor"判断——finalize 恒为最后一条事件，
+        # 发完之后 cursor 必然越过它，stream_end 于是永远不发（review 09-28 #4）。
+        connect_cursor = cursor
         handle = self._get_handle(run_id)
         while True:
             if not self._authorization_check(is_authorized):
@@ -693,11 +872,11 @@ class RunManager:
                 # 发送显式结束标记，让前端区分"正常结束"与"异常断开"。
                 # 只发给尚未看到 finalize 的客户端：cursor 已越过 finalize 的重连
                 # 不该再收到任何帧（语义与 tests/test_web_sse.py 的空尾断言一致）。
-                finalize_seen = any(
-                    event.event_type == "finalize" and event.event_id <= cursor
+                finalize_seen_before_connect = any(
+                    event.event_type == "finalize" and event.event_id <= connect_cursor
                     for event in handle.events
                 )
-                if not finalize_seen:
+                if not finalize_seen_before_connect:
                     yield RunEvent(
                         event_id=cursor + 1,
                         event_type="stream_end",

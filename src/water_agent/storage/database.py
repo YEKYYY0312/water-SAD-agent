@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-MIGRATION_HEAD = "0004_step44_workspace"
+MIGRATION_HEAD = "0005_step48_uploads"
 CHECKPOINT_MIGRATION_HEAD = 9
 
 
@@ -30,14 +30,30 @@ class DatabaseNotReadyError(RuntimeError):
     """The database is reachable but migrations are not at the expected head."""
 
 
-def _read_secret_file(path_value: str | None) -> str | None:
+class DatabasePasswordFileError(RuntimeError):
+    """``DATABASE_PASSWORD_FILE`` is set but yields no usable password.
+
+    Deliberately not a ``DatabaseNotConfiguredError``: callers treat that one as
+    "no database, use the in-memory stores", which would hide a broken secret.
+    """
+
+
+def _read_password_file(path_value: str | None) -> str | None:
+    # An unset variable means "the URL carries its own credentials".  A set
+    # variable whose file is unreadable or empty is a deployment error: falling
+    # back to a password-less connection turns it into an opaque auth failure
+    # (CI 2026-09-29: a 0600 secret owned by the runner, container uid 10001).
     if not path_value:
         return None
     try:
         value = Path(path_value).read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return value or None
+    except OSError as exc:
+        raise DatabasePasswordFileError(
+            f"DATABASE_PASSWORD_FILE is not readable ({type(exc).__name__})"
+        ) from None
+    if not value:
+        raise DatabasePasswordFileError("DATABASE_PASSWORD_FILE is empty")
+    return value
 
 
 def database_url_from_environment(
@@ -54,7 +70,7 @@ def database_url_from_environment(
     raw_url = env.get("DATABASE_URL", "").strip()
     if not raw_url:
         return None
-    password = _read_secret_file(env.get("DATABASE_PASSWORD_FILE"))
+    password = _read_password_file(env.get("DATABASE_PASSWORD_FILE"))
     if not password:
         return raw_url
     try:

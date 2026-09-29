@@ -569,3 +569,90 @@ def test_login_response_does_not_expose_subject_or_hash():
     assert user.password_hash not in body
     # subject ("user:<uuid>") must not appear
     assert f"user:{user.user_id}" not in body
+
+
+# ---------------------------------------------------------------------------
+# review 09-28 #6: login timing oracle and audit visibility
+# ---------------------------------------------------------------------------
+
+def test_unknown_username_pays_the_same_hash_cost_as_a_wrong_password(monkeypatch) -> None:
+    """"用户不存在"曾直接返回（0.5 ms），"密码错"要跑 Argon2（51 ms），响应时间即用户名探测器。
+
+    断言计数而非耗时：两条失败路径都必须恰好执行一次 Argon2 verify。计时断言在 CI
+    上天然抖动，而计数正是"成本相等"的结构性保证。
+    """
+
+    import water_agent.webapp.auth.password as password_mod
+
+    calls: list[str] = []
+    real_ph = password_mod._PH
+
+    class _CountingHasher:
+        """PasswordHasher 的属性只读，换掉整个对象：hash 照常，verify 计数后委托。"""
+
+        def hash(self, plaintext: str) -> str:
+            return real_ph.hash(plaintext)
+
+        def verify(self, stored_hash: str, plaintext: str) -> bool:
+            calls.append(stored_hash[:12])
+            return real_ph.verify(stored_hash, plaintext)
+
+        def check_needs_rehash(self, stored_hash: str) -> bool:
+            return real_ph.check_needs_rehash(stored_hash)
+
+    monkeypatch.setattr(password_mod, "_PH", _CountingHasher())
+    monkeypatch.setattr(password_mod, "_DUMMY_HASH", None)
+    client, users, _ss, _rl = _fresh_app()
+    users.create_user("timing-real", "TimingPass2026!", UserRole.MEMBER)
+
+    calls.clear()
+    wrong = client.post("/api/auth/login", json={"username": "timing-real", "password": "WrongPass2026!!"})
+    wrong_calls = len(calls)
+    calls.clear()
+    unknown = client.post("/api/auth/login", json={"username": "timing-ghost", "password": "WrongPass2026!!"})
+    unknown_calls = len(calls)
+
+    assert wrong.status_code == unknown.status_code == 401
+    assert wrong.json()["error"] == unknown.json()["error"], "两种失败对外必须完全一样"
+    assert wrong_calls == unknown_calls == 1
+    # 空验用的哈希与真实哈希同参数（否则 Argon2 耗时仍不同）
+    assert all(prefix.startswith("$argon2id$v=") for prefix in calls)
+
+
+def test_audit_events_reach_stdout_outside_pytest() -> None:
+    """uvicorn 不给 water_agent.* 配 handler，INFO 审计事件此前一条都不输出。
+
+    用子进程跑（不经 pytest 的日志捕获），模拟"只有 uvicorn 在配置日志"的生产环境。
+    """
+
+    import subprocess
+    import sys
+
+    code = (
+        "import logging, uvicorn.config;"
+        "logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG);"
+        "from water_agent.webapp.auth import audit;"
+        "audit.audit_login_failure(reason='invalid_credentials')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**__import__("os").environ, "PYTHONPATH": "src"},
+    )
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    assert len(lines) == 1, (result.stdout, result.stderr)
+    import json as _json
+
+    entry = _json.loads(lines[0])
+    assert entry["event"] == "auth.login_failure"
+    assert entry["reason"] == "invalid_credentials"
+
+
+def test_audit_buffer_is_bounded() -> None:
+    from water_agent.webapp.auth import audit
+
+    for _ in range(audit._EVENT_BUFFER_LIMIT + 50):
+        audit.audit_logout(user_id="u")
+    assert len(audit._get_events()) == audit._EVENT_BUFFER_LIMIT
