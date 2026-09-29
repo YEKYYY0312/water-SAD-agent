@@ -1,0 +1,83 @@
+{
+  "case_id": "gen-com-01-typical",
+  "description": "商业 3 层每层 4 个商铺，边角立管，沿柱网敷设，商铺独立计量",
+  "request": {
+    "system_type": "给水",
+    "building_type": "商业",
+    "floors": 3,
+    "units_per_floor": 4,
+    "riser_position": "边角",
+    "main_pipe": {
+      "dn": "DN65",
+      "material": "PPR"
+    },
+    "branch_pipe": {
+      "dn": "DN25",
+      "material": "PPR"
+    },
+    "flow_rate_lps": 3.0,
+    "pressure_mpa": 0.3
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "边角",
+    "riser_position_defaulted": false,
+    "main_velocity_mps": 0.9041,
+    "branch_velocity_mps": null,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "within",
+    "warnings_contains": [
+      "支管流速未校核"
+    ],
+    "missing_inputs_contains": [
+      "branch_flow_rate_lps"
+    ],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 6,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 19,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 68
+      },
+      "detail": {
+        "pipe_runs": 4,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 3,
+    "branch_groups": 3,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}
