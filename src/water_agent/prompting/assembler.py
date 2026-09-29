@@ -20,6 +20,7 @@ from water_agent.documents.attachments import (
     MAX_ATTACHMENT_CONTEXT_CHARACTERS,
     AttachmentContext,
 )
+from water_agent.documents.dwg_convert import dwg_converter_available
 from water_agent.documents.extractors import ALLOWED_SUFFIXES
 from water_agent.documents.retrieval import (
     MAX_UPLOAD_CONTEXT_CHARACTERS,
@@ -257,7 +258,13 @@ class PromptAssembler:
             drawing = (
                 "DXF 图纸：可上传；上传时系统自动做程序化审查（规则引擎，不调模型），附件内容就是审查"
                 "报告。转述时必须保留\"未检查项\"，不得把未检查写成合规；报告之外的图面信息（管线走向、"
-                "节点关系）你看不到，不要编造。DWG 暂不支持，请用户在 CAD 中另存为 DXF。"
+                "节点关系）你看不到，不要编造。"
+                + (
+                    "DWG 也可上传：系统用 LibreDWG 转为 DXF 后同样审查，转换可能遗漏代理实体与部分"
+                    "动态块，报告头会注明。"
+                    if dwg_converter_available()
+                    else "DWG 暂不支持（服务器未安装转换器），请用户在 CAD 中另存为 DXF。"
+                )
             )
         elif self._drawing_tool_available():
             drawing = "DXF 图纸：可用 read_drawing 按图纸编号读取已登记的 DXF。"
@@ -266,7 +273,7 @@ class PromptAssembler:
         lines = [
             "【文件能力】",
             (
-                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown、DXF（10 MB 以内），系统会抽取其中的文字。"
+                "- 用户可上传 Word(.docx)、PDF、TXT、Markdown、DXF/DWG 图纸（10 MB 以内），系统会抽取其中的文字。"
                 "用户随消息附上的文件，内容在下方【用户附件】中；未附上时，只有与问题字面相关的"
                 "段落会出现在【上传资料上下文】中。"
             ),

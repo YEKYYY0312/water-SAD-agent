@@ -338,7 +338,7 @@ def test_capability_note_renders_even_before_anything_is_uploaded() -> None:
     assert "没有文字层" in content
     # S50 起 DXF 走上传审查；能力说明随白名单变化（test_dxf_upload 另有断言）。
     assert "DXF 图纸：可上传" in content
-    assert "DWG 暂不支持" in content
+    assert "DWG 也可上传" in content or "DWG 暂不支持" in content
     assert "用户随本条消息附上了以下文件" not in content, "没有附件时不得渲染附件段"
 
 
