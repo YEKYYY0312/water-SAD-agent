@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, field_validator
 
-from water_agent.drawing.building_rules import BuildingRules, BuildingType
+from water_agent.drawing.building_rules import BuildingRules, BuildingType, FittingKind
 from water_agent.tools.hydraulics import calc_velocity
 
 # ---------------------------------------------------------------------------
@@ -337,25 +337,351 @@ def check_velocities(request: GenerationRequest, rules: BuildingRules) -> Veloci
     )
 
 
+
+# ---------------------------------------------------------------------------
+# 几何规划的数据模型（Step 3）：规划层只产出这些数据，渲染层只做翻译
+# ---------------------------------------------------------------------------
+
+Point = tuple[float, float]
+
+#: 规划坐标统一保留到 0.001 mm，同一请求两次规划逐字节相同。
+COORD_DECIMALS = 3
+
+LAYER_PIPE_MAIN: Literal["WS-PIPE-MAIN"] = "WS-PIPE-MAIN"
+LAYER_PIPE_BRANCH: Literal["WS-PIPE-BRANCH"] = "WS-PIPE-BRANCH"
+LAYER_VALVE = "WS-VALVE"
+LAYER_METER = "WS-METER"
+LAYER_TEXT = "WS-TEXT"
+LAYER_DIM = "WS-DIM"
+LAYER_AXIS = "WS-AXIS"
+#: 大样里的井壁、楼板、吊顶、吊架（执行 prompt 的七个图层里没有能放构筑物轮廓的）。
+LAYER_OUTLINE = "WS-OUTLINE"
+
+PIPE_LAYERS: tuple[str, ...] = (LAYER_PIPE_MAIN, LAYER_PIPE_BRANCH)
+STANDARD_LAYERS: tuple[str, ...] = (
+    LAYER_PIPE_MAIN,
+    LAYER_PIPE_BRANCH,
+    LAYER_VALVE,
+    LAYER_METER,
+    LAYER_TEXT,
+    LAYER_DIM,
+    LAYER_AXIS,
+    LAYER_OUTLINE,
+)
+
+
+def rounded(point: tuple[float, float]) -> Point:
+    return (round(float(point[0]), COORD_DECIMALS) + 0.0, round(float(point[1]), COORD_DECIMALS) + 0.0)
+
+
+class SymbolKind(str, Enum):
+    """图块种类。附件与注记符号都在这里；块名由 `drawing/blocks.py` 决定。"""
+
+    GATE_VALVE = "gate_valve"
+    GLOBE_VALVE = "globe_valve"
+    CHECK_VALVE = "check_valve"
+    WATER_METER = "water_meter"
+    PUMP = "pump"
+    RISER_TAG = "riser_tag"
+    ELEVATION_MARK = "elevation_mark"
+    FLOW_ARROW = "flow_arrow"
+
+
+#: 附件 → 图块。缓闭止回阀与止回阀同一图例，名称靠旁注区分。
+FITTING_SYMBOL: dict[FittingKind, SymbolKind] = {
+    FittingKind.GATE_VALVE: SymbolKind.GATE_VALVE,
+    FittingKind.GLOBE_VALVE: SymbolKind.GLOBE_VALVE,
+    FittingKind.CHECK_VALVE: SymbolKind.CHECK_VALVE,
+    FittingKind.SLOW_CLOSING_CHECK_VALVE: SymbolKind.CHECK_VALVE,
+    FittingKind.WATER_METER: SymbolKind.WATER_METER,
+    FittingKind.PUMP: SymbolKind.PUMP,
+}
+
+
+class _Plan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class PlanNode(_Plan):
+    node_id: str
+    kind: Literal["riser", "junction", "tee", "end", "entry", "base", "header_end"]
+    point: Point
+
+
+class PipeRunPlan(_Plan):
+    """一条管段（渲染成一个 LWPOLYLINE）。每个顶点都必须是已登记的节点。"""
+
+    run_id: str
+    layer: Literal["WS-PIPE-MAIN", "WS-PIPE-BRANCH"]
+    dn: NominalDiameter
+    role: Literal["connector", "header", "branch", "riser", "entry", "detail"]
+    node_ids: tuple[str, ...] = Field(min_length=2)
+    points: tuple[Point, ...] = Field(min_length=2)
+
+
+class LabelPlan(_Plan):
+    """管径标注。``anchor`` 是 TEXT 的插入点（BOTTOM_CENTER，即基线中点）。"""
+
+    run_id: str
+    text: str
+    anchor: Point
+    rotation: float
+    height: float
+
+
+class SymbolPlan(_Plan):
+    symbol: SymbolKind
+    layer: str
+    point: Point
+    rotation: float
+    #: 块的缩放 = 出图比例分母（块按图纸毫米定义，出图后符号大小一致）。
+    scale: float
+    #: 附件所在管段；注记符号（立管编号、标高）为 None。
+    run_id: str | None = None
+    name: str = ""
+
+
+TextAlign = Literal["BOTTOM_LEFT", "BOTTOM_CENTER", "MIDDLE_LEFT", "MIDDLE_CENTER", "MIDDLE_RIGHT", "TOP_CENTER"]
+
+
+class TextPlan(_Plan):
+    text: str
+    point: Point
+    height: float
+    rotation: float = 0.0
+    align: TextAlign
+    layer: str
+    role: str
+
+
+class LinePlan(_Plan):
+    """非管线的线：轴线、楼层线、构筑物轮廓、吊架。"""
+
+    layer: str
+    points: tuple[Point, ...] = Field(min_length=2)
+    closed: bool = False
+    linetype: str | None = None
+    role: str
+
+
+class CirclePlan(_Plan):
+    layer: str
+    center: Point
+    radius: float = Field(gt=0)
+    role: str
+
+
+class NoteBlockPlan(_Plan):
+    """多行说明（MTEXT）。``point`` 是左上角插入点。"""
+
+    lines: tuple[str, ...] = Field(min_length=1)
+    point: Point
+    height: float
+    layer: str
+    role: Literal["notes", "disclaimer", "legend_title"]
+
+    @property
+    def text(self) -> str:
+        return "\n".join(self.lines)
+
+
+class SheetPlan(_Plan):
+    sheet_id: Literal["plan", "schematic", "detail"]
+    title: str
+    #: 出图比例分母（1:100 → 100）。
+    scale: int = Field(ge=1)
+    nodes: tuple[PlanNode, ...] = ()
+    pipes: tuple[PipeRunPlan, ...] = ()
+    labels: tuple[LabelPlan, ...] = ()
+    symbols: tuple[SymbolPlan, ...] = ()
+    texts: tuple[TextPlan, ...] = ()
+    lines: tuple[LinePlan, ...] = ()
+    circles: tuple[CirclePlan, ...] = ()
+    notes: tuple[NoteBlockPlan, ...] = ()
+    #: 本图说明里引用了哪些规则（顺序即说明顺序）。
+    rule_ids: tuple[str, ...] = ()
+
+
+class FloorPlan(SheetPlan):
+    sheet_id: Literal["plan"] = "plan"
+    riser_count: int = Field(ge=1)
+    units: int = Field(ge=1)
+
+
+class SchematicPlan(SheetPlan):
+    sheet_id: Literal["schematic"] = "schematic"
+    #: 每层一组支管；组数 = 层数（有测试断言）。
+    branch_groups: int = Field(ge=1)
+    #: 立管逐层分段：第 k 段供第 k 层，段数 = 层数。
+    riser_run_ids: tuple[str, ...] = Field(min_length=1)
+
+
+class DetailPlan(SheetPlan):
+    sheet_id: Literal["detail"] = "detail"
+    detail_type: str
+
+
+class GenerationPlan(_Plan):
+    """一次出图的全部规划数据（尚未渲染）。同一请求两次规划逐字节相同。"""
+
+    request: GenerationRequest
+    rules_version: str
+    riser_position: str
+    riser_position_defaulted: bool
+    calculations: tuple[CalculationRecord, ...]
+    warnings: tuple[str, ...]
+    missing_inputs: tuple[str, ...]
+    assumptions: tuple[str, ...]
+    floor_plan: FloorPlan
+    schematic: SchematicPlan
+    details: tuple[DetailPlan, ...]
+
+    def sheets(self) -> tuple[SheetPlan, ...]:
+        return (self.floor_plan, self.schematic, *self.details)
+
+
+# ---------------------------------------------------------------------------
+# 规划不变量：生成图必须能被本仓库自己的审查器正确读懂
+# ---------------------------------------------------------------------------
+
+#: 管径标注离自己管段的上限。审查器的关联半径是 20 图纸单位，留出余量。
+LABEL_MAX_DISTANCE = 16.0
+#: 最近的标注必须比第二近的"异径"标注至少近这么多，否则先后顺序会决定结果。
+_BINDING_MARGIN = 1.0
+
+
+def _annotations(sheet: SheetPlan) -> list[tuple[str, Point, str]]:
+    """图上所有会被审查器当作"标注"读取的文字：``(来源, 插入点, 文本)``。"""
+
+    items: list[tuple[str, Point, str]] = [
+        (f"label:{label.run_id}", label.anchor, label.text) for label in sheet.labels
+    ]
+    items.extend((f"text:{index}", text.point, text.text) for index, text in enumerate(sheet.texts))
+    items.extend((f"note:{index}", note.point, note.text) for index, note in enumerate(sheet.notes))
+    return items
+
+
+def validate_sheet(sheet: SheetPlan) -> list[str]:
+    """检查规划不变量，返回问题清单（空 = 通过）。
+
+    与审查器同一口径（`drawing/mapping.py` 的 ``parse_dn`` 与点到折线距离，直接复用，
+    不另写一份）：对每条管段，半径内最近的带管径文字必须是它自己的标注，且管径一致。
+    """
+
+    from water_agent.drawing.mapping import (
+        ANNOTATION_MATCH_RADIUS,
+        _distance_to_polyline,
+        parse_dn,
+    )
+
+    problems: list[str] = []
+    nodes = {node.node_id: node.point for node in sheet.nodes}
+    if len(nodes) != len(sheet.nodes):
+        problems.append("节点 id 重复")
+    run_ids = [run.run_id for run in sheet.pipes]
+    if len(set(run_ids)) != len(run_ids):
+        problems.append("管段 id 重复")
+    labels_by_run: dict[str, list[LabelPlan]] = {}
+    for label in sheet.labels:
+        labels_by_run.setdefault(label.run_id, []).append(label)
+    runs = {run.run_id: run for run in sheet.pipes}
+    for label in sheet.labels:
+        if label.run_id not in runs:
+            problems.append(f"标注 {label.text} 指向不存在的管段 {label.run_id}")
+
+    annotations = [
+        (source, anchor, dn)
+        for source, anchor, text in _annotations(sheet)
+        if (dn := parse_dn(text)) is not None
+    ]
+    for run in sheet.pipes:
+        if len(run.node_ids) != len(run.points):
+            problems.append(f"{run.run_id}：节点数与顶点数不一致")
+        for node_id, point in zip(run.node_ids, run.points, strict=False):
+            if nodes.get(node_id) != point:
+                problems.append(f"{run.run_id}：顶点 {point} 不在已登记节点 {node_id} 上")
+        own = labels_by_run.get(run.run_id, [])
+        if len(own) != 1:
+            problems.append(f"{run.run_id}：应恰有 1 条管径标注，实际 {len(own)} 条")
+            continue
+        label = own[0]
+        if label.text != run.dn.value:
+            problems.append(f"{run.run_id}：标注 {label.text} 与管径 {run.dn.value} 不一致")
+        own_distance = _distance_to_polyline(label.anchor, run.points)
+        if own_distance > LABEL_MAX_DISTANCE:
+            problems.append(f"{run.run_id}：标注距管线 {own_distance:.1f} > {LABEL_MAX_DISTANCE}")
+        rivals = sorted(
+            (distance, source, dn)
+            for source, anchor, dn in annotations
+            if source != f"label:{run.run_id}"
+            and (distance := _distance_to_polyline(anchor, run.points)) <= ANNOTATION_MATCH_RADIUS
+        )
+        for distance, source, dn in rivals:
+            if dn != run.dn.mm and distance < own_distance + _BINDING_MARGIN:
+                problems.append(
+                    f"{run.run_id}：{source} 的 DN{dn} 离管线 {distance:.1f}，"
+                    f"不比自己的标注（{own_distance:.1f}）远，审查器会读错管径"
+                )
+    for symbol in sheet.symbols:
+        if symbol.run_id is None:
+            continue
+        host = runs.get(symbol.run_id)
+        if host is None:
+            problems.append(f"符号 {symbol.symbol.value} 指向不存在的管段 {symbol.run_id}")
+        elif _distance_to_polyline(symbol.point, host.points) > 0.01:
+            problems.append(f"符号 {symbol.symbol.value} 不在管段 {symbol.run_id} 上")
+    return problems
+
 __all__ = [
+    "COORD_DECIMALS",
     "DIAMETER_BASIS_NOTE",
+    "FITTING_SYMBOL",
     "GENERATION_ERROR_STATUS",
     "GEN_INVALID_INPUT",
     "GEN_RENDER_FAILED",
     "GEN_UNSUPPORTED_SYSTEM",
+    "LABEL_MAX_DISTANCE",
+    "LAYER_AXIS",
+    "LAYER_DIM",
+    "LAYER_METER",
+    "LAYER_OUTLINE",
+    "LAYER_PIPE_BRANCH",
+    "LAYER_PIPE_MAIN",
+    "LAYER_TEXT",
+    "LAYER_VALVE",
+    "PIPE_LAYERS",
     "RENDER_FAILED_MESSAGE",
+    "STANDARD_LAYERS",
     "SUPPORTED_SYSTEM",
     "CalculationRecord",
+    "CirclePlan",
+    "DetailPlan",
+    "FloorPlan",
     "GenerationError",
+    "GenerationPlan",
     "GenerationRequest",
+    "LabelPlan",
+    "LinePlan",
     "NominalDiameter",
+    "NoteBlockPlan",
     "PipeMaterial",
+    "PipeRunPlan",
     "PipeSpec",
+    "PlanNode",
+    "Point",
+    "SchematicPlan",
+    "SheetPlan",
+    "SymbolKind",
+    "SymbolPlan",
+    "TextAlign",
+    "TextPlan",
     "VelocityCheck",
     "check_velocities",
     "drawing_velocity_note",
     "format_velocity",
     "parse_generation_request",
     "resolve_riser_position",
+    "rounded",
+    "validate_sheet",
     "velocity_warning",
 ]
