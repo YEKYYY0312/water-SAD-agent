@@ -75,6 +75,14 @@ function drawingNotice(record: UploadRecord): { tone: "ok" | "warn"; text: strin
 
 export function uploadNotice(record: UploadRecord): { tone: "ok" | "warn"; text: string } {
   if (record.suffix === ".dxf" || record.suffix === ".dwg") return drawingNotice(record);
+  // P5-S52：没有文字层的 PDF 会送视觉模型看图。卡片如实区分"看过图"与"看图未执行"。
+  const preview = record.extracted_text_preview ?? "";
+  if (preview.includes("【视觉审阅结果】")) {
+    return { tone: "warn", text: "没有文字层，已由视觉模型看图（可能误读，关键数字请核对原图）。" };
+  }
+  if (preview.includes("【视觉审阅未执行】")) {
+    return { tone: "warn", text: "没有文字层，视觉看图也未能执行。Agent 读不到这份文件的内容。" };
+  }
   if (record.extracted_text_length === 0) {
     return { tone: "warn", text: "没有读到文字，可能是扫描件。Agent 无法引用它。" };
   }

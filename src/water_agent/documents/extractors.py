@@ -306,9 +306,54 @@ def extract_text(
         return _extract_docx(data)
     if suffix == ".pdf":
         if pdf_engine_name(getenv) == _PYMUPDF_ENGINE:
-            return _extract_pdf_pymupdf(data)
-        return _extract_pdf_pypdf(data)
+            document = _extract_pdf_pymupdf(data)
+        else:
+            document = _extract_pdf_pypdf(data)
+        return _with_vision_review(document, data, getenv=getenv)
     return _extract_plain_text(data)
+
+
+#: 文本层"基本为空"的判定：每页平均不足这么多字。CAD 导出 PDF 常只剩页眉页码这类
+#: 零星文字（实测 0 字），扫描件同理；有正文的设计说明每页几百字以上。
+_SPARSE_TEXT_CHARS_PER_PAGE = 40
+VISION_ENABLED_ENV = "UPLOAD_VISION_ENABLED"
+
+
+def _with_vision_review(
+    document: ExtractedDocument, data: bytes, *, getenv: Callable[[str], str | None]
+) -> ExtractedDocument:
+    """文本层基本为空的 PDF（CAD 导出、扫描件）→ 追加视觉审阅（P5-S52）。
+
+    有正文的 PDF 不调视觉模型：文字已经读到了，再花钱看图只会引入误读。视觉失败时
+    **上传照样成功**，但在正文里写明"视觉审阅未执行及原因"——文本层为空本来就读不到，
+    视觉只是增强；静默失败会让模型以为"这份 PDF 没有任何内容"。
+    """
+
+    pages = document.page_count or 1
+    if len(document.text.strip()) >= _SPARSE_TEXT_CHARS_PER_PAGE * pages:
+        return document
+    if (getenv(VISION_ENABLED_ENV) or "true").strip().lower() == "false":
+        return document
+    from water_agent.vision import VisionUnavailableError, review_pdf_pages
+
+    try:
+        review = review_pdf_pages(data)
+    except VisionUnavailableError as exc:
+        note = (
+            f"【视觉审阅未执行】这份 PDF 几乎没有文字层（常见于 CAD 导出或扫描件），"
+            f"本应由视觉模型看图，但未能执行：{exc}。当前无法读取图面内容，不得猜测。"
+        )
+        text = f"{document.text}\n\n{note}".strip()
+        return ExtractedDocument(
+            text=text, page_count=document.page_count, engine=document.engine, suspicious=document.suspicious
+        )
+    text = f"{document.text}\n\n{review.text}".strip()
+    return ExtractedDocument(
+        text=text,
+        page_count=document.page_count,
+        engine=f"{document.engine}+vision"[:32],
+        suspicious=document.suspicious,
+    )
 
 
 __all__ = [

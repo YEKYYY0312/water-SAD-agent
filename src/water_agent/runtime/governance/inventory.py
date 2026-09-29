@@ -197,6 +197,23 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         target_gateway_method="ProviderGateway.call",
         governed=True,
     ),
+    ProviderCallSite(
+        site_id="bailian_vision_pdf_review",
+        module="water_agent/vision.py",
+        egress_module="water_agent/vision.py",
+        symbol="QwenVisionReviewer.describe_page → _call",
+        provider=ProviderKind.BAILIAN_VISION,
+        category=CallCategory.VISION_REVIEW,
+        required_capability=Capability.LLM_INFERENCE,
+        # 上传的工程图纸页面图像：项目资料，与 docgen 同级。
+        data_class=DATA_CLASS_PROJECT_DOC,
+        principal_source="上传入库时的 Web 登录主体（上传者本人）",
+        current_timeout_seconds=120.0,
+        current_retry="ProviderGateway：max_attempts=2；401/403 零重试",
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
 )
 
 #: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
