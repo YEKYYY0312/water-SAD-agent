@@ -92,6 +92,12 @@ data/drawings/real_samples/*
 # 溯源映射（样本 ID → 原始工程目录/文件），**绝不允许入库**。
 data/drawings/provenance.json
 
+# 植入缺陷的样本图纸：是 real_samples 真实底图的副本（同样含可识别线索），
+# 与 real_samples 同口径不入库。本地用 scripts/implant_defects.py /
+# implant_defects_v2.py 重建。推送到 GitHub 前已从全部历史中移除。
+data/drawings/defect_samples/
+data/drawings/defect_samples_v2/
+
 # 脱敏替换表：**含待脱敏的词本身**，入库等于泄漏，故不入库。
 data/drawings/desensitize_terms.json
 
