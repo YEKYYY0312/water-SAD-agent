@@ -411,10 +411,27 @@ def map_pipes(extraction: DrawingExtraction) -> MappingResult:
 def _nearby_annotations(
     pipe: DrawingEntity, texts: list[DrawingEntity]
 ) -> list[DrawingEntity]:
-    """按图面距离找与管线相关的标注（近者优先）。"""
+    """按图面距离找与管线相关的标注（近者优先）。
+
+    先用管线包围盒外扩 ``ANNOTATION_MATCH_RADIUS`` 做预筛：盒外的点到折线的距离必然
+    大于半径，算了也会被丢掉。只是跳过注定落选的计算，结果与逐一计算**完全相同**
+    （含同距离时的先后顺序，``sorted`` 是稳定排序、候选保持原顺序）。S51 实测：一张
+    DWG 转出 13,864 条管段 × 784 条标注，逐一计算 1,090 万次，``map_pipes`` 耗时 5.8 s。
+    """
+    if pipe.points:
+        xs = [x for x, _ in pipe.points]
+        ys = [y for _, y in pipe.points]
+        r = ANNOTATION_MATCH_RADIUS
+        x0, x1, y0, y1 = min(xs) - r, max(xs) + r, min(ys) - r, max(ys) + r
+        candidates = [
+            t for t in texts
+            if t.points and x0 <= t.points[0][0] <= x1 and y0 <= t.points[0][1] <= y1
+        ]
+    else:
+        candidates = texts
     scored = [
         (_distance_to_polyline(t.points[0], pipe.points), t)
-        for t in texts
+        for t in candidates
         if t.points
     ]
     return [t for distance, t in sorted(scored, key=lambda item: item[0])

@@ -18,6 +18,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from water_agent.graphs.agent_rag import current_turn_messages
 from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import MemoryStoreUnavailableError
 from water_agent.memory.providers import MemoryProvider
@@ -108,6 +109,8 @@ class _RunHandle:
     # 材料表，以及与 calc_velocity 结果按 tool_call_id 配对的数值输入参数。
     # 材料表取"最后一次"而不是累加：模型对同一批管段重复调用时，累加就是重复计量。
     material_table: dict[str, Any] | None = None
+    # P5-S49：本条消息点名的附件（路由层已校验归属）。
+    attachment_ids: list[str] = field(default_factory=list)
     calc_inputs: dict[str, float] = field(default_factory=dict)
     tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -131,6 +134,61 @@ def parse_last_event_id(value: str | None) -> int:
     if cursor < 0:
         raise ValueError("Last-Event-ID must be a non-negative integer")
     return cursor
+
+
+_RUNTIME_CONTEXT_PREFIX = "[运行时上下文]"
+#: 历史投影一次最多返回多少轮：checkpoint 里的 thread 只增不减，长会话不设上限会
+#: 让一次切换会话搬运整条历史。
+MAX_HISTORY_TURNS = 50
+
+
+def project_conversation(
+    messages: list[Any] | tuple[Any, ...],
+    *,
+    thread_id: str,
+    pipeline: Any | None = None,
+) -> list[dict[str, Any]]:
+    """把 checkpoint 消息投影成浏览器可见的对话：用户问题 + 每轮最终回答。
+
+    - 运行时上下文前言（也是 HumanMessage）、tool 调用与结果、校验器回流消息**一律不出**；
+    - 每轮只取最后一条带文本、不带 tool_calls 的 AIMessage——回流后那条才是最终回答；
+    - 回答**重新过一遍输出护栏**：checkpoint 里存的是模型原文，而当时 finalize 可能
+      已拦截或脱敏过它。不重跑就等于给护栏开了一个"刷新页面"的后门。被拦截的回答
+      只返回 ``withheld=True``，不返回正文。
+    """
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from water_agent.runtime.governance.binding import local_request_context
+    from water_agent.runtime.governance.pipeline import default_guardrail_pipeline
+
+    guard = pipeline if pipeline is not None else default_guardrail_pipeline()
+    context = local_request_context(thread_id=f"history-{thread_id}")
+    turns: list[tuple[str, str | None]] = []
+    for message in messages:
+        if isinstance(message, HumanMessage):
+            text = message.content if isinstance(message.content, str) else ""
+            if not text or text.startswith(_RUNTIME_CONTEXT_PREFIX):
+                continue
+            turns.append((text, None))
+        elif isinstance(message, AIMessage) and turns and not message.tool_calls:
+            if isinstance(message.content, str) and message.content.strip():
+                turns[-1] = (turns[-1][0], message.content)
+    projected: list[dict[str, Any]] = []
+    for question, answer in turns[-MAX_HISTORY_TURNS:]:
+        projected.append({"role": "user", "text": question})
+        if answer is None:
+            continue
+        outcome = guard.check_output(answer, context)
+        if outcome.allowed:
+            projected.append({"role": "agent", "text": outcome.content, "withheld": False})
+        else:
+            projected.append({"role": "agent", "text": "", "withheld": True})
+    return projected
+
+
+class AttachmentUnavailableError(RuntimeError):
+    """A file the user attached to this message could not be read."""
 
 
 class WebAgenticSessionFactory:
@@ -260,6 +318,8 @@ class RunManager:
             session_dir=session_dir,
         )
         self._handles: dict[str, _RunHandle] = {}
+        # 历史读取用的 checkpointer 工厂；测试替换成内存实现（SQLite 上没有 PG saver）。
+        self.checkpointer_factory: Callable[[Database], Any] = postgres_checkpointer
         self._lock = RLock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="water-agent-run")
 
@@ -272,6 +332,7 @@ class RunManager:
         principal: Principal,
         project_id: UUID | str | None,
         query: str,
+        attachment_ids: list[str] | None = None,
     ) -> dict[str, str]:
         run_key = str(run_id)
         handle = _RunHandle(
@@ -279,6 +340,7 @@ class RunManager:
             thread_id=str(thread_id),
             owner_user_id=owner_user_id,
             project_id=None if project_id is None else UUID(str(project_id)),
+            attachment_ids=list(attachment_ids or []),
         )
         with self._lock:
             if run_key in self._handles:
@@ -287,6 +349,20 @@ class RunManager:
         self._append(handle, "run_queued", {"status": "queued"})
         self._executor.submit(self._execute, handle, principal, query)
         return {"run_id": run_key, "thread_id": str(thread_id), "status": "queued"}
+
+    def thread_messages(self, thread_id: UUID | str, user_id: UUID) -> list[dict[str, Any]]:
+        """Read a thread's conversation for the browser, re-authorized by the saver."""
+
+        from water_agent.storage.scoped_checkpoint import ScopedPostgresSaver
+
+        with ExitStack() as stack:
+            saver = stack.enter_context(self.checkpointer_factory(self.database))
+            scoped = ScopedPostgresSaver(saver, self.sessions, user_id)
+            snapshot = scoped.get_tuple({"configurable": {"thread_id": str(thread_id)}})
+        if snapshot is None:
+            return []
+        messages = snapshot.checkpoint.get("channel_values", {}).get("messages", []) or []
+        return project_conversation(messages, thread_id=str(thread_id))
 
     def _append(self, handle: _RunHandle, event_type: str, payload: dict[str, Any]) -> RunEvent:
         with handle.condition:
@@ -420,6 +496,9 @@ class RunManager:
                 extra: dict[str, Any] = (
                     {"upload_context": upload_context} if upload_context is not None else {}
                 )
+                attachment_context = self._read_attachments(handle, session, query)
+                if attachment_context is not None:
+                    extra["attachment_context"] = attachment_context
 
                 result = asyncio.run(
                     session.aask(
@@ -441,6 +520,8 @@ class RunManager:
             self._finish(handle, status=status, payload=self._result_payload(result, handle=handle))
         except RunCancelled:
             self._finish(handle, status="cancelled", payload={"status": "cancelled"})
+        except AttachmentUnavailableError:
+            self._finish(handle, status="failed", payload={"error": "attachment unavailable"})
         except SQLAlchemyError:
             self._finish(handle, status="blocked", payload={"error": "run persistence unavailable"})
         except Exception as exc:  # noqa: BLE001 -- worker must convert failures to a terminal run state
@@ -459,6 +540,67 @@ class RunManager:
                 node="run",
             )
             self._finish(handle, status="failed", payload={"error": "agent run failed"})
+
+    def _read_attachments(self, handle: _RunHandle, session: Any, query: str) -> Any | None:
+        """Build the file context: capability note, upload inventory, named attachments.
+
+        Passed only to sessions that declare support (the real ``AgenticSession``):
+        ``AgentSessionFactory`` is a protocol and the evaluation/test sessions do
+        not accept the keyword -- same reasoning as ``upload_context`` above.
+        An explicitly attached file that cannot be read is a **failed** run, not a
+        silent degradation: the user asked about that file, answering without it
+        is exactly the screenshot incident (agent: "I cannot read files").
+        """
+
+        if not getattr(session, "supports_attachment_context", False):
+            return None
+        from water_agent.documents.attachments import (
+            AttachmentContext,
+            list_inventory,
+            read_attachments,
+        )
+        from water_agent.documents.retrieval import UploadRecallUnavailableError
+
+        try:
+            inventory = list_inventory(
+                self.database,
+                actor_user_id=handle.owner_user_id,
+                project_id=handle.project_id,
+            )
+        except UploadRecallUnavailableError:
+            inventory = ()
+        if not handle.attachment_ids:
+            return AttachmentContext(inventory=inventory)
+        try:
+            context = read_attachments(
+                self.database,
+                actor_user_id=handle.owner_user_id,
+                upload_ids=handle.attachment_ids,
+                query=query,
+            )
+        except (UploadRecallUnavailableError, ResourceNotFoundError, ValueError) as exc:
+            raise AttachmentUnavailableError from exc
+        self._append(
+            handle,
+            "attachment_read",
+            {
+                "upload_ids": context.upload_ids,
+                "files": [
+                    {
+                        "upload_id": reading.record.upload_id,
+                        "chunks_read": len(reading.hits),
+                        "total_chunks": reading.total_chunks,
+                        "complete": reading.complete,
+                    }
+                    for reading in context.readings
+                ],
+            },
+        )
+        return AttachmentContext(
+            readings=context.readings,
+            inventory=inventory,
+            character_budget=context.character_budget,
+        )
 
     def _recall_uploads(self, handle: _RunHandle, session: Any, query: str) -> Any | None:
         """Recall uploaded project material for this query, or degrade loudly.
@@ -595,10 +737,7 @@ class RunManager:
         is always inserted *before* the question, so taking the last one is right.
         """
 
-        for index in range(len(messages) - 1, -1, -1):
-            if getattr(messages[index], "type", None) == "human":
-                return list(messages[index + 1 :])
-        return list(messages)
+        return current_turn_messages(messages)
 
     def _observe_tool_messages(self, handle: _RunHandle, messages: Any) -> None:
         """Project real ToolMessages into safe UI events.
