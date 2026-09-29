@@ -1,0 +1,82 @@
+{
+  "case_id": "gen-off-03-tall-floors",
+  "description": "办公 24 层每层 6 个用水单元，层高 4.2 m，DN150 钢塑复合，给出支管流量",
+  "request": {
+    "system_type": "给水",
+    "building_type": "办公",
+    "floors": 24,
+    "units_per_floor": 6,
+    "riser_position": "核心筒",
+    "main_pipe": {
+      "dn": "DN150",
+      "material": "钢塑复合"
+    },
+    "branch_pipe": {
+      "dn": "DN50",
+      "material": "钢塑复合"
+    },
+    "flow_rate_lps": 12.0,
+    "branch_flow_rate_lps": 1.2,
+    "pressure_mpa": 0.6,
+    "floor_height_m": 4.2
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "核心筒",
+    "riser_position_defaulted": false,
+    "main_velocity_mps": 0.6791,
+    "branch_velocity_mps": 0.6112,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "within",
+    "warnings_contains": [],
+    "missing_inputs_contains": [],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 9,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 193,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 548
+      },
+      "detail": {
+        "pipe_runs": 1,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 24,
+    "branch_groups": 24,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}
