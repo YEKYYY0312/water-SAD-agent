@@ -370,6 +370,12 @@ def verify_roundtrip(staged_path: str, plan: DrawingPlan) -> dict[str, Any]:
         "unit_known": unit_known,
         "mapped_lengths_m": mapped_lengths_m,
         "review_summary": review.summary() if review is not None else "",
+        # P3 审查的结构化结论原样保留：此前只存 summary() 一句话，findings / not_checked /
+        # pipes_reviewed 全部丢掉，多 Agent 审查对 P3 查出的缺陷视而不见（review 2026-09-30）。
+        "pipes_reviewed": review.pipes_reviewed if review is not None else 0,
+        "water_supply_pipes": review.water_supply_pipes if review is not None else 0,
+        "p3_findings": [finding.to_dict() for finding in review.findings] if review is not None else [],
+        "p3_not_checked": list(review.not_checked) if review is not None else [],
         "errors": list(extraction.errors) if extraction is not None else [],
     }
 

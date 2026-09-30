@@ -925,7 +925,66 @@ def check_drawing_consistency(
                     evidence_ids=[],
                 )
             )
+        issues.extend(_p3_finding_issues(pkg_env.artifact_id, roundtrip))
     return issues, not_checked
+
+
+def _p3_finding_issues(artifact_id: str, roundtrip: dict[str, Any]) -> list[ReviewIssue]:
+    """P3 在 staged DXF 上查出的缺陷 → 人工问题（运行停在 waiting，需人改输入）。
+
+    owner 恒为 human：图纸是按设计产物确定性生成的，设计/出图 Agent 重跑只会得到同一张
+    图，派回去只会空转到修订上限。正式条文 → error，非正式/工程惯例 → warning；正文用
+    P3 的 ``rendered_finding``（表述纪律的唯一出口，等级前缀不得丢）。
+    """
+    issues: list[ReviewIssue] = []
+    for finding in roundtrip.get("p3_findings") or []:
+        if not isinstance(finding, dict):
+            continue
+        rule_id = str(finding.get("rule_id") or "unknown")
+        handle = str(finding.get("handle") or "")
+        issues.append(
+            ReviewIssue(
+                issue_id=f"rev-p3-{artifact_id}-{rule_id}-{handle or 'none'}",
+                rule_id=f"p3_{rule_id}",
+                severity="error" if finding.get("evidence_level") == "formal_clause" else "warning",
+                owner="human",
+                artifact_id=artifact_id,
+                object_ref=handle or None,
+                message=str(finding.get("rendered") or finding.get("title") or rule_id),
+                evidence_ids=[str(item) for item in finding.get("evidence_handles") or []],
+            )
+        )
+    return issues
+
+
+def collect_disclosed_limitations(registry: dict[str, ArtifactEnvelope]) -> list[str]:
+    """带条件进入人审的披露项：P3 规则覆盖缺口 + 水力越界提示。
+
+    - P3 ``not_checked``：规则因缺输入或不适用而没跑（排水坡度/流速缺标高与流量、给水管段
+      不在任何规则作用域内……）。审查器说不出"合规"，交给批准人知情决定；
+    - 未被取代的 CalcPackage 里每个工况的 assumptions（越界提示）。
+
+    关键未检查项（产物缺失、回读不可判定、零管段审查……）不在此列，仍进 ``not_checked``。
+    """
+    disclosed: list[str] = []
+    for pkg_env in _envelopes_of_type(registry, "drawing_package"):
+        roundtrip = pkg_env.payload.get("roundtrip_review")
+        if not isinstance(roundtrip, dict):
+            continue
+        for item in roundtrip.get("p3_not_checked") or []:
+            disclosed.append(f"drawing:{pkg_env.artifact_id} P3 图纸规则未检查：{item}")
+    superseded = _superseded_calc_artifact_ids(registry)
+    for env in _envelopes_of_type(registry, "calc_package"):
+        if env.artifact_id in superseded:
+            continue
+        try:
+            package = CalcPackage.model_validate(env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            continue
+        for case in package.cases:
+            for note in case.assumptions:
+                disclosed.append(f"calc:{case.calc_case_id} 水力越界提示：{note}")
+    return sorted(set(disclosed))
 
 
 # ---------------------------------------------------------------------------
@@ -1161,6 +1220,7 @@ def build_review_package(
         issues=sorted(issues, key=lambda i: (i.owner, i.rule_id, i.issue_id)),
         not_checked=sorted(set(not_checked)),
         reviewed_artifact_hashes=reviewed_hashes,
+        disclosed_limitations=collect_disclosed_limitations(reviewed_registry),
     )
     payload = pkg.model_dump()
     payload_hash = compute_payload_hash(payload)
