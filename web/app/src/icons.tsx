@@ -17,6 +17,7 @@ const PATHS = {
   thumbUp: "M7 11v9H4v-9zM7 11l4-7a2 2 0 0 1 2 2v4h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7",
   thumbDown: "M7 13V4H4v9zM7 13l4 7a2 2 0 0 0 2-2v-4h5a2 2 0 0 0 2-2.3l-1.2-6A2 2 0 0 0 16.8 4H7",
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
+  drawing: "M4 4h16v16H4zM4 9h16M9 9v11M14 13h3M14 16h3",
 } as const;
 
 export type IconName = keyof typeof PATHS;
