@@ -104,8 +104,21 @@ def require_authenticated(
 def require_admin(
     wa_session: str | None = Cookie(default=None),
 ) -> tuple[UserRecord, Principal]:
-    """FastAPI dependency: require an active admin session."""
+    """FastAPI dependency: require an active admin session whose password has been changed.
+
+    A temporary password is a one-shot bootstrap credential: an admin still on
+    it must change it before any admin action (it used to be enough to create
+    admins, overwrite model keys and reset other users' passwords).
+    """
     user, _ = _resolve_session(wa_session)
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "AUTH_MUST_CHANGE_PASSWORD",
+                "message": "Temporary password must be changed before continuing",
+            },
+        )
     if user.role is not UserRole.ADMIN:
         raise HTTPException(
             status_code=403,
