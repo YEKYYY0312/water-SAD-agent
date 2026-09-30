@@ -139,24 +139,47 @@ def _within_tolerance(actual: float, gold: float, tolerances: CalcTolerances) ->
 def score_calc_case(
     case: CalcCase,
     *,
-    calc_result: CalcResult,
+    calc_result: CalcResult | None,
     latency_ms: float = 0.0,
     line_no: int | None = None,
+    graph_status: str | None = None,
+    graph_missing_inputs: Iterable[str] | None = None,
 ) -> EvalResult:
     """程序化数值判分：状态匹配 + 每个 gold 键双阈值比对。
 
     - 缺参用例：gold 为空 + expected_status == "missing_inputs" 时按通过计；
     - 非法输入用例：gold 为空 + expected_status == "invalid_input" 时按通过计；
     - 正常用例：expected_status == "succeeded"，逐键数值比对。
-    """
-    actual_status = "succeeded" if calc_result.ok else ("missing_inputs" if calc_result.missing_inputs else "invalid_input")
-    reasons: list[str] = []
-    values = calc_result.values
 
+    端到端（runner 驱动计算子图）传 ``graph_status`` / ``graph_missing_inputs``：状态以子图
+    自己报告的为准，``calc_result`` 为子图产物（缺参/口径外在解析阶段短路时为 None）；
+    报 succeeded 却没有有效计算结果即判负。只传 ``calc_result`` 时是工具级判分，状态由
+    结果推出。
+    """
+    if graph_status is not None:
+        actual_status = graph_status
+        missing_inputs = list(graph_missing_inputs or [])
+    elif calc_result is not None:
+        actual_status = "succeeded" if calc_result.ok else ("missing_inputs" if calc_result.missing_inputs else "invalid_input")
+        missing_inputs = list(calc_result.missing_inputs)
+    else:
+        raise ValueError(f"calc case {case.id} 需要 calc_result 或 graph_status 才能判分")
+    reasons: list[str] = []
+    values = calc_result.values if calc_result is not None else {}
+
+    if actual_status == "succeeded" and (calc_result is None or not calc_result.ok):
+        reasons.append("calc graph reported succeeded without a valid calc_result")
     if actual_status != case.expected_status:
         reasons.append(f"expected status {case.expected_status}, got {actual_status}")
-        reasons.append(f"tool detail: missing_inputs={calc_result.missing_inputs} errors={calc_result.errors}")
-    elif calc_result.ok:
+        if calc_result is not None:
+            reasons.append(f"tool detail: missing_inputs={calc_result.missing_inputs} errors={calc_result.errors}")
+    elif actual_status == "missing_inputs" and case.expected_missing_inputs:
+        if set(missing_inputs) != set(case.expected_missing_inputs):
+            reasons.append(
+                f"missing_inputs mismatch: expected {sorted(case.expected_missing_inputs)}, "
+                f"got {sorted(missing_inputs)}"
+            )
+    elif calc_result is not None and calc_result.ok:
         for key, gold_value in case.gold.items():
             actual_value = values.get(key)
             if actual_value is None:

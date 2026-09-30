@@ -432,11 +432,13 @@ class HarnessRunner:
         )
 
     def _run_calc_case(self, case: CalcCase, *, line_no: int | None = None) -> EvalResult:
-        """calc 端到端：走计算子图（真工具 + 确定性解释器），判分仍用 Step 1 run_calc。
+        """calc 端到端：计算子图与 ``run_calc`` 分发器两层都要与用例期望一致。
 
-        子图 compute 内部调 run_calc 使用与评测一致的输入，故数值与直接判分同源；
-        缺参/非法路径可能短路（无 compute 产物），回退 run_calc 取结构化 CalcResult，
-        保证判分确定性与 Step 1 一致。
+        - 子图层：状态、缺参清单与数值全部取自子图产物；缺参/口径外在解析阶段短路时
+          没有 ``calc_result``，这是合法的，由状态判分。此前短路时回退直调 ``run_calc``
+          判分，于是子图路由坏掉、报"成功"却没有任何数值也照样 28/28（review 2026-09-30）；
+        - 分发器层：子图按自己的必需参数表短路缺参，不经过 ``run_calc``，而多 Agent 水力
+          Agent 与 MCP 水力服务直接调它——同一份期望对它再判一次，失败原因带 ``run_calc:``。
         """
         app = build_calc_graph()
         state: dict = {
@@ -456,10 +458,20 @@ class HarnessRunner:
         started = time.perf_counter()
         graph_result = app.invoke(state)
         latency_ms = (time.perf_counter() - started) * 1000
-        calc_result = graph_result.get("calc_result")
-        if calc_result is None:
-            calc_result = run_calc(case.formula, case.input)
-        result = score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+        result = score_calc_case(
+            case,
+            calc_result=graph_result.get("calc_result"),
+            graph_status=str(graph_result.get("status") or ""),
+            graph_missing_inputs=graph_result.get("missing_inputs") or [],
+            latency_ms=latency_ms,
+            line_no=line_no,
+        )
+        dispatcher = score_calc_case(case, calc_result=run_calc(case.formula, case.input))
+        if not dispatcher.passed:
+            result.passed = False
+            result.failure_reason = "; ".join(
+                reason for reason in (result.failure_reason, f"run_calc: {dispatcher.failure_reason}") if reason
+            )
         result.variant = self._effective_variant(case)
         return result
 
