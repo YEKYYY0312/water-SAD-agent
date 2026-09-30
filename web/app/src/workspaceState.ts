@@ -67,7 +67,7 @@ const TERMINAL = new Set(["succeeded", "failed", "blocked", "cancelled"]);
  */
 export function archiveRun(messages: ConversationMessage[], run: WorkspaceRunState): ConversationMessage[] {
   if (!TERMINAL.has(run.status)) return messages;
-  const text = run.answer || run.tokens;
+  const text = run.answer;
   if (!text && run.status === "succeeded") return messages;
   return [...messages, { role: "agent", text, status: run.status }];
 }
@@ -190,7 +190,9 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
   }
   if (event.type === "finalize") {
     const finalStatus = asString(payload.status) ?? "failed";
-    const finalAnswer = asString(payload.answer) ?? next.tokens;
+    // 最终回答只认 finalize 的 answer（输出护栏之后）。token 流里是草稿、工具输出或被拦截的
+    // 原文——此前 answer 为空时回落到 tokens，blocked 的运行把被拦下的内容当回答显示。
+    const finalAnswer = asString(payload.answer) ?? "";
     const errors = Array.isArray(payload.errors) ? payload.errors.filter((value): value is string => typeof value === "string") : [];
     // 运行级失败（装配失败、持久化不可用等）只带一个 error 字段、没有 errors 数组；
     // 不收进来的话界面只剩一个「失败」徽标，用户不知道发生了什么。
