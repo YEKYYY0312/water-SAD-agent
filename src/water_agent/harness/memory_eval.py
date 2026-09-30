@@ -1759,6 +1759,24 @@ def _scn_backup_restore_roundtrip(case: dict[str, Any], ctx: EvalContext) -> dic
             ),
             "requires": "docker",
         }
+    # The compose password is a prerequisite, not a finding: scripts/backup.sh
+    # refuses to run without it, and secrets/* is deliberately untracked, so any
+    # fresh clone with a stack running (a git worktree of this repo, for one --
+    # compose's project name is fixed, so it attaches to the same containers)
+    # hits that refusal.  Probing here keeps it a declared SKIP; letting it
+    # through instead produced a failed backup whose empty manifest was then
+    # diffed against the live database, and every resulting
+    # "backup recorded no count" line landed in forget_residuals -- i.e. an
+    # absent local secret was reported as forgotten content still on disk.
+    if not (REPO_ROOT / "secrets" / "postgres_password").is_file():
+        return {
+            "skip_reason": (
+                "secrets/postgres_password is absent, so scripts/backup.sh cannot reach "
+                "the database; create it (see secrets/README.md) to run the backup "
+                "acceptance against the running compose stack"
+            ),
+            "requires": "docker",
+        }
 
     out_dir = ctx.root / "backup"
     backup = subprocess.run(
@@ -1775,10 +1793,16 @@ def _scn_backup_restore_roundtrip(case: dict[str, Any], ctx: EvalContext) -> dic
         verify_backup,
     )
 
-    manifest_ok = True
+    # Seed from "did the backup run at all".  This used to start at True and stay
+    # True when backup.sh had failed, which let the comparison below run against
+    # an empty manifest: compare_counts reports one "recorded no count" per table
+    # for that, and those land in forget_residuals -- so a backup that never
+    # produced a dump surfaced as MEMORY_FORGET_RESIDUAL, a privacy metric.  The
+    # backup_command check below is what should speak for a failed backup.
+    manifest_ok = backup.returncode == 0
     manifest_error = ""
     manifest: dict[str, Any] = {}
-    if backup.returncode == 0:
+    if manifest_ok:
         try:
             manifest = verify_backup(out_dir)
         except BackupVerificationError as exc:
@@ -1814,6 +1838,11 @@ def _scn_backup_restore_roundtrip(case: dict[str, Any], ctx: EvalContext) -> dic
         counters=_counters(forget_residuals=residuals),
         evidence={
             "backup_dir": str(out_dir),
+            # backup_command only carries a returncode; keep the script's own
+            # message so a failure here is diagnosable from the report alone.
+            "backup_error": ""
+            if backup.returncode == 0
+            else (backup.stderr or backup.stdout).strip()[-500:],
             "row_counts": manifest.get("row_counts") or {},
             "live_counts": live_counts,
             "mismatches": mismatches,
