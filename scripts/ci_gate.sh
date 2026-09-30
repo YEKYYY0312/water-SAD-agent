@@ -124,6 +124,30 @@ else
     fi
 fi
 
+# drawing_gen_p0（P6-S1）：参数化给水出图机制层。每条合法用例真跑一遍出图服务，
+# 独立读回判分（图层 / 管段数 / 全部管径读回 / 每层一根立管 / S50 复审如实）。
+# ⚠️ real_cad_verified=false：证明的是"本仓库读取器与审查器能正确读懂生成图"，
+# 不是"可在 AutoCAD/天正中编辑"。DWG 状态依赖本机 LibreDWG，只作观测不参与判定。
+step "drawing_gen_p0 参数化出图机制层（三类建筑 × 3 合法 + 5 非法）"
+GEN_HEAD="data/eval/reports/drawing_gen_p0_head.json"
+GEN_MAIN="data/eval/drawing_gen_p0_main.json"
+if ! $PY -m water_agent.harness.drawing_gen_eval tests/eval/drawing_gen_p0 --report-path "$GEN_HEAD" > /tmp/ci_gate_drawing_gen.log 2>&1; then
+    tail -30 /tmp/ci_gate_drawing_gen.log
+    fail "drawing_gen_p0 runner"
+else
+    grep -E '"(total|passed|failed|dn_match_rate|readback_rate|review_honesty_rate)"' /tmp/ci_gate_drawing_gen.log || true
+    if [ -f "$GEN_MAIN" ]; then
+        if ! $PY scripts/compare_drawing_gen_p0.py --head "$GEN_HEAD" --base "$GEN_MAIN" > /tmp/ci_gate_drawing_gen_cmp.log 2>&1; then
+            cat /tmp/ci_gate_drawing_gen_cmp.log
+            fail "drawing_gen_p0 基线对比"
+        else
+            head -6 /tmp/ci_gate_drawing_gen_cmp.log
+        fi
+    else
+        echo "drawing_gen_p0 无入仓基线（首次运行）；固化：cp $GEN_HEAD $GEN_MAIN"
+    fi
+fi
+
 step "multi_agent_p0 合成机制层（12 用例，8 硬指标全绿）"
 MA_HEAD="data/eval/reports/multi_agent_p0_head.json"
 MA_BASE="data/eval/multi_agent_p0_main.json"
@@ -191,4 +215,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
