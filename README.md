@@ -22,7 +22,7 @@
 bash scripts/ci_gate.sh
 
 # 2) 机制层 Harness 评测（离线、确定性，PR 门禁）
-_venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl          # 11/12
+_venv/bin/python -m water_agent.harness.runner data/eval/rag_p0.jsonl          # 12/12
 _venv/bin/python -m water_agent.harness.runner data/eval/calc_p0.jsonl          # 28/28
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_p0.jsonl        # 11/11（P2 文档生成）
 _venv/bin/python -m water_agent.harness.runner data/eval/material_p0.jsonl      # 10/10（P2 材料统计）
@@ -145,7 +145,7 @@ tests/              # 所有测试（pytest）
 `scripts/ci_gate.sh`（PR 门禁，只跑离线机制层）：
 
 ```bash
-pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥95% → material_p0 ≥95% → 四套 baseline 对比
+pytest → ruff → mypy → rag_p0(12/12) → calc_p0 ≥95% → docgen_p0 ≥95% → material_p0 ≥95% → 四套 baseline 对比
 ```
 
 阈值集（`scripts/compare_baseline.py` 中 `THRESHOLDS`）：
@@ -182,7 +182,7 @@ pytest → ruff → mypy → rag_p0(11/12) → calc_p0 ≥95% → docgen_p0 ≥9
 
 | 评测集 | 条数 | 通过率 | 说明 |
 |--------|------|--------|------|
-| rag_p0 | 12 | 11/12 (91.7%) | 含 1 条设计的 bad_citation 陷阱 |
+| rag_p0 | 12 | 12/12 (100%) | 含 1 条 bad_citation 陷阱：校验器点名拒绝伪造引用才算通过 |
 | calc_p0 | 28 | 28/28 (100%) | 容差 rel=1e-4，4 条带越界断言 |
 | docgen_p0 | 11 | 11/11 (100%) | P2：结构/数值/引用策略，含 1 条未知 doc_type 非法输入 |
 | material_p0 | 10 | 10/10 (100%) | P2：聚合一致/全段溯源，含 1 条非法输入 |

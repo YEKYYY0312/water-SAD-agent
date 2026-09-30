@@ -78,8 +78,12 @@ class TestRunnerVariantRealSKIP:
         out = capsys.readouterr()
         assert exit_code == 0, f"SKIP 应退出 0，实际 {exit_code}; output: {out.out}"
 
-    def test_main_returns_nonzero_on_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        """机制层（mock variant）正常跑：rag_p0 有 1 条失败 → exit 2（有 load_issues）。"""
+    def test_main_mechanism_rag_p0_exits_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        """机制层（mock variant）正常跑：rag_p0 12/12、无 load_issues → exit 0。
+
+        门禁据退出码判定（ci_gate.sh），因此门禁数据集不得带故意的坏行，陷阱用例也
+        必须在正确实现下判通过——否则门禁只能 ``|| true`` 放弃退出码。
+        """
         report_dir = tmp_path / "reports"
         trace_dir = tmp_path / "traces"
         exit_code = main(
@@ -91,10 +95,10 @@ class TestRunnerVariantRealSKIP:
             ]
         )
         out = capsys.readouterr()
-        # 无 --variant → per-case → 12 cases + 1 load issue
-        assert exit_code == 2  # load_issues 导致 exit 2
+        assert exit_code == 0, out.out
         assert '"ok": true' in out.out
-        assert '"failed": 1' in out.out  # bad_citation 陷阱
+        assert '"failed": 0' in out.out
+        assert '"load_issues": []' in out.out
 
 
 class TestCompareBaseline:
@@ -380,8 +384,10 @@ class TestRunnerReportAggregates:
             fixture_path=FIXTURE_PATH,
         )
         report, _, _ = runner.run()
-        # rag_p0: 11/12 pass, bad_citation trap → citation_ok ≈ 11/12
-        assert report.failed == 1  # bad_citation 陷阱
+        # rag_p0: 12/12 pass；陷阱用例的最终 citations 仍含被拒的伪造引用，
+        # citation_ok 口径（引用 ⊆ 检索上下文）照旧把它计为 1 条不合格 → 11/12。
+        assert report.failed == 0
+        assert report.citation_ok_rate == pytest.approx(11 / 12)
 
 class TestRealComponentsFailureIsNotSkip:
     """有 Key 但真实组件构建失败：退出码 3（≠ SKIP 的 0，≠ 用例失败的 1），stderr 结构化。"""

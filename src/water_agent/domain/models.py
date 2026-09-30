@@ -105,6 +105,9 @@ class EvalCase(BaseModel):
     gold_articles_any: list[str] = Field(default_factory=list)
     gold_articles_all: list[str] = Field(default_factory=list)
     forbidden_articles: list[str] = Field(default_factory=list)
+    #: 陷阱用例：生成器会给出这些伪造引用，判通过要求运行失败且错误里点名拒绝了它们
+    #: （证明是引用校验器拦下的，而不是别处先坏了）。
+    expected_rejected_citations: list[str] = Field(default_factory=list)
     expected_status: str = "succeeded"
     eval: str = "citation_exists"
     variant: str = "mock"
