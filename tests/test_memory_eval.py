@@ -519,6 +519,14 @@ def test_backup_case_blames_a_failed_backup_instead_of_the_privacy_metric() -> N
 
     # 2. A missing compose password is a declared prerequisite, not a finding:
     #    secrets/* is untracked, so any clone with a stack running would hit
-    #    backup.sh's own refusal.  The probe must precede the backup.
-    assert '"secrets" / "postgres_password"' in prerequisites
+    #    backup.sh's own refusal.  The probe must precede the backup and look for
+    #    the very file backup.sh refuses without.  The path lives in
+    #    scripts/backup_manifest.py so that it never ships in the image (see
+    #    test_shipped_sources_pass_the_image_literal_scan).
+    assert "postgres_secret_path(REPO_ROOT)" in prerequisites
     assert "skip_reason" in prerequisites
+    from scripts.backup_manifest import postgres_secret_path
+
+    probed = postgres_secret_path(REPO_ROOT).relative_to(REPO_ROOT).as_posix()
+    backup_sh = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    assert f'"$REPO_ROOT/{probed}"' in backup_sh
