@@ -307,6 +307,49 @@
         "gov-0031",
         "gov-0032"
       ]
+    },
+    "agentic_p0": {
+      "input_path": "data/eval/agentic_p0.jsonl",
+      "variant": "per-case",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 1.0,
+      "citation_ok_rate": 1.0,
+      "avg_latency_ms": 18.98,
+      "retrieval_metrics": {
+        "queries": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0
+      },
+      "passed_case_ids": [
+        "agentic-p0-0001",
+        "agentic-p0-0002",
+        "agentic-p0-0003",
+        "agentic-p0-0004",
+        "agentic-p0-0005",
+        "agentic-p0-0006",
+        "agentic-p0-0007",
+        "agentic-p0-0008",
+        "agentic-p0-0009",
+        "agentic-p0-0010"
+      ],
+      "case_ids": [
+        "agentic-p0-0001",
+        "agentic-p0-0002",
+        "agentic-p0-0003",
+        "agentic-p0-0004",
+        "agentic-p0-0005",
+        "agentic-p0-0006",
+        "agentic-p0-0007",
+        "agentic-p0-0008",
+        "agentic-p0-0009",
+        "agentic-p0-0010"
+      ],
+      "source_report": "agentic_p0_20260930T092553070142Z.json"
     }
   }
 }

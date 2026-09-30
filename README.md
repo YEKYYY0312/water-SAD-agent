@@ -27,6 +27,7 @@ _venv/bin/python -m water_agent.harness.runner data/eval/calc_p0.jsonl          
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_p0.jsonl        # 11/11（P2 文档生成）
 _venv/bin/python -m water_agent.harness.runner data/eval/material_p0.jsonl      # 10/10（P2 材料统计）
 _venv/bin/python -m water_agent.harness.runner data/eval/governance_p0.jsonl    # 32/32（P2.5 治理）
+_venv/bin/python -m water_agent.harness.runner data/eval/agentic_p0.jsonl      # 10/10（mock-agentic：生产 AgenticSession + 脚本模型）
 
 # 3) P2 专项质量评测（不属于默认 baseline）
 _venv/bin/python -m water_agent.harness.runner data/eval/docgen_quality.jsonl   # 离线 4/4
@@ -145,7 +146,7 @@ tests/              # 所有测试（pytest）
 `scripts/ci_gate.sh`（PR 门禁，只跑离线机制层）：
 
 ```bash
-pytest → ruff → mypy → rag_p0 / calc_p0 / docgen_p0 / material_p0 / governance_p0（runner 须 exit 0）
+pytest → ruff → mypy → rag_p0 / calc_p0 / docgen_p0 / material_p0 / governance_p0 / agentic_p0（runner 须 exit 0）
       → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → baseline 对比（含用例缺失检查）→ memory_p0
 ```
 
@@ -187,6 +188,7 @@ pytest → ruff → mypy → rag_p0 / calc_p0 / docgen_p0 / material_p0 / govern
 | calc_p0 | 28 | 28/28 (100%) | 容差 rel=1e-4，4 条带越界断言 |
 | docgen_p0 | 11 | 11/11 (100%) | P2：结构/数值/引用策略，含 1 条未知 doc_type 非法输入 |
 | material_p0 | 10 | 10/10 (100%) | P2：聚合一致/全段溯源，含 1 条非法输入 |
+| agentic_p0 | 10 | 10/10 (100%) | 生产 AgenticSession 装配 + 逐步脚本模型：引用回流、陷阱、多轮状态归零 |
 | docgen_quality | 4 | 离线 4/4；real 4/4 | 2026-09-04 受限润色样本证据；不证明正式规范引用质量 |
 | material_quality | 7 | 7/7 (100%) | 异常输入、round(3)、审计与溯源；xlsx 另由 pytest 覆盖 |
 | memory_p0（P5 Step 45） | 42 | 41 通过 / 0 失败 / 1 SKIP | P5 长期记忆：§13.2 十二项硬指标全达标；**合成机制与隔离契约证据，非自然语言召回质量** |

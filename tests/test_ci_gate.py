@@ -279,7 +279,9 @@ class TestCompareBaseline:
         整条门禁仍绿（review 2026-09-30）。
         """
         from scripts.compare_baseline import MECHANISM_SUITES
-        assert MECHANISM_SUITES[:5] == ["rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0"]
+        assert MECHANISM_SUITES == [
+            "rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0", "agentic_p0",
+        ]
 
     def test_compare_p2_suite_identical_report_passes(self) -> None:
         """docgen_p0 套件：与基线指标一致的新报告必须通过（零下降 + 无 PTP 违规）。"""
@@ -712,6 +714,7 @@ class TestGateScript:
                 assert "|| true" not in line, line
         assert "run_suite rag_p0 data/eval/rag_p0.jsonl" in gate
         assert "run_suite governance_p0 data/eval/governance_p0.jsonl" in gate
+        assert "run_suite agentic_p0 data/eval/agentic_p0.jsonl" in gate
 
     def test_missing_baseline_is_a_failure_unless_explicitly_allowed(self) -> None:
         """基线文件缺失 = 失败（此前只打印"首次运行"就放行）；首次接入须显式开关。"""
