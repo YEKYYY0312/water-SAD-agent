@@ -863,6 +863,29 @@ def make_finalize(
     if request_context is None:
         request_context = local_request_context(thread_id="chat-agentic_loop")
 
+    def _guard_output(answer: str) -> Any:
+        outcome = pipeline.check_output(
+            answer,
+            request_context,
+            citations_verified=True,
+            structured_output_ok=True,
+        )
+        if trace is not None:
+            try:
+                payload = outcome.trace_payload()
+                trace.record_guardrail_event(
+                    stage="output",
+                    action=payload.get("action", ""),
+                    rule_id=payload.get("rule_id", ""),
+                    ruleset_version=payload.get("ruleset_version", ""),
+                    code=payload.get("code"),
+                    hits=payload.get("hits", []),
+                    input_hash=trace.hash_input(outcome.content) if outcome.content else "",
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
+        return outcome
+
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
         answer_message = _final_answer_message(state.get("messages", []))
         answer = final_answer_text(state.get("messages", []))
@@ -885,28 +908,9 @@ def make_finalize(
                 )
             return {"answer": "", "status": STATUS_BLOCKED}
 
-        # 输出护栏：仅在引用校验通过（succeeded）且有答案时执行；与引用校验组合。
+        # 输出护栏：succeeded 与引用校验组合；failed 的回答同样要过（见下方分支）。
         if status == STATUS_SUCCEEDED and answer:
-            outcome = pipeline.check_output(
-                answer,
-                request_context,
-                citations_verified=True,
-                structured_output_ok=True,
-            )
-            if trace is not None:
-                try:
-                    payload = outcome.trace_payload()
-                    trace.record_guardrail_event(
-                        stage="output",
-                        action=payload.get("action", ""),
-                        rule_id=payload.get("rule_id", ""),
-                        ruleset_version=payload.get("ruleset_version", ""),
-                        code=payload.get("code"),
-                        hits=payload.get("hits", []),
-                        input_hash=trace.hash_input(outcome.content) if outcome.content else "",
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass
+            outcome = _guard_output(answer)
             if not outcome.allowed:
                 errors.append(
                     f"输出未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
@@ -956,6 +960,20 @@ def make_finalize(
                             pass
                 except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
                     pass
+        elif status == STATUS_FAILED and answer:
+            # 失败运行的回答照样会返回并显示（带失败状态与原因），此前却完全不过输出护栏：
+            # 引用重试耗尽的回答里带危险指令也原样下发（review 2026-09-30）。这里只查危险
+            # 指令与 PII/凭据——与 Web 历史投影同一口径；引用未通过由 failed 状态本身表达。
+            outcome = _guard_output(answer)
+            if not outcome.allowed:
+                errors.append(
+                    f"输出未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
+                )
+                answer = ""
+                rewrites = _rewrite(answer_message, BLOCKED_OUTPUT_PLACEHOLDER)
+            elif outcome.content != answer:
+                rewrites = _rewrite(answer_message, outcome.content)
+                answer = outcome.content
 
         if trace is not None and trace.started:
             trace.finish(
@@ -1160,7 +1178,15 @@ async def astream_agentic(
             final_state = payload
         elif mode == "messages" and isinstance(payload, tuple) and payload:
             chunk = payload[0]
-            content = getattr(chunk, "content", "")
-            if isinstance(content, str) and content and on_token is not None:
-                on_token(content)
+            # 只转发模型的文本回复：ToolMessage（检索原始 JSON）、校验器回流提示、带 tool_calls
+            # 的前置文本都不是回答（此前全部当成回答 token 推出去，review 2026-09-30）。
+            if (
+                on_token is not None
+                and isinstance(chunk, AIMessage)
+                and not chunk.tool_calls
+                and not getattr(chunk, "tool_call_chunks", None)
+            ):
+                content = _message_text(chunk)
+                if content:
+                    on_token(content)
     return final_state
