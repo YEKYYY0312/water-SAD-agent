@@ -138,6 +138,8 @@ class CalcCase(BaseModel):
     tolerances: CalcTolerances = Field(default_factory=CalcTolerances)
     expected_status: str = "succeeded"
     expected_assumptions: list[str] = Field(default_factory=list)
+    #: 缺参用例期望子图报告的缺失参数（集合比对）；空 = 不比对。
+    expected_missing_inputs: list[str] = Field(default_factory=list)
     variant: str = "programmatic"
     spec_ref: str = ""
 
