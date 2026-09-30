@@ -5,7 +5,7 @@ import { Icon } from "./icons";
 import { formatBytes, UPLOAD_ACCEPT, uploadNotice, type UploadRecord } from "./uploadApi.ts";
 import type { Attachment, ExportState } from "./useWorkspaceController";
 import type { Project, WorkspaceSession } from "./workspaceApi";
-import type { ConversationMessage, WorkspaceRunState } from "./workspaceState";
+import { isTerminalStatus, type ConversationMessage, type WorkspaceRunState } from "./workspaceState.ts";
 import { AnswerMarkdown } from "./AnswerMarkdown.tsx";
 
 export type { ConversationMessage } from "./workspaceState.ts";
@@ -328,7 +328,8 @@ export function ConversationPanel({
   const fileInput = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = useState(false);
-  const answer = run.answer || run.tokens;
+  // 收口后只显示 finalize 给出的回答；token 只作为运行中的进度预览。
+  const answer = run.answer || (isTerminalStatus(run.status) ? "" : run.tokens);
   const uploading = attachments.some((item) => item.status === "uploading");
   const hasReadyAttachment = attachments.some((item) => item.status === "ready");
   const empty = session !== null && messages.length === 0 && !answer && !streaming && run.status === "idle";
