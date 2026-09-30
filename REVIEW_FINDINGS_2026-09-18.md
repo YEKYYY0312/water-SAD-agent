@@ -316,9 +316,7 @@ git commit -m "feat(drawing): 入库 P2–P5.1 真实图纸链路（MIF/符号�
 - MIF 转义解码：1,320 条 → 残留 0
 - INSERT 块展开：PUMP-03 = 5,729 → 5,922 实体
 
-决策记录见 docs/P2/P3/P5.1_COMPLETION_REPORT.md
-
-Co-authored-by: Claude Code <claude-code@anthropic.com>"
+决策记录见 docs/P2/P3/P5.1_COMPLETION_REPORT.md"
 ```
 
 ---
@@ -346,5 +344,4 @@ Co-authored-by: Claude Code <claude-code@anthropic.com>"
 
 ---
 
-**生成时间**: 2026-09-18  
-**Review 人**: Claude (Opus 5)
+**生成时间**: 2026-09-18

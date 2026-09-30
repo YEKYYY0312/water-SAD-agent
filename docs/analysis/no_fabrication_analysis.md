@@ -240,5 +240,4 @@ for article in context_articles:
 
 ---
 
-**分析人**: Claude (Opus 5)  
 **复测报告**: `data/eval/reports/rag_p1_20260916T012131386910Z.json`
