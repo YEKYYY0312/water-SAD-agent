@@ -728,6 +728,11 @@ class HarnessRunner:
                 warnings=last.get("warnings", []) or [],
                 tool_rejected_citations=rejected_by_tool,
                 script_steps_used=int(model.state["calls"]),
+                model_inputs=[
+                    message.content if isinstance(message.content, str) else str(message.content)
+                    for call in model.state["received"]
+                    for message in call
+                ],
             )
             reasons.extend(f"turn {number}: {reason}" for reason in turn_reasons)
         latency_ms = (time.perf_counter() - started) * 1000

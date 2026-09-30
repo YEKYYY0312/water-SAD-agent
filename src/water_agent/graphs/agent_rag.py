@@ -460,6 +460,9 @@ def make_agent_loop(
                 "status": STATUS_BLOCKED,
                 "errors": list(state.get("errors", [])) + [block_msg],
                 "answer": "",
+                "messages": _rewrite(
+                    _last_human_message(state.get("messages", [])), BLOCKED_INPUT_PLACEHOLDER
+                ),
             }
 
         # 缓存 lookup（真正 provider 调用之前；agentic 分类不可缓存 → 只会 MISS/INELIGIBLE）
@@ -525,6 +528,14 @@ def _message_text(message: BaseMessage) -> str:
     return "".join(parts)
 
 
+def _final_answer_message(messages: Sequence[BaseMessage]) -> AIMessage | None:
+    """本轮最后一条不带 tool_calls 的 AIMessage（:func:`final_answer_text` 的消息本体）。"""
+    for message in reversed(current_turn_messages(messages)):
+        if isinstance(message, AIMessage) and not message.tool_calls:
+            return message
+    return None
+
+
 def final_answer_text(messages: Sequence[BaseMessage]) -> str:
     """本轮最终回答：本轮最后一条**不带 tool_calls** 的 AIMessage 的文本，空白即无回答。
 
@@ -535,11 +546,32 @@ def final_answer_text(messages: Sequence[BaseMessage]) -> str:
       以及校验器注入的合成调用都不是回答；
     - 最后那条回复为空就是没有回答，不回头找更早的草稿——那些已被校验器驳回。
     """
-    for message in reversed(current_turn_messages(messages)):
-        if isinstance(message, AIMessage) and not message.tool_calls:
-            text = _message_text(message)
-            return text if text.strip() else ""
-    return ""
+    message = _final_answer_message(messages)
+    if message is None:
+        return ""
+    text = _message_text(message)
+    return text if text.strip() else ""
+
+
+#: 被输入护栏拦下的问题在会话里只留占位：原文若留在 checkpoint，下一轮会原样发给模型
+#: （追问一句"请继续"即绕过输入护栏，review 2026-09-30 实测）。
+BLOCKED_INPUT_PLACEHOLDER = "[该条输入未通过护栏校验，已拦截]"
+#: 被输出护栏拦截的回答同理：会话里只留占位，不让模型在后续轮次看到它。
+BLOCKED_OUTPUT_PLACEHOLDER = "[该条回答未通过输出护栏，已撤回]"
+
+
+def _rewrite(message: BaseMessage | None, text: str) -> list[BaseMessage]:
+    """同 id 改写一条消息的正文（``add_messages`` 按 id 替换），没有目标就什么都不做。"""
+    if message is None or message.id is None:
+        return []
+    return [message.model_copy(update={"content": text})]
+
+
+def _last_human_message(messages: Sequence[BaseMessage]) -> HumanMessage | None:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return message
+    return None
 
 
 # 明确"未检索到依据"的拒答表述（程序化关键词匹配，LLM 不参与判断）。
@@ -832,7 +864,9 @@ def make_finalize(
         request_context = local_request_context(thread_id="chat-agentic_loop")
 
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
+        answer_message = _final_answer_message(state.get("messages", []))
         answer = final_answer_text(state.get("messages", []))
+        rewrites: list[BaseMessage] = []
         status = state.get("status", STATUS_FAILED)
         errors = list(state.get("errors", []))
         if status == STATUS_SUCCEEDED and not answer:
@@ -879,7 +913,11 @@ def make_finalize(
                 )
                 status = STATUS_BLOCKED
                 answer = ""
+                rewrites = _rewrite(answer_message, BLOCKED_OUTPUT_PLACEHOLDER)
             else:
+                if outcome.content != answer:
+                    # 脱敏后的文本才是用户看到的回答；会话里保留原文，下一轮就会原样发给模型
+                    rewrites = _rewrite(answer_message, outcome.content)
                 answer = outcome.content
 
             # 缓存写入资格：agentic 分类不可缓存（REASON_CATEGORY），恒 INELIGIBLE。
@@ -931,6 +969,7 @@ def make_finalize(
             "status": status,
             "errors": errors,
             "warnings": list(state.get("warnings", [])),
+            "messages": rewrites,
         }
 
     return finalize
