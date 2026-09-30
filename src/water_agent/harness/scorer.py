@@ -143,6 +143,7 @@ def score_agentic_turn(
     warnings: Iterable[str],
     tool_rejected_citations: Iterable[str],
     script_steps_used: int,
+    model_inputs: Iterable[str] = (),
 ) -> list[str]:
     """mock-agentic 用例一轮的判分原因（空 = 通过）。
 
@@ -188,6 +189,10 @@ def score_agentic_turn(
     for fragment in turn.answer_must_not_contain:
         if fragment in answer:
             reasons.append(f"answer must not contain {fragment!r}")
+    seen_by_model = "\n".join(model_inputs)
+    for fragment in turn.model_input_must_not_contain:
+        if fragment in seen_by_model:
+            reasons.append(f"model input must not contain {fragment!r}")
     unused = len(turn.script) - script_steps_used
     if unused > 0:
         reasons.append(f"script has {unused} unused step(s): the loop stopped earlier than scripted")
