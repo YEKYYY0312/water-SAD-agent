@@ -1,6 +1,7 @@
 """确定性评测判分器。"""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -210,6 +211,30 @@ def score_calc_case(
     )
 
 
+# 模板数值行形如 "- velocity_mps = 1.13177 m/s"（templates.render_docgen_doc 的唯一写法）
+_RENDERED_KEY_VALUE_RE = re.compile(r"^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S+)")
+
+
+def _rendered_key_values(rendered: RenderedDoc) -> dict[str, str]:
+    """正文里的 ``key = value`` 行（首次出现为准）。"""
+    shown: dict[str, str] = {}
+    for section in rendered.sections:
+        for line in section.lines:
+            match = _RENDERED_KEY_VALUE_RE.match(line)
+            if match:
+                shown.setdefault(match.group(1), match.group(2))
+    return shown
+
+
+def _shows_value(raw: str, expected: float, tolerances: CalcTolerances) -> bool:
+    """正文展示值是否就是 ``expected``：模板按 ``:g``（≤6 位有效数字）展示，按展示刻度比。"""
+    try:
+        shown = float(raw)
+    except ValueError:
+        return False
+    return _within_tolerance(shown, float(f"{expected:g}"), tolerances)
+
+
 def score_docgen_case(
     case: DocgenCase,
     *,
@@ -265,10 +290,19 @@ def score_docgen_case(
         )
 
     # 结构：canonical 必需章节（按 doc_type 恒查）+ 用例级追加（只能更严，不能清空）
+    required_section_names = set(REQUIRED_SECTIONS[rendered.doc_type]) | set(case.required_sections)
     present = {normalize_heading(section.heading) for section in rendered.sections}
-    missing = sorted((set(REQUIRED_SECTIONS[rendered.doc_type]) | set(case.required_sections)) - present)
+    missing = sorted(required_section_names - present)
     if missing:
         reasons.append(f"required sections missing: {missing}")
+    # 章节在、正文空 = 什么都没写（模板对每个必需章节至少写一行，缺依据/缺数值也会写明）
+    empty = sorted(
+        normalize_heading(section.heading)
+        for section in rendered.sections
+        if normalize_heading(section.heading) in required_section_names and not section.lines
+    )
+    if empty:
+        reasons.append(f"empty section: {empty}")
 
     values = rendered.calc_values
     for key, gold_value in case.required_values.items():
@@ -281,12 +315,42 @@ def score_docgen_case(
                 f"tol(rel={case.tolerances.relative}, abs={case.tolerances.absolute})"
             )
 
+    # 正文：结构化映射之外，还要核对渲染出来的文字。calc_values / citation_ids 就是输入的
+    # 拷贝，只比它们等于同义反复——正文数字全错或被清空也判通过（review 2026-09-30）。
+    input_values = {
+        key: float(value)
+        for key, value in (case.calc_result or {}).items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    shown = _rendered_key_values(rendered)
+    for key, raw in shown.items():
+        if key not in input_values:
+            reasons.append(f"rendered value for a key not in the input: {key} = {raw}")
+        elif not _shows_value(raw, input_values[key], case.tolerances):
+            reasons.append(f"rendered value mismatch: {key} = {raw}（输入 {input_values[key]:g}）")
+    for key in case.required_values:
+        if key not in shown:
+            reasons.append(f"required value {key!r} not shown in the rendered text")
+        elif not _shows_value(shown[key], case.required_values[key], case.tolerances):
+            reasons.append(
+                f"rendered value mismatch: {key} = {shown[key]}（gold {case.required_values[key]:g}）"
+            )
+
     actual_ids = rendered.citation_ids
+    basis_text = "\n".join(
+        line
+        for section in rendered.sections
+        if normalize_heading(section.heading) == "设计依据"
+        for line in section.lines
+    )
     for required in case.citations_required:
         if required not in actual_ids:
             reasons.append(f"required citation not rendered: {required}")
+        elif required not in basis_text:
+            reasons.append(f"required citation not rendered under 设计依据: {required}")
+    rendered_text = rendered.text
     for forbidden in case.citations_forbidden:
-        if forbidden in actual_ids:
+        if forbidden in actual_ids or forbidden in rendered_text:
             reasons.append(f"forbidden citation rendered: {forbidden}")
 
     for problem in validate_citation_policy(rendered):
