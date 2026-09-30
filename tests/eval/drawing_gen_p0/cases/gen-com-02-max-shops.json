@@ -1,0 +1,84 @@
+{
+  "case_id": "gen-com-02-max-shops",
+  "description": "商业 5 层每层 8 个商铺，层高 5.1 m，不锈钢",
+  "request": {
+    "system_type": "给水",
+    "building_type": "商业",
+    "floors": 5,
+    "units_per_floor": 8,
+    "riser_position": "边角",
+    "main_pipe": {
+      "dn": "DN100",
+      "material": "不锈钢"
+    },
+    "branch_pipe": {
+      "dn": "DN32",
+      "material": "不锈钢"
+    },
+    "flow_rate_lps": 5.0,
+    "pressure_mpa": 0.5,
+    "floor_height_m": 5.1
+  },
+  "expect": {
+    "ok": true,
+    "riser_position": "边角",
+    "riser_position_defaulted": false,
+    "main_velocity_mps": 0.6366,
+    "branch_velocity_mps": null,
+    "velocity_tolerance": 0.001,
+    "main_advisory": "within",
+    "warnings_contains": [
+      "支管流速未校核"
+    ],
+    "missing_inputs_contains": [
+      "branch_flow_rate_lps"
+    ],
+    "sheets": {
+      "plan": {
+        "pipe_runs": 10,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-AXIS"
+        ],
+        "min_entities": 40
+      },
+      "schematic": {
+        "pipe_runs": 51,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-PIPE-BRANCH",
+          "WS-VALVE",
+          "WS-METER",
+          "WS-TEXT",
+          "WS-DIM"
+        ],
+        "min_entities": 160
+      },
+      "detail": {
+        "pipe_runs": 4,
+        "layers": [
+          "WS-PIPE-MAIN",
+          "WS-VALVE",
+          "WS-TEXT",
+          "WS-OUTLINE"
+        ],
+        "min_entities": 15
+      }
+    },
+    "all_pipe_dn_matched": true,
+    "riser_segments": 5,
+    "branch_groups": 5,
+    "review": {
+      "min_not_checked": 1,
+      "summary_must_not_contain": [
+        "均未发现问题",
+        "审查通过",
+        "0 缺陷"
+      ]
+    }
+  }
+}

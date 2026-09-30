@@ -56,6 +56,10 @@ class DrawingReviewText:
     not_checked: int
     suspicious_entities: int
     truncated: bool
+    #: 审查结论原文（`ReviewResult.summary()`）与未检查项原文：P6-S1 出图复审原样转交前端，
+    #: 不必从报告文本里再解析一遍（报告格式仍只有 `render_report_text` 一处定义）。
+    summary: str = ""
+    not_checked_items: tuple[str, ...] = ()
 
 
 def check_dxf_magic(data: bytes) -> None:
@@ -252,6 +256,8 @@ def review_uploaded_dxf(
         not_checked=counts.not_checked,
         suspicious_entities=counts.suspicious_entities,
         truncated=counts.truncated,
+        summary=report.summary,
+        not_checked_items=tuple(report.not_checked),
     )
 
 

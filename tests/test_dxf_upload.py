@@ -135,6 +135,28 @@ def test_bad_uploads_are_400_and_leave_no_record(database: Database, tmp_path: P
 # ---------------------------------------------------------------------------
 
 
+def test_water_supply_only_upload_is_not_reported_as_clean(tmp_path: Path) -> None:
+    """P6-S1 实测：纯给水 DXF 的报告曾是"未检查 0 项 / 已检查的规则均未发现问题"。"""
+
+    import io
+
+    import ezdxf
+
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 4
+    doc.layers.add("WS-PIPE-MAIN")
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (3000, 0), dxfattribs={"layer": "WS-PIPE-MAIN"})
+    msp.add_text("DN50", dxfattribs={"layer": "WS-PIPE-MAIN", "height": 350}).set_placement((1500, 12))
+    stream = io.StringIO()
+    doc.write(stream)
+    review = review_uploaded_dxf(stream.getvalue().encode("utf-8"), display_name="给水.dxf")
+    assert review.not_checked >= 1
+    assert "未检查 0 项" not in review.text
+    assert "均未发现问题" not in review.text
+    assert "未对任何管段执行规则判定" in review.text
+
+
 def test_review_text_keeps_counts_header_and_not_checked_section(tmp_path: Path) -> None:
     review = review_uploaded_dxf(_synthetic(tmp_path), display_name="给水平面图.dxf")
     assert review.text.startswith("【DXF 程序化审查报告】已审查管段 ")
