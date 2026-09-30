@@ -588,3 +588,84 @@ class TestMentionedClauseReflow:
         assert "GB50014-2021 7.4.3" in feedback and "7.4.4" not in feedback
         assert "调用 cite_clauses" in feedback
         assert "citations" not in out, "校验器只提示，绝不代为声明引用"
+
+
+class TestFinalAnswerIsThisTurnsLastTextReply:
+    """review 2026-09-30：收口只认"本轮最后一条不带 tool_calls 的 AIMessage 的非空文本"。
+
+    此前有引用分支不查回答是否为空（cite 后空回答 → succeeded、answer=''）；零引用分支与
+    finalize 取答案时扫描整条 thread，上一轮的回答会被拿来判定、被当成本轮答案返回。
+    """
+
+    @staticmethod
+    def _invoke(app, text: str, thread: str = "t-final"):
+        return app.invoke(
+            {"messages": [HumanMessage(content=text)], **PER_TURN_RESET},
+            config={"configurable": {"thread_id": thread}},
+        )
+
+    def _app(self, retriever, responses, saver, **kwargs):
+        model = FakeMessagesListChatModel(responses=responses)
+        return build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver, **kwargs)
+
+    def test_valid_citation_with_an_empty_reply_fails(self, retriever) -> None:
+        with MemorySaver() as saver:
+            app = self._app(retriever, [_retrieve_call(retriever), _cite_call(["FIX 1.1.1"]), _assistant("")], saver)
+            out = self._invoke(app, "设计秒流量如何确定")
+        assert out["status"] == "failed"
+        assert out["answer"] == ""
+        assert any("文本回答" in error for error in out["errors"]), out["errors"]
+
+    def test_whitespace_reply_is_not_an_answer(self, retriever) -> None:
+        with MemorySaver() as saver:
+            app = self._app(retriever, [_retrieve_call(retriever), _cite_call(["FIX 1.1.1"]), _assistant("  \n ")], saver)
+            out = self._invoke(app, "设计秒流量如何确定")
+        assert out["status"] == "failed"
+
+    def test_text_attached_to_a_tool_call_is_not_the_answer(self, retriever) -> None:
+        """"我来检索一下"这类附在 tool_call 上的前置文本不是回答。"""
+        cite_with_preamble = _assistant(
+            "我来声明引用。",
+            tool_calls=[{"name": "cite_clauses", "args": {"article_ids": ["FIX 1.1.1"]}, "id": "c-cite"}],
+        )
+        with MemorySaver() as saver:
+            app = self._app(retriever, [_retrieve_call(retriever), cite_with_preamble, _assistant("")], saver)
+            out = self._invoke(app, "设计秒流量如何确定")
+        assert out["status"] == "failed"
+        assert out["answer"] == ""
+
+    def test_previous_turns_answer_is_never_this_turns_answer(self, retriever) -> None:
+        with MemorySaver() as saver:
+            app = self._app(
+                retriever,
+                [
+                    _assistant("你好，我是给排水设计助手。"),
+                    _retrieve_call(retriever),
+                    _cite_call(["FIX 1.1.1"], call_id="c-cite-2"),
+                    _assistant(""),
+                ],
+                saver,
+            )
+            first = self._invoke(app, "你好")
+            second = self._invoke(app, "设计秒流量如何确定")
+        assert first["status"] == "succeeded"
+        assert second["status"] == "failed"
+        assert "你好，我是给排水设计助手" not in second["answer"]
+
+    def test_a_turn_that_fails_inside_the_loop_returns_no_stale_answer(self, retriever) -> None:
+        """第 2 轮在循环里超预算失败：返回的 answer 不得是第 1 轮的回答。"""
+        runaway = _assistant(
+            "",
+            tool_calls=[{"name": "retrieve_clauses", "args": {"query": "排水", "top_k": 5}, "id": "c-loop"}],
+        )
+        with MemorySaver() as saver:
+            app = self._app(
+                retriever,
+                [_assistant("你好，我是给排水设计助手。"), *([runaway] * 10)],
+                saver,
+                max_tool_turns=2,
+            )
+            self._invoke(app, "你好")
+            second = self._invoke(app, "排水管道怎么设计")
+        assert second["status"] == "failed"
+        assert second["answer"] == ""
