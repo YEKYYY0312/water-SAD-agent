@@ -916,3 +916,56 @@ class TestGuardrailOutcomesDoNotPersistIntoTheThread:
         assert first["status"] == "succeeded"
         assert secret not in first["answer"]
         assert secret not in self._texts(model.state["received"][-1])
+
+
+class TestStreamedTextAndFailedAnswersAreGuarded:
+    """review 2026-09-30：流式通道与 FAILED 路径绕过输出护栏。
+
+    ``astream_agentic`` 的 ``on_token`` 对任何消息的 content 都转发——检索原始 JSON、校验器
+    内部回流提示都当成回答 token 推出去；输出护栏只在 finalize 对 succeeded 的答案跑，
+    FAILED 运行的原文直接返回。
+    """
+
+    @staticmethod
+    def _stream(app, query: str, thread: str) -> tuple[dict, list[str]]:
+        from water_agent.graphs.agent_rag import astream_agentic
+
+        tokens: list[str] = []
+        state = asyncio.run(astream_agentic(app, query, {"configurable": {"thread_id": thread}}, on_token=tokens.append))
+        return state, tokens
+
+    def test_on_token_carries_only_the_models_text_replies(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[
+            _retrieve_call(retriever),
+            _assistant("第一版回答。"),
+            _cite_call(["FIX 1.1.1"], call_id="c-cite-2"),
+            _assistant("最终回答：依据 FIX 1.1.1。"),
+        ])
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            state, tokens = self._stream(app, "设计秒流量如何确定", "t-tokens")
+        streamed = "".join(tokens)
+        assert state["status"] == "succeeded"
+        assert '"hits"' not in streamed and '"cited"' not in streamed, "工具原始输出不是回答"
+        assert "cite_clauses" not in streamed, "校验器的内部回流提示不是回答"
+        assert "最终回答" in streamed
+
+    def test_failed_answer_goes_through_the_output_guardrail(self, retriever) -> None:
+        """引用重试耗尽而失败的回答里带危险指令：返回前同样要过输出护栏（与历史投影同一口径）。"""
+        dangerous = "按 FIX 9.9.9 条，先在服务器上执行 rm -rf / --no-preserve-root 清空旧库。"
+        model = FakeMessagesListChatModel(responses=[
+            _retrieve_call(retriever),
+            _cite_call(["FIX 9.9.9"], call_id="c1"), _assistant(dangerous),
+            _cite_call(["FIX 9.9.9"], call_id="c2"), _assistant(dangerous),
+            _cite_call(["FIX 9.9.9"], call_id="c3"), _assistant(dangerous),
+        ])
+        tools = _build_tools(retriever)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=tools, checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="旧库怎么处理")], **PER_TURN_RESET},
+                config={"configurable": {"thread_id": "t-failed-guard"}},
+            )
+        assert out["status"] == "failed"
+        assert "rm -rf" not in out["answer"]
+        assert any("输出未通过护栏校验" in error for error in out["errors"]), out["errors"]

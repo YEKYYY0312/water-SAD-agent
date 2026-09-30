@@ -144,6 +144,7 @@ def score_agentic_turn(
     tool_rejected_citations: Iterable[str],
     script_steps_used: int,
     model_inputs: Iterable[str] = (),
+    streamed: str = "",
 ) -> list[str]:
     """mock-agentic 用例一轮的判分原因（空 = 通过）。
 
@@ -193,6 +194,9 @@ def score_agentic_turn(
     for fragment in turn.model_input_must_not_contain:
         if fragment in seen_by_model:
             reasons.append(f"model input must not contain {fragment!r}")
+    for fragment in turn.stream_must_not_contain:
+        if fragment in streamed:
+            reasons.append(f"streamed tokens must not contain {fragment!r}")
     unused = len(turn.script) - script_steps_used
     if unused > 0:
         reasons.append(f"script has {unused} unused step(s): the loop stopped earlier than scripted")

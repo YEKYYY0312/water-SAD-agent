@@ -305,6 +305,8 @@ class AgenticTurn(BaseModel):
     answer_must_not_contain: list[str] = Field(default_factory=list)
     #: 这一轮模型实际收到的全部消息里不得出现的片段（例如被护栏拦下的上一轮内容）。
     model_input_must_not_contain: list[str] = Field(default_factory=list)
+    #: 这一轮 ``on_token`` 流式通道里不得出现的片段（工具原始输出、校验器回流提示等）。
+    stream_must_not_contain: list[str] = Field(default_factory=list)
 
 
 class AgenticCase(BaseModel):

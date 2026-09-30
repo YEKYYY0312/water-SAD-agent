@@ -311,13 +311,13 @@
     "agentic_p0": {
       "input_path": "data/eval/agentic_p0.jsonl",
       "variant": "per-case",
-      "total": 18,
-      "passed": 18,
+      "total": 19,
+      "passed": 19,
       "failed": 0,
       "skipped": 0,
       "pass_rate": 1.0,
       "citation_ok_rate": 1.0,
-      "avg_latency_ms": 18.52,
+      "avg_latency_ms": 18.12,
       "retrieval_metrics": {
         "queries": 0.0,
         "recall_at_1": 0.0,
@@ -343,7 +343,8 @@
         "agentic-p0-0015",
         "agentic-p0-0016",
         "agentic-p0-0017",
-        "agentic-p0-0018"
+        "agentic-p0-0018",
+        "agentic-p0-0019"
       ],
       "case_ids": [
         "agentic-p0-0001",
@@ -363,9 +364,10 @@
         "agentic-p0-0015",
         "agentic-p0-0016",
         "agentic-p0-0017",
-        "agentic-p0-0018"
+        "agentic-p0-0018",
+        "agentic-p0-0019"
       ],
-      "source_report": "agentic_p0_20260930T094805206220Z.json"
+      "source_report": "agentic_p0_20260930T095823490757Z.json"
     }
   }
 }
