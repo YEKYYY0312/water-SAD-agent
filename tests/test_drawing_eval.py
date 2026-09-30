@@ -189,6 +189,21 @@ class TestCompareDrawingReports:
         assert result["passed"] is False
         assert "false_positive_rate" in result["reason"]
 
+    def test_vanished_baseline_case_fails(self) -> None:
+        """基线里的用例在 HEAD 报告里消失（其余全过）→ 判失败。
+
+        此前 PTP 只看 ``case_id in head_ids``：删掉 dw-006（投毒标注用例）后 7/7、比较器
+        放行（review 2026-09-30）。
+        """
+        from scripts.compare_drawing_p0 import compare_reports
+
+        base = self._report([f"dw-{i:03d}" for i in range(1, 9)])
+        head = self._report([f"dw-{i:03d}" for i in range(1, 9)])
+        head["cases"] = [case for case in head["cases"] if case["case_id"] != "dw-006"]
+        result = compare_reports(head, base)
+        assert result["passed"] is False
+        assert "dw-006" in result["reason"]
+
     def test_no_baseline_passes_with_init_hint(self) -> None:
         from scripts.compare_drawing_p0 import compare_reports
 
