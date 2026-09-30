@@ -669,3 +669,104 @@ class TestFinalAnswerIsThisTurnsLastTextReply:
             second = self._invoke(app, "排水管道怎么设计")
         assert second["status"] == "failed"
         assert second["answer"] == ""
+
+
+class TestZeroCitationExemptionsHonourIronRule2:
+    """review 2026-09-30：零引用豁免的条件写反了，且"未检索到"是一句能绕过铁律 2 的魔法短语。
+
+    - 不检索、回答写"未检索到相关条款……流速宜控制在 0.6~1.5 m/s" → 此前 succeeded 且无 warning；
+    - 诚实检索、零命中、回答"未检索到相关条款，无法提供条款依据" → 此前回流后 failed；
+    - "严禁……必须……"这类不含数字的定性强制结论被当成非规范性回答放行。
+    """
+
+    MAGIC = "未检索到相关条款。一般做法：给水管道流速宜控制在 0.6~1.5 m/s，不宜超过 2.0 m/s。"
+    QUALITATIVE = "生活饮用水管道严禁与大便器直接连接，必须设置空气隔断或真空破坏器。"
+    HONEST = "未检索到相关条款，无法提供条款依据。"
+
+    @staticmethod
+    def _invoke(app, text: str, thread: str = "t-exempt"):
+        return app.invoke(
+            {"messages": [HumanMessage(content=text)], **PER_TURN_RESET},
+            config={"configurable": {"thread_id": thread}},
+        )
+
+    @staticmethod
+    def _zero_hit_retrieve() -> AIMessage:
+        return _assistant(
+            "",
+            tool_calls=[{"name": "retrieve_clauses", "args": {"query": "量子纠缠", "top_k": 5}, "id": "c-zero"}],
+        )
+
+    def _app(self, retriever, responses, saver):
+        model = FakeMessagesListChatModel(responses=responses)
+        return build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+
+    def test_no_basis_phrase_does_not_exempt_a_numeric_normative_answer(self, retriever) -> None:
+        with MemorySaver() as saver:
+            app = self._app(retriever, [_assistant(self.MAGIC), _assistant(self.MAGIC)], saver)
+            out = self._invoke(app, "给水管道流速多少合适")
+        assert out["status"] == "failed"
+        assert out["empty_citation_reflows"] == 1
+
+    def test_qualitative_mandatory_wording_is_normative(self, retriever) -> None:
+        with MemorySaver() as saver:
+            app = self._app(retriever, [_assistant(self.QUALITATIVE), _assistant(self.QUALITATIVE)], saver)
+            out = self._invoke(app, "生活饮用水管道能否与大便器直接连接")
+        assert out["status"] == "failed"
+        assert WARNING_NON_NORMATIVE_NO_CITATION not in out.get("warnings", [])
+
+    def test_honest_refusal_after_a_zero_hit_retrieval_succeeds_visibly(self, retriever) -> None:
+        from water_agent.graphs.agent_rag import WARNING_NO_BASIS_REFUSAL
+
+        with MemorySaver() as saver:
+            app = self._app(retriever, [self._zero_hit_retrieve(), _assistant(self.HONEST)], saver)
+            out = self._invoke(app, "量子纠缠对给水管道有什么影响")
+        assert out["status"] == "succeeded", out["errors"]
+        assert out["citations"] == []
+        assert out.get("empty_citation_reflows", 0) == 0
+        assert out["warnings"] == [WARNING_NO_BASIS_REFUSAL]
+
+    def test_honest_refusal_with_hits_is_accepted_only_after_one_reflow(self, retriever) -> None:
+        """检索有命中时先回流一次（给模型引用的机会）；回流后仍明确说明依据不足 → 放行并标 warning。
+
+        回流文案本身就写着"若检索结果不足以支撑正式引用，请明确说明依据不足"——照做却判
+        失败，等于文案在说谎。
+        """
+        from water_agent.graphs.agent_rag import WARNING_NO_BASIS_REFUSAL
+
+        with MemorySaver() as saver:
+            app = self._app(
+                retriever,
+                [_retrieve_call(retriever), _assistant("未找到相关依据。"), _assistant("检索结果依据不足，无法提供条款依据。")],
+                saver,
+            )
+            out = self._invoke(app, "设计秒流量如何确定")
+        assert out["status"] == "succeeded", out["errors"]
+        assert out["empty_citation_reflows"] == 1
+        assert out["warnings"] == [WARNING_NO_BASIS_REFUSAL]
+
+    def test_reflow_feedback_does_not_claim_hits_when_this_turn_had_none(self, retriever) -> None:
+        """本轮零命中、前几轮有检索时，回流文案不得说"本轮 retrieve_clauses 已返回相关条款"。"""
+        with MemorySaver() as saver:
+            app = self._app(
+                retriever,
+                [
+                    _retrieve_call(retriever),
+                    _cite_call(["FIX 1.1.1"]),
+                    _assistant("设计秒流量按规范条文确定。"),
+                    self._zero_hit_retrieve(),
+                    _assistant("流速宜控制在 1 m/s 左右。"),
+                    _assistant("流速宜控制在 1 m/s 左右。"),
+                ],
+                saver,
+            )
+            self._invoke(app, "设计秒流量如何确定")
+            second = self._invoke(app, "量子纠缠管道流速多少")
+        feedback = [
+            str(m.content)
+            for m in current_turn_messages(second["messages"])
+            if isinstance(m, ToolMessage) and m.name == "citation_validator"
+        ]
+        assert feedback
+        assert "已返回相关条款" not in feedback[0]
+        assert "没有返回结果" in feedback[0]
