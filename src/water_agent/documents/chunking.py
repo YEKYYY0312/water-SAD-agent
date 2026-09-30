@@ -11,6 +11,11 @@ article 语义 + 父子块 + 表格识别），自由文本套不上，硬套只
 页码归属：PDF 提取器写出 ``--- Page {n} ---`` 标记（
 :data:`~water_agent.documents.extractors.PAGE_MARKER_TEMPLATE`），这里按标记分段并把
 页号带进每个块。标记本身不进块正文（它不是文档内容，进了检索就是噪声）。
+
+标记是**带内信号**，所以只对提取器声明分页（``paginated=True``）的文本生效，且提取器会先用
+:func:`neutralize_page_markers` 改写页面正文里形似标记的行（review 2026-09-30：此前任何
+txt/md/docx 里写一行 ``--- Page 0 ---`` 就被当成分页，页号 0 撞 ``page >= 1`` 约束变 500；
+``--- Page 42 ---`` 能伪造检索出处的页码）。
 """
 
 from __future__ import annotations
@@ -28,6 +33,14 @@ CHUNK_OVERLAP_TOKENS = 60
 
 #: 与 extractors.PAGE_MARKER_TEMPLATE 同构。两处必须一起改。
 _PAGE_MARKER_RE = re.compile(r"^\s*---\s*Page\s+(\d+)\s*---\s*$", re.MULTILINE)
+#: upload_chunks.page 是 int4 且有 ``page >= 1`` 约束；越界的页号一律当作无页号。
+_MAX_PAGE = 2**31 - 1
+
+
+def neutralize_page_markers(text: str) -> str:
+    """把正文里形似页码标记的行改写成不再匹配的样子（内容照留，只是不再是分页信号）。"""
+
+    return _PAGE_MARKER_RE.sub(lambda match: match.group(0).replace("---", "—"), text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,14 +52,14 @@ class UploadChunk:
     content: str
 
 
-def _split_pages(text: str) -> list[tuple[int | None, str]]:
+def _split_pages(text: str, *, paginated: bool) -> list[tuple[int | None, str]]:
     """按页码标记切分，返回 ``[(页号 | None, 该页文本), ...]``。
 
-    没有任何标记时返回单段 ``(None, 全文)`` —— docx/txt 没有页概念，
+    未声明分页、或没有任何标记时返回单段 ``(None, 全文)`` —— docx/txt 没有页概念，
     强行编一个页号会让引用说"第 1 页"而文档里根本没有分页。
     """
 
-    matches = list(_PAGE_MARKER_RE.finditer(text))
+    matches = list(_PAGE_MARKER_RE.finditer(text)) if paginated else []
     if not matches:
         stripped = text.strip()
         return [(None, stripped)] if stripped else []
@@ -59,17 +72,21 @@ def _split_pages(text: str) -> list[tuple[int | None, str]]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         body = text[match.end() : end].strip()
         if body:
-            pages.append((int(match.group(1)), body))
+            number = int(match.group(1))
+            pages.append((number if 1 <= number <= _MAX_PAGE else None, body))
     return pages
 
 
 def chunk_upload_text(
     text: str,
     *,
+    paginated: bool = False,
     target_tokens: int = CHUNK_TARGET_TOKENS,
     overlap_tokens: int = CHUNK_OVERLAP_TOKENS,
 ) -> list[UploadChunk]:
     """把提取文本切成有界块。空文本（如扫描件 PDF）返回空列表。
+
+    ``paginated``：文本是否带提取器写入的页码标记（只有 PDF 提取器会置真）。
 
     空列表是**合法结果**，不是错误：调用方据此记录 ``extracted_chars=0``，用户看到
     "这份 PDF 没有文本层"这一如实事实（spec R1）。
@@ -81,7 +98,7 @@ def chunk_upload_text(
         raise ValueError("overlap_tokens must be non-negative and smaller than target_tokens")
     chunks: list[UploadChunk] = []
     ordinal = 0
-    for page, page_text in _split_pages(text):
+    for page, page_text in _split_pages(text, paginated=paginated):
         # 先按段落聚到接近目标大小，再对超长段落做窗口切分：段落边界是语义边界，
         # 能整段放进一个块就不要在句子中间切。
         buffer: list[str] = []
@@ -123,4 +140,5 @@ __all__ = [
     "CHUNK_TARGET_TOKENS",
     "UploadChunk",
     "chunk_upload_text",
+    "neutralize_page_markers",
 ]

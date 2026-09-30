@@ -25,6 +25,7 @@ document instead would just make a poisoned upload look like a broken one.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -37,7 +38,11 @@ from water_agent.documents.errors import (
 )
 from water_agent.documents.extractors import extract_text, safe_filename, suffix_of
 from water_agent.documents.repository import UploadRecord, UploadRepository
-from water_agent.documents.storage import resolve_upload_dir, write_upload_files
+from water_agent.documents.storage import (
+    remove_upload_files,
+    resolve_upload_dir,
+    write_upload_files,
+)
 from water_agent.domain.models import content_hash_of
 from water_agent.runtime.governance.contracts import (
     CODE_INPUT_TOO_LARGE,
@@ -137,42 +142,52 @@ def ingest_upload(
     suffix = suffix_of(filename)
     stored_name = safe_filename(filename)
     extracted = extract_text(payload, suffix, display_name=stored_name)
+    # NUL 在这里统一剥掉：PostgreSQL 的 text 列存不了它（psycopg 直接 DataError → 500 +
+    # 孤儿文件），SQLite 却能存，所以离线测试一直看不见。各提取器都可能带出 NUL。
+    extracted_text = extracted.text.replace("\x00", "")
 
     try:
-        persisted_text, redaction_hits = guardrails.sanitize_for_persistence(extracted.text)
+        persisted_text, redaction_hits = guardrails.sanitize_for_persistence(extracted_text)
     except GovernanceError as exc:  # pragma: no cover -- defensive
         raise UploadError(CODE_UPLOAD_INJECTION_BLOCKED, "上传内容未通过脱敏检查") from exc
 
     upload_id = str(uuid4())
-    chunks, suspicious = _guard_chunks(guardrails, upload_id, chunk_upload_text(persisted_text))
+    chunks, suspicious = _guard_chunks(
+        guardrails, upload_id, chunk_upload_text(persisted_text, paginated=extracted.paginated)
+    )
 
     root = resolve_upload_dir(upload_root)
-    write_upload_files(
-        root,
-        upload_id,
-        filename=stored_name,
-        payload=payload,
-        extracted_text=persisted_text,
-    )
-
-    repository = UploadRepository(database)
-    record = repository.create(
-        upload_id=upload_id,
-        tenant_id=tenant_id,
-        owner_user_id=owner_user_id,
-        project_id=project_id,
-        filename=filename[:255],
-        safe_filename=stored_name,
-        suffix=suffix,
-        size_bytes=len(payload),
-        content_hash=content_hash_of(persisted_text),
-        extracted_chars=len(persisted_text),
-        page_count=extracted.page_count,
-        extract_engine=extracted.engine,
-        suspicious=suspicious or extracted.suspicious,
-        redacted=bool(redaction_hits),
-        chunks=chunks,
-    )
+    try:
+        write_upload_files(
+            root,
+            upload_id,
+            filename=stored_name,
+            payload=payload,
+            extracted_text=persisted_text,
+        )
+        record = UploadRepository(database).create(
+            upload_id=upload_id,
+            tenant_id=tenant_id,
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+            filename=filename.replace("\x00", "")[:255],
+            safe_filename=stored_name,
+            suffix=suffix,
+            size_bytes=len(payload),
+            content_hash=content_hash_of(persisted_text),
+            extracted_chars=len(persisted_text),
+            page_count=extracted.page_count,
+            extract_engine=extracted.engine,
+            suspicious=suspicious or extracted.suspicious,
+            redacted=bool(redaction_hits),
+            chunks=chunks,
+        )
+    except BaseException:
+        # 先落盘后入库：入库（或写盘本身）失败时必须回收这次的目录。此前留下的孤儿文件
+        # 在列表里看不到、也无法经 API 删除，上传卷只增不减。
+        with contextlib.suppress(OSError):
+            remove_upload_files(root, upload_id)
+        raise
     return UploadIngestResult(
         record=record,
         preview=persisted_text[:PREVIEW_CHARACTERS],
