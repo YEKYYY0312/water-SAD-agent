@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
-# 顺序：pytest → ruff → mypy → rag_p0 机制层 → calc_p0 ≥95%
-#      → docgen_p0 ≥95%（P2 文档生成）→ material_p0 ≥95%（P2 材料统计）
-#      → governance_p0 32/32（P2.5 治理）→ 基线对比。
+# 顺序：pytest → ruff → mypy → 机制层 runner 五套（rag/calc/docgen/material/governance）
+#      → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
+#
+# 判定只认退出码与入仓基线（review 2026-09-30）：
+# - 机制层 runner 必须 exit 0（全过 + 无加载问题 + 至少 1 条用例）；此前各步
+#   `2>/dev/null || true` 后只解析失败条数，数据集字段改名让用例静默变成加载问题、
+#   条数变少，门禁照样绿。用例是否被删由各比较器的"基线用例缺失"检查兜底。
+# - 基线文件缺失 = 失败。此前只打印"首次运行"就放行，删掉基线等于关掉回归判定；
+#   首次接入新套件时显式设 CI_GATE_ALLOW_MISSING_BASELINE=1。
 #
 # SKIP 语义：本门禁只跑机制层，不会因缺 Key 产生 SKIP；若未来加入真实变体
 # 分支，SKIP 用例须退出 0 且不参与基线比较（与 runner/compare_baseline 约定一致）。
@@ -33,13 +39,48 @@ FAILED=0
 step() { echo "==> $1"; }
 fail() { echo "!! $1"; FAILED=1; }
 
+# 本次门禁专属的报告目录：compare_baseline 取"最新报告"只在这里找，data/eval/reports
+# 里任意命名的旧拷贝不得压过本次结果（按文件名字典序取最新时曾实测判错）。
+GATE_REPORT_DIR="data/eval/reports/ci_gate"
+rm -rf "$GATE_REPORT_DIR"
+mkdir -p "$GATE_REPORT_DIR"
+# 诊断日志放每次门禁独有的临时目录：多个 worktree 并发跑门禁时不再互相覆盖。
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ci_gate.XXXXXX")"
+echo "门禁日志目录：$LOG_DIR"
+
+missing_baseline() {
+    # $1 = 套件名，$2 = 固化命令
+    if [ "${CI_GATE_ALLOW_MISSING_BASELINE:-0}" = "1" ]; then
+        echo "$1 无入仓基线（首次运行，CI_GATE_ALLOW_MISSING_BASELINE=1 显式放行）；固化：$2"
+    else
+        fail "$1 无入仓基线：没有基线就没有回归判定。固化：$2（首次接入可设 CI_GATE_ALLOW_MISSING_BASELINE=1）"
+    fi
+}
+
+run_suite() {
+    # 机制层 runner：exit 0 = 用例全过、无加载问题、至少 1 条用例；
+    # 1 = 有用例失败；2 = 加载问题或空数据集；3 = 真实组件构建失败（见 runner 模块头）。
+    local name="$1" jsonl="$2" rc=0
+    local out="$LOG_DIR/$name.json"
+    "$PY" -m water_agent.harness.runner "$jsonl" --report-dir "$GATE_REPORT_DIR" \
+        > "$out" 2> "$LOG_DIR/$name.err" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        tail -60 "$out"
+        tail -20 "$LOG_DIR/$name.err"
+        fail "$name runner exit=$rc（0=全过；1=有用例失败；2=加载问题或空数据集；3=真实组件失败）"
+        return 0
+    fi
+    "$PY" -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print("%s: %d/%d 通过" % (sys.argv[2], d["passed"], d["total"]))' \
+        "$out" "$name" || fail "$name runner 输出不是合法 JSON"
+}
+
 step "pytest（全量离线单测）"
 # -rfE：失败/错误用例的摘要行；--tb=short：失败时打印精简 traceback。
 # 此前只 tail -20，traceback 全被截掉——GitHub 上首次运行出现一条本机复现不了的
 # 失败，日志里只剩一行 "AssertionError:"，无从判断原因。失败时打印 FAILURES 小节。
-if ! "$VENV/bin/pytest" -q -rfE --tb=short > /tmp/ci_gate_pytest.log 2>&1; then
-    awk '/^=+ (FAILURES|ERRORS) =+$/{show=1} show' /tmp/ci_gate_pytest.log | head -400
-    tail -30 /tmp/ci_gate_pytest.log
+if ! "$VENV/bin/pytest" -q -rfE --tb=short > "$LOG_DIR/pytest.log" 2>&1; then
+    awk '/^=+ (FAILURES|ERRORS) =+$/{show=1} show' "$LOG_DIR/pytest.log" | head -400
+    tail -30 "$LOG_DIR/pytest.log"
     fail "pytest"
 fi
 
@@ -47,57 +88,27 @@ step "ruff check src"
 if ! "$VENV/bin/ruff" check src; then fail "ruff"; fi
 
 step "mypy src/water_agent（Step 10 要求清零）"
-if ! "$VENV/bin/mypy" src/water_agent > /tmp/ci_gate_mypy.log 2>&1; then
-    tail -20 /tmp/ci_gate_mypy.log
+if ! "$VENV/bin/mypy" src/water_agent > "$LOG_DIR/mypy.log" 2>&1; then
+    tail -20 "$LOG_DIR/mypy.log"
     fail "mypy"
 fi
 
 # 陷阱用例 rag-p0-0011 按"校验器点名拒绝了伪造引用"判通过（expected_rejected_citations），
-# 因此正确实现下是 12/12、exit 0；校验器失效时陷阱用例变红。
+# 校验器失效时陷阱用例变红——正确实现下 12/12。
 step "rag_p0 机制层 harness（期望 12/12，含 1 条 bad_citation 陷阱）"
-RAG_JSON="$($PY -m water_agent.harness.runner data/eval/rag_p0.jsonl 2>/dev/null || true)"
-RAG_FAILED="$(printf '%s' "$RAG_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('failed', -1))" 2>/dev/null || echo -1)"
-if [ "$RAG_FAILED" != "0" ]; then
-    fail "rag_p0 failed=$RAG_FAILED（预期 0，即 12/12）"
-else
-    echo "rag_p0 与基线一致（12/12）"
-fi
+run_suite rag_p0 data/eval/rag_p0.jsonl
 
-step "calc_p0 harness（期望 28/28，通过率 ≥95%）"
-CALC_JSON="$($PY -m water_agent.harness.runner data/eval/calc_p0.jsonl 2>/dev/null || true)"
-CALC_PASS="$(printf '%s' "$CALC_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('pass_rate', 0.0))" 2>/dev/null || echo 0)"
-if ! $PY -c "import sys; sys.exit(0 if float('$CALC_PASS') >= 0.95 else 1)"; then
-    fail "calc_p0 pass_rate=$CALC_PASS（预期 ≥0.95）"
-else
-    echo "calc_p0 通过（28/28）"
-fi
+step "calc_p0 harness（期望 28/28：计算子图与 run_calc 分发器两层）"
+run_suite calc_p0 data/eval/calc_p0.jsonl
 
-step "docgen_p0 harness（P2 文档生成，期望 11/11，通过率 ≥95%）"
-DOCGEN_JSON="$($PY -m water_agent.harness.runner data/eval/docgen_p0.jsonl 2>/dev/null || true)"
-DOCGEN_PASS="$(printf '%s' "$DOCGEN_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('pass_rate', 0.0))" 2>/dev/null || echo 0)"
-if ! $PY -c "import sys; sys.exit(0 if float('$DOCGEN_PASS') >= 0.95 else 1)"; then
-    fail "docgen_p0 pass_rate=$DOCGEN_PASS（预期 ≥0.95）"
-else
-    echo "docgen_p0 通过（11/11）"
-fi
+step "docgen_p0 harness（P2 文档生成，期望 11/11：结构化映射 + 渲染正文）"
+run_suite docgen_p0 data/eval/docgen_p0.jsonl
 
-step "material_p0 harness（P2 材料统计，期望 10/10，通过率 ≥95%）"
-MATERIAL_JSON="$($PY -m water_agent.harness.runner data/eval/material_p0.jsonl 2>/dev/null || true)"
-MATERIAL_PASS="$(printf '%s' "$MATERIAL_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('pass_rate', 0.0))" 2>/dev/null || echo 0)"
-if ! $PY -c "import sys; sys.exit(0 if float('$MATERIAL_PASS') >= 0.95 else 1)"; then
-    fail "material_p0 pass_rate=$MATERIAL_PASS（预期 ≥0.95）"
-else
-    echo "material_p0 通过（10/10）"
-fi
+step "material_p0 harness（P2 材料统计，期望 10/10）"
+run_suite material_p0 data/eval/material_p0.jsonl
 
 step "governance_p0 harness（P2.5 治理，期望 32/32）"
-GOV_JSON="$($PY -m water_agent.harness.runner data/eval/governance_p0.jsonl 2>/dev/null || true)"
-GOV_FAILED="$(printf '%s' "$GOV_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('failed', -1))" 2>/dev/null || echo -1)"
-if [ "$GOV_FAILED" != "0" ]; then
-    fail "governance_p0 failed=$GOV_FAILED（预期 0，即 32/32）"
-else
-    echo "governance_p0 通过（32/32）"
-fi
+run_suite governance_p0 data/eval/governance_p0.jsonl
 
 # drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
 # ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
@@ -109,20 +120,20 @@ DRAWING_HEAD="data/eval/reports/drawing_p0_head.json"
 # main 固化报告入仓（data/eval/drawing_p0_main.json）；HEAD 报告是可重建产物
 # （data/eval/reports/ 不入仓）。
 DRAWING_MAIN="data/eval/drawing_p0_main.json"
-if ! $PY -m water_agent.harness.drawing_eval tests/eval/drawing_p0 --report-path "$DRAWING_HEAD" > /tmp/ci_gate_drawing.log 2>&1; then
-    tail -20 /tmp/ci_gate_drawing.log
+if ! $PY -m water_agent.harness.drawing_eval tests/eval/drawing_p0 --report-path "$DRAWING_HEAD" > "$LOG_DIR/drawing.log" 2>&1; then
+    tail -20 "$LOG_DIR/drawing.log"
     fail "drawing_p0 runner"
 else
-    tail -14 /tmp/ci_gate_drawing.log
+    tail -14 "$LOG_DIR/drawing.log"
     if [ -f "$DRAWING_MAIN" ]; then
-        if ! $PY scripts/compare_drawing_p0.py --head "$DRAWING_HEAD" --base "$DRAWING_MAIN" > /tmp/ci_gate_drawing_cmp.log 2>&1; then
-            cat /tmp/ci_gate_drawing_cmp.log
+        if ! $PY scripts/compare_drawing_p0.py --head "$DRAWING_HEAD" --base "$DRAWING_MAIN" > "$LOG_DIR/drawing_cmp.log" 2>&1; then
+            cat "$LOG_DIR/drawing_cmp.log"
             fail "drawing_p0 基线对比"
         else
-            cat /tmp/ci_gate_drawing_cmp.log
+            cat "$LOG_DIR/drawing_cmp.log"
         fi
     else
-        echo "drawing_p0 无 main 基线报告（首次运行）；固化方法见 scripts/compare_drawing_p0.py 文档头"
+        missing_baseline "drawing_p0" "见 scripts/compare_drawing_p0.py 文档头"
     fi
 fi
 
@@ -133,53 +144,53 @@ fi
 step "drawing_gen_p0 参数化出图机制层（三类建筑 × 3 合法 + 5 非法）"
 GEN_HEAD="data/eval/reports/drawing_gen_p0_head.json"
 GEN_MAIN="data/eval/drawing_gen_p0_main.json"
-if ! $PY -m water_agent.harness.drawing_gen_eval tests/eval/drawing_gen_p0 --report-path "$GEN_HEAD" > /tmp/ci_gate_drawing_gen.log 2>&1; then
-    tail -30 /tmp/ci_gate_drawing_gen.log
+if ! $PY -m water_agent.harness.drawing_gen_eval tests/eval/drawing_gen_p0 --report-path "$GEN_HEAD" > "$LOG_DIR/drawing_gen.log" 2>&1; then
+    tail -30 "$LOG_DIR/drawing_gen.log"
     fail "drawing_gen_p0 runner"
 else
-    grep -E '"(total|passed|failed|dn_match_rate|readback_rate|review_honesty_rate)"' /tmp/ci_gate_drawing_gen.log || true
+    grep -E '"(total|passed|failed|dn_match_rate|readback_rate|review_honesty_rate)"' "$LOG_DIR/drawing_gen.log" || true
     if [ -f "$GEN_MAIN" ]; then
-        if ! $PY scripts/compare_drawing_gen_p0.py --head "$GEN_HEAD" --base "$GEN_MAIN" > /tmp/ci_gate_drawing_gen_cmp.log 2>&1; then
-            cat /tmp/ci_gate_drawing_gen_cmp.log
+        if ! $PY scripts/compare_drawing_gen_p0.py --head "$GEN_HEAD" --base "$GEN_MAIN" > "$LOG_DIR/drawing_gen_cmp.log" 2>&1; then
+            cat "$LOG_DIR/drawing_gen_cmp.log"
             fail "drawing_gen_p0 基线对比"
         else
-            head -6 /tmp/ci_gate_drawing_gen_cmp.log
+            head -6 "$LOG_DIR/drawing_gen_cmp.log"
         fi
     else
-        echo "drawing_gen_p0 无入仓基线（首次运行）；固化：cp $GEN_HEAD $GEN_MAIN"
+        missing_baseline "drawing_gen_p0" "cp $GEN_HEAD $GEN_MAIN"
     fi
 fi
 
 step "multi_agent_p0 合成机制层（12 用例，8 硬指标全绿）"
 MA_HEAD="data/eval/reports/multi_agent_p0_head.json"
 MA_BASE="data/eval/multi_agent_p0_main.json"
-if ! $PY -m water_agent.harness.multi_agent_eval tests/eval/multi_agent_p0 --out "$MA_HEAD" > /tmp/ci_gate_multi.log 2>&1; then
-    tail -20 /tmp/ci_gate_multi.log
+if ! $PY -m water_agent.harness.multi_agent_eval tests/eval/multi_agent_p0 --out "$MA_HEAD" > "$LOG_DIR/multi.log" 2>&1; then
+    tail -20 "$LOG_DIR/multi.log"
     fail "multi_agent_p0 harness"
 else
-    tail -8 /tmp/ci_gate_multi.log
+    tail -8 "$LOG_DIR/multi.log"
     if [ -f "$MA_BASE" ]; then
-        if ! $PY scripts/compare_multi_agent_p0.py --head "$MA_HEAD" --base "$MA_BASE" > /tmp/ci_gate_multi_cmp.log 2>&1; then
-            cat /tmp/ci_gate_multi_cmp.log
+        if ! $PY scripts/compare_multi_agent_p0.py --head "$MA_HEAD" --base "$MA_BASE" > "$LOG_DIR/multi_cmp.log" 2>&1; then
+            cat "$LOG_DIR/multi_cmp.log"
             fail "multi_agent_p0 基线对比"
         else
-            cat /tmp/ci_gate_multi_cmp.log
+            cat "$LOG_DIR/multi_cmp.log"
         fi
     else
-        echo "multi_agent_p0 无 main 基线（首次运行）；固化：cp $MA_HEAD $MA_BASE"
+        missing_baseline "multi_agent_p0" "cp $MA_HEAD $MA_BASE"
     fi
 fi
 
 step "基线对比（compare_baseline.py，阈值见 THRESHOLDS）"
 if [ -f data/eval/baseline.json ]; then
-    if ! $PY scripts/compare_baseline.py data/eval/baseline.json > /tmp/ci_gate_baseline.log 2>&1; then
-        cat /tmp/ci_gate_baseline.log
+    if ! $PY scripts/compare_baseline.py data/eval/baseline.json --report-dir "$GATE_REPORT_DIR" > "$LOG_DIR/baseline.log" 2>&1; then
+        cat "$LOG_DIR/baseline.log"
         fail "compare_baseline"
     else
-        cat /tmp/ci_gate_baseline.log
+        cat "$LOG_DIR/baseline.log"
     fi
 else
-    echo "基线不存在（首次运行）；先执行：$PY scripts/compare_baseline.py --init data/eval/baseline.json"
+    missing_baseline "baseline.json" "$PY scripts/compare_baseline.py --init data/eval/baseline.json --report-dir $GATE_REPORT_DIR"
 fi
 
 # memory_p0（P5 Step 45）：长期记忆隔离与安全硬指标。
@@ -192,21 +203,21 @@ step "memory_p0 长期记忆硬指标（§13.2 十二项，报告为可重建产
 MEMORY_HEAD="data/eval/reports/memory_p0_head.json"
 MEMORY_BASE="data/eval/memory_p0_main.json"
 if ! $PY -m water_agent.harness.memory_eval data/eval/memory_p0.jsonl --out "$MEMORY_HEAD" \
-    > /tmp/ci_gate_memory.log 2>&1; then
-    tail -40 /tmp/ci_gate_memory.log
+    > "$LOG_DIR/memory.log" 2>&1; then
+    tail -40 "$LOG_DIR/memory.log"
     fail "memory_p0 harness"
 else
-    tail -20 /tmp/ci_gate_memory.log
+    tail -20 "$LOG_DIR/memory.log"
     if [ -f "$MEMORY_BASE" ]; then
         if ! $PY scripts/compare_memory_p0.py --head "$MEMORY_HEAD" --base "$MEMORY_BASE" \
-            > /tmp/ci_gate_memory_cmp.log 2>&1; then
-            cat /tmp/ci_gate_memory_cmp.log
+            > "$LOG_DIR/memory_cmp.log" 2>&1; then
+            cat "$LOG_DIR/memory_cmp.log"
             fail "memory_p0 基线对比"
         else
-            head -14 /tmp/ci_gate_memory_cmp.log
+            head -14 "$LOG_DIR/memory_cmp.log"
         fi
     else
-        echo "memory_p0 无入仓基线（首次运行）；固化：cp $MEMORY_HEAD $MEMORY_BASE"
+        missing_baseline "memory_p0" "cp $MEMORY_HEAD $MEMORY_BASE"
     fi
 fi
 

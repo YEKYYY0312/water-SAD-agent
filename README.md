@@ -145,7 +145,8 @@ tests/              # 所有测试（pytest）
 `scripts/ci_gate.sh`（PR 门禁，只跑离线机制层）：
 
 ```bash
-pytest → ruff → mypy → rag_p0(12/12) → calc_p0 ≥95% → docgen_p0 ≥95% → material_p0 ≥95% → 四套 baseline 对比
+pytest → ruff → mypy → rag_p0 / calc_p0 / docgen_p0 / material_p0 / governance_p0（runner 须 exit 0）
+      → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → baseline 对比（含用例缺失检查）→ memory_p0
 ```
 
 阈值集（`scripts/compare_baseline.py` 中 `THRESHOLDS`）：
