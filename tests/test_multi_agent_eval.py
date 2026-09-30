@@ -19,12 +19,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SUITE_DIR = REPO_ROOT / "tests" / "eval" / "multi_agent_p0"
 
 
-def test_suite_load_flow_and_12_cases() -> None:
+def test_suite_load_flow_and_14_cases() -> None:
     suite = load_suite(SUITE_DIR)
     assert suite["flow"] == "multi-agent"
-    assert len(suite["cases"]) == 12
+    assert len(suite["cases"]) == 14
     ids = [c["case_id"] for c in suite["cases"]]
-    assert ids == [f"ma-p0-{i:02d}" for i in range(1, 13)]
+    assert ids == [f"ma-p0-{i:02d}" for i in range(1, 15)]
 
 
 def test_suite_load_rejects_wrong_flow(tmp_path: Path) -> None:
@@ -34,12 +34,12 @@ def test_suite_load_rejects_wrong_flow(tmp_path: Path) -> None:
         load_suite(bad)
 
 
-def test_12_cases_all_green_metrics_thresholds() -> None:
+def test_14_cases_all_green_metrics_thresholds() -> None:
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "report.json"
         report = run_suite(SUITE_DIR, out_path=out, staging_dir=Path(td) / "stg", final_dir=Path(td) / "fin")
-    assert report["total"] == 12
-    assert report["passed"] == 12
+    assert report["total"] == 14
+    assert report["passed"] == 14
     assert report["failed"] == 0
     m = report["metrics"]
     assert m["numeric_source_integrity"] == 1.0
@@ -210,8 +210,8 @@ def test_real_structured_skip_does_not_break_suite_evidence(
         final_dir=tmp_path / "final",
     )
 
-    assert report["total"] == 12
-    assert report["passed"] == 11
+    assert report["total"] == 14
+    assert report["passed"] == 13
     assert report["skipped"] == 1
     assert report["failed"] == 0
     assert report["pass_rate"] == 1.0
