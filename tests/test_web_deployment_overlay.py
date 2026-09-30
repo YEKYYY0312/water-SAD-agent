@@ -72,6 +72,25 @@ def test_overlay_does_not_fork_the_single_source_of_truth() -> None:
     assert "@sha256:" in base
 
 
+def test_production_overlay_forces_secure_cookies_and_the_base_does_not() -> None:
+    """Behind the HTTPS proxy the session and CSRF cookies must carry Secure.
+
+    ``auth/routes.py`` defaults ``WEB_SECURE_COOKIE`` to false so the base
+    compose can still log in over http://localhost -- a browser never sends a
+    Secure cookie to a plaintext origin.  This overlay always sits behind the
+    reverse proxy, and without the flag a user's first http:// request sends the
+    session cookie in clear before Caddy's redirect; HSTS only covers the visits
+    after that.
+    """
+
+    overlay = OVERLAY_COMPOSE.read_text(encoding="utf-8")
+    base = BASE_COMPOSE.read_text(encoding="utf-8")
+
+    assert 'WEB_SECURE_COOKIE: "true"' in overlay
+    # Keeping it out of the base is what keeps http://localhost logins working.
+    assert "WEB_SECURE_COOKIE" not in base
+
+
 def test_base_compose_keeps_the_ordered_one_shot_services_and_healthchecks() -> None:
     base = BASE_COMPOSE.read_text(encoding="utf-8")
 
@@ -220,8 +239,21 @@ def test_compose_config_parses_base_and_overlay_together() -> None:
     assert "no-new-privileges:true" in app["security_opt"]
     # The overlay must not have introduced a second database credential path.
     assert app["environment"]["DATABASE_PASSWORD_FILE"] == "/run/secrets/postgres_password"
+    # environment merges rather than replaces: the overlay's Secure-cookie switch
+    # lands next to the base variable asserted just above.
+    assert app["environment"]["WEB_SECURE_COOKIE"] == "true"
     assert "smoke" in services
     assert services["smoke"].get("profiles") in (None, [])
+
+    base_only = subprocess.run(
+        [docker, "compose", "-f", str(BASE_COMPOSE), "config", "--format", "json"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert base_only.returncode == 0, base_only.stderr
+    assert "WEB_SECURE_COOKIE" not in json.loads(base_only.stdout)["services"]["app"]["environment"]
 
 
 def test_image_check_skips_structurally_instead_of_failing(
