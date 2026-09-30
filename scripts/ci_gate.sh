@@ -52,13 +52,15 @@ if ! "$VENV/bin/mypy" src/water_agent > /tmp/ci_gate_mypy.log 2>&1; then
     fail "mypy"
 fi
 
-step "rag_p0 机制层 harness（期望 11/12，含 1 条设计的 bad_citation 陷阱）"
+# 陷阱用例 rag-p0-0011 按"校验器点名拒绝了伪造引用"判通过（expected_rejected_citations），
+# 因此正确实现下是 12/12、exit 0；校验器失效时陷阱用例变红。
+step "rag_p0 机制层 harness（期望 12/12，含 1 条 bad_citation 陷阱）"
 RAG_JSON="$($PY -m water_agent.harness.runner data/eval/rag_p0.jsonl 2>/dev/null || true)"
 RAG_FAILED="$(printf '%s' "$RAG_JSON" | $PY -c "import sys,json;print(json.load(sys.stdin).get('failed', -1))" 2>/dev/null || echo -1)"
-if [ "$RAG_FAILED" != "1" ]; then
-    fail "rag_p0 failed=$RAG_FAILED（预期 1，即 11/12）"
+if [ "$RAG_FAILED" != "0" ]; then
+    fail "rag_p0 failed=$RAG_FAILED（预期 0，即 12/12）"
 else
-    echo "rag_p0 与基线一致（11/12）"
+    echo "rag_p0 与基线一致（12/12）"
 fi
 
 step "calc_p0 harness（期望 28/28，通过率 ≥95%）"
@@ -215,4 +217,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(11/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
