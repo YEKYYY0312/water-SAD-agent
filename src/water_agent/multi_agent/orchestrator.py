@@ -7,7 +7,7 @@ import math
 import re
 import sqlite3
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from collections.abc import Set as AbstractSet
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -151,6 +151,22 @@ def _strict_approval(value: Any) -> tuple[bool, str, str | None]:
     if expires_at is not None and _parse_time(expires_at) is None:
         raise TypeError("multi-agent approval expires_at must be ISO-8601 text")
     return value["approved"], reason, expires_at
+
+
+def review_disclosures(state: Mapping[str, Any]) -> list[str]:
+    """当前审查包的披露项（审批请求与 CLI 输出共用一个来源）。
+
+    只读已通过哈希校验的活动审查包；读不到就返回空——不在这里补任何内容。
+    ``state`` 接受任意映射：CLI 手里是 ``app.invoke`` 返回的普通 dict。
+    """
+    registry = _registry(cast(MultiAgentProjectState, state))
+    env = registry.get(str((state.get("active_artifact_ids") or {}).get("review", "")))
+    if env is None:
+        return []
+    try:
+        return list(ReviewPackage.model_validate(env.payload).disclosed_limitations)
+    except ValidationError:
+        return []
 
 
 def _registry(state: MultiAgentProjectState) -> dict[str, ArtifactEnvelope]:
@@ -1025,7 +1041,9 @@ def build_orchestrator_graph(
                     )
                 ],
             }
-        decision = interrupt({"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds})
+        # 披露项随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个哈希，
+        # 人工批准实际是盲批（review 2026-09-30）。
+        decision = interrupt({"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds, "disclosed_limitations": review_disclosures(state)})
         approved, reason, supplied_expiry = _strict_approval(decision)
         # The restart boundary must recompute the persisted context before accepting approval.
         artifacts = _release_artifacts(_registry(state), dict(state.get("active_artifact_ids") or {}))
