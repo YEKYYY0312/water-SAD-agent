@@ -92,7 +92,7 @@ _venv/bin/python scripts/evaluate_retrieval_matrix.py  # 真实检索矩阵，�
 
 ## 工程基线入口
 - `data/eval/baseline_preflight.json`：基线记录（含 Step -1 与 Step 0–10 post_state），改动前先对照。
-- `data/eval/baseline.json`：2026-09-06 更新的 PR 机制层基线，包含 rag_p0 11/12、calc_p0 28/28、docgen_p0 11/11、material_p0 10/10、governance_p0 32/32。
+- `data/eval/baseline.json`：2026-09-06 更新的 PR 机制层基线，包含 rag_p0 12/12（2026-09-30 起陷阱用例按"校验器点名拒绝伪造引用"判通过，此前恒判失败）、calc_p0 28/28、docgen_p0 11/11、material_p0 10/10、governance_p0 32/32。
 - `docs/design/10-sdd-harness.md`：SDD+Harness 工程规范（规格模板/错误状态语义/完成定义）。
 
 ## 术语

@@ -61,14 +61,27 @@ def score_eval_case(
     trace_id: str = "",
     retry_count: int = 0,
     line_no: int | None = None,
+    errors: Iterable[str] | None = None,
 ) -> EvalResult:
+    """RAG 用例判分。
+
+    ``errors`` 是运行时的错误文本（引用校验器的拒绝原因就在这里）。陷阱用例
+    （``expected_rejected_citations``）只有在运行失败**且**错误里点名了伪造引用时才通过，
+    这些引用本身不再计入"不在上下文"的判负——它们就是陷阱要校验器拒绝的东西。
+    """
     actual_citation_list = _dedupe(actual_citations)
     context_article_list = _dedupe(context_articles or [])
     expected_articles = _dedupe([*case.gold_articles_any, *case.gold_articles_all])
+    error_texts = [str(error) for error in errors or []]
+    trap_citations = set(case.expected_rejected_citations)
 
     citation_set = set(actual_citation_list)
     context_set = set(context_article_list)
-    invalid_citations = [citation for citation in actual_citation_list if citation not in context_set]
+    invalid_citations = [
+        citation
+        for citation in actual_citation_list
+        if citation not in context_set and citation not in trap_citations
+    ]
 
     gold_any_hit = [article for article in case.gold_articles_any if article in citation_set]
     gold_all_hit = [article for article in case.gold_articles_all if article in citation_set]
@@ -77,6 +90,10 @@ def score_eval_case(
     reasons: list[str] = []
     if actual_status != case.expected_status:
         reasons.append(f"expected status {case.expected_status}, got {actual_status}")
+    for trap in case.expected_rejected_citations:
+        # 错误文本里的引用号是 repr 形态（'FAKE 0.0.0'），按子串匹配即可。
+        if not any(trap in text for text in error_texts):
+            reasons.append(f"trap citation {trap!r} was not rejected by the citation validator")
     if invalid_citations:
         reasons.append(f"citations not present in retrieved context: {invalid_citations}")
     if case.gold_articles_any and not gold_any_hit:

@@ -11,10 +11,10 @@
       "input_path": "data/eval/rag_p0.jsonl",
       "variant": "per-case",
       "total": 12,
-      "passed": 11,
-      "failed": 1,
+      "passed": 12,
+      "failed": 0,
       "skipped": 0,
-      "pass_rate": 0.9166666666666666,
+      "pass_rate": 1.0,
       "citation_ok_rate": 0.9166666666666666,
       "avg_latency_ms": 1.55,
       "retrieval_metrics": {
@@ -35,6 +35,7 @@
         "rag-p0-0008",
         "rag-p0-0009",
         "rag-p0-0010",
+        "rag-p0-0011",
         "rag-p0-0012"
       ],
       "source_report": "rag_p0_20260904T044220Z.json"

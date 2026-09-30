@@ -683,6 +683,7 @@ class HarnessRunner:
             trace_id=result.get("trace_id", trace_id),
             retry_count=retry_count,
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = _variant
 
@@ -825,6 +826,7 @@ class HarnessRunner:
             trace_id=recorder.trace_id or "",
             retry_count=int(result.get("retry_count", 0)),
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = "real"
         if not scored.passed and result.get("errors"):
@@ -1142,9 +1144,13 @@ def main(argv: list[str] | None = None) -> int:
         output["skipped_all"] = True
         if report.cases and report.cases[0].failure_reason:
             output["skip_reason"] = report.cases[0].failure_reason
+    # 0 条用例不是"全部通过"：数据集被清空或整份改坏时，failed=0 会被读成绿灯。
+    # ``ok`` 仍只表示 runner 本身跑完；是否可信看退出码（此处为 2，同加载问题）。
+    if report.total == 0:
+        output["error"] = "评测集没有任何可执行用例"
 
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if load_issues:
+    if load_issues or report.total == 0:
         return 2
     return 0 if report.failed == 0 else 1
 
