@@ -73,6 +73,17 @@ export function archiveRun(messages: ConversationMessage[], run: WorkspaceRunSta
 }
 
 /**
+ * 发送被拒（例如 409 WEB_RUN_IN_PROGRESS：上一问还在回答）时撤回乐观追加的提问。
+ *
+ * 只撤回末尾那条、且正文就是这次发送的用户消息；其余一律不动（上一轮已归档的回答照留）。
+ */
+export function withdrawUnsentQuestion(messages: ConversationMessage[], text: string): ConversationMessage[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user" || last.text !== text) return messages;
+  return messages.slice(0, -1);
+}
+
+/**
  * 切换会话时合并后端历史与"最新一次运行"的回放。
  *
  * 最新运行会经 SSE 重放进 run 状态并单独渲染；历史里它的回答若不去掉就会出现两遍。
