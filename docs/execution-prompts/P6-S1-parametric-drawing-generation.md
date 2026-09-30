@@ -1,7 +1,6 @@
 # P6-S1 执行 Prompt：参数化生成给水系统 DXF/DWG 图纸
 
-> 这是给 AI Coding Agent 的完整指令，可直接复制给 Claude Code、Codex 或 Cursor 执行。
-> **工作区**：仓库 `YEKYYY0312/water-SAD-agent`，基于 `main`（`5707b4b` 及之后）。新建分支 `claude/p6-s1-drawing-generation`。
+> **工作区**：仓库 `YEKYYY0312/water-SAD-agent`，基于 `main`（`5707b4b` 及之后）。新建分支 `YEK/p6-s1-drawing-generation`。
 > **必读**：
 > - `AGENTS.md`（三条铁律、验证命令、改动纪律）
 > - `docs/design/p6-step-1-parametric-drawing-generation.md`（spec，本 prompt 对其做了若干**修订**，见下文 §0）

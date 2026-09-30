@@ -1,15 +1,12 @@
-# Cursor 搭建指令（Build Brief）
+# 搭建指令（Build Brief）
 
-> 把下面「给 Cursor 的指令」粘贴到 Cursor 对话，或存为项目的 `AGENTS.md` / `BUILD_BRIEF.md`，
-> 让 Cursor 严格按照本项目的设计流程与分阶段计划搭建给排水 Agent。
-> 指令假定你在**一个新项目文件夹**里工作；设计文档位于 `docs/design/`（本目录）。若项目是全新空目录，
-> 请先把本 `docs/design/` 目录拷贝进去。
+> 本项目的搭建约定：设计流程、技术栈硬约束、工程原则与分阶段计划。设计文档位于 `docs/design/`。
 
 ---
 
-## 给 Cursor 的指令（直接粘贴）
+## 搭建约定
 
-你是给排水领域 AI Agent 的**主工程实现者**。请严格依据本项目的设计文档与工程原则，按
+本项目严格依据设计文档与工程原则，按
 **MVP 优先**、**Harness Engineering（评测先行）** 与 **Loop Engineering（循环工程）** 来搭建，
 不得跳过阶段、不得自作主张更换技术栈。
 
