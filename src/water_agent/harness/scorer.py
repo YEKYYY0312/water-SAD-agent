@@ -396,6 +396,11 @@ def score_governance_case(
     )
 
 
+def _material_row_label(key: tuple[str, str, str], quantity: float) -> str:
+    material, spec, unit = key
+    return f"{material} {spec}：{quantity:g} {unit}"
+
+
 def _expected_group_sums(segments: list[dict[str, Any]]) -> dict[tuple[str, str], float] | None:
     """从原始管段表按 (材质, 规格) 重算组内长度和，作为 ``raw_quantity`` 的口径审计基准。
 
@@ -457,14 +462,19 @@ def score_material_case(
             key = (str(gold.get("material", "")), str(gold.get("spec", "")), str(gold.get("unit", "m")))
             gold_by_key[key] = float(gold.get("quantity", 0.0))
 
-        if len(actual_by_key) != len(gold_by_key):
-            extra = sorted(set(actual_by_key) - set(gold_by_key))
-            missing = sorted(set(gold_by_key) - set(actual_by_key))
-            reasons.append(f"row set mismatch: extra={extra}, missing={missing}")
+        # 按键集合比，不按行数比：行数相同时一行被改了规格/材质（数量随之错）也必须报出。
+        extra = sorted(set(actual_by_key) - set(gold_by_key))
+        missing = sorted(set(gold_by_key) - set(actual_by_key))
+        if extra or missing:
+            reasons.append(
+                "row set mismatch: "
+                f"extra={[_material_row_label(key, actual_by_key[key].quantity) for key in extra]}, "
+                f"missing={[_material_row_label(key, gold_by_key[key]) for key in missing]}"
+            )
         for key, gold_qty in gold_by_key.items():
             actual_row = actual_by_key.get(key)
             if actual_row is None:
-                continue
+                continue  # 已在 row set mismatch 里点名
             if not _within_tolerance(actual_row.quantity, gold_qty, case.tolerances):
                 reasons.append(
                     f"{key[0]} {key[1]}: actual={actual_row.quantity}, gold={gold_qty}, "
@@ -493,7 +503,11 @@ def score_material_case(
         if expected_sums is not None:
             for row in table.rows:
                 expected_raw = expected_sums.get((row.material, row.spec))
-                if expected_raw is not None and not _within_tolerance(row.raw_quantity, expected_raw, case.tolerances):
+                if expected_raw is None:
+                    reasons.append(
+                        f"row {row.material} {row.spec}: 管段表中没有这一 (材质, 规格) 分组（口径审计）"
+                    )
+                elif not _within_tolerance(row.raw_quantity, expected_raw, case.tolerances):
                     reasons.append(
                         f"row {row.material} {row.spec}: raw_quantity={row.raw_quantity} 与管段表重算"
                         f" {expected_raw} 不一致（口径审计）"
