@@ -15,9 +15,10 @@ END
 
 护栏（skill-agent-loop）：
 - 主停止条件：模型不再调用工具；安全带：``max_tool_turns`` 轮数预算（agent_loop
-  内独立）、``recursion_limit``≤20、引用校验回流上限 2 次；
+  内独立，内层递归上限按预算推出，保证预算先触发）、外层 ``recursion_limit``≤20、
+  引用校验回流上限（见 citation_validator）；
 - 工具输出一律视为不可信输入：校验器只读 ToolMessage 里的结构化数据；
-- 预算/校验超限统一返回结构化错误，绝不挂死或抛裸异常。
+- 预算/校验超限、治理层拒绝统一返回结构化错误（带稳定错误码），绝不挂死或抛裸异常。
 
 模型包装说明：``_BudgetChatModel`` 给任意模型套轮数预算，并为每次 tool-call 响应
 分配新消息 id（``FakeMessagesListChatModel`` 复用同一对象，若 id 相同会被
@@ -46,6 +47,7 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableBinding
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
@@ -67,7 +69,13 @@ from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
 from water_agent.runtime.governance.binding import local_request_context
 from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.runtime.governance.contracts import (
+    CODE_BUDGET_EXCEEDED,
+    CODE_CAPABILITY_DENIED,
+    CODE_GUARDRAIL_BLOCKED,
+    CODE_INPUT_TOO_LARGE,
+    CODE_RATE_LIMITED,
     CallCategory,
+    GovernanceError,
     RequestContext,
 )
 from water_agent.runtime.governance.pipeline import (
@@ -75,8 +83,32 @@ from water_agent.runtime.governance.pipeline import (
     default_guardrail_pipeline,
 )
 
-# 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
+# 外层图安全网：agent_loop ↔ citation_validator 最多 4 轮 + finalize，远小于 20
 RECURSION_LIMIT = 20
+
+
+def inner_recursion_limit(max_tool_turns: int) -> int:
+    """内层 react 子图的递归上限：必须让工具预算先于它触发。
+
+    每个工具轮占 2 个 superstep（模型 + 工具），第 ``max_tool_turns + 1`` 次模型调用（预算
+    在这里抛 ``ToolBudgetExceeded``）落在第 ``2 * max_tool_turns + 1`` 步。此前内层沿用外层
+    的 20：默认 ``max_tool_turns=10`` 时第 21 步先撞上 ``GraphRecursionError``，预算这条安全带
+    根本触发不到（review 2026-09-30）。
+    """
+    return 2 * max_tool_turns + 3
+
+
+#: 治理层的策略性拒绝（本地限流/预算/能力/护栏）收口为 blocked；其余（上游不可用、超时、
+#: 认证失败、熔断……）是运行失败。两者都带稳定错误码进 errors。
+_POLICY_REFUSAL_CODES = frozenset(
+    {
+        CODE_RATE_LIMITED,
+        CODE_BUDGET_EXCEEDED,
+        CODE_CAPABILITY_DENIED,
+        CODE_GUARDRAIL_BLOCKED,
+        CODE_INPUT_TOO_LARGE,
+    }
+)
 # 校验器注入回流消息时使用的合成 tool_call_id 前缀（每次注入追加唯一后缀，避免
 # OpenAI 兼容 API 对历史重复 tool_call id 的歧义）
 _VALIDATOR_CALL_ID = "citation-validator"
@@ -365,8 +397,12 @@ def make_agent_loop(
     cache_service: AnswerCacheService | None = None,
     model_name: str = "",
     temperature: float = 0.0,
+    recursion_limit: int | None = None,
 ):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
+
+    ``recursion_limit``：内层子图的递归上限（见 :func:`inner_recursion_limit`）；不给则沿用
+    外层 config。超预算、撞上递归上限、治理层拒绝都收口为结构化结果，不以裸异常冒出图。
 
     ``trace``：首次进入时 ``start``，每轮结束把 llm_call 记录刷进去（Step 10 观测）。
 
@@ -440,13 +476,27 @@ def make_agent_loop(
             except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
                 pass
 
+        inner_config = config if recursion_limit is None else {**config, "recursion_limit": recursion_limit}
         try:
-            result = react_agent.invoke(state, config=config)
+            result = react_agent.invoke(state, config=inner_config)
             return dict(result)
         except ToolBudgetExceeded as exc:
             return {
                 "status": STATUS_FAILED,
                 "errors": list(state.get("errors", [])) + [str(exc)],
+            }
+        except GraphRecursionError:
+            # 预算应先触发；走到这里说明预算与递归上限配置不一致，仍收口为可见失败
+            return {
+                "status": STATUS_FAILED,
+                "errors": list(state.get("errors", []))
+                + [f"内层循环达到递归上限（{recursion_limit} 步）仍未停止"],
+            }
+        except GovernanceError as exc:
+            status = STATUS_BLOCKED if exc.code in _POLICY_REFUSAL_CODES else STATUS_FAILED
+            return {
+                "status": status,
+                "errors": list(state.get("errors", [])) + [f"{exc.code}：{exc.message}"],
             }
         finally:
             _flush_llm_calls(holder, trace, query)
@@ -954,6 +1004,7 @@ def build_agentic_app(
             cache_service=cache_service,
             model_name=cache_model_name,
             temperature=cache_temperature,
+            recursion_limit=inner_recursion_limit(max_tool_turns),
         ),
     )
     graph.add_node("citation_validator", make_citation_validator(version_registry))

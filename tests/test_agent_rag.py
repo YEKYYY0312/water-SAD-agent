@@ -770,3 +770,66 @@ class TestZeroCitationExemptionsHonourIronRule2:
         assert feedback
         assert "已返回相关条款" not in feedback[0]
         assert "没有返回结果" in feedback[0]
+
+
+class TestLoopFailuresAreStructured:
+    """review 2026-09-30：默认预算下工具预算这条安全带触发不到，先撞上 GraphRecursionError。
+
+    内层 react 子图沿用外层 ``recursion_limit=20``：每个工具轮占 2 步，``max_tool_turns=10``
+    时第 11 次模型调用落在第 21 步 → 裸异常。唯一的预算测试用的是 ``max_tool_turns=4``。
+    治理层拒绝（限流/预算/熔断）同样以裸异常冒出 agent_loop，Web 端只剩"agent run failed"。
+    """
+
+    RUNAWAY = AIMessage(
+        content="",
+        tool_calls=[{"name": "retrieve_clauses", "args": {"query": "设计秒流量", "top_k": 5}, "id": "c-loop"}],
+    )
+
+    def test_default_budget_is_reached_before_the_recursion_limit(self, retriever) -> None:
+        model = FakeMessagesListChatModel(responses=[self.RUNAWAY] * 40)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": "t-runaway"}},
+            )
+        assert out["status"] == "failed"
+        assert any("工具调用轮数超过预算（10）" in error for error in out["errors"]), out["errors"]
+
+    def test_default_budget_is_reached_on_the_streaming_path_too(self, retriever) -> None:
+        from water_agent.graphs.agent_rag import astream_agentic
+
+        model = FakeMessagesListChatModel(responses=[self.RUNAWAY] * 40)
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=model, tools=_build_tools(retriever), checkpointer=saver)
+            out = asyncio.run(astream_agentic(app, "设计秒流量如何确定", {"configurable": {"thread_id": "t-runaway-s"}}))
+        assert out["status"] == "failed"
+        assert any("工具调用轮数超过预算" in error for error in out["errors"]), out["errors"]
+
+    @pytest.mark.parametrize(
+        ("code", "status"),
+        [("RATE_LIMITED", "blocked"), ("BUDGET_EXCEEDED", "blocked"), ("PROVIDER_UNAVAILABLE", "failed")],
+    )
+    def test_governance_errors_become_structured_run_outcomes(self, retriever, code: str, status: str) -> None:
+        """治理层拒绝/上游故障转成带稳定错误码的收口，不以裸异常冒出图。"""
+        from langchain_core.language_models.chat_models import BaseChatModel
+
+        from water_agent.runtime.governance.contracts import GovernanceError
+
+        class _Refusing(BaseChatModel):
+            @property
+            def _llm_type(self) -> str:
+                return "refusing"
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                raise GovernanceError(code, "治理层拒绝了这次远程调用")
+
+        with MemorySaver() as saver:
+            app = build_agentic_app(model=_Refusing(), tools=_build_tools(retriever), checkpointer=saver)
+            out = app.invoke(
+                {"messages": [HumanMessage(content="设计秒流量如何确定")]},
+                config={"configurable": {"thread_id": f"t-gov-{code}"}},
+            )
+        assert out["status"] == status
+        assert any(code in error for error in out["errors"]), out["errors"]
+        assert out["answer"] == ""
