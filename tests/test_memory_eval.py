@@ -491,3 +491,34 @@ def test_backup_case_actually_verifies_a_backup_when_a_stack_exists() -> None:
     # ever builds a restore.sh command (the module docstring may name the script).
     assert '"restore.sh"' not in source
     assert '"restore.sh"' not in scenario
+
+
+def test_backup_case_blames_a_failed_backup_instead_of_the_privacy_metric() -> None:
+    """A backup that never ran must not surface as forgotten content on disk.
+
+    Regression: ``manifest_ok`` started at True and stayed True after backup.sh
+    had failed, so compare_counts diffed an *empty* manifest against the live
+    database.  That yields one "recorded no count" per compared table, all of
+    which are summed into ``forget_residuals`` -- so a missing local secret was
+    reported as ``MEMORY_FORGET_RESIDUAL``, i.e. as forgotten memories still
+    carrying a body.  Two invariants keep the attribution honest.
+    """
+
+    source = (REPO_ROOT / "src" / "water_agent" / "harness" / "memory_eval.py").read_text(
+        encoding="utf-8"
+    )
+    scenario = source[source.index('@scenario("backup_restore_roundtrip")') :]
+    prerequisites, _, acceptance = scenario.partition("out_dir = ctx.root")
+    assert acceptance, "the case must still run the backup acceptance"
+
+    # 1. The comparison is gated on the backup having produced something, so a
+    #    failed backup leaves forget_residuals at zero and lets the
+    #    backup_command check speak for itself.
+    assert "manifest_ok = backup.returncode == 0" in acceptance
+    assert "manifest_ok = True" not in acceptance
+
+    # 2. A missing compose password is a declared prerequisite, not a finding:
+    #    secrets/* is untracked, so any clone with a stack running would hit
+    #    backup.sh's own refusal.  The probe must precede the backup.
+    assert '"secrets" / "postgres_password"' in prerequisites
+    assert "skip_reason" in prerequisites
