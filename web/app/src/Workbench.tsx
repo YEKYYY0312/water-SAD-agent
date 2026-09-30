@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConversationPanel, ProjectSidebar } from "./workspaceComponents";
 import { authApi } from "./authApi";
+import { DrawingPanel } from "./DrawingPanel";
 import { Icon } from "./icons";
 import { MemoryWorkspace } from "./MemoryWorkspace";
 import { SettingsPanel } from "./SettingsPanel";
@@ -41,17 +42,27 @@ export function Workbench() {
       window.location.reload();
     }
   };
-  // 两个面板互斥：主区只有一处，同时打开会让「返回会话」按钮的含义变得含糊。
+  // 面板互斥：主区只有一处，同时打开会让「返回会话」按钮的含义变得含糊。
   const openMemory = () => {
     workspace.setSettingsOpen(false);
+    workspace.setDrawingOpen(false);
     workspace.setMemoryOpen((current) => !current);
     setSidebarOpen(false);
   };
   const openSettings = () => {
     workspace.setMemoryOpen(false);
+    workspace.setDrawingOpen(false);
     workspace.setSettingsOpen((current) => !current);
     setSidebarOpen(false);
   };
+  // 生成图纸不绑定会话（路由不带 thread_id），和长期记忆、设置一样是全局工具页，入口放侧栏。
+  const openDrawing = () => {
+    workspace.setMemoryOpen(false);
+    workspace.setSettingsOpen(false);
+    workspace.setDrawingOpen((current) => !current);
+    setSidebarOpen(false);
+  };
+  const panelOpen = workspace.memoryOpen || workspace.settingsOpen || workspace.drawingOpen;
   const serviceState = workspace.pageError
     ? "attention"
     : workspace.capabilities
@@ -63,6 +74,9 @@ export function Workbench() {
 
   const footer = (
     <div className="sidebar-footer">
+      <button type="button" className="nav-row drawing-toggle" aria-pressed={workspace.drawingOpen} onClick={openDrawing}>
+        <Icon name="drawing" /><span>{workspace.drawingOpen ? "返回会话" : "生成图纸"}</span>
+      </button>
       <button type="button" className="nav-row workspace-memory-toggle" aria-pressed={workspace.memoryOpen} onClick={openMemory}>
         <Icon name="memory" /><span>{workspace.memoryOpen ? "返回会话" : "长期记忆"}</span>
       </button>
@@ -95,13 +109,17 @@ export function Workbench() {
         onCreateProject={workspace.createProject}
         onSelectProject={(projectId) => { workspace.selectProject(projectId); setSidebarOpen(false); }}
         onSelectSession={(threadId) => { workspace.selectSession(threadId); setSidebarOpen(false); }}
-        onCreateSession={() => { workspace.setMemoryOpen(false); workspace.setSettingsOpen(false); workspace.createSession(); setSidebarOpen(false); }}
+        onCreateSession={() => { workspace.setMemoryOpen(false); workspace.setSettingsOpen(false); workspace.setDrawingOpen(false); workspace.createSession(); setSidebarOpen(false); }}
         onDeleteUpload={workspace.deleteUpload}
       />
       <div className="main">
         {/* 会话面板自己在消息流里渲染错误；只有记忆/设置页需要顶部横幅。 */}
-        {workspace.pageError && (workspace.memoryOpen || workspace.settingsOpen) && <div className="global-error" role="alert">{workspace.pageError}</div>}
-        {workspace.settingsOpen ? (
+        {workspace.pageError && panelOpen && <div className="global-error" role="alert">{workspace.pageError}</div>}
+        {workspace.drawingOpen ? (
+          <section className="panel-page drawing-conversation" aria-labelledby="drawing-heading">
+            <DrawingPanel onBack={() => workspace.setDrawingOpen(false)} />
+          </section>
+        ) : workspace.settingsOpen ? (
           <section className="panel-page settings-conversation" aria-labelledby="settings-heading">
             <SettingsPanel
               capabilities={workspace.capabilities}
@@ -146,7 +164,7 @@ export function Workbench() {
           onClick={() => { setSidebarOpen(false); setInspectorOpen(false); }}
         />
       )}
-      {!workspace.memoryOpen && !workspace.settingsOpen && (
+      {!panelOpen && (
         <Inspector run={workspace.run} capabilities={workspace.capabilities} open={inspectorOpen} onClose={() => setInspectorOpen(false)} />
       )}
     </main>

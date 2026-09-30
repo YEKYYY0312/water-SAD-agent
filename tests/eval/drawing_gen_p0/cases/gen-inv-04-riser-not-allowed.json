@@ -1,0 +1,28 @@
+{
+  "case_id": "gen-inv-04-riser-not-allowed",
+  "description": "住宅选核心筒立管 → 规则表里住宅只有楼梯间/管道井",
+  "request": {
+    "system_type": "给水",
+    "building_type": "住宅",
+    "floors": 6,
+    "units_per_floor": 2,
+    "riser_position": "核心筒",
+    "main_pipe": {
+      "dn": "DN50",
+      "material": "PPR"
+    },
+    "branch_pipe": {
+      "dn": "DN25",
+      "material": "PPR"
+    },
+    "flow_rate_lps": 2.5,
+    "pressure_mpa": 0.35
+  },
+  "expect": {
+    "ok": false,
+    "error_code": "GEN_INVALID_INPUT",
+    "error_fields": [
+      "riser_position"
+    ]
+  }
+}

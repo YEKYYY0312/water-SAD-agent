@@ -72,9 +72,14 @@ COPY --from=python-build /app/alembic /app/alembic
 COPY --from=python-build /app/src /app/src
 COPY --from=frontend /web/app/dist /app/web/app/dist
 COPY --from=libredwg /opt/libredwg-runtime /opt/libredwg
+# P6-S1: dxf2dwg for the experimental, opt-in DWG output of parametric drawing
+# generation.  Every DWG it writes is read back with dwg2dxf and discarded on any
+# mismatch.  Copied straight from the libredwg stage's install prefix so that stage
+# (the ~7 min source build) stays cached.
+COPY --from=libredwg /opt/libredwg/bin/dxf2dwg /opt/libredwg/bin/dxf2dwg
 ENV WATER_AGENT_DWG2DXF=/opt/libredwg/bin/dwg2dxf \
     LD_LIBRARY_PATH=/opt/libredwg/lib
-RUN /opt/libredwg/bin/dwg2dxf --version
+RUN /opt/libredwg/bin/dwg2dxf --version && /opt/libredwg/bin/dxf2dwg --version
 # Retrieval data: fixtures + curated corpus + version registry + the prebuilt
 # TriviumDB index.  The index is a build artifact produced beforehand by
 # scripts/build_index.py -- it is deliberately NOT built here, because that needs
