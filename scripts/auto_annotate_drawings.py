@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P2.5 真实图纸启发式标注（诚实版）。
 
-与 docs/P2.5_CURSOR_AUTO.txt 初版的区别（必须先读）：
+与早期自动标注初版的区别（必须先读）：
 - 初版 import 的 read_dxf_file 在本仓不存在（真实 API 是
   read_drawing + ToolPolicy），且正则只认 TEXT、只认图层含
   给水/排水/消防 —— 真实 18 张图的图层多为 P_XF_DIM / 0 /
