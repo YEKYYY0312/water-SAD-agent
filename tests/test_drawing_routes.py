@@ -238,3 +238,34 @@ def test_options_project_the_contract_and_the_rule_table(app, database) -> None:
     }
     assert data["dwg"]["experimental"] is True
     json.dumps(data, ensure_ascii=False)
+
+
+class TestSmokeCheck:
+    """冒烟 ``drawing_generate_and_download`` 的判定逻辑（离线：假 HTTP 客户端 + 真 ZIP）。"""
+
+    class _FakeClient:
+        def __init__(self, generated: tuple[int, dict], download: tuple[int, bytes]) -> None:
+            self.generated, self.downloaded, self.calls = generated, download, []
+
+        def request(self, method, path, payload=None, *, csrf=False, headers=None):
+            self.calls.append((method, path, csrf))
+            return self.generated
+
+        def download(self, path):
+            self.calls.append(("GET", path, False))
+            return self.downloaded
+
+    def test_real_zip_passes_and_broken_zip_fails(self, export_root: Path) -> None:
+        from water_agent.webapp import smoke
+
+        result = generation_service.generate_drawing_set(smoke.DRAWING_REQUEST, export_root=export_root, owner_user_id="smoke")
+        response = (201, {"ok": True, "data": result.to_response()})
+        client = self._FakeClient(response, (200, result.zip_path.read_bytes()))
+        ok, detail = smoke._drawing_roundtrip(client)
+        assert ok, detail
+        assert client.calls[0] == ("POST", "/api/drawings/generate", True), "生成必须带 CSRF"
+        assert "AC1024" in detail
+        ok, detail = smoke._drawing_roundtrip(self._FakeClient(response, (200, b"not a zip")))
+        assert not ok and "unreadable" in detail
+        ok, detail = smoke._drawing_roundtrip(self._FakeClient((503, {"error": {"code": "WEB_EXPORT_STORAGE_UNAVAILABLE"}}), (200, b"")))
+        assert not ok and "WEB_EXPORT_STORAGE_UNAVAILABLE" in detail
