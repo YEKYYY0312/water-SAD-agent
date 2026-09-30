@@ -656,3 +656,256 @@ def test_audit_buffer_is_bounded() -> None:
     for _ in range(audit._EVENT_BUFFER_LIMIT + 50):
         audit.audit_logout(user_id="u")
     assert len(audit._get_events()) == audit._EVENT_BUFFER_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# review 2026-09-30：认证加固
+# ---------------------------------------------------------------------------
+
+
+class _Clock:
+    """可控时钟：限流器的窗口/锁定期测试不 sleep。"""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_login_rejects_an_overlong_username_before_touching_the_limiter():
+    """用户名上限与库表列一致（128）。此前无上限：每个超长用户名的失败登录都新建一个
+    限流桶且永不删除，匿名请求就能把进程内存撑爆（实测 20 次 1 MiB 用户名 ≈ 23 MiB）。"""
+    client, _us, _ss, rl = _make_app_with_stores()
+    r = client.post("/api/auth/login", json={"username": "x" * 129, "password": "whatever"})
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "WEB_INVALID_REQUEST"
+    assert rl.bucket_count() == 0
+    r = client.post("/api/auth/login", json={"username": "x", "password": "p" * 1025})
+    assert r.status_code == 422
+
+
+def test_rate_limiter_bucket_count_is_bounded():
+    clock = _Clock()
+    rl = LoginRateLimiter(max_failures=3, window_seconds=60, lockout_seconds=120, max_buckets=50, clock=clock)
+    for index in range(500):
+        rl.record_failure(f"user-{index}")
+    assert rl.bucket_count() <= 50
+
+
+def test_rate_limiter_forgets_idle_usernames():
+    """失败记录过了窗口且不在锁定期就是空桶：访问即释放，不再常驻内存。"""
+    clock = _Clock()
+    rl = LoginRateLimiter(max_failures=3, window_seconds=60, lockout_seconds=120, clock=clock)
+    rl.record_failure("alice")
+    clock.now += 61
+    assert rl.is_limited("alice") is False
+    assert rl.bucket_count() == 0
+
+
+def test_lockout_outlasts_the_failure_window():
+    """LOCKOUT_SECONDS 此前定义了却从未使用：锁定只持续到最早一次失败滑出窗口。"""
+    clock = _Clock()
+    rl = LoginRateLimiter(max_failures=3, window_seconds=60, lockout_seconds=120, clock=clock)
+    for _ in range(3):
+        rl.record_failure("bob")
+    assert rl.is_limited("bob")
+    clock.now += 90  # 失败已滑出 60 s 窗口，但仍在 120 s 锁定期内
+    assert rl.is_limited("bob")
+    clock.now += 31
+    assert rl.is_limited("bob") is False
+
+
+def test_a_locked_account_survives_a_bucket_flood():
+    """桶满时优先淘汰未锁定的桶：灌满用户名不能把被锁定账号的计数挤掉。"""
+    clock = _Clock()
+    rl = LoginRateLimiter(max_failures=3, window_seconds=60, lockout_seconds=120, max_buckets=20, clock=clock)
+    for _ in range(3):
+        rl.record_failure("victim")
+    for index in range(200):
+        rl.record_failure(f"junk-{index}")
+    assert rl.is_limited("victim")
+
+
+def test_login_hashing_does_not_block_the_event_loop(monkeypatch):
+    """Argon2（~50 ms、64 MiB）此前直接跑在 async 路由里，单 worker 下全站停顿：
+    40 个并发登录期间 /health/live 从 7 ms 变成 1.2 s（review 实测）。"""
+    import asyncio
+    import time
+
+    import httpx
+
+    import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
+    from water_agent.webapp.app import create_app
+    from water_agent.webapp.auth import routes as auth_routes
+
+    us = UserStore()
+    us.create_user("slow", "SlowPassword2026!", UserRole.MEMBER)
+    monkeypatch.setattr(us_mod, "_store", us)
+    monkeypatch.setattr(ss_mod, "_store", SessionStore())
+    monkeypatch.setattr(rl_mod, "_limiter", LoginRateLimiter())
+
+    def slow_verify(_plaintext: str, _stored: str) -> bool:
+        time.sleep(0.5)
+        return False
+
+    monkeypatch.setattr(auth_routes, "verify_password", slow_verify)
+    app = create_app()
+
+    async def scenario() -> tuple[float, int]:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            # 从发起登录之前计时：同步阻塞会冻结整个事件循环（连本协程的 sleep 也醒不来），
+            # 只有这样才量得到 /health/live 被卡住的时长。
+            started = time.perf_counter()
+            login = asyncio.create_task(
+                client.post("/api/auth/login", json={"username": "slow", "password": "wrong-password"})
+            )
+            await asyncio.sleep(0.05)
+            health = await client.get("/health/live")
+            elapsed = time.perf_counter() - started
+            assert health.status_code == 200
+            return elapsed, (await login).status_code
+
+    elapsed, login_status = asyncio.run(scenario())
+    assert login_status == 401
+    assert elapsed < 0.3, f"登录的哈希计算阻塞了事件循环：/health/live 用了 {elapsed:.2f}s"
+
+
+def test_change_password_revokes_every_other_session():
+    """改密此前不吊销会话：泄露的会话在受害者改密后仍然有效（最长 8 小时）。"""
+    import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
+    from water_agent.webapp.app import create_app
+
+    us, ss = UserStore(), SessionStore()
+    us_mod._store, ss_mod._store, rl_mod._limiter = us, ss, LoginRateLimiter()
+    us.create_user("victim", "VictimPass2026!", UserRole.MEMBER)
+    app = create_app()
+    victim = TestClient(app, raise_server_exceptions=True)
+    attacker = TestClient(app, raise_server_exceptions=True)
+    for client in (victim, attacker):
+        assert client.post("/api/auth/login", json={"username": "victim", "password": "VictimPass2026!"}).status_code == 200
+
+    changed = victim.post(
+        "/api/auth/change-pass",
+        json={"current_password": "VictimPass2026!", "new_password": "RotatedVictim2026!"},
+        headers={"X-CSRF-Token": victim.cookies.get(CSRF_COOKIE_NAME) or ""},
+    )
+    assert changed.status_code == 200, changed.text
+    assert attacker.get("/api/auth/me").status_code == 401
+    # 改密的这个客户端拿到新会话，继续可用
+    assert victim.get("/api/auth/me").status_code == 200
+    assert len(ss.list_for_user(us.get_by_username("victim").user_id)) == 1
+
+
+def test_admin_reset_revokes_sessions_even_after_the_user_sets_a_new_password():
+    """此前管理员重置后旧会话只是暂时 403；受害者用临时密码登录并改密后，攻击者的旧会话又变回 200。"""
+    import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
+    from water_agent.webapp.app import create_app
+
+    us, ss = UserStore(), SessionStore()
+    us_mod._store, ss_mod._store, rl_mod._limiter = us, ss, LoginRateLimiter()
+    us.create_user("root", "RootAdminPass2026!", UserRole.ADMIN)
+    victim_id = us.create_user("carol", "CarolPass2026!", UserRole.MEMBER).user_id
+    app = create_app()
+    admin, attacker, carol = (TestClient(app, raise_server_exceptions=True) for _ in range(3))
+    assert admin.post("/api/auth/login", json={"username": "root", "password": "RootAdminPass2026!"}).status_code == 200
+    assert attacker.post("/api/auth/login", json={"username": "carol", "password": "CarolPass2026!"}).status_code == 200
+
+    reset = admin.post(
+        f"/api/admin/users/{victim_id}/reset-password",
+        json={"temporary_password": "TemporaryCarol2026!"},
+        headers={"X-CSRF-Token": admin.cookies.get(CSRF_COOKIE_NAME) or ""},
+    )
+    assert reset.status_code == 200
+    assert attacker.get("/api/auth/me").status_code == 401
+
+    assert carol.post("/api/auth/login", json={"username": "carol", "password": "TemporaryCarol2026!"}).status_code == 200
+    assert carol.post(
+        "/api/auth/change-pass",
+        json={"current_password": "TemporaryCarol2026!", "new_password": "CarolRotated2026!"},
+        headers={"X-CSRF-Token": carol.cookies.get(CSRF_COOKIE_NAME) or ""},
+    ).status_code == 200
+    assert attacker.get("/api/auth/me").status_code == 401
+
+
+def test_admin_routes_refuse_a_temporary_password_admin():
+    """require_admin 此前不查 must_change_password：拿着临时密码的管理员不改密就能建管理员、
+    改模型 Key、重置 root 密码。"""
+    client, us, _ss, _rl = _make_app_with_stores()
+    us.create_user("ops", "OpsTemporary2026!", UserRole.ADMIN, must_change_password=True)
+    assert client.post("/api/auth/login", json={"username": "ops", "password": "OpsTemporary2026!"}).status_code == 200
+    csrf = client.cookies.get(CSRF_COOKIE_NAME) or ""
+    listed = client.get("/api/admin/users")
+    assert listed.status_code == 403
+    assert listed.json()["error"]["code"] == "AUTH_MUST_CHANGE_PASSWORD"
+    created = client.post(
+        "/api/admin/users",
+        json={"username": "shadow", "temporary_password": "ShadowAdmin2026!", "role": "admin"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert created.status_code == 403
+    credentials = client.put(
+        "/api/settings/credentials/DEEPSEEK_API_KEY",
+        json={"value": "sk-overwritten-by-a-temporary-admin"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert credentials.status_code == 403
+
+
+def test_change_password_refuses_to_keep_the_current_password():
+    """强制改密时把临时密码原样填回去，等于没改。前端已拦，这里是 API 层的同一条规则。"""
+    client, us, _ss, _rl = _make_app_with_stores()
+    us.create_user("dan", "DanTemporary2026!", UserRole.MEMBER, must_change_password=True)
+    client.post("/api/auth/login", json={"username": "dan", "password": "DanTemporary2026!"})
+    r = client.post(
+        "/api/auth/change-pass",
+        json={"current_password": "DanTemporary2026!", "new_password": "DanTemporary2026!"},
+        headers={"X-CSRF-Token": client.cookies.get(CSRF_COOKIE_NAME) or ""},
+    )
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "AUTH_PASSWORD_REUSED"
+    assert client.get("/api/auth/me").status_code == 403  # 仍须改密
+
+
+def test_change_password_wrong_current_password_is_rate_limited():
+    """拿到会话的人不能无限次猜当前密码（此前 8 次都是 401、没有 429）。"""
+    client, us, _ss, _rl = _make_app_with_stores()  # 限流器 max_failures=3
+    us.create_user("erin", "ErinPassword2026!", UserRole.MEMBER)
+    client.post("/api/auth/login", json={"username": "erin", "password": "ErinPassword2026!"})
+    headers = {"X-CSRF-Token": client.cookies.get(CSRF_COOKIE_NAME) or ""}
+    codes = [
+        client.post(
+            "/api/auth/change-pass",
+            json={"current_password": f"guess-{i}-attempt", "new_password": "ErinRotated2026!"},
+            headers=headers,
+        ).status_code
+        for i in range(4)
+    ]
+    assert codes == [401, 401, 401, 429]
+
+
+def test_admin_create_user_validates_the_username():
+    """纯空白用户名此前也能建出来（201）；超过 128 字符在 PG 上会 DataError 变 500。"""
+    client, us, _ss, _rl = _make_app_with_stores()
+    us.create_user("admin2", "AdminTwoPass2026!", UserRole.ADMIN)
+    client.post("/api/auth/login", json={"username": "admin2", "password": "AdminTwoPass2026!"})
+    headers = {"X-CSRF-Token": client.cookies.get(CSRF_COOKIE_NAME) or ""}
+    for username in ("   ", "", "u" * 129):
+        r = client.post(
+            "/api/admin/users",
+            json={"username": username, "temporary_password": "TempMember2026!", "role": "member"},
+            headers=headers,
+        )
+        assert r.status_code == 422, (username, r.text)
+    ok = client.post(
+        "/api/admin/users",
+        json={"username": "new member", "temporary_password": "TempMember2026!", "role": "member"},
+        headers=headers,
+    )
+    assert ok.status_code == 201
