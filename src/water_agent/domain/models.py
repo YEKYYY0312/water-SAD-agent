@@ -303,6 +303,8 @@ class AgenticTurn(BaseModel):
     expected_error_substrings: list[str] = Field(default_factory=list)
     #: 返回的 answer 不得包含的片段（例如上一轮的回答不得被当成本轮答案）。
     answer_must_not_contain: list[str] = Field(default_factory=list)
+    #: 这一轮模型实际收到的全部消息里不得出现的片段（例如被护栏拦下的上一轮内容）。
+    model_input_must_not_contain: list[str] = Field(default_factory=list)
 
 
 class AgenticCase(BaseModel):
