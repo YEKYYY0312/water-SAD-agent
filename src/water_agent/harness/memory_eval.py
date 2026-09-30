@@ -1768,11 +1768,22 @@ def _scn_backup_restore_roundtrip(case: dict[str, Any], ctx: EvalContext) -> dic
     # diffed against the live database, and every resulting
     # "backup recorded no count" line landed in forget_residuals -- i.e. an
     # absent local secret was reported as forgotten content still on disk.
-    if not (REPO_ROOT / "secrets" / "postgres_password").is_file():
+    # The secret's path comes from scripts/, which never ships in the image; this
+    # module does, and scripts/check_image.sh fails any image file naming it.
+    from scripts.backup_manifest import (
+        BackupVerificationError,
+        compare_counts,
+        parse_counts_text,
+        postgres_secret_path,
+        verify_backup,
+    )
+
+    secret = postgres_secret_path(REPO_ROOT)
+    if not secret.is_file():
         return {
             "skip_reason": (
-                "secrets/postgres_password is absent, so scripts/backup.sh cannot reach "
-                "the database; create it (see secrets/README.md) to run the backup "
+                f"{secret.relative_to(REPO_ROOT)} is absent, so scripts/backup.sh cannot "
+                "reach the database; create it (see secrets/README.md) to run the backup "
                 "acceptance against the running compose stack"
             ),
             "requires": "docker",
@@ -1785,12 +1796,6 @@ def _scn_backup_restore_roundtrip(case: dict[str, Any], ctx: EvalContext) -> dic
         capture_output=True,
         text=True,
         check=False,
-    )
-    from scripts.backup_manifest import (
-        BackupVerificationError,
-        compare_counts,
-        parse_counts_text,
-        verify_backup,
     )
 
     # Seed from "did the backup run at all".  This used to start at True and stay
