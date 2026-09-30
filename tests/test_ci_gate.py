@@ -273,9 +273,13 @@ class TestCompareBaseline:
         assert citation_ok == 0.5, f"兜底 citation_ok 应排除零引用失败用例: {citation_ok}"
 
     def test_mechanism_suites_include_p2(self) -> None:
-        """P2 收口：机制层默认套件必须覆盖 docgen_p0/material_p0（且保留 rag/calc）。"""
+        """机制层默认套件：rag/calc + P2 docgen/material + P2.5 governance。
+
+        governance_p0 早在 baseline.json 里，却不在默认对比套件中——删掉两条治理用例
+        整条门禁仍绿（review 2026-09-30）。
+        """
         from scripts.compare_baseline import MECHANISM_SUITES
-        assert MECHANISM_SUITES == ["rag_p0", "calc_p0", "docgen_p0", "material_p0"]
+        assert MECHANISM_SUITES[:5] == ["rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0"]
 
     def test_compare_p2_suite_identical_report_passes(self) -> None:
         """docgen_p0 套件：与基线指标一致的新报告必须通过（零下降 + 无 PTP 违规）。"""
@@ -323,6 +327,87 @@ class TestCompareBaseline:
         result = compare_suite("material_p0", baseline, new_report, THRESHOLDS)
         assert result["passed"] is False
         assert "PASS_TO_PASS" in result["reason"]
+
+    # ── review 2026-09-30：用例被删/被跳过不得静默通过 ──
+
+    @staticmethod
+    def _suite_report(case_ids: list[str], *, skipped: tuple[str, ...] = ()) -> dict:
+        cases = [
+            {"case_id": cid, "passed": cid not in skipped, "skipped": cid in skipped}
+            for cid in case_ids
+        ]
+        passed = sum(1 for c in cases if c["passed"])
+        return {
+            "total": len(cases), "passed": passed, "failed": 0, "skipped": len(skipped),
+            "pass_rate": 1.0, "citation_ok_rate": 1.0, "cases": cases,
+        }
+
+    def test_baseline_passed_case_missing_from_new_report_fails(self) -> None:
+        """基线通过的用例在新报告里消失（数据集删行/字段改名变成加载问题）→ 判失败。
+
+        此前 PASS_TO_PASS 只看"新报告里存在且失败"的用例：calc_p0 静默少 4 条仍绿。
+        """
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        baseline = {"calc_p0": {"pass_rate": 1.0, "citation_ok_rate": 1.0,
+                                "passed_case_ids": ["c1", "c2", "c3"]}}
+        result = compare_suite("calc_p0", baseline, self._suite_report(["c1", "c2"]), THRESHOLDS)
+        assert result["passed"] is False
+        assert "c3" in result["reason"] and "缺失" in result["reason"]
+
+    def test_baseline_passed_case_skipped_in_new_report_fails(self) -> None:
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        baseline = {"calc_p0": {"pass_rate": 1.0, "citation_ok_rate": 1.0,
+                                "passed_case_ids": ["c1", "c2"]}}
+        result = compare_suite("calc_p0", baseline, self._suite_report(["c1", "c2"], skipped=("c2",)), THRESHOLDS)
+        assert result["passed"] is False
+        assert "c2" in result["reason"]
+
+    def test_baseline_case_ids_cover_cases_that_were_failing(self) -> None:
+        """``case_ids`` 记录基线全部用例：连基线里本就失败的用例被删也要报出。"""
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        baseline = {"rag_p0": {"pass_rate": 0.5, "citation_ok_rate": 1.0,
+                               "passed_case_ids": ["r1"], "case_ids": ["r1", "r2"]}}
+        result = compare_suite("rag_p0", baseline, self._suite_report(["r1"]), THRESHOLDS)
+        assert result["passed"] is False
+        assert "r2" in result["reason"]
+
+    def test_suite_without_baseline_entry_fails(self) -> None:
+        """要对比的套件在基线里没有条目 → 判失败，而不是"无基线记录，跳过"。"""
+        from scripts.compare_baseline import THRESHOLDS, compare_suite
+        result = compare_suite("agentic_p0", {}, self._suite_report(["a1"]), THRESHOLDS)
+        assert result["passed"] is False
+        assert "无基线记录" in result["reason"]
+
+    def test_baselined_suite_without_new_report_fails(self, tmp_path: Path) -> None:
+        """基线里有、这次却没产出报告（runner 没跑成）→ 门禁红，不是"无新报告，跳过"。"""
+        from scripts.compare_baseline import main as compare_main
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(json.dumps({"schema_version": 1, "suites": {
+            "rag_p0": {"pass_rate": 1.0, "citation_ok_rate": 1.0, "passed_case_ids": ["r1"]},
+        }}), encoding="utf-8")
+        report_dir = tmp_path / "reports"
+        report_dir.mkdir()
+        assert compare_main([str(baseline), "--report-dir", str(report_dir), "--suite", "rag_p0"]) == 1
+
+    def test_report_path_requires_a_single_suite(self, tmp_path: Path) -> None:
+        """--report-path 只能配一个 --suite：此前会被套用到每个套件（互相错比）。"""
+        from scripts.compare_baseline import main as compare_main
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(json.dumps({"schema_version": 1, "suites": {}}), encoding="utf-8")
+        report = tmp_path / "r.json"
+        report.write_text(json.dumps(self._suite_report(["r1"])), encoding="utf-8")
+        assert compare_main([str(baseline), "--report-path", str(report)]) == 2
+
+    def test_build_baseline_records_every_case_id(self, tmp_path: Path) -> None:
+        from scripts.compare_baseline import build_baseline
+        report_dir = tmp_path / "reports"
+        report_dir.mkdir()
+        report = self._suite_report(["r1", "r2"])
+        report["cases"][1]["passed"] = False
+        (report_dir / "rag_p0_20260930T000000Z.json").write_text(json.dumps(report), encoding="utf-8")
+        baseline = build_baseline(report_dir, ["rag_p0"])
+        assert baseline["suites"]["rag_p0"]["case_ids"] == ["r1", "r2"]
+        assert baseline["suites"]["rag_p0"]["passed_case_ids"] == ["r1"]
 
     def test_build_baseline_includes_p2_suites(self, tmp_path: Path) -> None:
         """--init 从真实报告生成基线：docgen_p0/material_p0 进入 suites，指标与溯源取自报告。"""
@@ -612,3 +697,33 @@ def test_gate_refuses_to_run_without_a_venv(tmp_path) -> None:
     )
     assert result.returncode == 2
     assert "找不到虚拟环境" in result.stderr
+
+
+class TestGateScript:
+    """ci_gate.sh 的判定方式（静态断言：跑一遍完整门禁要十几分钟，这里锁住写法）。"""
+
+    GATE = Path(__file__).resolve().parents[1] / "scripts" / "ci_gate.sh"
+
+    def test_runner_steps_judge_by_exit_code(self) -> None:
+        """机制层 runner 步骤不得 ``2>/dev/null || true`` 吞掉退出码再只解析失败条数。"""
+        gate = self.GATE.read_text(encoding="utf-8")
+        for line in gate.splitlines():
+            if "harness.runner" in line and not line.lstrip().startswith("#"):
+                assert "|| true" not in line, line
+        assert "run_suite rag_p0 data/eval/rag_p0.jsonl" in gate
+        assert "run_suite governance_p0 data/eval/governance_p0.jsonl" in gate
+
+    def test_missing_baseline_is_a_failure_unless_explicitly_allowed(self) -> None:
+        """基线文件缺失 = 失败（此前只打印"首次运行"就放行）；首次接入须显式开关。"""
+        gate = self.GATE.read_text(encoding="utf-8")
+        assert "CI_GATE_ALLOW_MISSING_BASELINE" in gate
+        for line in gate.splitlines():
+            if "首次运行" in line and "echo" in line:
+                # 唯一允许的"首次运行"提示在 missing_baseline() 的显式放行分支里
+                assert "CI_GATE_ALLOW_MISSING_BASELINE=1" in line, line
+
+    def test_compare_reads_only_this_runs_reports(self) -> None:
+        """compare_baseline 只看本次门禁写的报告目录（旧拷贝不得压过本次结果）。"""
+        gate = self.GATE.read_text(encoding="utf-8")
+        assert 'GATE_REPORT_DIR="data/eval/reports/ci_gate"' in gate
+        assert 'compare_baseline.py data/eval/baseline.json --report-dir "$GATE_REPORT_DIR"' in gate
