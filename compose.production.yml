@@ -83,6 +83,16 @@ services:
         "--forwarded-allow-ips",
         "*",
       ]
+    environment:
+      # 会话与 CSRF cookie 带上 Secure 标志。代码里的默认值是 false，因为基础
+      # compose 要能在 http://localhost 上直接登录——Secure cookie 不会被浏览器
+      # 发往明文来源，在开发环境固定 true 会让登录直接坏掉。真正需要它的是这里：
+      # 本 overlay 的部署形态必然经 reverse-proxy 走 HTTPS（上面的 --proxy-headers
+      # 就是为此），此时缺 Secure 意味着用户首次以 http:// 访问、在 Caddy 301 之前
+      # 就已明文发出过会话 cookie。Caddyfile 的 HSTS 只能覆盖后续访问，兜不住第一跳。
+      # 副作用：smoke 用 http 直连 app:8000，标准库 CookieJar 不会经 http 回传
+      # Secure cookie，所以冒烟请在基础 compose 下跑，不要叠加本 overlay。
+      WEB_SECURE_COOKIE: "true"
     security_opt:
       - no-new-privileges:true
     deploy:
