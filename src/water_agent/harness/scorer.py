@@ -14,6 +14,7 @@ from water_agent.docgen import (
     validate_citation_policy,
 )
 from water_agent.domain.models import (
+    AgenticTurn,
     CalcCase,
     CalcTolerances,
     DocgenCase,
@@ -129,6 +130,65 @@ def score_eval_case(
         variant=case.variant,
         retrieval_metrics=retrieval_metrics,
     )
+
+
+def score_agentic_turn(
+    turn: AgenticTurn,
+    *,
+    actual_status: str,
+    answer: str,
+    citations: Iterable[str],
+    context_articles: Iterable[str],
+    errors: Iterable[str],
+    warnings: Iterable[str],
+    tool_rejected_citations: Iterable[str],
+    script_steps_used: int,
+) -> list[str]:
+    """mock-agentic 用例一轮的判分原因（空 = 通过）。
+
+    RAG 口径（状态 / 引用 ⊆ 跨轮检索上下文 / gold / forbidden / 陷阱）与
+    :func:`score_eval_case` 同源；陷阱引用被 cite 工具当场拒绝（可追溯检查）与被
+    校验器拒绝同样算"点名拒绝"。在此之上再查 agentic 专有的收口纪律：成功必须有
+    非空回答、引用集合精确、warnings / errors 期望、脚本恰好用完。
+    """
+    citation_list = _dedupe(citations)
+    warning_list = [str(item) for item in warnings]
+    error_list = [str(item) for item in errors]
+    evidence = [
+        *error_list,
+        *(f"cite_clauses 拒绝了引用 {cid!r}" for cid in tool_rejected_citations),
+    ]
+    rag_case = EvalCase(
+        id="agentic-turn",
+        query=turn.query,
+        gold_articles_any=turn.gold_articles_any,
+        gold_articles_all=turn.gold_articles_all,
+        forbidden_articles=turn.forbidden_articles,
+        expected_rejected_citations=turn.expected_rejected_citations,
+        expected_status=turn.expected_status,
+    )
+    scored = score_eval_case(
+        rag_case,
+        actual_status=actual_status,
+        actual_citations=citation_list,
+        context_articles=context_articles,
+        errors=evidence,
+    )
+    reasons = [scored.failure_reason] if scored.failure_reason else []
+    if actual_status == "succeeded" and not answer.strip():
+        reasons.append("succeeded with an empty answer")
+    if turn.expected_citations is not None and citation_list != turn.expected_citations:
+        reasons.append(f"citations {citation_list} != expected {turn.expected_citations}")
+    for expected in turn.expected_warnings:
+        if expected not in warning_list:
+            reasons.append(f"expected warning missing: {expected}")
+    for fragment in turn.expected_error_substrings:
+        if not any(fragment in error for error in error_list):
+            reasons.append(f"expected error containing {fragment!r}, got {error_list}")
+    unused = len(turn.script) - script_steps_used
+    if unused > 0:
+        reasons.append(f"script has {unused} unused step(s): the loop stopped earlier than scripted")
+    return reasons
 
 
 def _within_tolerance(actual: float, gold: float, tolerances: CalcTolerances) -> bool:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
-# 顺序：pytest → ruff → mypy → 机制层 runner 五套（rag/calc/docgen/material/governance）
+# 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
 #      → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
@@ -109,6 +109,12 @@ run_suite material_p0 data/eval/material_p0.jsonl
 
 step "governance_p0 harness（P2.5 治理，期望 32/32）"
 run_suite governance_p0 data/eval/governance_p0.jsonl
+
+# agentic_p0：生产 AgenticSession 装配（真实 ToolRegistry / cite 可追溯检查 / 引用校验回流 /
+# 生产 checkpoint serde）+ 逐步脚本模型 + fixture 语料；多轮每轮新 session、同一 thread，
+# 与 Web RunManager 同构。此前 PR 门禁对生产 Web 走的 agentic 图没有 harness 级覆盖。
+step "agentic_p0 harness（mock-agentic，生产装配 + 脚本模型，期望 10/10）"
+run_suite agentic_p0 data/eval/agentic_p0.jsonl
 
 # drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
 # ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
@@ -228,4 +234,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(10/10) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"

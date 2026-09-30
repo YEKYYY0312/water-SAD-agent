@@ -39,7 +39,10 @@ DEFAULT_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
 # P2 收口后 docgen_p0/material_p0 正式纳入基线（docs/design/11-docgen-materials.md §5）。
 # governance_p0 早就在 baseline.json 里却不参与对比：删掉两条治理用例整条门禁仍绿
 # （review 2026-09-30），故一并纳入。
-MECHANISM_SUITES: list[str] = ["rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0"]
+# agentic_p0（mock-agentic，生产 AgenticSession 装配）同理：新增即入基线。
+MECHANISM_SUITES: list[str] = [
+    "rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0", "agentic_p0",
+]
 
 # 单一权威阈值集（单位：pt=百分点）
 # quality_pass_rate_decline_pt 只作用于真实质量层 suite（rag_p1，独立基线文件），
