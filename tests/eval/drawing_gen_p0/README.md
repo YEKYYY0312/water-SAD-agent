@@ -53,7 +53,7 @@ tests/eval/drawing_gen_p0/
 | gen-com-01..03 | 边角立管、沿柱网敷设、商铺独立计量、泵房接管大样；流速大于上限约 2.0 m/s 仍生成 |
 | gen-inv-01..05 | 排水系统、越界数值、白名单外取值与未知字段、住宅选核心筒、支管大于主管 |
 
-## 运行与门禁（harness 与门禁在 Step 7 接入；Step 2 先由 `tests/test_drawing_generation_models.py` 跑非法参数那一半）
+## 运行与门禁
 
 ```bash
 _venv/bin/python -m water_agent.harness.drawing_gen_eval tests/eval/drawing_gen_p0

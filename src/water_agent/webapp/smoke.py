@@ -133,6 +133,16 @@ class Client:
         except json.JSONDecodeError:
             return status, {"_non_json": True, "_length": len(raw)}
 
+    def download(self, path: str) -> tuple[int, bytes]:
+        """二进制 GET（P6-S1 出图 ZIP）：不按 UTF-8 解码响应体。"""
+
+        request = urllib.request.Request(f"{self.base_url}{path}", method="GET")
+        try:
+            with self.opener.open(request, timeout=60) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
     def csrf_token(self) -> str | None:
         for cookie in self.jar:
             if cookie.name == "wa_csrf":
@@ -232,6 +242,54 @@ def _run_agentic_probe() -> tuple[dict, str]:
     if not isinstance(payload, dict):
         return {}, f"unexpected JSON payload type {type(payload).__name__}"
     return payload, ""
+
+
+#: 冒烟出图用的最小请求（2 层 × 2 户）：只证链路，不证图纸质量。
+DRAWING_REQUEST = {
+    "system_type": "给水",
+    "building_type": "住宅",
+    "floors": 2,
+    "units_per_floor": 2,
+    "main_pipe": {"dn": "DN50", "material": "PPR"},
+    "branch_pipe": {"dn": "DN25", "material": "PPR"},
+    "flow_rate_lps": 2.0,
+    "pressure_mpa": 0.3,
+}
+
+
+def _drawing_roundtrip(client: Client) -> tuple[bool, str]:
+    """P6-S1：镜像内出一套图、下载、解压，三张 DXF 都要能被 ``ezdxf.readfile`` 打开。
+
+    导出目录在 ``app_exports`` 卷上——根文件系统只读，这一条同时证明卷挂上了且 uid 10001
+    可写；读图用本容器里的 ezdxf（与 app 同一镜像的依赖）。
+    """
+
+    import io
+    import zipfile
+
+    status, generated = client.request("POST", "/api/drawings/generate", DRAWING_REQUEST, csrf=True)
+    data = generated.get("data") or {}
+    if status != 201 or not data.get("download"):
+        return False, f"generate status={status} code={(generated.get('error') or {}).get('code')}"
+    status, blob = client.download(str(data["download"]["url"]))
+    if status != 200:
+        return False, f"download status={status}"
+    try:
+        import ezdxf
+
+        with tempfile.TemporaryDirectory(prefix="smoke-drawings-") as tmp, zipfile.ZipFile(io.BytesIO(blob)) as archive:
+            names = [name for name in archive.namelist() if name.endswith(".dxf")]
+            opened = []
+            for index, name in enumerate(names):
+                target = Path(tmp) / f"sheet-{index}.dxf"
+                target.write_bytes(archive.read(name))
+                doc = ezdxf.readfile(str(target))
+                opened.append(f"{doc.dxfversion}/{len(doc.modelspace())}")
+    except Exception as exc:  # noqa: BLE001 - 任何解压/解析失败都记为这条检查失败
+        return False, f"zip/dxf unreadable: {type(exc).__name__}: {_short(exc, 160)}"
+    unchecked = [sheet["review"]["not_checked"] for sheet in data.get("sheets", [])]
+    ok = len(opened) == 3 and all(count >= 1 for count in unchecked)
+    return ok, f"zip={len(blob)}B dxf={opened} review_not_checked={unchecked}"
 
 
 def main() -> int:
@@ -459,6 +517,10 @@ def main() -> int:
     record("unknown_run_export_404", status == 404, f"status={status}")
     status, _ = admin.request("GET", f"/api/runs/{uuid.uuid4()}/export?format=pdf")
     record("export_unsupported_format_400", status == 400, f"status={status}")
+
+    # P6-S1 参数化出图：生成 → 下载 → 解压 → 三张 DXF 用 ezdxf.readfile 打开。
+    drawing_ok, drawing_detail = _drawing_roundtrip(admin)
+    record("drawing_generate_and_download", drawing_ok, drawing_detail)
 
     # 真实 agentic run：本容器内跑，断言检索没有回落 fixture。见 _run_agentic_probe。
     agentic, failure = _run_agentic_probe()
