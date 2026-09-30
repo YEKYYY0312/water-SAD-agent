@@ -1,0 +1,751 @@
+{
+  "schema_version": 1,
+  "suite": "drawing_gen_p0",
+  "suite_dir": "tests/eval/drawing_gen_p0",
+  "real_cad_verified": false,
+  "created_at": "2026-09-29T10:49:22.644866+00:00",
+  "total": 14,
+  "passed": 14,
+  "failed": 0,
+  "aggregate": {
+    "case_pass_rate": 1.0,
+    "dn_match_rate": 1.0,
+    "readback_rate": 1.0,
+    "review_honesty_rate": 1.0,
+    "sheets_checked": 27,
+    "pipe_runs_checked": 785,
+    "max_generation_ms": 336.9,
+    "dwg_statuses": {
+      "ok": 3
+    }
+  },
+  "cases": [
+    {
+      "case_id": "gen-com-01-typical",
+      "description": "商业 3 层每层 4 个商铺，边角立管，沿柱网敷设，商铺独立计量",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 209.9,
+      "main_velocity_mps": 0.9040754163799971,
+      "main_advisory": "within",
+      "warnings": [
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 85,
+          "pipe_runs": 6,
+          "planned_runs": 6,
+          "dn_matched": 6,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 20,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：20 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 159,
+          "pipe_runs": 19,
+          "planned_runs": 19,
+          "dn_matched": 19,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 50,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：50 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 3
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 62,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 16,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：16 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-com-02-max-shops",
+      "description": "商业 5 层每层 8 个商铺，层高 5.1 m，不锈钢",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 94.3,
+      "main_velocity_mps": 0.6366197723675813,
+      "main_advisory": "within",
+      "warnings": [
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 133,
+          "pipe_runs": 10,
+          "planned_runs": 10,
+          "dn_matched": 10,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 32,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：32 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 383,
+          "pipe_runs": 51,
+          "planned_runs": 51,
+          "dn_matched": 51,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 118,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：118 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 5
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 62,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 16,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：16 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-com-03-over-limit",
+      "description": "商业 2 层每层 2 个商铺，层高 6.0 m（上限），主管 DN40 流速 2.23 m/s 大于上限约 2.0 m/s（仍生成）",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 46.1,
+      "main_velocity_mps": 2.228169203286535,
+      "main_advisory": "above_limit",
+      "warnings": [
+        "主管流速 2.23 m/s，超出建议区间（0.6~1.2 m/s，且大于上限约 2 m/s），需复核（ws.pipe_velocity，GB50015-2019 3.7.3，非正式条文）",
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 61,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 14,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：14 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 89,
+          "pipe_runs": 9,
+          "planned_runs": 9,
+          "dn_matched": 9,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 28,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：28 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 2
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 62,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 16,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：16 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-inv-01-drainage-system",
+      "description": "排水系统不在本步范围 → GEN_UNSUPPORTED_SYSTEM",
+      "expect_ok": false,
+      "passed": true,
+      "failure_reasons": [],
+      "error_code": "GEN_UNSUPPORTED_SYSTEM",
+      "error_fields": [
+        "system_type"
+      ]
+    },
+    {
+      "case_id": "gen-inv-02-out-of-range",
+      "description": "层数 0、负流量、压力 1.5 MPa → 逐字段报错，不回显提交值",
+      "expect_ok": false,
+      "passed": true,
+      "failure_reasons": [],
+      "error_code": "GEN_INVALID_INPUT",
+      "error_fields": [
+        "floors",
+        "flow_rate_lps",
+        "pressure_mpa"
+      ]
+    },
+    {
+      "case_id": "gen-inv-03-not-whitelisted",
+      "description": "DN300 不在白名单、铸铁不在材质枚举、未知字段 → 全部拒绝",
+      "expect_ok": false,
+      "passed": true,
+      "failure_reasons": [],
+      "error_code": "GEN_INVALID_INPUT",
+      "error_fields": [
+        "main_pipe.dn",
+        "main_pipe.material",
+        "wall_thickness_mm"
+      ]
+    },
+    {
+      "case_id": "gen-inv-04-riser-not-allowed",
+      "description": "住宅选核心筒立管 → 规则表里住宅只有楼梯间/管道井",
+      "expect_ok": false,
+      "passed": true,
+      "failure_reasons": [],
+      "error_code": "GEN_INVALID_INPUT",
+      "error_fields": [
+        "riser_position"
+      ]
+    },
+    {
+      "case_id": "gen-inv-05-branch-larger-than-main",
+      "description": "支管 DN65 大于主管 DN50 → 物理上不成立",
+      "expect_ok": false,
+      "passed": true,
+      "failure_reasons": [],
+      "error_code": "GEN_INVALID_INPUT",
+      "error_fields": [
+        "branch_pipe"
+      ]
+    },
+    {
+      "case_id": "gen-off-01-typical",
+      "description": "办公 12 层每层 4 个用水单元，核心筒立管，走廊吊顶内敷设，不锈钢",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 69.3,
+      "main_velocity_mps": 0.7957747154594768,
+      "main_advisory": "within",
+      "warnings": [
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 87,
+          "pipe_runs": 7,
+          "planned_runs": 7,
+          "dn_matched": 7,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 24,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：24 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 421,
+          "pipe_runs": 73,
+          "planned_runs": 73,
+          "dn_matched": 73,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 178,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：178 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 12
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 35,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 10,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：10 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-off-02-low-velocity",
+      "description": "办公 1 层 1 个用水单元，主管 DN65 流速 0.45 m/s 低于建议区间下限",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 39.2,
+      "main_velocity_mps": 0.45203770818999855,
+      "main_advisory": "below",
+      "warnings": [
+        "主管流速 0.45 m/s，超出建议区间（0.6~1.2 m/s），需复核（ws.pipe_velocity，GB50015-2019 3.7.3，非正式条文）",
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 58,
+          "pipe_runs": 3,
+          "planned_runs": 3,
+          "dn_matched": 3,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 14,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：14 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 65,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 18,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：18 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 1
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 35,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 10,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：10 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-off-03-tall-floors",
+      "description": "办公 24 层每层 6 个用水单元，层高 4.2 m，DN150 钢塑复合，给出支管流量",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 165.8,
+      "main_velocity_mps": 0.6790610905254201,
+      "main_advisory": "within",
+      "warnings": [],
+      "missing_inputs": [],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 105,
+          "pipe_runs": 9,
+          "planned_runs": 9,
+          "dn_matched": 9,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 30,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：30 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 987,
+          "pipe_runs": 193,
+          "planned_runs": 193,
+          "dn_matched": 193,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 442,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：442 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 24
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 35,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 10,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：10 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-res-01-spec-example",
+      "description": "spec D1 原例：住宅 6 层每层 2 户，主管 DN50 流速 1.27 m/s 超出建议区间（只提示不阻断）；支管未给流量 → 不校核",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 50.8,
+      "main_velocity_mps": 1.2732395447351625,
+      "main_advisory": "above",
+      "warnings": [
+        "主管流速 1.27 m/s，超出建议区间（0.6~1.2 m/s），需复核（ws.pipe_velocity，GB50015-2019 3.7.3，非正式条文）",
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 85,
+          "pipe_runs": 5,
+          "planned_runs": 5,
+          "dn_matched": 5,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 20,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：20 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 222,
+          "pipe_runs": 25,
+          "planned_runs": 25,
+          "dn_matched": 25,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 66,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：66 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 6
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 40,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 8,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：8 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-res-02-high-rise-max-units",
+      "description": "住宅上限：33 层每层 8 户，管道井立管，钢塑复合；主/支管流速均在建议区间内",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 336.9,
+      "main_velocity_mps": 0.7639437268410976,
+      "main_advisory": "within",
+      "warnings": [],
+      "missing_inputs": [],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 205,
+          "pipe_runs": 11,
+          "planned_runs": 11,
+          "dn_matched": 11,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 50,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：50 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 2766,
+          "pipe_runs": 331,
+          "planned_runs": 331,
+          "dn_matched": 331,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 705,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：705 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null,
+          "riser_segments_read_back": 33
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 40,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 8,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：8 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": null
+        }
+      }
+    },
+    {
+      "case_id": "gen-res-03-single-unit-default-riser",
+      "description": "住宅下限：1 层 1 户，不给立管位置 → 取规则默认楼梯间；勾选实验性 DWG",
+      "expect_ok": true,
+      "passed": true,
+      "failure_reasons": [],
+      "generation_ms": 141.1,
+      "main_velocity_mps": 0.9947183943243461,
+      "main_advisory": "within",
+      "warnings": [
+        "支管流速未校核：缺支管设计流量（branch_flow_rate_lps）"
+      ],
+      "missing_inputs": [
+        "branch_flow_rate_lps：支管设计流量未提供，支管流速未校核（不按总流量均分估算）"
+      ],
+      "sheets": {
+        "plan": {
+          "readback_ok": true,
+          "entity_count": 63,
+          "pipe_runs": 3,
+          "planned_runs": 3,
+          "dn_matched": 3,
+          "used_layers": [
+            "WS-AXIS",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 14,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：14 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": "ok"
+        },
+        "schematic": {
+          "readback_ok": true,
+          "entity_count": 72,
+          "pipe_runs": 4,
+          "planned_runs": 4,
+          "dn_matched": 4,
+          "used_layers": [
+            "WS-DIM",
+            "WS-METER",
+            "WS-PIPE-BRANCH",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 19,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：19 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": "ok",
+          "riser_segments_read_back": 1
+        },
+        "detail": {
+          "readback_ok": true,
+          "entity_count": 40,
+          "pipe_runs": 1,
+          "planned_runs": 1,
+          "dn_matched": 1,
+          "used_layers": [
+            "WS-METER",
+            "WS-OUTLINE",
+            "WS-PIPE-MAIN",
+            "WS-TEXT",
+            "WS-VALVE"
+          ],
+          "review_pipes_reviewed": 8,
+          "review_not_checked": 1,
+          "review_summary": "**未对任何管段执行规则判定**：8 条管段均识别为给水，现有规则只适用于排水管段，本结论不含任何合规判断",
+          "dwg_status": "ok"
+        }
+      }
+    }
+  ],
+  "gate_note": "机制层评测：证明出图链路可读回、管径可匹配、复审如实；不构成可在 AutoCAD/天正中编辑的证据"
+}

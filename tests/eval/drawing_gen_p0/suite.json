@@ -1,0 +1,9 @@
+{
+  "suite": "drawing_gen_p0",
+  "description": "P6-S1 参数化给水出图的机制层评测集（合成参数，离线确定性）",
+  "spec_ref": "docs/design/p6-step-1-decision.md；docs/execution-prompts/P6-S1-parametric-drawing-generation.md §2.3 / Step 7",
+  "real_cad_verified": false,
+  "purpose": "守护：输入校验、流速程序化校核、三张图的图层/管段数/管径读回、每层一根立管、S50 复审跑通且不写成审查通过",
+  "case_format": "cases/<case_id>.json：{case_id, description, request, expect}；expect.ok=false 时只判错误码与字段",
+  "scoring": "单条用例全部期望满足才算通过；门禁对比 PASS_TO_PASS 与三项链路指标（scripts/compare_drawing_gen_p0.py）"
+}
