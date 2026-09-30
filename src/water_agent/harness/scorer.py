@@ -185,6 +185,9 @@ def score_agentic_turn(
     for fragment in turn.expected_error_substrings:
         if not any(fragment in error for error in error_list):
             reasons.append(f"expected error containing {fragment!r}, got {error_list}")
+    for fragment in turn.answer_must_not_contain:
+        if fragment in answer:
+            reasons.append(f"answer must not contain {fragment!r}")
     unused = len(turn.script) - script_steps_used
     if unused > 0:
         reasons.append(f"script has {unused} unused step(s): the loop stopped earlier than scripted")
