@@ -234,6 +234,34 @@ class TestMaterialScoring:
         assert not result.passed
         assert "raw_quantity" in result.failure_reason
 
+    def test_relabelled_row_with_wrong_quantity_fails(self) -> None:
+        """引擎缺陷模拟：DN100 行被标成 DN125 且数量翻倍，行数不变 → 必须判失败。
+
+        此前只比行数：gold 行在实际输出里找不到就 ``continue``，口径审计又按新标签查
+        不到基准而跳过——规格与采购数量全错也判通过（review 2026-09-30 变异：
+        material_p0 10/10、全量 pytest 绿、整条门禁放行）。
+        """
+        case = _material_case()
+        table = aggregate_materials(case.segments)
+        table.rows[0].spec = "DN125"
+        table.rows[0].quantity *= 2
+        table.rows[0].raw_quantity *= 2
+        result = score_case(case, table=table)
+        assert not result.passed
+        assert "球墨铸铁 DN100" in result.failure_reason
+        assert "DN125" in result.failure_reason
+
+    def test_audit_flags_rows_without_a_segment_group(self) -> None:
+        """口径审计：输出行的 (材质, 规格) 在管段表里根本不存在 → 判失败，而不是跳过。"""
+        case = _material_case(gold_rows=[])
+        table = aggregate_materials(case.segments)
+        table.rows[0].material = "钢管"
+        result = score_case(case.model_copy(update={"gold_rows": [
+            {"material": "钢管", "spec": "DN100", "unit": "m", "quantity": 200},
+        ]}), table=table)
+        assert not result.passed
+        assert "口径审计" in result.failure_reason
+
 
 class TestRunnerEndToEnd:
     def test_docgen_p0_all_green(self, tmp_path: Path) -> None:
