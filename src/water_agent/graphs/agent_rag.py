@@ -461,11 +461,34 @@ def _first_human_text(state: AgenticRAGState) -> str:
     return ""
 
 
-def _last_ai_answer_text(messages: Sequence[BaseMessage]) -> str:
-    """取最近一条带文本的 AIMessage 内容（供引用闭环判断"模型已作答"）。"""
-    for m in reversed(messages):
-        if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
-            return m.content
+def _message_text(message: BaseMessage) -> str:
+    """消息的文本内容：字符串原样返回；内容块列表只取文本块拼接。"""
+    content = message.content
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text") or ""))
+    return "".join(parts)
+
+
+def final_answer_text(messages: Sequence[BaseMessage]) -> str:
+    """本轮最终回答：本轮最后一条**不带 tool_calls** 的 AIMessage 的文本，空白即无回答。
+
+    收口判定（校验器两条分支）与 finalize 取答案共用这一个定义：
+    - 只看本轮（``current_turn_messages``）——上一轮的回答不得拿来判定"已作答"，也不得在
+      本轮失败时被当成本轮答案返回；
+    - 带 tool_calls 的 AIMessage 是"要去调工具"，附在上面的前置文本（"我来检索一下"）
+      以及校验器注入的合成调用都不是回答；
+    - 最后那条回复为空就是没有回答，不回头找更早的草稿——那些已被校验器驳回。
+    """
+    for message in reversed(current_turn_messages(messages)):
+        if isinstance(message, AIMessage) and not message.tool_calls:
+            text = _message_text(message)
+            return text if text.strip() else ""
     return ""
 
 
@@ -599,6 +622,11 @@ def make_citation_validator(version_registry: Any | None = None):
                 check,
             )
             if check.ok:
+                if not final_answer_text(messages):
+                    errors.append(
+                        "模型声明了引用但未给出文本回答；空回答不得收口为成功"
+                    )
+                    return {"status": STATUS_FAILED, "citations": citations, "errors": errors}
                 # 保留历史 errors（例如先前无效引用轮次的 did-you-mean 文本），与旧行为一致
                 return {"status": STATUS_SUCCEEDED, "citations": citations, "errors": errors}
 
@@ -615,7 +643,7 @@ def make_citation_validator(version_registry: Any | None = None):
             return {"status": STATUS_FAILED, "errors": errors}
 
         # ── 零引用路径 ──────────────────────────────────────────────
-        answer_text = _last_ai_answer_text(messages)
+        answer_text = final_answer_text(messages)
         empty_reflows = int(state.get("empty_citation_reflows", 0) or 0)
 
         if not retrieved_this_turn and answer_text and _declares_no_basis(answer_text):
@@ -698,13 +726,13 @@ def make_finalize(
         request_context = local_request_context(thread_id="chat-agentic_loop")
 
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
-        answer: str = ""
-        for m in reversed(state.get("messages", [])):
-            if isinstance(m, AIMessage) and isinstance(m.content, str):
-                answer = m.content
-                break
+        answer = final_answer_text(state.get("messages", []))
         status = state.get("status", STATUS_FAILED)
         errors = list(state.get("errors", []))
+        if status == STATUS_SUCCEEDED and not answer:
+            # 双保险：校验器两条分支都已拦空回答，这里兜住任何绕过校验器到达收口的路径
+            status = STATUS_FAILED
+            errors.append("收口时没有本轮文本回答；空回答不得收口为成功")
 
         # 输入护栏已阻断：直接收口 blocked，不再跑输出护栏。
         if status == STATUS_BLOCKED:
