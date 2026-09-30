@@ -206,3 +206,24 @@ test("a ready attachment alone is enough to send", async () => {
   assert.match(components, /disabled=\{!session \|\| uploading \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
   assert.match(controller, /draft\.trim\(\) \|\| \(attachmentIds\.length > 0 \? ATTACHMENT_ONLY_PROMPT : ""\)/);
 });
+
+// ---------------------------------------------------------------------------
+// review 2026-09-30: a refused send (e.g. 409 WEB_RUN_IN_PROGRESS) is rolled back
+// ---------------------------------------------------------------------------
+
+import { withdrawUnsentQuestion } from "../src/workspaceState.ts";
+
+test("a refused send withdraws the optimistic question", () => {
+  const history = [
+    { role: "user", text: "问 1" },
+    { role: "agent", text: "答 1", status: "succeeded" },
+    { role: "user", text: "问 2" },
+  ];
+  assert.deepEqual(withdrawUnsentQuestion(history, "问 2"), history.slice(0, 2));
+});
+
+test("withdrawing never removes anything but the question that failed to send", () => {
+  const history = [{ role: "user", text: "问 1" }, { role: "agent", text: "答 1" }];
+  assert.deepEqual(withdrawUnsentQuestion(history, "问 2"), history);
+  assert.deepEqual(withdrawUnsentQuestion([], "问 2"), []);
+});
