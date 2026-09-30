@@ -505,6 +505,8 @@ _NO_BASIS_PHRASES = (
     "未找到依据",
     "没有找到依据",
     "无法提供条款依据",
+    # 回流文案本身要求"依据不足时明确说明"，照做的回答必须能被识别
+    "依据不足",
 )
 
 
@@ -518,6 +520,9 @@ def _declares_no_basis(answer: str) -> bool:
 # 刻意保守：只要回答里出现规范号/条款号形态，或"数字 + 工程单位"，就视为规范性结论，
 # 仍须引用——防止模型凭记忆说"流速不大于 2 m/s"绕过铁律 2。
 WARNING_NON_NORMATIVE_NO_CITATION = "no_citation_non_normative"
+#: 诚实拒答：本轮确实检索过、零命中（或回流后仍判定依据不足），回答明确说明无依据且不含
+#: 规范性结论。与非规范性豁免分开计，便于统计"系统说不知道"的比例。
+WARNING_NO_BASIS_REFUSAL = "no_citation_no_basis"
 _NORMATIVE_MARKERS = (
     re.compile(r"(?:GB|CJJ|CECS|JGJ|DBJ?|T/)\s*/?\s*T?\s*\d{3,5}", re.IGNORECASE),
     re.compile(r"(?<![\d.])\d{1,2}\.\d{1,2}\.\d{1,3}(?![\d.])"),
@@ -528,12 +533,30 @@ _NORMATIVE_MARKERS = (
         r"米|毫米|厘米|%|‰|℃|°C|kW|m³|m3|L\b|升|吨|t/d|m³/d|m3/d)",
         re.IGNORECASE,
     ),
+    # 不含数字的定性强制结论（"严禁……必须……"）同样是规范性结论。只收规范用语里的强约束
+    # 词形；"应该""可以"这类日常用语不在内，避免把能力说明误判为规范性回答。
+    re.compile(
+        r"严禁|必须|不得|禁止|应当|不应|不宜|"
+        r"应(?:符合|满足|按|设|采用|根据|大于|小于|不小于|不大于)|宜(?:采用|设|按)"
+    ),
 )
 
 
 def _is_non_normative_answer(answer: str) -> bool:
-    """回答是否不含任何规范性结论形态（规范号、条款号、带工程单位的数值）。"""
+    """回答是否不含任何规范性结论形态（规范号、条款号、带工程单位的数值、定性强制用语）。"""
     return not any(pattern.search(answer) for pattern in _NORMATIVE_MARKERS)
+
+
+def _retrieval_hits_this_turn(messages: Sequence[BaseMessage]) -> list[str]:
+    """本轮 retrieve_clauses 实际返回的 source_id（跨轮累积的检索上下文不算）。"""
+    hits: list[str] = []
+    for message in current_turn_messages(messages):
+        if isinstance(message, ToolMessage) and message.name == "retrieve_clauses":
+            for hit in _payload_of(message).get("hits", []) or []:
+                sid = hit.get("source_id")
+                if sid and sid not in hits:
+                    hits.append(sid)
+    return hits
 
 
 # 正文里写出的条款号（P5-S50 附件问答实测：模型在正文写"GB 50014-2021 第 7.4.3 条"，
@@ -600,12 +623,20 @@ def make_citation_validator(version_registry: Any | None = None):
     ``version_registry``（Step 8）：为每条引用解析版本状态写回 ``CitationClaim.version_status``；
     未知只标记（``warnings``），不回流、不判失败。
 
-    零引用闭环（P1/Step 10 评审强制"引用可追溯"落地）：
+    零引用闭环（P1/Step 10 评审强制"引用可追溯"落地；豁免条件 2026-09-30 修正）：
     - 已检索到非空结果 + 模型已回答 + 无 cite_clauses 声明 → 注入要求声明引用的
       ToolMessage 回流一次（``EMPTY_CITATION_MAX_REFLOWS``）；
     - 回流后再空引用 → 结构化失败（错误文本进 ``errors``，对报告/用户可见）；
-    - 无任何检索结果且模型明确说明"未检索到依据" → 允许无引用收口，不伪造引用；
-    - 空引用回流与无效引用重试（≤``MAX_CITATION_RETRIES`` 次）分开计数互不挤占。
+    - 豁免只看回答是否含规范性结论（规范号、条款号、带单位数值、"严禁/必须"类定性
+      要求），不看措辞："未检索到"不是通行证；
+    - 诚实拒答：本轮确实检索过、零命中（有命中则须已回流一次），明确说明无依据且回答
+      不含规范性结论 → 无引用收口（``WARNING_NO_BASIS_REFUSAL``），不伪造引用；
+    - 本轮未检索且回答不含规范性结论（寒暄、能力说明）→ 无引用收口
+      （``WARNING_NON_NORMATIVE_NO_CITATION``）；
+    - 空引用回流单独计数（``empty_citation_reflows`` ≤ ``EMPTY_CITATION_MAX_REFLOWS``），
+      同时计入 ``retry_count``；无效引用重试看 ``retry_count``（≤ ``MAX_CITATION_RETRIES``），
+      所以先发生的空引用回流会占掉一次无效引用重试。一轮总回流次数
+      ≤ ``MAX_CITATION_RETRIES + EMPTY_CITATION_MAX_REFLOWS``。
     """
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
@@ -646,13 +677,38 @@ def make_citation_validator(version_registry: Any | None = None):
         answer_text = final_answer_text(messages)
         empty_reflows = int(state.get("empty_citation_reflows", 0) or 0)
 
-        if not retrieved_this_turn and answer_text and _declares_no_basis(answer_text):
-            # 本轮无检索且模型明确说明"未检索到依据"：允许无引用收口，不伪造引用
-            return {"status": STATUS_SUCCEEDED, "citations": [], "errors": errors}
+        if not answer_text:
+            errors.append(
+                "模型未产出文本回答且未调用 cite_clauses 声明引用；"
+                "空回答/零引用不得收口为成功"
+            )
+            return {"status": STATUS_FAILED, "errors": errors}
 
-        if not retrieved_this_turn and answer_text and _is_non_normative_answer(answer_text):
-            # 本轮未检索、回答不含规范号/条款号/带单位数值：非规范性回答（能力询问、
-            # 寒暄、操作说明），无引用收口；warning 保证豁免可见、可统计。
+        # 豁免只看回答内容是否含规范性结论，不看措辞：此前"未检索到"是一句魔法短语——
+        # 不检索、写一句"未检索到相关条款"再凭记忆给出限值，也判成功且不带 warning。
+        normative = not _is_non_normative_answer(answer_text)
+        hits_this_turn = _retrieval_hits_this_turn(messages)
+
+        if (
+            retrieved_this_turn
+            and not normative
+            and _declares_no_basis(answer_text)
+            and (not hits_this_turn or empty_reflows >= EMPTY_CITATION_MAX_REFLOWS)
+        ):
+            # 诚实拒答：本轮确实检索过，零命中（有命中时须已回流一次、给过引用机会），
+            # 回答明确说明无依据且不含规范性结论 → 无引用收口，不伪造引用。
+            if WARNING_NO_BASIS_REFUSAL not in warnings:
+                warnings.append(WARNING_NO_BASIS_REFUSAL)
+            return {
+                "status": STATUS_SUCCEEDED,
+                "citations": [],
+                "errors": errors,
+                "warnings": warnings,
+            }
+
+        if not retrieved_this_turn and not normative:
+            # 本轮未检索、回答不含规范性结论：非规范性回答（能力询问、寒暄、操作说明），
+            # 无引用收口；warning 保证豁免可见、可统计。
             if WARNING_NON_NORMATIVE_NO_CITATION not in warnings:
                 warnings.append(WARNING_NON_NORMATIVE_NO_CITATION)
             return {
@@ -661,13 +717,6 @@ def make_citation_validator(version_registry: Any | None = None):
                 "errors": errors,
                 "warnings": warnings,
             }
-
-        if not answer_text:
-            errors.append(
-                "模型未产出文本回答且未调用 cite_clauses 声明引用；"
-                "空回答/零引用不得收口为成功"
-            )
-            return {"status": STATUS_FAILED, "errors": errors}
 
         if empty_reflows < EMPTY_CITATION_MAX_REFLOWS:
             mentioned = _mentioned_source_ids(answer_text, context_ids)
@@ -678,16 +727,23 @@ def make_citation_validator(version_registry: Any | None = None):
                     "（只声明真正支撑结论的那几条），然后给出完整回答；正文里提到但检索结果里"
                     "没有的条款号，请删去或注明\"未检索到原文\"。"
                 )
-            elif retrieved_this_turn and context_ids:
+            elif hits_this_turn:
                 feedback = (
                     "本轮 retrieve_clauses 已返回相关条款，但你的回答没有调用 cite_clauses "
                     "声明引用。请基于检索结果调用 cite_clauses 声明回答依据的条款 id"
                     "（必须取自本次检索结果），随后给出引用后的完整回答。若你认为检索结果"
                     "不足以支撑正式引用，请在回答中明确说明依据不足，不得编造引用。"
                 )
+            elif retrieved_this_turn:
+                # 本轮检索过但零命中：不能沿用"已返回相关条款"的文案（前几轮的命中不算本轮的）
+                feedback = (
+                    "本轮检索没有返回结果，你的回答却给出了规范性结论（规范号、条款号、数值限值"
+                    "或\"严禁/必须\"类要求）且没有依据。若确认无相关依据，请在回答中明确说明"
+                    "未检索到相关内容，不得凭记忆给出规范性结论，也不得编造引用。"
+                )
             else:
                 feedback = (
-                    "你的回答没有调用 cite_clauses 声明引用，且本轮没有可用的检索结果。"
+                    "你的回答没有调用 cite_clauses 声明引用，且本轮没有检索。"
                     "请先调用 retrieve_clauses 检索规范条款；若确认无相关依据，请在回答中"
                     "明确说明未检索到相关内容，不得编造引用。"
                 )
