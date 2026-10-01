@@ -19,6 +19,10 @@
    token/成本字段留空（契约层已强制）。
 5. **不导入 provider SDK**：真实请求由调用方注入的 ``executor`` 完成，
    gateway 只负责治理。这样 fake transport 可完整覆盖所有分支。
+6. **中断信号不是 provider 失败**：executor / opener 抛出的非 ``Exception`` 的
+   ``BaseException``（``KeyboardInterrupt`` / ``SystemExit`` / ``asyncio.CancelledError``）
+   原样上抛——不分类、不计熔断、不重试，也不包装成 :class:`GovernanceError`；
+   预算预留照样回滚并按 usage 未知落账，半开探测名额照样归还。
 
 流式通道 :meth:`ProviderGateway.stream_call` 与 :meth:`ProviderGateway.call` 共用发送前
 四步与失败落账（同一组私有方法），只在执行段不同：**重试只发生在第一个 chunk 之前**
@@ -222,7 +226,7 @@ class _Admission:
     """发送前四步（能力 → 熔断 → 限流 → 预算预留）全部通过后的放行凭据。
 
     预算预留句柄在这里：拿到它之后，每条退出路径都必须恰好结清一次
-    （``_settle`` 对账或 ``_fail`` 回滚），否则失败的调用会永久占额度。
+    （``_settle`` 对账，或 ``_fail`` / ``_abort`` 回滚），否则失败的调用会永久占额度。
     半开探测名额同理：``probe`` 由 ``_execute_with_retry`` 在执行段结束时归还，
     否则没出成败判定的探测会把半开期永久占满。
     """
@@ -339,8 +343,9 @@ class ProviderGateway:
 
         探测以成功（闭合）或瞬时失败（重新开路）结束时熔断已换代、名额已随之作废，这里什么
         也不做。只有以说明不了上游健康与否的方式结束——发送前被限流/预算拒绝、认证失败与
-        永久错误（两者都不计熔断）、deadline 用尽、上游不支持流式——名额才真正归还；不还的话
-        半开期名额被永久占满，此后每个请求都是 ``CIRCUIT_OPEN``，推进时钟也没用。
+        永久错误（两者都不计熔断）、deadline 用尽、上游不支持流式、执行被中断信号打断——名额
+        才真正归还；不还的话半开期名额被永久占满，此后每个请求都是 ``CIRCUIT_OPEN``，推进时钟
+        也没用。
         """
         if probe is None:
             return
@@ -395,6 +400,8 @@ class ProviderGateway:
 
         Raises:
             GovernanceError: 能力/限流/预算/熔断/超时/provider 失败，均为结构化错误。
+            KeyboardInterrupt, SystemExit, asyncio.CancelledError: executor（或退避等待）中的
+                中断信号原样上抛：不分类、不计熔断、不重试；预留回滚并按 usage 未知落一条账。
         """
         # 1–4. 能力 → 熔断 → 限流 → 预算预留
         admission = self._admit(ctx, call, cache_status)
@@ -405,6 +412,11 @@ class ProviderGateway:
         except GovernanceError as exc:
             self._fail(ctx, call, admission, exc.code, cache_status,
                        retry_after=exc.retry_after_seconds)
+            raise
+        except BaseException:
+            # 重试内核原样上抛的中断信号（executor 里或退避 sleep 中途的 Ctrl-C 等）同样要结清
+            # 预留，否则永久占额度；请求可能已经发出，按 usage 未知落账后原样上抛
+            self._abort(ctx, call, admission, 0, cache_status)
             raise
 
         # 6. usage 对账
@@ -433,8 +445,8 @@ class ProviderGateway:
           （回滚 + 失败账；deadline 是调用方的时间预算，不计熔断）。已取到的 chunk 总会交出。
         - **熔断**：首个 chunk 到达即记成功（与 :meth:`call` 中 executor 返回是同一时点），
           半开期的探测流因此在首个 chunk 后就放行后续请求，不会占着探测名额直到流结束；
-          首块之前就以不出成败判定的方式结束（认证/永久错误、deadline、``NotImplementedError``）
-          时名额同样归还，与 :meth:`call` 同一处理。
+          首块之前就以不出成败判定的方式结束（认证/永久错误、deadline、``NotImplementedError``、
+          中断信号）时名额同样归还，与 :meth:`call` 同一处理。
           代价：总在首块之后断流的上游每次都先记成功、再记一次失败，连续失败计数到不了
           开路阈值——首块之后不重试，所以不存在重试放大。
         - ``provider_call_count`` 与 :meth:`call` 同口径：每次尝试加 1。
@@ -448,6 +460,9 @@ class ProviderGateway:
         - ``opener()`` 或首个 chunk 抛 ``NotImplementedError``（上游不支持流式）：不是 provider
           失败——不重试、不计熔断、不落账，回滚预留、归还半开探测名额后原样抛出，调用方据此
           回退到 :meth:`call`（名额不还的话，回退的那次 ``call`` 会被这条流自己挡在熔断外）。
+        - **中断信号**（``KeyboardInterrupt`` / ``SystemExit`` / ``asyncio.CancelledError`` 等非
+          ``Exception`` 的 ``BaseException``）：首块之前（``opener()`` 或首个 chunk 抛出）与之后
+          同一处理——原样上抛，不分类、不计熔断、不重试；预留回滚并按 usage 未知落一条账。
 
         本方法是生成器：发送前检查与预算预留都在第一次 ``next()`` 时才发生，创建后未迭代即
         丢弃不占任何额度；拿到预留之后由 ``try/finally`` 保证每条退出路径恰好结清一次。
@@ -462,10 +477,11 @@ class ProviderGateway:
         Raises:
             GovernanceError: 能力/限流/预算/熔断/超时/provider 失败，均为结构化错误。
             NotImplementedError: 上游不支持流式（见上），原样抛出。
+            KeyboardInterrupt, SystemExit, asyncio.CancelledError: 中断信号（见上），原样抛出。
         """
         admission = self._admit(ctx, call, cache_status)
         # 预留已存在：``resolved`` 记录是否已结清（settle 或 rollback 恰好一次），
-        # finally 兜底没走到显式结清的退出路径（KeyboardInterrupt、调用方 throw() 等）。
+        # finally 兜底没走到显式结清的退出路径（首块前后的中断信号、调用方 throw() 等）。
         resolved = False
         upstream: Iterator[T] | None = None
         retries = 0
@@ -543,12 +559,7 @@ class ProviderGateway:
             if upstream is not None:
                 _close_quietly(upstream)
             if not resolved:
-                self.budget_ledger.rollback(admission.budget_key, admission.reservation_id)
-                self._emit(
-                    self._unknown_usage_record(
-                        ctx, call, self._elapsed_ms(admission), retries, cache_status
-                    )
-                )
+                self._abort(ctx, call, admission, retries, cache_status)
 
     # -- 共享步骤：call 与 stream_call 的发送前检查与结清 --------------------------
 
@@ -638,6 +649,23 @@ class ProviderGateway:
             )
         )
 
+    def _abort(
+        self,
+        ctx: RequestContext,
+        call: ProviderCall,
+        admission: _Admission,
+        retries: int,
+        cache_status: CacheStatus,
+    ) -> None:
+        """执行段没得出治理结论就退出（中断信号、调用方 ``throw()`` 等）：回滚预留，按 usage
+        未知落一条账。请求可能已经发出、用量无从得知——不记失败码，也不估算。"""
+        self.budget_ledger.rollback(admission.budget_key, admission.reservation_id)
+        self._emit(
+            self._unknown_usage_record(
+                ctx, call, self._elapsed_ms(admission), retries, cache_status
+            )
+        )
+
     def _settle(
         self,
         ctx: RequestContext,
@@ -698,8 +726,14 @@ class ProviderGateway:
     ) -> tuple[T, ProviderUsage, int]:
         """有界重试（受 deadline 约束）。``passthrough`` 中的异常不分类、不计熔断、原样抛出。
 
+        只对 ``Exception`` 分类。``KeyboardInterrupt`` / ``SystemExit`` /
+        ``asyncio.CancelledError`` 这类非 ``Exception`` 的 ``BaseException`` 是进程或任务要停下
+        的信号，不是 provider 的失败：同样不分类、不计熔断、不重试，原样抛出，预留由调用方
+        结清。此前它们没有状态码、类名也不在瞬时清单里，被判成永久错误、包装成
+        ``PROVIDER_UNAVAILABLE``——Ctrl-C 打断一次慢请求，得到的是"上游服务返回不可重试的错误"。
+
         不论怎样结束都归还半开探测名额（``call`` 与 ``stream_call`` 的执行段都只经这里）：
-        认证/永久错误、deadline 与 ``passthrough`` 异常没出成败判定，名额必须还；成功与
+        认证/永久错误、deadline、``passthrough`` 异常与中断信号没出成败判定，名额必须还；成功与
         瞬时失败已让熔断换代，归还是空操作（见 :meth:`_release_probe`）。
         """
         profile = admission.profile
@@ -716,7 +750,7 @@ class ProviderGateway:
                     value, usage = executor()
                 except passthrough:
                     raise
-                except BaseException as exc:
+                except Exception as exc:  # 中断信号不在此列，原样上抛（见上）
                     last_exc = exc
                     kind = _classify_error(exc)
 
