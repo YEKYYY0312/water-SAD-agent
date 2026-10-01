@@ -30,7 +30,7 @@
 - 整篇脱敏在切块**之前**：跨块边界的凭据才拦得住。
 - 注入检测在**块**粒度：护栏 `MAX_CONTENT_BYTES`=200 KB，整篇过检会把正常的大设计文档整份拒掉（有测试锁死）。
 - 注入命中**只标 `suspicious`，不阻断**（上传文本是数据）；`suspicious`（注入）与 `redacted`（PII/凭据被剥离）分开上报，处置不同。原始文件本身完整保留在卷上，脱敏只作用于提取文本与入库块。
-- 413 在**读取过程中**产生（`_read_bounded`），不先缓冲整个 body；路径穿越**拒绝而非清洗**。
+- 413 在**读取过程中**产生（`_read_bounded`），不先缓冲整个 body；路径穿越**拒绝而非清洗**。（2026-10-01 更正：这只对单文件精确上限成立，HTTP 层 FastAPI 在鉴权前已收完整个 multipart，见文末 D5。）
 - 扫描件 PDF：空页不写页码标记，`extracted_text_length` 如实为 0（spec R1）。
 - 实测缺陷：`UploadRepository.create` 必须 `flush()`——两表间无 `relationship()`，SQLAlchemy 按表名排序 INSERT，`upload_chunks` 排在 `uploads` 之前，FK 报错。
 - `python-multipart` 是运行时必需依赖：缺它 FastAPI 在**请求期**才抛 RuntimeError。
@@ -70,3 +70,27 @@
 - 无病毒扫描（spec 风险自留）；uploads 卷无 retention，长期运行会无界增长。
 - pymupdf 路径是 AGPL，启用即承担相应义务。
 - spec R3 的"24 小时 TTL"与"入库长期保存"拍板冲突，**已作废**。
+
+## D5 请求体上限：在 FastAPI 之下、鉴权与读 body 之前（2026-10-01 补）
+
+**缺陷（已复现）**：FastAPI 先 `await request.form()`（`fastapi/routing.py::get_request_handler`）再 `solve_dependencies`，而鉴权与 CSRF 都是依赖。所以 D1 的"413 在读取过程中产生"只对 `_read_bounded` 读已 spool 好的 `UploadFile` 成立：路由运行之前，Starlette 早已把整个 multipart 收完，文件部分写进 `SpooledTemporaryFile`（超过 1 MB 落 `/tmp`）。修复前实测（30 MiB 文件）：匿名、不带 cookie 与 CSRF → 403 `AUTH_CSRF_INVALID`，但已收 31457280 字节并写进临时文件；已登录 → `_read_bounded` 返回 413 时同样已收满。真实 uvicorn + curl 对照：修复前先回 `100 Continue`，客户端上传完 31457478 字节才拿到 403。真正起限流作用的只有 Caddy 站点级 `max_size 16MB`；基础 compose 直接暴露 app:8000，没有任何上限；容器 `/tmp` 是 tmpfs，推断计入容器内存限额，并发匿名上传可把 app 顶到 OOM。
+
+**新的顺序**（越靠前越先拒）：
+
+1. 反代（仅生产 profile）：`deploy/Caddyfile` 对 `/api/uploads`、`/api/uploads/*` 单设 `request_body max_size 10304KiB`（`caddy adapt` 实测解析为 10551296 字节，与应用层同值）；站点级 16MB 不变，两条都生效，上传路径取更严者。
+2. `webapp/body_limit.py::UploadBodyLimitMiddleware`（纯 ASGI，`create_app` 注册，只作用于上述前缀；`POST /api/uploads` 是全应用唯一解析表单的路由，测试从 OpenAPI 读出并锁死）：
+   - 声明的 `Content-Length` 超上限 → 读 body 之前直接 413：`receive` 一次都不调，服务器因此也不发 `100 Continue`（curl 实测上传 0 字节）；
+   - 没有 `Content-Length` 或分块传输 → 包装 `receive` 累计已收字节，越过上限的那条消息即中止。应用对中断读取的反应（FastAPI 的 400 "error parsing the body"）被丢弃，改发同一个 413；Starlette 解析失败时会关闭已建的临时文件。若响应已经开始（上传路由不会），不再发第二个响应，异常上抛、由服务器断开连接；
+   - 413 的响应体与路由层逐字节相同（信封、`UPLOAD_TOO_LARGE`、文案，有测试锁死），另带 `Connection: close`：剩余 body 不再读取，连接不能复用，也不让服务器替客户端无限排空。
+3. 鉴权 / CSRF 依赖 → `_read_bounded`（单文件精确上限 `MAX_UPLOAD_BYTES`）→ `ingest_upload`（D1 顺序不变）。
+
+**上限取值**：`UPLOAD_BODY_LIMIT_BYTES = MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES`（10 MiB + 64 KiB），不另起数值。余量只容纳 boundary、part 头（含文件名）与 `project_id` 字段，真实上传不到 2 KB；文件略超 10 MiB 而仍在余量内时，由 `_read_bounded` 返回同一个 413；正好 10 MiB、带长中文文件名的文件照常通过（有测试）。
+
+**残余风险**：
+
+- **反代仍是第一道防线**：连接数、请求速率、慢速发送都不归本中间件管；基础 compose 没有反代，只剩这一层。
+- 上限以内的匿名请求仍在鉴权**之前**被完整解析与 spool（FastAPI 的顺序没变，只是现在有界）：每个请求最多约 10 MB 临时文件，并发数 × 10 MB 仍可能顶到内存限额。要消除需在 ASGI 层先做会话与 CSRF 校验，本次未做。
+- 分块请求在越限之前已收的字节（不超过上限 + 一条 ASGI 消息）照样进了 spool，随后被关闭。
+- 其余 JSON 路由同样先 `await request.body()` 再鉴权，本次**未加**上限：不落盘，但整包进内存（curl 实测 30 MB 打 `/api/sessions`，收满后才回 422）。
+- Caddy 越限时的响应由 Caddy 生成、不经过应用，不是本应用的 JSON 信封（具体状态码未实测）；前端已在本地按 10 MB 预检，正常界面操作到不了这里。
+- 证据：`tests/test_upload_body_limit.py` 11 条（含参数化），修复前全部失败、修复后全部通过。

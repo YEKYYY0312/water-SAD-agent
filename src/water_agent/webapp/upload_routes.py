@@ -7,13 +7,15 @@ that order is the security property).
 
 Two things this module does own, because they are HTTP concerns:
 
-* **the byte ceiling is enforced while reading the stream**, not after.  A plain
-  ``await file.read()`` would buffer a multi-gigabyte body into memory before the
-  size check could ever run -- the check would be decorative.
-* **authorization precedes everything else**, including parsing.  An upload
-  aimed at a project the caller is not a member of must answer 404 without
-  revealing whether that project exists, and without spending a parser on the
-  bytes.
+* **the exact per-file ceiling**: ``_read_bounded`` reads the file part in
+  chunks and refuses it as soon as it passes ``MAX_UPLOAD_BYTES``.  This is *not*
+  what keeps an oversized request out: FastAPI parses the whole multipart body
+  before the route -- and before its auth and CSRF dependencies -- runs.  That
+  ceiling sits below FastAPI, in ``body_limit.UploadBodyLimitMiddleware``.
+* **authorization precedes everything else the route does**, including parsing
+  the document.  An upload aimed at a project the caller is not a member of must
+  answer 404 without revealing whether that project exists, and without spending
+  a parser on the bytes.
 """
 
 from __future__ import annotations
