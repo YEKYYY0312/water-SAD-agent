@@ -20,6 +20,8 @@ from water_agent.config.credentials import (
     CREDENTIALS_DIR_ENV,
     forget_injected_credentials,
 )
+from water_agent.embedding import build_embedding_provider
+from water_agent.runtime.agentic import embedding_configured
 from water_agent.storage.database import Database
 from water_agent.storage.models import Base
 from water_agent.webapp.app import create_app
@@ -30,6 +32,7 @@ from water_agent.webapp.auth.models import UserRole
 PASSWORD = "SettingsPass2026!"
 SECRET_VALUE = "sk-settings-panel-secret-value"
 DEEPSEEK = "DEEPSEEK_API_KEY"
+DASHSCOPE = "DASHSCOPE_API_KEY"
 
 
 @pytest.fixture
@@ -159,7 +162,7 @@ def test_admin_write_marks_the_credential_configured(
 def test_written_credential_reaches_the_process_environment(
     database: Database, tmp_path: Path
 ) -> None:
-    """embedding.py 与 rerank.py 仍直接读 os.environ，写入必须让它们看到。"""
+    """卷是唯一来源时，写入要同步进进程环境：按变量名读环境的调用方靠它看到新值。"""
     client = _client(database, tmp_path, UserRole.ADMIN)
 
     _put(client, "DASHSCOPE_API_KEY", SECRET_VALUE)
@@ -290,6 +293,78 @@ def test_delete_still_reports_a_compose_secret_as_configured(
     credential = response.json()["data"]["credential"]
     assert credential["configured"] is True
     assert credential["source"] == "secret_file"
+
+
+def test_clearing_a_compose_secret_key_keeps_retrieval_credentials_live(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """回归：清除 Compose secret 提供的百炼 Key 曾让向量检索、重排、视觉审阅失效到重启。
+
+    启动回填把 secret 写进 os.environ 并记为注入；面板「清除」随后把它 pop 掉，
+    而面板仍显示 configured=True / secret_file、embedding_configured() 仍为 True，
+    直读 os.environ 的 build_embedding_provider() 却抛「must not be empty」。
+    """
+    secret = tmp_path / "dashscope_secret"
+    secret.write_text(SECRET_VALUE, encoding="utf-8")
+    monkeypatch.setenv(f"{DASHSCOPE}_FILE", str(secret))
+    client = _client(database, tmp_path, UserRole.ADMIN)  # create_app 完成启动回填
+
+    response = client.delete(
+        f"/api/settings/credentials/{DASHSCOPE}",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+
+    assert response.status_code == 200, response.text
+    credential = response.json()["data"]["credential"]
+    assert credential["configured"] is True
+    assert credential["source"] == "secret_file"
+    assert os.environ.get(DASHSCOPE) == SECRET_VALUE
+    assert embedding_configured() is True
+    assert build_embedding_provider().config.api_key == SECRET_VALUE
+
+
+def test_panel_write_and_clear_leave_an_operator_environment_variable_alone(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """回归：运维用环境变量配好 K0 后，面板写入 K2 曾覆盖它，再清除则把它 pop 掉。
+
+    结果是 real_llm=false、提问全部 424 直到重启，重启后生效的密钥又悄悄换回 K0。
+    """
+    monkeypatch.setenv(DEEPSEEK, "sk-operator-env-K0")
+    client = _client(database, tmp_path, UserRole.ADMIN)
+
+    written = _put(client, DEEPSEEK, "sk-panel-written-K2")
+
+    assert written.status_code == 200, written.text
+    # 更高优先级的来源仍在生效：回执如实报告，前端重载列表后显示「环境变量」。
+    assert written.json()["data"]["credential"]["source"] == "env"
+    assert os.environ[DEEPSEEK] == "sk-operator-env-K0"
+
+    cleared = client.delete(
+        f"/api/settings/credentials/{DEEPSEEK}",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+
+    credential = cleared.json()["data"]["credential"]
+    assert credential["configured"] is True
+    assert credential["source"] == "env"
+    assert os.environ.get(DEEPSEEK) == "sk-operator-env-K0"
+    assert client.get("/api/system/capabilities").json()["data"]["real_llm"] is True
+
+
+def test_panel_write_under_a_compose_secret_reports_the_secret(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """secret 文件高于凭据卷：写入回执报 secret_file，进程环境也仍是 secret 的值。"""
+    secret = tmp_path / "compose_secret"
+    secret.write_text(SECRET_VALUE, encoding="utf-8")
+    monkeypatch.setenv(f"{DEEPSEEK}_FILE", str(secret))
+    client = _client(database, tmp_path, UserRole.ADMIN)
+
+    written = _put(client, DEEPSEEK, "sk-panel-written-value")
+
+    assert written.json()["data"]["credential"]["source"] == "secret_file"
+    assert os.environ[DEEPSEEK] == SECRET_VALUE
 
 
 # ---------------------------------------------------------------------------

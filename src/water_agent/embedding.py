@@ -11,12 +11,12 @@ P2.5（Step 12）：远程调用经 ``ProviderGateway`` —— 限流、预算�
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib import request
 
+from water_agent.config.credentials import resolve_secret
 from water_agent.runtime.governance.binding import (
     gateway_for_profile_overrides,
     local_request_context,
@@ -253,7 +253,9 @@ def build_embedding_provider(
     request_context: RequestContext | None = None,
     gateway: ProviderGateway | None = None,
 ) -> BailianEmbeddingProvider:
-    key = api_key if api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
+    # 与对话模型同一解析顺序（env → _FILE → 凭据卷）：直读 os.environ 时，面板清掉
+    # 注入值或进程从未回填（CLI），这里就与 embedding_configured() 的预检分叉。
+    key = api_key if api_key is not None else (resolve_secret("DASHSCOPE_API_KEY") or "")
     return BailianEmbeddingProvider(
         BailianEmbeddingConfig(
             api_key=key,
