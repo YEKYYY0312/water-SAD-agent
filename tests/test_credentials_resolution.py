@@ -37,7 +37,8 @@ from water_agent.config.credentials import (
 from water_agent.embedding import build_embedding_provider
 from water_agent.generation import chat_model as chat_model_module
 from water_agent.generation.chat_model import build_chat_model
-from water_agent.runtime.agentic import real_llm_configured
+from water_agent.retrieval.rerank import build_bailian_reranker
+from water_agent.runtime.agentic import embedding_configured, real_llm_configured
 
 DEEPSEEK = "DEEPSEEK_API_KEY"
 DASHSCOPE = "DASHSCOPE_API_KEY"
@@ -203,7 +204,7 @@ def test_write_credential_persists_and_injects_environment() -> None:
         "sk-panel-written"
     )
     assert os.environ[DEEPSEEK] == "sk-panel-written", (
-        "必须注入进程环境：embedding.py 与 rerank.py 仍直接读 os.environ"
+        "卷是唯一来源时必须同步进进程环境：按变量名读环境的调用方靠它看到新值"
     )
 
 
@@ -307,6 +308,95 @@ def test_delete_credential_does_not_hide_a_secret_file(tmp_path, monkeypatch) ->
     assert credential_status(DEEPSEEK).source == SOURCE_SECRET_FILE
 
 
+# ---------------------------------------------------------------------------
+# 写入 / 删除之后进程环境与三层优先级同步
+#
+# 回归：write_credential 曾无条件 os.environ[...] = 新值，delete_credential 曾
+# 把一切注入过的值 pop 掉。前者覆盖运维的环境变量，后者连 Compose secret 回填
+# 的值一起删——面板仍报「已配置」，直读环境的消费方却拿不到密钥，直到重启。
+# ---------------------------------------------------------------------------
+
+
+def test_clearing_a_backfilled_secret_file_keeps_it_in_the_environment(
+    tmp_path, monkeypatch
+) -> None:
+    """回归：清除 secret 文件提供的密钥，曾让它从 os.environ 消失直到重启。"""
+    monkeypatch.setenv(
+        DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-compose-secret")
+    )
+    load_credentials_into_environ()
+
+    delete_credential(DASHSCOPE)
+
+    assert os.environ.get(DASHSCOPE) == "sk-compose-secret", (
+        "secret 文件仍是有效来源，进程环境必须保留它"
+    )
+    assert resolve_secret(DASHSCOPE) == "sk-compose-secret"
+    assert credential_status(DASHSCOPE).source == SOURCE_SECRET_FILE
+
+
+def test_panel_write_does_not_override_an_operator_environment_variable(monkeypatch) -> None:
+    """回归：面板写入曾覆盖运维显式设置的环境变量，重启后又悄悄换回原值。"""
+    monkeypatch.setenv(DEEPSEEK, "sk-operator-env-K0")
+
+    write_credential(DEEPSEEK, "sk-panel-written-K2")
+
+    assert os.environ[DEEPSEEK] == "sk-operator-env-K0"
+    assert resolve_secret(DEEPSEEK) == "sk-operator-env-K0"
+    assert credential_status(DEEPSEEK).source == SOURCE_ENV, (
+        "更高优先级的来源仍在生效，状态必须如实报告"
+    )
+    # 写入照样落盘：运维撤掉环境变量并重启后，由卷内的值接管。
+    assert (credentials_dir() / CREDENTIALS[DEEPSEEK]).read_text(encoding="utf-8") == (
+        "sk-panel-written-K2"
+    )
+
+
+def test_panel_clear_after_a_write_keeps_the_operator_environment_variable(
+    monkeypatch,
+) -> None:
+    """回归：写入再清除曾把运维的 env pop 掉，real_llm 变 False、提问全部 424。"""
+    monkeypatch.setenv(DEEPSEEK, "sk-operator-env-K0")
+    write_credential(DEEPSEEK, "sk-panel-written-K2")
+
+    delete_credential(DEEPSEEK)
+
+    assert os.environ.get(DEEPSEEK) == "sk-operator-env-K0"
+    assert credential_status(DEEPSEEK).source == SOURCE_ENV
+    assert real_llm_configured() is True
+
+
+def test_panel_write_under_a_secret_file_keeps_the_secret_effective(
+    tmp_path, monkeypatch
+) -> None:
+    """secret 文件高于凭据卷：写入卷后，进程环境不得与 resolve_secret 分叉。
+
+    旧实现把面板值直接写进 env，于是状态报 secret_file，而读 env 的每一处
+    （含 resolve_secret 本身）实际用的都是面板值。
+    """
+    monkeypatch.setenv(
+        DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-compose-secret")
+    )
+    load_credentials_into_environ()
+
+    write_credential(DASHSCOPE, "sk-panel-written")
+
+    assert resolve_secret(DASHSCOPE) == "sk-compose-secret"
+    assert os.environ[DASHSCOPE] == "sk-compose-secret"
+    assert credential_status(DASHSCOPE).source == SOURCE_SECRET_FILE
+
+
+def test_panel_rewrite_replaces_a_value_injected_from_the_volume() -> None:
+    """卷是唯一来源时，面板改写必须立刻反映进环境（下一次 run 即生效）。"""
+    _seed_volume_file(DEEPSEEK, "sk-volume-first")
+    load_credentials_into_environ()
+
+    write_credential(DEEPSEEK, "sk-volume-second")
+
+    assert os.environ[DEEPSEEK] == "sk-volume-second"
+    assert credential_status(DEEPSEEK).source == SOURCE_VOLUME
+
+
 def test_unwritable_store_raises_store_unavailable(tmp_path, monkeypatch) -> None:
     """裸跑开发（未挂载 volume）时必须给出可映射为 503 的错误，而不是崩溃。"""
     blocked = tmp_path / "blocked"
@@ -345,17 +435,74 @@ def test_backfill_is_a_noop_when_nothing_is_configured() -> None:
     assert load_credentials_into_environ() == []
 
 
-def test_backfill_makes_embedding_provider_constructible(tmp_path, monkeypatch) -> None:
-    """embedding.py 零改动的依据：回填后它读到的 os.environ 已有值。"""
+# ---------------------------------------------------------------------------
+# 百炼的消费方与 resolve_secret 同口径
+#
+# 回归：embedding / rerank / 视觉审阅曾直读 os.environ，只能靠回填看到 secret
+# 文件与凭据卷；env 一旦被面板清掉（或从未回填，如 CLI），它们与 credential_status、
+# embedding_configured 的结论就分叉了。视觉审阅的用例在 test_vision_review.py。
+# ---------------------------------------------------------------------------
+
+
+def test_embedding_provider_resolves_a_secret_file_without_backfill(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv(DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-bailian-file"))
 
-    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
-        build_embedding_provider()  # 回填前：只认 os.environ，看不见 _FILE
+    provider = build_embedding_provider()
 
+    assert provider.config.api_key == "sk-bailian-file"
+    assert DASHSCOPE not in os.environ, "不得依赖回填：解析结果直接取自 secret 文件"
+
+
+def test_embedding_provider_resolves_the_volume() -> None:
+    _seed_volume_file(DASHSCOPE, "sk-bailian-volume")
+
+    assert build_embedding_provider().config.api_key == "sk-bailian-volume"
+
+
+def test_embedding_provider_still_refuses_without_any_source() -> None:
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        build_embedding_provider()
+
+
+def test_explicit_embedding_api_key_still_wins(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv(DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-bailian-file"))
+
+    assert build_embedding_provider(api_key="sk-explicit-arg").config.api_key == (
+        "sk-explicit-arg"
+    )
+
+
+def test_bailian_reranker_resolves_a_secret_file_without_backfill(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv(DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-bailian-file"))
+
+    assert build_bailian_reranker().api_key == "sk-bailian-file"
+
+
+def test_bailian_reranker_resolves_the_volume() -> None:
+    _seed_volume_file(DASHSCOPE, "sk-bailian-volume")
+
+    assert build_bailian_reranker().api_key == "sk-bailian-volume"
+
+
+def test_bailian_reranker_still_refuses_without_any_source() -> None:
+    """没有任何来源时照旧拒绝构造：云端 rerank 绝不静默退回本地实现。"""
+    with pytest.raises(ValueError, match="requires api_key"):
+        build_bailian_reranker()
+
+
+def test_embedding_survives_clearing_a_compose_secret(tmp_path, monkeypatch) -> None:
+    """复现场景的端到端形态：回填 → 面板清除 → embedding 仍能构造。"""
+    monkeypatch.setenv(DASHSCOPE + "_FILE", _write_secret_file(tmp_path, "ds", "sk-bailian-file"))
     load_credentials_into_environ()
 
-    provider = build_embedding_provider()
-    assert provider is not None
+    delete_credential(DASHSCOPE)
+
+    assert embedding_configured() is True
+    assert build_embedding_provider().config.api_key == "sk-bailian-file"
 
 
 # ---------------------------------------------------------------------------
