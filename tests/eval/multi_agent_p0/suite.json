@@ -1,7 +1,7 @@
 {
   "flow": "multi-agent",
-  "schema_version": "p4.5-2026-09-10",
-  "description": "multi_agent_p0 14 用例合成机制层（offline deterministic）",
+  "schema_version": "p4.5-2026-10-01",
+  "description": "multi_agent_p0 17 用例合成机制层（offline deterministic）",
   "cases": [
     {
       "case_id": "ma-p0-01",
@@ -253,6 +253,96 @@
         "spatial_constraints": [{"kind": "material", "value": "PE"}],
         "required_outputs": ["drawing"],
         "user_constraints": ["DN50"]
+      }
+    },
+    {
+      "case_id": "ma-p0-15",
+      "scenario": "binding_ambiguous",
+      "title": "两工况两 DN、边未声明 calc_case_id：不把一个工况的 DN 套给另一个、不自动重算改写用户输入，两段管 not_verified 转人工",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "missing_inputs",
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": null, "calc_case_ids": [], "hydraulic_status": "not_verified"},
+          {"start_node_id": "n2", "end_node_id": "n3", "system": "water_supply", "dn_mm": null, "calc_case_ids": [], "hydraulic_status": "not_verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-15",
+        "request": "给水两段管：一段 2L/s DN100、一段 10L/s DN150，拓扑未写明各段对应哪个工况",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [
+          {"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 2, "diameter_mm": 100}},
+          {"case_id": "case-vel-2", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}
+        ],
+        "topology": [
+          {"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0},
+          {"start_node_id": "n2", "end_node_id": "n3", "length_m": 8.0}
+        ],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE"]
+      }
+    },
+    {
+      "case_id": "ma-p0-16",
+      "scenario": "standard",
+      "title": "两工况两 DN、每条边显式声明 calc_case_id：各段用各自工况的 DN，不重算，批准后导出",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "succeeded",
+        "roundtrip_segment_recall": 1.0,
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": 100, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "verified"},
+          {"start_node_id": "n2", "end_node_id": "n3", "system": "water_supply", "dn_mm": 150, "calc_case_ids": ["case-vel-2"], "hydraulic_status": "verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-16",
+        "request": "给水两段管：n1-n2 按工况 1（2L/s DN100），n2-n3 按工况 2（10L/s DN150）",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [
+          {"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 2, "diameter_mm": 100}},
+          {"case_id": "case-vel-2", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}
+        ],
+        "topology": [
+          {"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0, "calc_case_id": "case-vel-1"},
+          {"start_node_id": "n2", "end_node_id": "n3", "length_m": 8.0, "calc_case_id": "case-vel-2"}
+        ],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE"]
+      }
+    },
+    {
+      "case_id": "ma-p0-17",
+      "scenario": "binding_ambiguous",
+      "title": "一条边、给水+排水两个系统、边未声明 system：不做系统×拓扑笛卡尔积，两根候选管都不得 verified，转人工",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "missing_inputs",
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "drainage", "dn_mm": 200, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "not_verified"},
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": 200, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "not_verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-17",
+        "request": "给排水管段设计，DN200，坡度 0.003，流量 5L/s，未说明这段管属于给水还是排水",
+        "systems": ["water_supply", "drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 5, "diameter_mm": 200, "slope": 0.003}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN200"]
       }
     }
   ]
