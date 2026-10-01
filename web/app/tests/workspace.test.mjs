@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import { parseSseBlock, streamRunEvents, WorkspaceApi, WorkspaceApiError } from "../src/workspaceApi.ts";
 import { applyRunEvent, emptyRunState } from "../src/workspaceState.ts";
@@ -224,4 +225,51 @@ test("a finished run's answer is exactly what finalize delivered", () => {
   let state = applyRunEvent(emptyRunState(), event("token", { text: "{\"hits\": []} 草稿" }));
   state = applyRunEvent(state, event("finalize", { status: "succeeded", answer: "最终回答" }, "2"));
   assert.equal(state.answer, "最终回答");
+});
+
+// ---------------------------------------------------------------------------
+// review 2026-09-30 batch 4: guarded drafts stream, can be retracted, never become the answer
+// ---------------------------------------------------------------------------
+
+test("drafts accumulate in order and are never the answer of a finished run", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "依据 FIX 1.1.1，", offset: 0 }));
+  state = applyRunEvent(state, event("draft_delta", { text: "设计秒流量按建筑类型确定。", offset: "依据 FIX 1.1.1，".length }, "2"));
+  assert.equal(state.draft, "依据 FIX 1.1.1，设计秒流量按建筑类型确定。");
+  assert.equal(state.answer, "");
+  state = applyRunEvent(state, event("finalize", { status: "succeeded", answer: "最终回答" }, "3"));
+  assert.equal(state.answer, "最终回答");
+  assert.equal(state.draft, "");
+});
+
+test("a retracted draft disappears and the rewrite starts from scratch", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "第一版草稿。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_retract", { reason: "revised" }, "2"));
+  assert.equal(state.draft, "");
+  assert.equal(state.draftRetractions, 1);
+  state = applyRunEvent(state, event("draft_delta", { text: "重写后的回答。", offset: 0 }, "3"));
+  assert.equal(state.draft, "重写后的回答。");
+});
+
+test("a draft retracted by the guardrail never comes back as the answer of a blocked run", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "前面一句。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_retract", { reason: "guardrail" }, "2"));
+  state = applyRunEvent(state, event("draft_closed", {}, "3"));
+  state = applyRunEvent(state, event("finalize", { status: "blocked", answer: "", errors: ["输出未通过护栏校验"] }, "4"));
+  assert.equal(state.answer, "");
+  assert.equal(state.draft, "");
+  assert.deepEqual(archiveRun([], state), [{ role: "agent", text: "", status: "blocked" }]);
+});
+
+test("draft deltas that do not continue the draft exactly are dropped (replay or gap)", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "一。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_delta", { text: "一。", offset: 0 }, "2")); // replayed
+  state = applyRunEvent(state, event("draft_delta", { text: "三。", offset: 10 }, "3")); // gap
+  assert.equal(state.draft, "一。");
+});
+
+test("the conversation shows the draft separately and only the finalized answer as the reply", async () => {
+  const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
+  assert.match(components, /const answer = isTerminalStatus\(run\.status\) \? run\.answer : "";/);
+  assert.match(components, /draft-answer/);
+  assert.doesNotMatch(components, /run\.tokens/);
 });
