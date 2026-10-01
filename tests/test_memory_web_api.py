@@ -16,7 +16,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
 
-from water_agent.memory.recall import MemoryRecallService
 from water_agent.storage.database import Database
 from water_agent.storage.models import Base
 from water_agent.storage.repository import ProjectRepository
@@ -496,6 +495,8 @@ def test_events_and_usage_expose_metadata_only(database: Database, tmp_path: Pat
     memory_id = memory["memory_id"]
     # Usage comes from a run's recall (the Web GET search is a read and records
     # none); recall it the way RunManager does, with the run's thread and id.
+    from water_agent.memory.recall import MemoryRecallService
+
     MemoryRecallService(database).recall(
         tenant_id=DEFAULT_TENANT_ID,
         actor_user_id=user_id,
