@@ -18,8 +18,18 @@ interrupt 放置原则（skill-stategraph-designer）：审批放在**副作用�
 resume 值契约（P2 收口，严格布尔）：
 - 允许 ``{"approved": True/False}``（拒绝可带 ``reason``）；
 - 允许裸严格 ``bool``（``Command(resume=True)``，兼容早期用法）；
-- 其余形态（``"false"``/``1``/缺 ``approved`` 键等）一律 ValueError 明确拒绝——
+- 其余形态（``"false"``/``1``/缺 ``approved`` 键等）一律判为非法——
   ``bool("false") == True`` 这类静默误判是 P2 评审点，禁止。
+- 非法值**不抛异常、不算决定**：approval 节点带 ``error`` 再 ``interrupt`` 一次，会话保持
+  挂起，之后传合法值照常恢复；``approval_log`` 只记录通过校验的决定。判定唯一出口是
+  ``approval_decision_error``（CLI 边界与图内共用）。
+  不能"校验失败就抛"：``interrupt()`` 返回时 LangGraph 已把该值记进本任务的 resume 列表，
+  抛异常会让它随 ERROR 一起落进 checkpoint，之后每次恢复都先在第 0 个 interrupt 上重放它，
+  合法值永远轮不到（会话被永久毒化）。同一节点内的多次 interrupt 按序号匹配 resume 值，
+  所以重放时非法值落回原来的序号、再次被判非法，新的合法值接在最后被取到。
+- 判挂起要看 ``get_state().interrupts``（或 ``tasks[*].interrupts``），**不能只看 next**：
+  非法值重新挂起后，LangGraph 1.2.11 的 ``get_state().next`` 是 ``()``（该任务已有 RESUME
+  写入，快照把它算作"已有写入"），而 interrupts 仍如实给出挂起的审批请求。
 
 状态机：
   START → gather_inputs → draft → self_check → approval
@@ -27,6 +37,7 @@ resume 值契约（P2 收口，严格布尔）：
     self_check 不通过且预算内 → 回 draft（attempts+1）
     self_check 不通过且超限       → failed（errors 可见，不产出，终止）
     approval 内 ``interrupt({draft_preview, approval_required})`` 挂起
+    resume 非法值                               → 带 error 再 interrupt（仍挂起，不进 approval_log）
     resume({"approved": True})                  → approved → finalize → succeeded
     resume({"approved": False, "reason": ...})  → rejected → draft（draft_rounds+1，approval 复位 None）
     resume 拒绝且已是第 MAX_DRAFT_ROUNDS 稿      → failed（errors 可见，终止，不进 finalize）
@@ -143,29 +154,49 @@ def _render_final(state: DocGenState) -> str:
 
 
 
-def _normalize_approval_decision(decision: Any) -> tuple[bool, str]:
-    """审批 resume 值归一：只接受**严格 bool**（P2 收口，防 bool() 静默误判）。
+def _short_repr(value: Any, limit: int = 80) -> str:
+    """错误信息里回显非法值用的 repr（截断：它会进 interrupt 载荷并落 checkpoint）。"""
+    text = repr(value)
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
 
+
+
+def approval_decision_error(decision: Any) -> str | None:
+    """审批 resume 值校验：合法返回 None，非法返回给审批人看的原因（不抛异常）。
+
+    只接受**严格 bool**（P2 收口，防 bool() 静默误判）：
     - dict：必须含严格 bool 键 ``approved``（拒绝可带 ``reason`` 文本）；
     - 非 dict：只接受裸严格 bool（``Command(resume=True)``，早期用法兼容）；
-    - 其余形态（``"false"`` / ``1`` / ``None`` / 缺 ``approved`` 键 …）→ ValueError。
+    - 其余形态（``"false"`` / ``1`` / ``None`` / 缺 ``approved`` 键 …）一律非法。
       ``bool("false") == True`` 会把"字符串 false"误判为批准，属于必须显式拒绝的静默错误。
+
+    approval 节点（图内）与 CLI 边界（invoke 之前）共用这一个判定，口径单一。
     """
     if isinstance(decision, dict):
         approved = decision.get("approved")
-        if not isinstance(approved, bool):
-            raise TypeError(
-                f"审批 resume 的 approved 必须是严格 bool（True/False），得到 {approved!r}；"
-                "禁止把字符串/数字（如 \"false\"、1）当作布尔值传入"
-            )
-        reason = str(decision.get("reason", "") or "")
-        return approved, reason
+        if isinstance(approved, bool):
+            return None
+        return (
+            f"审批 resume 的 approved 必须是严格 bool（True/False），得到 {_short_repr(approved)}；"
+            "禁止把字符串/数字（如 \"false\"、1）当作布尔值传入"
+        )
     if isinstance(decision, bool):
-        return decision, ""
-    raise TypeError(
-        f"审批 resume 必须是 {{'approved': True/False}} 或裸 bool，"
-        f"得到 {type(decision).__name__}（{decision!r}）"
+        return None
+    return (
+        f"审批 resume 必须是 {{'approved': True/False}} 或裸严格 bool，"
+        f"得到 {type(decision).__name__}（{_short_repr(decision)}）"
     )
+
+
+
+def _normalize_approval_decision(decision: Any) -> tuple[bool, str]:
+    """把**已通过** ``approval_decision_error`` 的 resume 值归一为 (approved, reason)。"""
+    error = approval_decision_error(decision)
+    if error is not None:  # 调用方须先校验；走到这里说明接线错了，响亮失败
+        raise TypeError(error)
+    if isinstance(decision, dict):
+        return decision["approved"], str(decision.get("reason", "") or "")
+    return decision, ""
 
 
 
@@ -266,16 +297,21 @@ def build_docgen_graph(*, checkpointer=None):
         }
 
     def approval_node(state: DocGenState) -> Command | dict:
-        """审批节点：interrupt 挂起，等待 Command(resume=...) 决策。"""
-        preview = state.get("doc_draft") or _render_draft(state)
-        decision = interrupt(
-            {
-                "draft_preview": preview,
-                "approval_required": True,
-                "draft_rounds": state.get("draft_rounds", 0),
-                "gather_artifacts": state.get("gather_artifacts", {}),
-            }
-        )
+        """审批节点：interrupt 挂起，等待 Command(resume=...) 决策。
+
+        非法 resume 值不抛异常：带 ``error`` 再 interrupt 一次，会话保持挂起（原因见模块
+        docstring「resume 值契约」）。每次恢复本节点都会从头重跑，依次重放此前收到的值——
+        非法值仍落在原来的序号上被判非法，循环只在取到合法值或没有新值（挂起）时结束。
+        """
+        request = {
+            "draft_preview": state.get("doc_draft") or _render_draft(state),
+            "approval_required": True,
+            "draft_rounds": state.get("draft_rounds", 0),
+            "gather_artifacts": state.get("gather_artifacts", {}),
+        }
+        decision = interrupt(request)
+        while (error := approval_decision_error(decision)) is not None:
+            decision = interrupt({**request, "error": error})
         approved, reason = _normalize_approval_decision(decision)
         draft_rounds = state.get("draft_rounds", 0)
         log = list(state.get("approval_log", []))
