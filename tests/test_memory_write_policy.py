@@ -5,12 +5,12 @@ from __future__ import annotations
 import base64
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 
 from water_agent.memory import (
     CandidateDisposition,
@@ -18,11 +18,13 @@ from water_agent.memory import (
     ExplicitMemoryWriteService,
     MemoryConfirmation,
     MemoryConflictRequiresConfirmationError,
+    MemoryExpiredError,
     MemoryInjectionBlockedError,
     MemoryKind,
     MemoryKindInvalidError,
     MemoryNotFoundError,
     MemoryPiiBlockedError,
+    MemoryRecallService,
     MemoryRepository,
     MemoryRevisionConflictError,
     MemoryScopeDeniedError,
@@ -39,7 +41,7 @@ from water_agent.memory.pending_candidates import PendingCandidateStore
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
 from water_agent.storage.database import Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
 
 
@@ -1061,3 +1063,175 @@ def test_postgres_confirm_reaffirm_and_forget_use_step40_transactions() -> None:
         assert forgotten.memory.content == ""
     finally:
         database.dispose()
+
+
+# ---------------------------------------------------------------------------
+# 到期记录不再占着 semantic_key
+#
+# 回归（已复现）：2 秒后过期的偏好到期后，列表与召回都看不到它，可对同一 key 新建
+# 候选得到 conflict 并展示已过期的正文；不选处理方式确认返回 409；选
+# correct_existing 返回 201 corrected，列表与检索却仍为空——界面显示成功，实际
+# 永远召回不到（静默数据丢失）。
+# ---------------------------------------------------------------------------
+
+
+def _pass_deadline(database: Database, memory_id: UUID) -> None:
+    """模拟到期：只把 expires_at 改到过去，不跑任何清扫（与生产无调度时一致）。"""
+
+    with database.transaction() as session:
+        session.execute(
+            update(MemoryRecordRow)
+            .where(MemoryRecordRow.memory_id == str(memory_id))
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+
+def _remember_until(
+    app: ExplicitMemoryWriteService,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    content: str = "默认使用 SI 单位",
+    semantic_key: str = "units",
+):
+    candidate = app.candidate(
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        scope_type=MemoryScopeType.USER,
+        kind=MemoryKind.USER_PREFERENCE,
+        semantic_key=semantic_key,
+        content=content,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    result = _confirm(app, candidate, tenant_id=tenant_id, actor_user_id=actor_user_id)
+    assert result.action is MemoryWriteAction.CREATED and result.memory is not None
+    return result.memory
+
+
+def test_saving_again_after_expiry_is_ready_and_the_new_body_is_recallable(
+    database: Database,
+) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    _pass_deadline(database, old.memory_id)
+
+    renewed = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content="默认使用英制单位")
+
+    assert renewed.disposition is CandidateDisposition.READY
+    assert renewed.conflict is None, "预览不得展示已过期的正文"
+    result = _confirm(app, renewed, tenant_id=tenant_id, actor_user_id=owner)
+    assert result.action is MemoryWriteAction.CREATED
+    assert [item.content for item in raw.list_active(tenant_id=tenant_id, actor_user_id=owner)] == [
+        "默认使用英制单位"
+    ]
+    recalled = MemoryRecallService(database).recall(
+        tenant_id=tenant_id, actor_user_id=owner, query="英制单位"
+    )
+    assert [hit.memory.content for hit in recalled.hits] == ["默认使用英制单位"]
+    released = raw.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert released.status is MemoryStatus.EXPIRED
+    assert [
+        event.event_type.value
+        for event in raw.list_events(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    ] == ["created", "expired"]
+
+
+def test_identical_body_after_expiry_creates_a_new_memory_instead_of_reaffirming(
+    database: Database,
+) -> None:
+    """同正文重存曾被判 reaffirm：只给到期记录追加一条事件，新偏好照样不可见。"""
+
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    _pass_deadline(database, old.memory_id)
+
+    again = _candidate(app, tenant_id=tenant_id, actor_user_id=owner)
+
+    assert again.disposition is CandidateDisposition.READY
+    result = _confirm(app, again, tenant_id=tenant_id, actor_user_id=owner)
+    assert result.action is MemoryWriteAction.CREATED
+    assert result.memory is not None and result.memory.memory_id != old.memory_id
+    assert [item.memory_id for item in raw.list_active(tenant_id=tenant_id, actor_user_id=owner)] == [
+        result.memory.memory_id
+    ]
+
+
+@pytest.mark.parametrize("disposition", ["conflict", "reaffirm"])
+def test_confirming_a_preview_whose_target_expired_meanwhile_is_refused(
+    database: Database, disposition: str
+) -> None:
+    """预览时目标还有效、确认时已到期：不得回报成功，先转 expired 再拒绝。"""
+
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    content = "默认使用英制单位" if disposition == "conflict" else "默认使用 SI 单位"
+    preview = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content=content)
+    assert preview.disposition.value == disposition
+    _pass_deadline(database, old.memory_id)
+
+    with pytest.raises(MemoryExpiredError):
+        _confirm(
+            app,
+            preview,
+            tenant_id=tenant_id,
+            actor_user_id=owner,
+            resolution=(
+                ConflictResolution.CORRECT_EXISTING if disposition == "conflict" else None
+            ),
+            expected_revision=old.revision,
+        )
+
+    assert (
+        raw.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+        is MemoryStatus.EXPIRED
+    )
+    retry = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content=content)
+    assert retry.disposition is CandidateDisposition.READY
+    assert _confirm(app, retry, tenant_id=tenant_id, actor_user_id=owner).action is (
+        MemoryWriteAction.CREATED
+    )
+
+
+def test_keep_both_may_take_an_alternative_key_held_by_an_expired_record(
+    database: Database,
+) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    stale = _remember_until(
+        app,
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        content="旧的备选单位偏好",
+        semantic_key="units.alt",
+    )
+    _pass_deadline(database, stale.memory_id)
+    conflict = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content="默认使用英制单位")
+    assert conflict.disposition is CandidateDisposition.CONFLICT
+
+    result = _confirm(
+        app,
+        conflict,
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        resolution=ConflictResolution.KEEP_BOTH,
+        alternative_semantic_key="units.alt",
+    )
+
+    assert result.action is MemoryWriteAction.CREATED
+    assert result.memory is not None and result.memory.semantic_key == "units.alt"
+    assert (
+        raw.get_memory(stale.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+        is MemoryStatus.EXPIRED
+    )
