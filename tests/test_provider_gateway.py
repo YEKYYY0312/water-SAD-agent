@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 
 import httpx
+import httpx2
 import pytest
 from langchain_openai.chat_models.base import (
     OpenAIAuthenticationError,
@@ -629,6 +630,10 @@ class TestWrappedSdkErrorClassification:
             (httpx.PoolTimeout("pool exhausted", request=_REQUEST), "transient"),
             # 本端协议错误：重试同一个请求毫无意义
             (httpx.LocalProtocolError("illegal header"), "permanent"),
+            # openai 3.x 实际用的是 httpx2（类名相同，按名匹配同样生效）
+            (httpx2.RemoteProtocolError("incomplete chunked read"), "transient"),
+            (httpx2.ReadTimeout("read timed out"), "transient"),
+            (httpx2.LocalProtocolError("illegal header"), "permanent"),
         ],
     )
     def test_httpx_transport_errors(self, exc: BaseException, expected: str) -> None:

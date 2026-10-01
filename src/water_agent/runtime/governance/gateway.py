@@ -19,20 +19,27 @@
    token/成本字段留空（契约层已强制）。
 5. **不导入 provider SDK**：真实请求由调用方注入的 ``executor`` 完成，
    gateway 只负责治理。这样 fake transport 可完整覆盖所有分支。
+
+流式通道 :meth:`ProviderGateway.stream_call` 与 :meth:`ProviderGateway.call` 共用发送前
+四步与失败落账（同一组私有方法），只在执行段不同：**重试只发生在第一个 chunk 之前**
+（已输出的内容撤不回），deadline 在每取一个 chunk 前检查，usage 取流里最后一个非空值，
+调用方提前关闭时预留按 usage 未知结清且不计熔断失败。上游迭代器同样由调用方注入
+（``opener``），本层不碰任何 SDK 的流式接口。
 """
 from __future__ import annotations
 
 import random
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from itertools import islice
 
 from water_agent.runtime.governance.config import (
     DEFAULT_GOVERNANCE_CONFIG,
     CircuitBreakerPolicy,
     GovernanceConfig,
+    ProviderProfile,
 )
 from water_agent.runtime.governance.contracts import (
     CODE_BUDGET_EXCEEDED,
@@ -65,7 +72,8 @@ AUTH_HTTP_CODES = frozenset({401, 403})
 #: 重包装成子类 ``OpenAITimeoutError`` / ``OpenAIConnectionError`` 再抛，只比对类名时
 #: ChatOpenAI 的超时与连接失败被判成永久错误、零重试、不计熔断（实测）。
 #: httpx 传输层基类也在此：流式输出中途断连时 openai SDK 不再包装，原始的
-#: ``RemoteProtocolError`` / ``ReadError`` 直接冒出来。
+#: ``RemoteProtocolError`` / ``ReadError`` 直接冒出来（openai 3.x 用的是 ``httpx2``
+#: 包，类名与 httpx 相同，按名匹配两者都覆盖）。
 _TRANSIENT_ERROR_NAMES = frozenset(
     {
         "URLError",
@@ -205,6 +213,33 @@ class _BreakerState:
     half_open_calls: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class _Admission:
+    """发送前四步（能力 → 熔断 → 限流 → 预算预留）全部通过后的放行凭据。
+
+    预算预留句柄在这里：拿到它之后，每条退出路径都必须恰好结清一次
+    （``_settle`` 对账或 ``_fail`` 回滚），否则失败的调用会永久占额度。
+    """
+
+    profile: ProviderProfile
+    started: float
+    deadline: float | None
+    breaker_key: str
+    budget_key: str
+    reservation_id: str
+
+
+def _close_quietly(iterator: object) -> None:
+    """关闭上游迭代器（生成器 / SDK 流）以释放连接；清理本身出错不得掩盖治理结论。"""
+    close = getattr(iterator, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:  # noqa: BLE001, S110 — 上游清理失败不影响主流程（无 logger 可用）
+        pass
+
+
 class ProviderGateway:
     """远程 provider 调用的统一治理入口。
 
@@ -330,6 +365,167 @@ class ProviderGateway:
         Raises:
             GovernanceError: 能力/限流/预算/熔断/超时/provider 失败，均为结构化错误。
         """
+        # 1–4. 能力 → 熔断 → 限流 → 预算预留
+        admission = self._admit(ctx, call, cache_status)
+
+        # 5. 有界重试执行
+        try:
+            value, usage, retries = self._execute_with_retry(executor, admission)
+        except GovernanceError as exc:
+            self._fail(ctx, call, admission, exc.code, cache_status,
+                       retry_after=exc.retry_after_seconds)
+            raise
+
+        # 6. usage 对账
+        record = self._settle(ctx, call, admission, usage, retries, cache_status)
+        return GatewayResult(value=value, usage_record=record)
+
+    def stream_call[T](
+        self,
+        ctx: RequestContext,
+        call: ProviderCall,
+        opener: Callable[[], Iterator[T]],
+        *,
+        usage_of: Callable[[T], ProviderUsage | None],
+        cache_status: CacheStatus = CacheStatus.INELIGIBLE,
+    ) -> Iterator[T]:
+        """执行一次受治理的**流式**远程调用，逐块产出上游 chunk（顺序与内容原样透传）。
+
+        发送前四步与失败落账和 :meth:`call` 共用同一组私有方法，差别只在执行段：
+
+        - **重试只发生在第一个 chunk 之前**：一次尝试 = ``opener()`` + 取首个 chunk，出错按
+          :meth:`call` 的同一分类处理（瞬时错误退避重试、受 deadline 约束；认证与永久错误
+          立即失败）。首个 chunk 交给调用方之后任何错误都不再重试——已输出的内容撤不回，
+          重放只会重复输出：回滚预留、瞬时错误计一次熔断失败、落 ``PROVIDER_UNAVAILABLE``
+          失败账并抛 :class:`GovernanceError`。
+        - **deadline**：每次尝试前、以及每取下一个 chunk 前检查，越界抛 ``PROVIDER_TIMEOUT``
+          （回滚 + 失败账；deadline 是调用方的时间预算，不计熔断）。已取到的 chunk 总会交出。
+        - **熔断**：首个 chunk 到达即记成功（与 :meth:`call` 中 executor 返回是同一时点），
+          半开期的探测流因此在首个 chunk 后就放行后续请求，不会占着探测名额直到流结束。
+          代价：总在首块之后断流的上游每次都先记成功、再记一次失败，连续失败计数到不了
+          开路阈值——首块之后不重试，所以不存在重试放大。
+        - ``provider_call_count`` 与 :meth:`call` 同口径：每次尝试加 1。
+        - **usage**：取流里最后一个非 ``None`` 的 ``usage_of(chunk)``（OpenAI 兼容接口开启
+          ``include_usage`` 后 usage 在最后一个 chunk）。正常结束的对账与 :meth:`call` 一致：
+          有 usage 按真实用量结清，没有就记 ``USAGE_UNKNOWN`` 并释放预留。空流（首个 chunk
+          就是 ``StopIteration``）按正常结束、usage 未知处理。
+        - **调用方提前关闭**（``GeneratorExit``：取消、上层预算超限）：关闭上游迭代器，预留按
+          usage 未知结清（``actual_tokens=0``，不估算），落一条 ``USAGE_UNKNOWN`` 账，
+          **不计熔断失败**——不是上游的错。
+        - ``opener()`` 或首个 chunk 抛 ``NotImplementedError``（上游不支持流式）：不是 provider
+          失败——不重试、不计熔断、不落账，回滚预留后原样抛出，调用方据此回退到 :meth:`call`。
+
+        本方法是生成器：发送前检查与预算预留都在第一次 ``next()`` 时才发生，创建后未迭代即
+        丢弃不占任何额度；拿到预留之后由 ``try/finally`` 保证每条退出路径恰好结清一次。
+
+        Args:
+            ctx: 同 :meth:`call`。
+            call: 同 :meth:`call`。
+            opener: 打开一次上游流（每次尝试调用一次）；**必须**自行带上 provider 侧超时。
+            usage_of: 从单个 chunk 取 usage；该 chunk 不带 usage 时返回 ``None``。
+            cache_status: 同 :meth:`call`。
+
+        Raises:
+            GovernanceError: 能力/限流/预算/熔断/超时/provider 失败，均为结构化错误。
+            NotImplementedError: 上游不支持流式（见上），原样抛出。
+        """
+        admission = self._admit(ctx, call, cache_status)
+        # 预留已存在：``resolved`` 记录是否已结清（settle 或 rollback 恰好一次），
+        # finally 兜底没走到显式结清的退出路径（KeyboardInterrupt、调用方 throw() 等）。
+        resolved = False
+        upstream: Iterator[T] | None = None
+        retries = 0
+
+        def open_first() -> tuple[tuple[Iterator[T], list[T]], ProviderUsage]:
+            # 一次"尝试"= 打开上游流 + 取首个 chunk。失败时先关掉本次打开的流，再交给重试内核。
+            stream = opener()
+            try:
+                head = list(islice(stream, 1))  # 空流 → []
+            except BaseException:
+                _close_quietly(stream)
+                raise
+            return (stream, head), ProviderUsage.unknown()
+
+        try:
+            try:
+                (upstream, head), _, retries = self._execute_with_retry(
+                    open_first, admission, passthrough=(NotImplementedError,)
+                )
+            except GovernanceError as exc:
+                resolved = True
+                self._fail(ctx, call, admission, exc.code, cache_status,
+                           retry_after=exc.retry_after_seconds)
+                raise
+            except NotImplementedError:
+                resolved = True
+                self.budget_ledger.rollback(admission.budget_key, admission.reservation_id)
+                raise
+
+            usage: ProviderUsage | None = None
+            if head:
+                chunk = head[0]
+                while True:
+                    observed = usage_of(chunk)
+                    if observed is not None:
+                        usage = observed
+                    yield chunk
+                    if admission.deadline is not None and self._clock() >= admission.deadline:
+                        resolved = True
+                        self._fail(ctx, call, admission, CODE_PROVIDER_TIMEOUT, cache_status)
+                        raise GovernanceError(
+                            CODE_PROVIDER_TIMEOUT, "流式输出超过时间预算（deadline），已中止"
+                        )
+                    try:
+                        chunk = next(upstream)
+                    except StopIteration:
+                        break
+                    except Exception as exc:
+                        if _classify_error(exc) is _ErrorClass.TRANSIENT:
+                            self._record_breaker_failure(
+                                admission.breaker_key, admission.profile.breaker
+                            )
+                        resolved = True
+                        self._fail(ctx, call, admission, CODE_PROVIDER_UNAVAILABLE, cache_status)
+                        raise GovernanceError(
+                            CODE_PROVIDER_UNAVAILABLE,
+                            "上游服务在流式输出中途失败（已输出部分内容，不重试）："
+                            f"{type(exc).__name__}",
+                        ) from exc
+
+            resolved = True
+            self._settle(
+                ctx, call, admission,
+                usage if usage is not None else ProviderUsage.unknown(),
+                retries, cache_status,
+            )
+        except GeneratorExit:
+            if upstream is not None:
+                _close_quietly(upstream)  # 先释放上游连接
+            if not resolved:
+                resolved = True
+                self._settle(ctx, call, admission, ProviderUsage.unknown(), retries, cache_status)
+            raise
+        finally:
+            if upstream is not None:
+                _close_quietly(upstream)
+            if not resolved:
+                self.budget_ledger.rollback(admission.budget_key, admission.reservation_id)
+                self._emit(
+                    self._unknown_usage_record(
+                        ctx, call, self._elapsed_ms(admission), retries, cache_status
+                    )
+                )
+
+    # -- 共享步骤：call 与 stream_call 的发送前检查与结清 --------------------------
+
+    def _admit(
+        self, ctx: RequestContext, call: ProviderCall, cache_status: CacheStatus
+    ) -> _Admission:
+        """发送前四步：能力校验 → 熔断 → 限流 → 预算预留。
+
+        任一步拒绝都发生在**发送前**（provider_call_count 不变）；限流与预算拒绝各落一条
+        失败账，否则在观测里完全不可见。全部通过返回放行凭据（含预算预留句柄）。
+        """
         profile = self.config.profile_for(call.provider)
         started = self._clock()
         deadline = None if ctx.deadline_seconds is None else started + ctx.deadline_seconds
@@ -370,24 +566,48 @@ class ProviderGateway:
             )
         reservation_id = budget.reservation_id
         assert reservation_id is not None  # allowed=True 时契约保证
+        return _Admission(
+            profile=profile,
+            started=started,
+            deadline=deadline,
+            breaker_key=breaker_key,
+            budget_key=budget_key,
+            reservation_id=reservation_id,
+        )
 
-        # 5. 有界重试执行
-        try:
-            value, usage, retries = self._execute_with_retry(
-                call, executor, profile=profile, deadline=deadline, breaker_key=breaker_key
-            )
-        except GovernanceError as exc:
-            self.budget_ledger.rollback(budget_key, reservation_id)
-            self._emit(
-                self._failure_record(
-                    ctx, call, exc.code, (self._clock() - started) * 1000.0, cache_status,
-                    retry_after=exc.retry_after_seconds,
-                )
-            )
-            raise
+    def _elapsed_ms(self, admission: _Admission) -> float:
+        return (self._clock() - admission.started) * 1000.0
 
-        # 6. usage 对账
-        latency_ms = (self._clock() - started) * 1000.0
+    def _fail(
+        self,
+        ctx: RequestContext,
+        call: ProviderCall,
+        admission: _Admission,
+        code: str,
+        cache_status: CacheStatus,
+        *,
+        retry_after: float | None = None,
+    ) -> None:
+        """执行段失败：回滚预留（失败的调用不得永久占额度）并落一条失败账。"""
+        self.budget_ledger.rollback(admission.budget_key, admission.reservation_id)
+        self._emit(
+            self._failure_record(
+                ctx, call, code, self._elapsed_ms(admission), cache_status,
+                retry_after=retry_after,
+            )
+        )
+
+    def _settle(
+        self,
+        ctx: RequestContext,
+        call: ProviderCall,
+        admission: _Admission,
+        usage: ProviderUsage,
+        retries: int,
+        cache_status: CacheStatus,
+    ) -> UsageRecord:
+        """按 provider 返回的真实 usage 对账并落账；usage 不可得只释放预留、不估算。"""
+        latency_ms = self._elapsed_ms(admission)
         if usage.known:
             price = self.config.price_for(call.model)
             cost = (
@@ -396,7 +616,8 @@ class ProviderGateway:
                 else None  # 价格未登记 → 不猜
             )
             self.budget_ledger.settle(
-                budget_key, reservation_id, actual_tokens=usage.total_tokens, actual_cost_usd=cost
+                admission.budget_key, admission.reservation_id,
+                actual_tokens=usage.total_tokens, actual_cost_usd=cost,
             )
             record = UsageRecord(
                 request_id=ctx.request_id,
@@ -417,31 +638,27 @@ class ProviderGateway:
         else:
             # provider 未返回 usage：只释放预留，不记 token（无从得知），不估成本。
             self.budget_ledger.settle(
-                budget_key, reservation_id, actual_tokens=0, actual_cost_usd=None
+                admission.budget_key, admission.reservation_id,
+                actual_tokens=0, actual_cost_usd=None,
             )
-            record = UsageRecord.unknown_usage(
-                request_id=ctx.request_id,
-                principal_hash=ctx.principal.principal_hash,
-                provider=call.provider,
-                model=call.model,
-                category=call.category,
-                latency_ms=latency_ms,
-            ).model_copy(update={"cache_status": cache_status, "retry_count": retries})
+            record = self._unknown_usage_record(ctx, call, latency_ms, retries, cache_status)
 
         self._emit(record)
-        return GatewayResult(value=value, usage_record=record)
+        return record
 
     # -- 重试内核 --------------------------------------------------------------
 
     def _execute_with_retry[T](
         self,
-        call: ProviderCall,
         executor: Callable[[], tuple[T, ProviderUsage]],
+        admission: _Admission,
         *,
-        profile: Any,
-        deadline: float | None,
-        breaker_key: str,
+        passthrough: tuple[type[BaseException], ...] = (),
     ) -> tuple[T, ProviderUsage, int]:
+        """有界重试（受 deadline 约束）。``passthrough`` 中的异常不分类、不计熔断、原样抛出。"""
+        profile = admission.profile
+        deadline = admission.deadline
+        breaker_key = admission.breaker_key
         retry = profile.retry
         last_exc: BaseException | None = None
         for attempt in range(retry.max_attempts):
@@ -450,6 +667,8 @@ class ProviderGateway:
             self.provider_call_count += 1
             try:
                 value, usage = executor()
+            except passthrough:
+                raise
             except BaseException as exc:
                 last_exc = exc
                 kind = _classify_error(exc)
@@ -496,6 +715,24 @@ class ProviderGateway:
         )
 
     # -- 账本落盘 --------------------------------------------------------------
+
+    def _unknown_usage_record(
+        self,
+        ctx: RequestContext,
+        call: ProviderCall,
+        latency_ms: float,
+        retries: int,
+        cache_status: CacheStatus,
+    ) -> UsageRecord:
+        """usage 不可得的账本条目（``USAGE_UNKNOWN``，token/成本留空）。"""
+        return UsageRecord.unknown_usage(
+            request_id=ctx.request_id,
+            principal_hash=ctx.principal.principal_hash,
+            provider=call.provider,
+            model=call.model,
+            category=call.category,
+            latency_ms=latency_ms,
+        ).model_copy(update={"cache_status": cache_status, "retry_count": retries})
 
     def _failure_record(
         self,

@@ -117,16 +117,19 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         site_id="deepseek_chat_agentic_loop",
         module="water_agent/generation/chat_model.py",
         egress_module="water_agent/generation/chat_model.py",
-        symbol="build_chat_model → GovernedChatModel._generate",
+        symbol="build_chat_model → GovernedChatModel._generate / _stream",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.AGENTIC_LOOP,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_USER_QUERY,
         principal_source="AgenticSession thread_id → 本地主体",
         current_timeout_seconds=60.0,
-        current_retry="ProviderGateway：max_attempts=3；ChatOpenAI 自带重试已关（max_retries=0，避免叠乘）",
+        current_retry=(
+            "ProviderGateway：max_attempts=3（流式只在首个 chunk 之前重试）；"
+            "ChatOpenAI 自带重试已关（max_retries=0，避免叠乘）"
+        ),
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.call",
+        target_gateway_method="ProviderGateway.call / ProviderGateway.stream_call",
         governed=True,
     ),
     ProviderCallSite(

@@ -6,7 +6,8 @@
 由 ``--mock-generator`` / fake 承担，禁止静默降级。
 
 P2.5（Step 12）：返回的模型被 ``GovernedChatModel`` 包裹，每次生成都经
-``ProviderGateway``（限流/预算/有界重试/429 退避/熔断/usage 对账）。
+``ProviderGateway``（限流/预算/有界重试/429 退避/熔断/usage 对账）；流式生成经
+``ProviderGateway.stream_call``（重试只在首个 chunk 之前）。
 """
 from __future__ import annotations
 
@@ -68,6 +69,11 @@ def build_chat_model(
         temperature=temperature,
         timeout=resolved_gateway.timeout_for(ProviderKind.DEEPSEEK_CHAT),
         max_retries=0,  # 重试统一由 ProviderGateway 承担，避免叠乘
+        # 流式时请求 stream_options.include_usage，让最后一个 chunk 带 usage（DeepSeek 支持）。
+        # 必须显式开：langchain-openai 1.6.0 只在默认 OpenAI base_url 下自动开启，自定义
+        # base_url 时 stream_usage 留空 → 不发 include_usage → 流式 usage 恒为 USAGE_UNKNOWN、
+        # 预算按 0 结清（实测）。非流式请求不受影响（该参数只作用于 _stream）。
+        stream_usage=True,
     )
     return GovernedChatModel(
         inner=inner,
