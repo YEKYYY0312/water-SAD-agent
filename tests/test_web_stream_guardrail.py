@@ -1,9 +1,13 @@
-"""SSE 不得在输出护栏之前下发模型正文（review 2026-09-30）。
+"""SSE 不得下发未过输出护栏的模型正文（review 2026-09-30）。
 
 此前 RunManager 把 ``astream_agentic`` 的每个 token 与 messages 事件的文本原样推给浏览器：
 检索工具的原始 JSON、校验器内部回流提示、被驳回的草稿都在里面；输出护栏只在 finalize
 对最终答案跑，被拦截的 ``rm -rf /`` 原文早已随 token 事件下发，前端再把累积的 token 当
 成 blocked 运行的"回答"显示出来。
+
+现在回答以**草稿**流式下发（``draft_delta``，逐句过输出护栏后才发，可被 ``draft_retract``
+撤回），最终回答仍只认 finalize 的 ``answer``。这里断言的是：被拦截的原文、工具原始输出、
+校验器回流提示永远不进任何事件；被驳回的草稿发出过就必须被撤回。
 
 这里用**真实** ``AgenticSession``（只把模型换成逐步脚本、语料换成 fixture）驱动
 RunManager——Web 层其余测试全用假会话，正是这类缺陷一直没被看见的原因。
@@ -126,7 +130,7 @@ def _before_finalize(events: list[dict]) -> str:
 
 
 def test_blocked_answer_text_never_reaches_the_browser(database: Database, tmp_path: Path) -> None:
-    dangerous = "依据 FIX 1.1.1 处理即可。然后在服务器上执行 rm -rf / --no-preserve-root 清理缓存。"
+    dangerous = "依据 FIX 1.1.1 处理即可，设计秒流量按建筑类型确定。然后在服务器上执行 rm -rf / --no-preserve-root 清理缓存。"
     events = _run(
         database, tmp_path,
         [_retrieve("给水管道的设计秒流量"), _cite("FIX 1.1.1"), {"content": dangerous}],
@@ -136,6 +140,17 @@ def test_blocked_answer_text_never_reaches_the_browser(database: Database, tmp_p
     assert finalize["payload"]["status"] == "blocked"
     assert finalize["payload"]["answer"] == ""
     assert "rm -rf" not in json.dumps(events, ensure_ascii=False)
+    drafts = _drafts(events)
+    # 拦截那一句之前的草稿若已发出，必须以 guardrail 撤回，且通道随即关闭
+    if any(e["type"] == "draft_delta" for e in drafts):
+        assert {"type": "draft_retract", "reason": "guardrail"} in [
+            {"type": e["type"], "reason": e["payload"].get("reason")} for e in drafts
+        ]
+    assert drafts[-1]["type"] == "draft_closed"
+
+
+def _drafts(events: list[dict]) -> list[dict]:
+    return [e for e in events if e["type"].startswith("draft_")]
 
 
 def test_tool_output_and_validator_feedback_are_not_streamed(database: Database, tmp_path: Path) -> None:
@@ -144,7 +159,7 @@ def test_tool_output_and_validator_feedback_are_not_streamed(database: Database,
         database, tmp_path,
         [
             _retrieve("给水管道的设计秒流量"),
-            {"content": "第一版回答，没有声明引用。"},
+            {"content": "第一版回答，没有声明引用，凭经验应当这样确定。"},
             _cite("FIX 1.1.1"),
             {"content": final},
         ],
@@ -156,8 +171,35 @@ def test_tool_output_and_validator_feedback_are_not_streamed(database: Database,
     streamed = _before_finalize(events)
     assert '\\"hits\\"' not in streamed and "source_id" not in streamed, "检索工具的原始输出不得下发"
     assert "已返回相关条款" not in streamed and "声明回答依据" not in streamed, "校验器的内部回流提示不得下发"
-    assert "第一版回答" not in streamed, "被驳回的草稿不得下发"
-    assert final not in streamed, "回答正文只随 finalize（输出护栏之后）下发"
+    kinds = [e["type"] for e in _drafts(events)]
+    # 第一版草稿发出后被校验器驳回 → 撤回；最终版草稿逐句下发 → 收口时关闭通道
+    first_retract = kinds.index("draft_retract")
+    assert "draft_delta" in kinds[:first_retract], "被驳回之前的草稿是流式下发的"
+    retract = _drafts(events)[first_retract]
+    assert retract["payload"] == {"reason": "revised"}
+    assert "draft_delta" in kinds[first_retract + 1:], "重写后的回答同样流式下发"
+    assert kinds[-1] == "draft_closed"
+    last_draft = "".join(
+        e["payload"]["text"] for e in _drafts(events)[first_retract + 1:] if e["type"] == "draft_delta"
+    )
+    assert last_draft == final, "撤回之后的草稿就是最终回答"
+
+
+def test_drafts_arrive_before_finalize_and_are_guarded_sentence_by_sentence(
+    database: Database, tmp_path: Path
+) -> None:
+    """真流式：回答以草稿形式在 finalize 之前到达；每段都已过输出护栏（凭据已脱敏）。"""
+    answer = "依据 FIX 1.1.1，设计秒流量按建筑类型确定。调试用的密钥 sk-proj-ABCDEFGHIJKLMNOPQRSTUV1234567890 不要外传。"
+    events = _run(
+        database, tmp_path,
+        [_retrieve("给水管道的设计秒流量"), _cite("FIX 1.1.1"), {"content": answer}],
+        "设计秒流量如何确定",
+    )
+    types = [e["type"] for e in events]
+    assert types.index("draft_delta") < types.index("finalize")
+    drafted = "".join(e["payload"]["text"] for e in events if e["type"] == "draft_delta")
+    assert "sk-proj-ABCDEFGHIJKLMNOPQRSTUV1234567890" not in json.dumps(events, ensure_ascii=False)
+    assert drafted.startswith("依据 FIX 1.1.1")
 
 
 def test_validator_boundary_is_not_shown_as_a_running_tool(database: Database, tmp_path: Path) -> None:

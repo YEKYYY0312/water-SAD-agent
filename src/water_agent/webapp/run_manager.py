@@ -500,15 +500,17 @@ class RunManager:
                 if attachment_context is not None:
                     extra["attachment_context"] = attachment_context
 
+                # 草稿：模型正在写的回答，逐句过输出护栏后才下发（agent_rag.DraftPump），可被撤回；
+                # 最终回答仍只以 finalize 的 answer 为准。只给声明支持的会话传（协议兼容，
+                # 同 attachment_context）。
+                if getattr(session, "supports_draft_stream", False):
+                    extra["on_draft"] = lambda kind, payload: self._on_draft(handle, kind, payload)
                 result = asyncio.run(
                     session.aask(
                         query,
                         run_id=handle.run_id,
                         memory_context=memory_context,
-                        # 回答正文只随 finalize 下发：输出护栏在 finalize 才跑，逐 token 转发等于
-                        # 把被拦截/待脱敏的原文先推给浏览器（review 2026-09-30）。当前生产路径
-                        # 本来也没有真流式（模型整条返回、节点结束才出事件），这里不损失体验；
-                        # 将来接真流式须同时设计"草稿可撤回"语义。
+                        # 不再有逐 token 事件：未过护栏的模型原文绝不进 SSE（review 2026-09-30）。
                         on_token=lambda _token: None,
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
                         cancel_check=lambda: self._is_cancel_requested(handle),
@@ -663,6 +665,23 @@ class RunManager:
             },
         )
         return result if result.hits else None
+
+    #: 草稿 SSE 事件只透传这三个形态，payload 字段逐个白名单（不透传任何未知键）。
+    _DRAFT_EVENTS = frozenset({"draft_delta", "draft_retract", "draft_closed"})
+
+    def _on_draft(self, handle: _RunHandle, kind: str, payload: dict[str, Any]) -> None:
+        if kind not in self._DRAFT_EVENTS:
+            return
+        safe: dict[str, Any] = {}
+        if kind == "draft_delta":
+            text = payload.get("text")
+            if not isinstance(text, str) or not text:
+                return
+            safe = {"text": _safe_text(text), "offset": int(payload.get("offset") or 0)}
+        elif kind == "draft_retract":
+            reason = payload.get("reason")
+            safe = {"reason": reason if reason in {"revised", "guardrail", "run_ended"} else "revised"}
+        self._append(handle, kind, safe)
 
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
         with handle.condition:
