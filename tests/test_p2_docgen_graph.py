@@ -258,6 +258,33 @@ class TestSelfCheckNode:
         assert rejected.get("self_check_attempts") == 1, "新稿自检预算已复位（新稿只自检 1 次）"
         assert rejected.get("draft_rounds") == 1
 
+    def test_second_document_in_thread_gets_full_self_check_budget(self, monkeypatch) -> None:
+        """同一 thread 的第二份文档自检从 0 计：首检失败仍可重试一次。
+
+        回归：曾继承上一份的 self_check_attempts=1，首检即记为第 2 次、直接 failed。
+        """
+        cfg = _thread("sc-two-docs")
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_docgen_initial_state(), config=cfg)
+            first = app.invoke(Command(resume={"approved": True}), config=cfg)
+            assert first.get("status") == STATUS_SUCCEEDED and first.get("self_check_attempts") == 1
+
+            failures = {"left": 1}
+
+            def flaky_check(rendered, *, calc_result=None):
+                if failures["left"] > 0:
+                    failures["left"] -= 1
+                    return ["模拟自检失败：缺少必需章节：结论"]
+                return []
+
+            monkeypatch.setattr("water_agent.graphs.docgen.check_docgen_self_check", flaky_check)
+            second = app.invoke(_docgen_initial_state(query="生成 DN100 给水管道计算书"), config=cfg)
+        assert "__interrupt__" in second, "新文档首检失败应有界重试后到达审批，而不是直接 failed"
+        assert second.get("self_check_attempts") == 2
+        assert second.get("self_check_errors") == []
+        assert second.get("status") == STATUS_WAITING
+
 
 class TestCliResumeSafety:
     """CLI 人审的恢复安全：非法 resume 值不毒化会话；CLI 自己绝不把非法决定送进图。"""
@@ -307,3 +334,24 @@ class TestCliResumeSafety:
         monkeypatch.undo()
         _scripted_input(monkeypatch, ["y"])
         assert main([*args, "--resume", session_id]) == 0
+
+    def test_resume_finished_session_with_new_query_starts_a_clean_document(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--resume <已完成会话> "新描述"：同一 thread 上的第二份文档不继承第一份的拒绝原因与审批记录。"""
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["n", "第一份的拒绝原因", "y"])
+        assert main([*args, "--json", "生成 DN150 给水管道计算书"]) == 0
+        first = json.loads(capsys.readouterr().out)
+        assert first["status"] == "succeeded" and len(first["approval_log"]) == 2
+
+        _scripted_input(monkeypatch, ["y"])
+        code = main([*args, "--json", "--resume", first["session_id"], "生成某小区给水改造设计说明"])
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        second = json.loads(captured.out)
+        assert second["session_id"] == first["session_id"]
+        assert second["status"] == "succeeded"
+        assert second["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+        assert "第一份的拒绝原因" not in second["final_doc"]
+        assert "第一份的拒绝原因" not in captured.err, "第二份文档的草稿预览里也不得出现上一份的拒绝原因"
