@@ -211,6 +211,10 @@ class _BreakerState:
     consecutive_failures: int = 0
     opened_at: float | None = None
     half_open_calls: int = 0
+    #: 熔断代次：闭合或（重新）开路时加 1，同时 ``half_open_calls`` 清零。探测名额记下占用
+    #: 时的代次，归还时代次已变就不动计数——旧名额已随那次清零作废，扣到新一轮半开期的
+    #: 计数上会放进超过 ``half_open_max_calls`` 的探测。
+    generation: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +223,8 @@ class _Admission:
 
     预算预留句柄在这里：拿到它之后，每条退出路径都必须恰好结清一次
     （``_settle`` 对账或 ``_fail`` 回滚），否则失败的调用会永久占额度。
+    半开探测名额同理：``probe`` 由 ``_execute_with_retry`` 在执行段结束时归还，
+    否则没出成败判定的探测会把半开期永久占满。
     """
 
     profile: ProviderProfile
@@ -227,6 +233,8 @@ class _Admission:
     breaker_key: str
     budget_key: str
     reservation_id: str
+    #: 本请求占用的半开探测名额（占用时的熔断代次）；闭合期放行不占名额，为 ``None``。
+    probe: int | None
 
 
 def _close_quietly(iterator: object) -> None:
@@ -297,13 +305,18 @@ class ProviderGateway:
             self._breakers[key] = state
         return state
 
-    def _check_breaker(self, key: str, policy: CircuitBreakerPolicy) -> None:
-        """开路则抛 ``CIRCUIT_OPEN``；半开期超过探测上限也拒绝。"""
+    def _check_breaker(self, key: str, policy: CircuitBreakerPolicy) -> int | None:
+        """开路则抛 ``CIRCUIT_OPEN``；半开期超过探测上限也拒绝。
+
+        Returns:
+            半开期放行占一个探测名额，返回占用时的熔断代次（交给 :meth:`_release_probe`
+            归还）；闭合期放行不占名额，返回 ``None``。
+        """
         now = self._clock()
         with self._lock:
             state = self._breaker(key)
             if state.opened_at is None:
-                return
+                return None
             elapsed = now - state.opened_at
             if elapsed < policy.recovery_seconds:
                 raise GovernanceError(
@@ -319,6 +332,22 @@ class ProviderGateway:
                     retry_after_seconds=round(policy.recovery_seconds, 3),
                 )
             state.half_open_calls += 1
+            return state.generation
+
+    def _release_probe(self, key: str, probe: int | None) -> None:
+        """归还没出成败判定的半开探测名额。
+
+        探测以成功（闭合）或瞬时失败（重新开路）结束时熔断已换代、名额已随之作废，这里什么
+        也不做。只有以说明不了上游健康与否的方式结束——发送前被限流/预算拒绝、认证失败与
+        永久错误（两者都不计熔断）、deadline 用尽、上游不支持流式——名额才真正归还；不还的话
+        半开期名额被永久占满，此后每个请求都是 ``CIRCUIT_OPEN``，推进时钟也没用。
+        """
+        if probe is None:
+            return
+        with self._lock:
+            state = self._breaker(key)
+            if state.generation == probe and state.half_open_calls > 0:
+                state.half_open_calls -= 1
 
     def _record_breaker_success(self, key: str) -> None:
         with self._lock:
@@ -326,6 +355,7 @@ class ProviderGateway:
             state.consecutive_failures = 0
             state.opened_at = None
             state.half_open_calls = 0
+            state.generation += 1
 
     def _record_breaker_failure(self, key: str, policy: CircuitBreakerPolicy) -> None:
         with self._lock:
@@ -334,6 +364,7 @@ class ProviderGateway:
             if state.consecutive_failures >= policy.failure_threshold:
                 state.opened_at = self._clock()
                 state.half_open_calls = 0
+                state.generation += 1
 
     def breaker_open(self, call: ProviderCall) -> bool:
         """当前是否开路（供观测与测试）。"""
@@ -401,7 +432,9 @@ class ProviderGateway:
         - **deadline**：每次尝试前、以及每取下一个 chunk 前检查，越界抛 ``PROVIDER_TIMEOUT``
           （回滚 + 失败账；deadline 是调用方的时间预算，不计熔断）。已取到的 chunk 总会交出。
         - **熔断**：首个 chunk 到达即记成功（与 :meth:`call` 中 executor 返回是同一时点），
-          半开期的探测流因此在首个 chunk 后就放行后续请求，不会占着探测名额直到流结束。
+          半开期的探测流因此在首个 chunk 后就放行后续请求，不会占着探测名额直到流结束；
+          首块之前就以不出成败判定的方式结束（认证/永久错误、deadline、``NotImplementedError``）
+          时名额同样归还，与 :meth:`call` 同一处理。
           代价：总在首块之后断流的上游每次都先记成功、再记一次失败，连续失败计数到不了
           开路阈值——首块之后不重试，所以不存在重试放大。
         - ``provider_call_count`` 与 :meth:`call` 同口径：每次尝试加 1。
@@ -413,7 +446,8 @@ class ProviderGateway:
           usage 未知结清（``actual_tokens=0``，不估算），落一条 ``USAGE_UNKNOWN`` 账，
           **不计熔断失败**——不是上游的错。
         - ``opener()`` 或首个 chunk 抛 ``NotImplementedError``（上游不支持流式）：不是 provider
-          失败——不重试、不计熔断、不落账，回滚预留后原样抛出，调用方据此回退到 :meth:`call`。
+          失败——不重试、不计熔断、不落账，回滚预留、归还半开探测名额后原样抛出，调用方据此
+          回退到 :meth:`call`（名额不还的话，回退的那次 ``call`` 会被这条流自己挡在熔断外）。
 
         本方法是生成器：发送前检查与预算预留都在第一次 ``next()`` 时才发生，创建后未迭代即
         丢弃不占任何额度；拿到预留之后由 ``try/finally`` 保证每条退出路径恰好结清一次。
@@ -524,7 +558,8 @@ class ProviderGateway:
         """发送前四步：能力校验 → 熔断 → 限流 → 预算预留。
 
         任一步拒绝都发生在**发送前**（provider_call_count 不变）；限流与预算拒绝各落一条
-        失败账，否则在观测里完全不可见。全部通过返回放行凭据（含预算预留句柄）。
+        失败账，否则在观测里完全不可见。全部通过返回放行凭据（含预算预留句柄与半开探测
+        名额）；熔断之后的步骤拒绝时当场归还探测名额——请求没发出去，说明不了上游健康与否。
         """
         profile = self.config.profile_for(call.provider)
         started = self._clock()
@@ -533,39 +568,44 @@ class ProviderGateway:
         # 1. 能力校验（fail closed）
         ctx.principal.require(call.required_capability)
 
-        # 2. 熔断
+        # 2. 熔断（半开期放行会占一个探测名额）
         breaker_key = self.breaker_key(call)
-        self._check_breaker(breaker_key, profile.breaker)
+        probe = self._check_breaker(breaker_key, profile.breaker)
 
-        # 3. 限流（发送前）
-        estimated = call.estimated_input_tokens + (call.max_output_tokens or 0)
-        verdict = self.rate_limit_store.acquire(
-            self.rate_limit_key(ctx, call), estimated, profile.rate_limit
-        )
-        if not verdict.allowed:
-            self._emit(
-                self._failure_record(ctx, call, CODE_RATE_LIMITED, 0.0, cache_status,
-                                     retry_after=verdict.retry_after_seconds)
+        try:
+            # 3. 限流（发送前）
+            estimated = call.estimated_input_tokens + (call.max_output_tokens or 0)
+            verdict = self.rate_limit_store.acquire(
+                self.rate_limit_key(ctx, call), estimated, profile.rate_limit
             )
-            raise GovernanceError(
-                CODE_RATE_LIMITED,
-                "请求频率超过本地配额限制，请稍后重试",
-                retry_after_seconds=verdict.retry_after_seconds,
-            )
+            if not verdict.allowed:
+                self._emit(
+                    self._failure_record(ctx, call, CODE_RATE_LIMITED, 0.0, cache_status,
+                                         retry_after=verdict.retry_after_seconds)
+                )
+                raise GovernanceError(
+                    CODE_RATE_LIMITED,
+                    "请求频率超过本地配额限制，请稍后重试",
+                    retry_after_seconds=verdict.retry_after_seconds,
+                )
 
-        # 4. 预算预留
-        budget_key = self.budget_key(ctx)
-        budget = self.budget_ledger.reserve(budget_key, estimated, self.config.budget)
-        if not budget.allowed:
-            self._emit(
-                self._failure_record(ctx, call, CODE_BUDGET_EXCEEDED, 0.0, cache_status)
-            )
-            raise GovernanceError(
-                CODE_BUDGET_EXCEEDED,
-                f"已达本地预算上限（{budget.reason}），拒绝新的远程调用",
-            )
-        reservation_id = budget.reservation_id
-        assert reservation_id is not None  # allowed=True 时契约保证
+            # 4. 预算预留
+            budget_key = self.budget_key(ctx)
+            budget = self.budget_ledger.reserve(budget_key, estimated, self.config.budget)
+            if not budget.allowed:
+                self._emit(
+                    self._failure_record(ctx, call, CODE_BUDGET_EXCEEDED, 0.0, cache_status)
+                )
+                raise GovernanceError(
+                    CODE_BUDGET_EXCEEDED,
+                    f"已达本地预算上限（{budget.reason}），拒绝新的远程调用",
+                )
+            reservation_id = budget.reservation_id
+            assert reservation_id is not None  # allowed=True 时契约保证
+        except BaseException:
+            # 被限流/预算拒绝，或存储自身出错：都没发出请求，探测名额不能就此占着
+            self._release_probe(breaker_key, probe)
+            raise
         return _Admission(
             profile=profile,
             started=started,
@@ -573,6 +613,7 @@ class ProviderGateway:
             breaker_key=breaker_key,
             budget_key=budget_key,
             reservation_id=reservation_id,
+            probe=probe,
         )
 
     def _elapsed_ms(self, admission: _Admission) -> float:
@@ -655,64 +696,72 @@ class ProviderGateway:
         *,
         passthrough: tuple[type[BaseException], ...] = (),
     ) -> tuple[T, ProviderUsage, int]:
-        """有界重试（受 deadline 约束）。``passthrough`` 中的异常不分类、不计熔断、原样抛出。"""
+        """有界重试（受 deadline 约束）。``passthrough`` 中的异常不分类、不计熔断、原样抛出。
+
+        不论怎样结束都归还半开探测名额（``call`` 与 ``stream_call`` 的执行段都只经这里）：
+        认证/永久错误、deadline 与 ``passthrough`` 异常没出成败判定，名额必须还；成功与
+        瞬时失败已让熔断换代，归还是空操作（见 :meth:`_release_probe`）。
+        """
         profile = admission.profile
         deadline = admission.deadline
         breaker_key = admission.breaker_key
         retry = profile.retry
         last_exc: BaseException | None = None
-        for attempt in range(retry.max_attempts):
-            if deadline is not None and self._clock() >= deadline:
-                raise GovernanceError(CODE_PROVIDER_TIMEOUT, "请求已超过时间预算（deadline）")
-            self.provider_call_count += 1
-            try:
-                value, usage = executor()
-            except passthrough:
-                raise
-            except BaseException as exc:
-                last_exc = exc
-                kind = _classify_error(exc)
+        try:
+            for attempt in range(retry.max_attempts):
+                if deadline is not None and self._clock() >= deadline:
+                    raise GovernanceError(CODE_PROVIDER_TIMEOUT, "请求已超过时间预算（deadline）")
+                self.provider_call_count += 1
+                try:
+                    value, usage = executor()
+                except passthrough:
+                    raise
+                except BaseException as exc:
+                    last_exc = exc
+                    kind = _classify_error(exc)
 
-                if kind is _ErrorClass.AUTH:
-                    # 认证/授权：永久错误，零重试，且不计入熔断（换 Key 才能解决）
-                    raise GovernanceError(
-                        CODE_PROVIDER_AUTH_FAILED,
-                        "上游服务拒绝访问（认证或权限失败），请检查 API Key 与服务开通状态",
-                    ) from exc
-                if kind is _ErrorClass.PERMANENT:
-                    raise GovernanceError(
-                        CODE_PROVIDER_UNAVAILABLE,
-                        f"上游服务返回不可重试的错误：{type(exc).__name__}",
-                    ) from exc
+                    if kind is _ErrorClass.AUTH:
+                        # 认证/授权：永久错误，零重试，且不计入熔断（换 Key 才能解决）
+                        raise GovernanceError(
+                            CODE_PROVIDER_AUTH_FAILED,
+                            "上游服务拒绝访问（认证或权限失败），请检查 API Key 与服务开通状态",
+                        ) from exc
+                    if kind is _ErrorClass.PERMANENT:
+                        raise GovernanceError(
+                            CODE_PROVIDER_UNAVAILABLE,
+                            f"上游服务返回不可重试的错误：{type(exc).__name__}",
+                        ) from exc
 
-                # 瞬时错误
-                self._record_breaker_failure(breaker_key, profile.breaker)
-                if attempt == retry.max_attempts - 1:
-                    raise GovernanceError(
-                        CODE_PROVIDER_UNAVAILABLE,
-                        f"上游服务连续失败且已达重试上限（{retry.max_attempts} 次）",
-                    ) from exc
+                    # 瞬时错误
+                    self._record_breaker_failure(breaker_key, profile.breaker)
+                    if attempt == retry.max_attempts - 1:
+                        raise GovernanceError(
+                            CODE_PROVIDER_UNAVAILABLE,
+                            f"上游服务连续失败且已达重试上限（{retry.max_attempts} 次）",
+                        ) from exc
 
-                delay = _retry_after_of(exc)
-                if delay is None:
-                    base = retry.backoff_for(attempt)
-                    delay = base * (1.0 - random.random() * retry.jitter_ratio)
-                if deadline is not None and self._clock() + delay >= deadline:
-                    raise GovernanceError(
-                        CODE_PROVIDER_TIMEOUT,
-                        "重试等待将超过时间预算（deadline），停止重试",
-                    ) from exc
-                if delay > 0:
-                    self._sleep(delay)
-                continue
+                    delay = _retry_after_of(exc)
+                    if delay is None:
+                        base = retry.backoff_for(attempt)
+                        delay = base * (1.0 - random.random() * retry.jitter_ratio)
+                    if deadline is not None and self._clock() + delay >= deadline:
+                        raise GovernanceError(
+                            CODE_PROVIDER_TIMEOUT,
+                            "重试等待将超过时间预算（deadline），停止重试",
+                        ) from exc
+                    if delay > 0:
+                        self._sleep(delay)
+                    continue
 
-            self._record_breaker_success(breaker_key)
-            return value, usage, attempt
+                self._record_breaker_success(breaker_key)
+                return value, usage, attempt
 
-        # 循环必然以 return 或 raise 结束；此处仅为类型完备
-        raise GovernanceError(  # pragma: no cover
-            CODE_PROVIDER_UNAVAILABLE, f"重试耗尽：{last_exc!r}"
-        )
+            # 循环必然以 return 或 raise 结束；此处仅为类型完备
+            raise GovernanceError(  # pragma: no cover
+                CODE_PROVIDER_UNAVAILABLE, f"重试耗尽：{last_exc!r}"
+            )
+        finally:
+            self._release_probe(breaker_key, admission.probe)
 
     # -- 账本落盘 --------------------------------------------------------------
 
