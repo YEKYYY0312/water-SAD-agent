@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
 
+from water_agent.memory.recall import MemoryRecallService
 from water_agent.storage.database import Database
 from water_agent.storage.models import Base
 from water_agent.storage.repository import ProjectRepository
@@ -23,6 +24,7 @@ from water_agent.webapp.app import create_app
 from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
 from water_agent.webapp.auth.db_store import PostgresUserStore
 from water_agent.webapp.auth.models import UserRole
+from water_agent.webapp.run_manager import DEFAULT_TENANT_ID
 
 
 @pytest.fixture
@@ -232,6 +234,72 @@ def test_project_scoped_memory_requires_membership(
     assert len(visible.json()["data"]["memories"]) == 1
 
 
+def _usage_and_recalled_counts(database: Database) -> tuple[int, int]:
+    with database.transaction() as session:
+        usage = session.execute(text("SELECT count(*) FROM memory_usage")).scalar_one()
+        recalled = session.execute(
+            text("SELECT count(*) FROM memory_events WHERE event_type = 'recalled'")
+        ).scalar_one()
+    return int(usage), int(recalled)
+
+
+def test_project_viewer_can_search_project_memory(database: Database, tmp_path: Path) -> None:
+    """Regression: a project viewer's search answered 503 MEMORY_STORE_UNAVAILABLE.
+
+    The viewer may read project memories, but the search used to record usage
+    for every hit, and recording usage requires write access.
+    """
+
+    owner_client, owner_id = _login(database, tmp_path, "search-owner")
+    viewer_client, viewer_id = _login(database, tmp_path, "search-viewer")
+    projects = ProjectRepository(database)
+    project = projects.create(owner_id, "泵房改造")
+    projects.add_member(project.project_id, owner_id, viewer_id, role="viewer")
+    project_id = str(project.project_id)
+    _remember(
+        owner_client,
+        "本项目泵房设在地下一层",
+        key="proj.pump-room",
+        scope_type="project",
+        kind="project_fact",
+        project_id=project_id,
+    )
+
+    searched = viewer_client.get("/api/memories", params={"query": "泵房", "project_id": project_id})
+
+    assert searched.status_code == 200, searched.text
+    assert [item["content"] for item in searched.json()["data"]["memories"]] == [
+        "本项目泵房设在地下一层"
+    ]
+    assert _usage_and_recalled_counts(database) == (0, 0)
+
+
+def test_web_list_and_search_are_reads_and_record_no_usage(
+    database: Database, tmp_path: Path
+) -> None:
+    """GET /api/memories used to append memory_usage rows and RECALLED events.
+
+    A GET must not write, and ``thread_id`` is an unverified query parameter: it
+    was stored as the usage row's ``source_thread_id`` without an ownership check.
+    """
+
+    client, _ = _login(database, tmp_path, "read-only-search")
+    memory = _remember(client, "默认使用 SI 单位并标注管径")
+    unowned_thread = str(uuid4())
+
+    listing = client.get("/api/memories")
+    searched = client.get("/api/memories", params={"query": "SI 单位", "thread_id": unowned_thread})
+
+    assert listing.status_code == searched.status_code == 200
+    assert [item["memory_id"] for item in searched.json()["data"]["memories"]] == [
+        memory["memory_id"]
+    ]
+    assert _usage_and_recalled_counts(database) == (0, 0)
+    usage = client.get(f"/api/memories/{memory['memory_id']}/usage")
+    assert usage.json()["data"]["usage"] == []
+    assert unowned_thread not in usage.text
+
+
 def test_correction_bumps_the_revision_and_rejects_a_stale_one(
     database: Database, tmp_path: Path
 ) -> None:
@@ -423,10 +491,18 @@ def test_request_bodies_cannot_choose_identity_or_scope(
 
 
 def test_events_and_usage_expose_metadata_only(database: Database, tmp_path: Path) -> None:
-    client, _ = _login(database, tmp_path, "metadata")
+    client, user_id = _login(database, tmp_path, "metadata")
     memory = _remember(client, "默认使用 SI 单位并标注管径")
     memory_id = memory["memory_id"]
-    client.get("/api/memories", params={"query": "SI 单位"})
+    # Usage comes from a run's recall (the Web GET search is a read and records
+    # none); recall it the way RunManager does, with the run's thread and id.
+    MemoryRecallService(database).recall(
+        tenant_id=DEFAULT_TENANT_ID,
+        actor_user_id=user_id,
+        query="SI 单位",
+        source_thread_id=uuid4(),
+        run_id=uuid4(),
+    )
 
     events = client.get(f"/api/memories/{memory_id}/events").json()["data"]["events"]
     usage = client.get(f"/api/memories/{memory_id}/usage").json()["data"]["usage"]
