@@ -20,6 +20,10 @@ from water_agent.storage.models import (
     WebSession,
 )
 
+#: Project roles allowed to write into a project (same set as the Web
+#: ``_can_write_project`` check and the memory write clause).
+_PROJECT_WRITE_ROLES = ("owner", "member")
+
 
 class ResourceNotFoundError(LookupError):
     """Resource is absent or outside the caller's authorization scope."""
@@ -228,6 +232,13 @@ class RunRepository:
         self.database = database
 
     def create(self, thread_id: UUID | str, owner_user_id: UUID | str) -> Run:
+        """Create a queued run; in a project session only a writing member may.
+
+        Membership alone makes a session readable, but a run writes the run row
+        and the session's checkpoint, so a project ``viewer`` is answered as if
+        the session did not exist (the Web route refuses it with 403 first).
+        """
+
         now = _now()
         with self.database.transaction() as session:
             web_session = session.execute(
@@ -242,6 +253,7 @@ class RunRepository:
                             select(ProjectMembership.project_id).where(
                                 ProjectMembership.project_id == WebSession.project_id,
                                 ProjectMembership.user_id == str(owner_user_id),
+                                ProjectMembership.role.in_(_PROJECT_WRITE_ROLES),
                             )
                         ),
                     ),
