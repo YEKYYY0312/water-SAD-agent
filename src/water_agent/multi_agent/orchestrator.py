@@ -143,16 +143,70 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _strict_approval(value: Any) -> tuple[bool, str, str | None]:
+def _short_repr(value: Any, limit: int = 80) -> str:
+    """Bounded repr for an error message that is persisted in the interrupt payload."""
+    text = repr(value)
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
+
+
+def approval_decision_error(value: Any) -> str | None:
+    """Validate an approval resume value: ``None`` when valid, else the reason.
+
+    It never raises.  By the time ``interrupt()`` returns, LangGraph has already
+    recorded the value in the task's resume list; an exception would persist it
+    together with the ERROR, and every later resume would replay that bad value
+    at interrupt #0 first — no valid decision could ever be accepted again (the
+    session is poisoned).  The approval node therefore re-interrupts with the
+    error instead.  Only ``{"approved": <strict bool>}`` (plus optional text
+    ``reason`` and ISO-8601 ``expires_at``) is a decision.
+    """
     if not isinstance(value, dict) or not isinstance(value.get("approved"), bool):
-        raise TypeError("multi-agent approval resume requires {'approved': True/False}")
+        return (
+            "multi-agent approval resume requires {'approved': True/False}, "
+            f"got {_short_repr(value)}"
+        )
     reason = value.get("reason", "")
     expires_at = value.get("expires_at")
     if not isinstance(reason, str) or (expires_at is not None and not isinstance(expires_at, str)):
-        raise TypeError("multi-agent approval reason/expires_at have invalid types")
+        return "multi-agent approval reason/expires_at have invalid types"
     if expires_at is not None and _parse_time(expires_at) is None:
-        raise TypeError("multi-agent approval expires_at must be ISO-8601 text")
-    return value["approved"], reason, expires_at
+        return "multi-agent approval expires_at must be ISO-8601 text"
+    return None
+
+
+def _strict_approval(value: Any) -> tuple[bool, str, str | None]:
+    """Normalize a resume value that already passed ``approval_decision_error``."""
+    error = approval_decision_error(value)
+    if error is not None:  # callers validate first; reaching this is a wiring bug
+        raise TypeError(error)
+    return value["approved"], value.get("reason", ""), value.get("expires_at")
+
+
+def _decision_record(
+    artifacts: dict[str, ArtifactEnvelope],
+    *,
+    approved: bool,
+    reason: str,
+    package_hash: str,
+    decided_at: str,
+    expires_at: str | None,
+) -> ApprovalRecord:
+    """The human decision bound to the exact release manifest it was made on."""
+    ids = sorted(artifacts)
+    return ApprovalRecord(
+        approved=approved,
+        reason=reason,
+        artifact_ids=ids,
+        artifact_hashes=[compute_payload_hash(artifacts[artifact_id].payload) for artifact_id in ids],
+        artifact_revisions=[artifacts[artifact_id].revision for artifact_id in ids],
+        artifact_parent_artifact_ids=[
+            list(artifacts[artifact_id].parent_artifact_ids) for artifact_id in ids
+        ],
+        artifact_collection_hash=package_hash,
+        final_package_hash=package_hash,
+        approved_at=decided_at,
+        expires_at=expires_at,
+    )
 
 
 def review_disclosures(state: Mapping[str, Any]) -> list[str]:
@@ -1042,52 +1096,64 @@ def build_orchestrator_graph(
             "trace_events": [requested],
         }
 
+    def approval_stale(state: MultiAgentProjectState, *, approval_present: bool) -> dict[str, Any]:
+        # 漂移在 approval 节点收口，只记一次 STALE（此前无条件进 release_gate 又补一个）。
+        registry, active = _registry(state), dict(state.get("active_artifact_ids") or {})
+        return {
+            "phase": "approval",
+            "status": "blocked",
+            "errors": [*state.get("errors", []), MULTI_APPROVAL_STALE],
+            "trace_events": [
+                _trace_event(
+                    "approval_resumed",
+                    approval_present=approval_present,
+                    approval_valid=False,
+                    package_hash_matches=False,
+                    blocked=True,
+                    error_code=MULTI_APPROVAL_STALE,
+                ),
+                _run_finished_event(state, run_status="blocked", registry=registry, active=active),
+            ],
+        }
+
     def approval(state: MultiAgentProjectState) -> dict[str, Any]:
         artifacts = _release_artifacts(_registry(state), dict(state.get("active_artifact_ids") or {}))
         expected_hash = _package_hash(artifacts) if artifacts else None
         if artifacts is None or expected_hash != state.get("approval_context_hash"):
-            return {
-                "phase": "approval",
-                "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_APPROVAL_STALE],
-                "trace_events": [
-                    _trace_event(
-                        "approval_resumed",
-                        approval_present=True,
-                        approval_valid=False,
-                        package_hash_matches=False,
-                        blocked=True,
-                        error_code=MULTI_APPROVAL_STALE,
-                    )
-                ],
-            }
+            return approval_stale(state, approval_present=True)
         # 披露项随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个哈希，
         # 人工批准实际是盲批（review 2026-09-30）。
-        decision = interrupt({"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds, "disclosed_limitations": review_disclosures(state)})
+        request = {"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds, "disclosed_limitations": review_disclosures(state)}
+        decision = interrupt(request)
+        # 非法 resume 值不抛异常：带 error 再挂起一次（原因见 approval_decision_error）。每次恢复
+        # 本节点都从头重跑、按序号依次重放此前收到的值：非法值仍落在原序号上被判非法，合法值
+        # 接在最后被取到；没有新值时停在这里继续挂起。
+        while (error := approval_decision_error(decision)) is not None:
+            decision = interrupt({**request, "error": error})
         approved, reason, supplied_expiry = _strict_approval(decision)
         # The restart boundary must recompute the persisted context before accepting approval.
-        artifacts = _release_artifacts(_registry(state), dict(state.get("active_artifact_ids") or {}))
+        registry, active = _registry(state), dict(state.get("active_artifact_ids") or {})
+        artifacts = _release_artifacts(registry, active)
         resumed_hash = _package_hash(artifacts) if artifacts else None
-        if artifacts is None or resumed_hash != expected_hash or resumed_hash != state.get("approval_context_hash"):
-            return {
-                "phase": "approval",
-                "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_APPROVAL_STALE],
-                "trace_events": [
-                    _trace_event(
-                        "approval_resumed",
-                        approval_present=approved,
-                        approval_valid=False,
-                        package_hash_matches=False,
-                        blocked=True,
-                        error_code=MULTI_APPROVAL_STALE,
-                    )
-                ],
-            }
+        if artifacts is None or resumed_hash is None or resumed_hash != expected_hash or resumed_hash != state.get("approval_context_hash"):
+            return approval_stale(state, approval_present=approved)
+        timestamp = clock()
         if not approved:
+            # 人工拒绝在这里收口，不进 release_gate（那里会把"无批准记录"再判成 STALE、并发出
+            # export_attempt 让 unapproved_export 误报）。拒绝本身写进状态并绑定被拒绝的那个
+            # 最终包哈希——此前原因只在 LangGraph 的 writes 表里，state.approval_record 为空。
+            rejection = _decision_record(
+                artifacts,
+                approved=False,
+                reason=reason or "rejected",
+                package_hash=resumed_hash,
+                decided_at=_iso(timestamp),
+                expires_at=None,
+            )
             return {
                 "phase": "approval",
                 "status": "blocked",
+                "approval_record": rejection.model_dump(mode="json"),
                 "errors": [*state.get("errors", []), MULTI_APPROVAL_REQUIRED],
                 "trace_events": [
                     _trace_event(
@@ -1097,25 +1163,18 @@ def build_orchestrator_graph(
                         package_hash_matches=True,
                         blocked=True,
                         error_code=MULTI_APPROVAL_REQUIRED,
-                    )
+                        approval_decision="rejected",
+                    ),
+                    _run_finished_event(state, run_status="blocked", registry=registry, active=active),
                 ],
             }
-        timestamp = clock()
         expiry = supplied_expiry or _iso(timestamp + timedelta(seconds=approval_ttl_seconds))
-        ids = sorted(artifacts)
-        hashes = [compute_payload_hash(artifacts[artifact_id].payload) for artifact_id in ids]
-        record = ApprovalRecord(
+        record = _decision_record(
+            artifacts,
             approved=True,
             reason=reason or "approved",
-            artifact_ids=ids,
-            artifact_hashes=hashes,
-            artifact_revisions=[artifacts[artifact_id].revision for artifact_id in ids],
-            artifact_parent_artifact_ids=[
-                list(artifacts[artifact_id].parent_artifact_ids) for artifact_id in ids
-            ],
-            artifact_collection_hash=resumed_hash,
-            final_package_hash=resumed_hash,
-            approved_at=_iso(timestamp),
+            package_hash=resumed_hash,
+            decided_at=_iso(timestamp),
             expires_at=expiry,
         )
         final = _final_package(artifacts, record)
@@ -1131,6 +1190,7 @@ def build_orchestrator_graph(
                     approval_valid=True,
                     package_hash_matches=True,
                     blocked=False,
+                    approval_decision="approved",
                 )
             ],
         }
@@ -1199,12 +1259,14 @@ def build_orchestrator_graph(
         )
         if not all(checks.values()):
             previous_errors = list(state.get("errors", []))
+            # 没有有效的人工批准（审批被跳过、或只有一条拒绝记录）是"未获批准"，不是"批准后
+            # 产物漂移"：此前缺记录时 package_hash_matches 恒 False，被误报成 STALE。
             code = (
-                MULTI_APPROVAL_STALE
-                if MULTI_APPROVAL_STALE in previous_errors or not checks["package_hash_matches"]
+                MULTI_APPROVAL_REQUIRED
+                if not checks["approval_exists"]
                 else (
-                    MULTI_APPROVAL_REQUIRED
-                    if not checks["approval_exists"]
+                    MULTI_APPROVAL_STALE
+                    if MULTI_APPROVAL_STALE in previous_errors or not checks["package_hash_matches"]
                     else MULTI_REVIEW_REJECTED
                 )
             )
@@ -1358,6 +1420,8 @@ def build_orchestrator_graph(
         if state.get("status") in {"blocked", "failed"}: return END
         return state.get("route_target") or END
     def after_prepare(state: MultiAgentProjectState) -> str: return "approval" if state.get("status") == "waiting" else END
+    # 只有拿到有效批准才进发布门；拒绝/漂移已在 approval 收口（run_finished 已发出）。
+    def after_approval(state: MultiAgentProjectState) -> str: return "release_gate" if state.get("status") == "running" else END
     def after_gate(state: MultiAgentProjectState) -> str: return "export" if state.get("status") == "running" else END
 
     graph = StateGraph(MultiAgentProjectState)
@@ -1384,7 +1448,7 @@ def build_orchestrator_graph(
     graph.add_edge("review", "router")
     graph.add_conditional_edges("router", after_router, {"recalculate": "recalculate", "hydraulic": "hydraulic", "design": "design", "drawing": "drawing", "human": END, "approval": "prepare_approval", END: END})
     graph.add_conditional_edges("prepare_approval", after_prepare, {"approval": "approval", END: END})
-    graph.add_edge("approval", "release_gate")
+    graph.add_conditional_edges("approval", after_approval, {"release_gate": "release_gate", END: END})
     graph.add_conditional_edges("release_gate", after_gate, {"export": "export", END: END})
     graph.add_edge("export", END)
     return graph.compile(checkpointer=checkpointer)
