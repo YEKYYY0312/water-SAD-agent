@@ -43,7 +43,7 @@ from water_agent.runtime.governance.contracts import (
     UsageRecord,
 )
 from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
-from water_agent.runtime.governance.stores import InMemoryBudgetLedger
+from water_agent.runtime.governance.stores import BudgetVerdict, InMemoryBudgetLedger
 
 
 class _SpyLedger(InMemoryBudgetLedger):
@@ -683,6 +683,134 @@ class TestNotImplementedPassthrough:
         assert records == []
         assert gw.breaker_open(_call()) is False
         assert _snapshot(gw).reserved_tokens == 0
+
+
+class _SlowLedger(InMemoryBudgetLedger):
+    """预留时推进假时钟：模拟共享账本（Redis/Postgres adapter）慢到在发送前就耗尽 deadline。"""
+
+    def __init__(self, clock: _FakeClock) -> None:
+        super().__init__()
+        self._fake_clock = clock
+        self.delay = 0.0
+
+    def reserve(self, key: str, tokens: int, config: BudgetConfig) -> BudgetVerdict:
+        self._fake_clock.advance(self.delay)
+        return super().reserve(key, tokens, config)
+
+
+class TestHalfOpenProbeWithoutVerdict:
+    """流式探测在首块之前没出成败判定就结束，同样归还半开探测名额（与 ``call`` 同一处理）。
+
+    回归：名额此前只在成功（首块到达）或瞬时失败时清零；以限流/预算拒绝、401/403、永久错误、
+    发送前用尽 deadline 或 ``NotImplementedError`` 结束的探测流把名额永久占住，此后每个请求
+    （流式与非流式共用熔断器）都是 ``CIRCUIT_OPEN``，推进时钟也没用。
+    """
+
+    @staticmethod
+    def _enter_half_open(gw: ProviderGateway, clock: _FakeClock) -> None:
+        with pytest.raises(GovernanceError):
+            list(gw.stream_call(_ctx(thread="a"), _call(), _Opener(_HttpError(503)),
+                                usage_of=_usage_of))
+        assert gw.breaker_open(_call()) is True
+        clock.advance(31.0)  # 默认恢复窗口 30s，半开只放 1 个探测
+
+    @staticmethod
+    def _assert_slot_was_released(gw: ProviderGateway) -> None:
+        """没出判定：熔断既没闭合也没重新开路；名额已还，下一个探测流立刻放行，首块到达即闭合。"""
+        assert gw.breaker_open(_call()) is True
+        out = list(gw.stream_call(_ctx(thread="b"), _call(), _Opener(_FakeStream([_Chunk("ok")])),
+                                  usage_of=_usage_of))
+        assert _texts(out) == ["ok"]
+        assert gw.breaker_open(_call()) is False
+
+    def test_rate_limited_probe_releases_slot(self) -> None:
+        clock = _FakeClock()
+        config = _config(attempts=1, threshold=1,
+                         rate_limit=RateLimitPolicy(max_requests_per_minute=1))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)  # 开路那次用掉了主体 a 这一分钟唯一的请求配额
+
+        opener = _Opener(_FakeStream([_Chunk("never")]))
+        with pytest.raises(GovernanceError) as exc:
+            list(gw.stream_call(_ctx(thread="a"), _call(), opener, usage_of=_usage_of))
+        assert exc.value.code == CODE_RATE_LIMITED
+        assert opener.calls == 0
+        self._assert_slot_was_released(gw)
+
+    def test_budget_rejected_probe_releases_slot(self) -> None:
+        clock = _FakeClock()
+        config = _config(attempts=1, threshold=1,
+                         budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=1_000))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)
+
+        opener = _Opener(_FakeStream([_Chunk("never")]))
+        with pytest.raises(GovernanceError) as exc:
+            list(gw.stream_call(_ctx(thread="a"), _call(est_in=5_000), opener,  # 预留 5,200
+                                usage_of=_usage_of))
+        assert exc.value.code == CODE_BUDGET_EXCEEDED
+        assert opener.calls == 0
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize(
+        ("where", "error", "expected_code"),
+        [
+            ("opener", _HttpError(401), CODE_PROVIDER_AUTH_FAILED),
+            ("first_chunk", _HttpError(403), CODE_PROVIDER_AUTH_FAILED),
+            ("opener", _HttpError(400), CODE_PROVIDER_UNAVAILABLE),
+            ("first_chunk", ValueError("bad payload"), CODE_PROVIDER_UNAVAILABLE),  # 未知 → 永久
+        ],
+        ids=["opener-401", "first-chunk-403", "opener-400", "first-chunk-unknown-error"],
+    )
+    def test_auth_or_permanent_error_before_first_chunk_releases_slot(
+        self, where: str, error: BaseException, expected_code: str
+    ) -> None:
+        """阈值为 1：若 401/403 或永久错误计了熔断，这里会重新开路，下一个请求还得再等 30s。"""
+        clock = _FakeClock()
+        gw = _gateway(config=_config(attempts=1, threshold=1), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        source = error if where == "opener" else _FakeStream([error])
+        with pytest.raises(GovernanceError) as exc:
+            list(gw.stream_call(_ctx(thread="a"), _call(), _Opener(source), usage_of=_usage_of))
+        assert exc.value.code == expected_code
+        self._assert_slot_was_released(gw)
+
+    def test_probe_whose_deadline_runs_out_before_sending_releases_slot(self) -> None:
+        clock = _FakeClock()
+        ledger = _SlowLedger(clock)
+        gw = _gateway(config=_config(attempts=1, threshold=1), clock=clock, ledger=ledger)
+        self._enter_half_open(gw, clock)
+
+        ledger.delay = 10.0  # 预留就耗掉 10s，超过 5s 的 deadline
+        opener = _Opener(_FakeStream([_Chunk("never")]))
+        with pytest.raises(GovernanceError) as exc:
+            list(gw.stream_call(_ctx(thread="a", deadline=5.0), _call(), opener,
+                                usage_of=_usage_of))
+        assert exc.value.code == CODE_PROVIDER_TIMEOUT
+        assert opener.calls == 0  # 一次都没发出
+        ledger.delay = 0.0
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize("where", ["opener", "first_chunk"])
+    def test_not_implemented_probe_releases_slot_for_the_fallback_call(self, where: str) -> None:
+        """上游不支持流式时调用方回退到 ``call``：名额不还，回退的这次 ``call`` 就被这条流
+        自己挡在熔断外，而且此后永远如此。"""
+        clock = _FakeClock()
+        gw = _gateway(config=_config(attempts=1, threshold=1), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        source = (
+            NotImplementedError() if where == "opener"
+            else _FakeStream([NotImplementedError()])
+        )
+        with pytest.raises(NotImplementedError):
+            list(gw.stream_call(_ctx(thread="a"), _call(), _Opener(source), usage_of=_usage_of))
+        assert gw.breaker_open(_call()) is True  # 不计熔断：没闭合，也没重新开路
+
+        fallback = gw.call(_ctx(thread="a"), _call(), lambda: ("整块回答", _usage()))
+        assert fallback.value == "整块回答"
+        assert gw.breaker_open(_call()) is False
 
 
 def _drive(scenario: str, gw: ProviderGateway, clock: _FakeClock) -> None:
