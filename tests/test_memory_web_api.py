@@ -14,9 +14,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text, update
 
+from water_agent.memory.pending_candidates import PENDING_CANDIDATE_LIMIT
 from water_agent.storage.database import Database
 from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
@@ -43,12 +45,15 @@ def database(tmp_path: Path) -> Database:
 
 
 def _login(database: Database, tmp_path: Path, prefix: str) -> tuple[TestClient, UUID]:
+    return _login_to(create_app(database=database, static_dir=tmp_path / "static"), database, prefix)
+
+
+def _login_to(app: FastAPI, database: Database, prefix: str) -> tuple[TestClient, UUID]:
+    """Log a fresh member into ``app``; clients sharing an app share its in-process state."""
+
     username = f"{prefix}-{uuid4().hex[:8]}"
     user = PostgresUserStore(database).create_user(username, "MemoryApiPass2026!", UserRole.MEMBER)
-    client = TestClient(
-        create_app(database=database, static_dir=tmp_path / "static"),
-        raise_server_exceptions=True,
-    )
+    client = TestClient(app, raise_server_exceptions=True)
     response = client.post(
         "/api/auth/login", json={"username": username, "password": "MemoryApiPass2026!"}
     )
@@ -456,6 +461,36 @@ def test_correcting_an_expired_memory_is_gone_not_a_silent_success(
     assert response.status_code == 410, response.text
     assert response.json()["error"]["code"] == "MEMORY_EXPIRED"
     assert client.get(f"/api/memories/{memory_id}").json()["data"]["status"] == "expired"
+
+
+def test_another_users_preview_flood_cannot_evict_my_pending_candidate(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：待确认候选的 256 条上限曾是全局共享的。
+
+    复现：bob 连发 256 个预览后，alice 确认自己先前的预览返回 404
+    MEMORY_NOT_FOUND——任何登录用户都能让别人的「保存记忆」确认失败。
+    现在按用户设配额，超额只淘汰 bob 自己最旧的候选。
+    """
+    app = create_app(database=database, static_dir=tmp_path / "static")
+    alice, _ = _login_to(app, database, "alice")
+    bob, _ = _login_to(app, database, "bob")
+    _status, mine = _candidate(alice, content="管材默认 PPR", key="pref.material")
+    flood = []
+    for index in range(PENDING_CANDIDATE_LIMIT):
+        status, preview = _candidate(bob, content=f"噪声 {index}", key=f"noise.{index}")
+        assert status == 201, preview
+        flood.append(preview)
+
+    status, confirmed = _confirm(alice, mine)
+
+    assert status == 201, confirmed
+    assert confirmed["data"]["action"] == "created"
+    # bob 自己超额：最旧的预览被淘汰，最新的仍可确认。
+    status, oldest = _confirm(bob, flood[0])
+    assert status == 404 and oldest["error"]["code"] == "MEMORY_NOT_FOUND"
+    status, newest = _confirm(bob, flood[-1])
+    assert status == 201, newest
 
 
 def test_csrf_is_required_for_memory_writes(database: Database, tmp_path: Path) -> None:
