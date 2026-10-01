@@ -240,6 +240,80 @@ class TestRejectBranch:
         assert second_preview != first_preview
 
 
+class TestNewDocumentInSameThread:
+    """同一 thread 上生成第二份文档（CLI ``--resume <已完成会话> "新描述"``）不得继承上一份的过程状态。"""
+
+    def test_second_document_starts_from_clean_state(self) -> None:
+        """回归：第一份先拒一次再批准；第二份挂起待审时 approval_reason 仍是第一份的拒绝原因
+        且被渲染进新草稿，approval_log 继承 2 条，self_check_attempts=2，final_doc 还挂着第一份的终稿。"""
+        cfg = _thread("two-docs")
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_initial_state(), config=cfg)
+            app.invoke(Command(resume={"approved": False, "reason": "第一份的拒绝原因"}), config=cfg)
+            first = app.invoke(Command(resume={"approved": True}), config=cfg)
+            assert first["status"] == STATUS_SUCCEEDED and first["draft_rounds"] == 1
+
+            # 第二份文档：调用方只给新文档的输入，不带 draft_rounds 之类的过程字段
+            second = app.invoke(
+                {
+                    "query": "生成某小区给水改造设计说明",
+                    "doc_type": "design_note",
+                    "citations": [],
+                    "calc_result": None,
+                    "gather_artifacts": {},
+                },
+                config=cfg,
+            )
+            preview = second["__interrupt__"][0].value["draft_preview"]
+            assert "第一份的拒绝原因" not in preview, "上一份的拒绝原因不得被当作反馈渲染进新草稿"
+            assert "# 设计说明草稿（第 1 稿）" in preview
+            assert second["approval_reason"] == ""
+            assert second["approval_log"] == []
+            assert second["draft_rounds"] == 0
+            assert second["self_check_attempts"] == 1
+            assert second["self_check_errors"] == []
+            assert second["final_doc"] is None, "新文档待审时不得挂着上一份的终稿"
+            assert second["errors"] == []
+            assert second["approval"] is None and second["status"] == STATUS_WAITING
+
+            # 新文档有自己完整的稿数预算：拒一次仍能重拟；批准后审批记录只含本文档的决定
+            redraft = app.invoke(Command(resume={"approved": False, "reason": "补充水表选型"}), config=cfg)
+            assert "__interrupt__" in redraft and redraft["draft_rounds"] == 1
+            done = app.invoke(Command(resume={"approved": True}), config=cfg)
+        assert done["status"] == STATUS_SUCCEEDED
+        assert [entry["reason"] for entry in done["approval_log"]] == ["补充水表选型", ""]
+        assert "第一份的拒绝原因" not in done["final_doc"]
+
+    def test_errors_of_a_failed_document_do_not_leak_into_the_next(self) -> None:
+        """上一份以 failed 收口（errors 非空），同一 thread 的下一份从空 errors 开始。"""
+        cfg = _thread("failed-then-new")
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_initial_state(), config=cfg)
+            for _ in range(MAX_DRAFT_ROUNDS):
+                failed = app.invoke(Command(resume={"approved": False, "reason": "不行"}), config=cfg)
+            assert failed["status"] == STATUS_FAILED and failed["errors"]
+
+            second = app.invoke(_initial_state("生成 DN100 给水管道计算书"), config=cfg)
+            assert second["status"] == STATUS_WAITING
+            assert second["errors"] == []
+            done = app.invoke(Command(resume={"approved": True}), config=cfg)
+        assert done["status"] == STATUS_SUCCEEDED and done["errors"] == []
+        assert done["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+
+    def test_every_state_field_is_reset_or_a_document_input(self) -> None:
+        """DocGenState 的每个字段要么是调用方随新文档给出的输入，要么在 gather_inputs 复位。
+
+        新增按文档字段却忘了复位，就会被同一 thread 的下一份文档继承；这条断言逼新增字段时显式归类。
+        """
+        from water_agent.graphs.docgen import PER_DOCUMENT_FIELDS, DocGenState
+
+        document_inputs = {"query", "doc_type", "citations", "calc_result", "gather_artifacts"}
+        assert set(PER_DOCUMENT_FIELDS).isdisjoint(document_inputs)
+        assert set(PER_DOCUMENT_FIELDS) | document_inputs == set(DocGenState.__annotations__)
+
+
 class TestPersistence:
     def test_sqlite_checkpoint_survives_reopen(self, tmp_path, capsys) -> None:
         """验收：中断后可恢复——SqliteSaver 落盘，关闭连接、重建图与连接后 resume 走完。

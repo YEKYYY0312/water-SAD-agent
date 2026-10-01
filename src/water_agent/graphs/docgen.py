@@ -33,6 +33,8 @@ resume 值契约（P2 收口，严格布尔）：
 
 状态机：
   START → gather_inputs → draft → self_check → approval
+    gather_inputs：一份新文档的唯一入口，``PER_DOCUMENT_FIELDS`` 全部复位（同一 thread 的下一份
+                   文档不继承上一份的拒绝原因/审批记录/稿数/自检计数/终稿/errors）
     self_check 通过 → waiting（approval 复位 None）
     self_check 不通过且预算内 → 回 draft（attempts+1）
     self_check 不通过且超限       → failed（errors 可见，不产出，终止）
@@ -116,6 +118,29 @@ def default_docgen_state(**overrides: Any) -> DocGenState:
     }
     state.update(overrides)  # type: ignore[typeddict-item]  # 与 state.py:71 同模式，基线型告警，Step 10 清零
     return state
+
+
+# "按文档"的过程字段：每份新文档在 gather_inputs 复位为 default_docgen_state 的默认值。
+# 其余字段（query / doc_type / citations / calc_result / gather_artifacts）是调用方随每份
+# 新文档给出的输入，gather_inputs 只归一不复位。
+# 为什么必须复位：同一 thread 上生成第二份文档（CLI ``--resume <已完成会话> "新描述"``）时，
+# checkpoint 里还留着上一份的全部状态——拒绝原因会被当作反馈渲染进新草稿，审批记录、稿数、
+# 自检计数（新文档没有自检重试预算）、终稿与 errors 都会被继承。
+# 为什么复位放在 gather_inputs：它是一份新文档的唯一入口（START → gather_inputs），拒绝回流
+# （approval → draft）与自检重试（self_check → draft）都不经过它，同一份文档内的计数不受影响。
+PER_DOCUMENT_FIELDS: tuple[str, ...] = (
+    "intent",
+    "doc_draft",
+    "final_doc",
+    "approval",
+    "approval_reason",
+    "approval_log",
+    "draft_rounds",
+    "self_check_errors",
+    "self_check_attempts",
+    "errors",
+    "status",
+)
 
 
 
@@ -236,17 +261,17 @@ def build_docgen_graph(*, checkpointer=None):
     def gather_inputs_node(state: DocGenState) -> dict:
         """汇集输入：query/意图 + 已有 citations/calc_result（调用方预置；本步不主动检索/计算）。
 
+        同时开启一份新文档：``PER_DOCUMENT_FIELDS`` 全部复位为默认值（理由见该常量的注释）。
+
         ``gather_artifacts`` 只承载**可 JSON 序列化**的检索快照（上下文/声明清单/回答），
         供审批人查看与 trace 落盘；citations 本体走 state 的 ``citations`` 字段（CitationClaim）。
         """
         artifacts = state.get("gather_artifacts") or {}
+        defaults: dict[str, Any] = dict(default_docgen_state())
         return {
-            "intent": "docgen",
-            "status": STATUS_RUNNING,
+            **{field: defaults[field] for field in PER_DOCUMENT_FIELDS},
             "citations": list(state.get("citations") or []),
             "calc_result": state.get("calc_result"),
-            "approval_log": list(state.get("approval_log") or []),
-            "errors": state.get("errors") or [],
             "gather_artifacts": {
                 "retrieval_context": artifacts.get("retrieval_context", []),
                 "retrieval_claims": artifacts.get("retrieval_claims", []),
