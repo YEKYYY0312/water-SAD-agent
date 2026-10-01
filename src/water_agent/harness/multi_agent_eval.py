@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from collections.abc import Callable
@@ -311,8 +312,36 @@ def _review_package(state: dict[str, Any], registry: dict[str, Any]) -> Any | No
     return ReviewPackage.model_validate(envelope.payload) if envelope is not None else None
 
 
+def _declared_dn_values(project_brief: dict[str, Any]) -> set[int]:
+    """DN values the user stated explicitly (spatial diameter constraints or ``DN…`` text)."""
+    values: set[int] = set()
+    for constraint in project_brief.get("spatial_constraints") or []:
+        if not isinstance(constraint, dict):
+            continue
+        raw = constraint.get("value")
+        if str(constraint.get("kind", "")).lower() not in {"diameter_mm", "dn_mm"} or not isinstance(
+            raw, (int, float, str)
+        ):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value.is_integer():
+            values.add(int(value))
+    for text in project_brief.get("user_constraints") or []:
+        values.update(int(match) for match in re.findall(r"(?i)DN\s*(\d+)", str(text)))
+    return values
+
+
 def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple[bool, bool]:
-    """Check active design references against active programmatic calculations."""
+    """Check active design numbers trace to programmatic calculations or user input.
+
+    Task book §15.3: every design number must trace to an input or a programmatic
+    result.  A segment bound to calc cases must match them; a segment bound to
+    none (its calc case is ambiguous) is acceptable only when it honestly says
+    ``not_verified`` and carries no DN other than one the user stated.
+    """
     from water_agent.multi_agent.contracts import CalcPackage, DesignPackage
 
     active = state.get("active_artifact_ids") or {}
@@ -329,9 +358,16 @@ def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple
         for case in calc_package.cases
         if case.status == "verified" and case.outputs
     }
+    declared_dns = _declared_dn_values(state.get("project_brief") or {})
     valid = True
     for segment in design_package.segments:
-        if not segment.calc_case_ids or not set(segment.calc_case_ids).issubset(verified):
+        if not segment.calc_case_ids:
+            if segment.hydraulic_status != "not_verified" or (
+                segment.dn_mm is not None and segment.dn_mm not in declared_dns
+            ):
+                valid = False
+            continue
+        if not set(segment.calc_case_ids).issubset(verified):
             valid = False
             continue
         for calc_case_id in segment.calc_case_ids:
@@ -444,6 +480,47 @@ def _roundtrip_integrity(
 
 def _check(name: str, expected: Any, actual: Any) -> dict[str, Any]:
     return {"name": name, "expected": expected, "actual": actual, "passed": actual == expected}
+
+
+_SEGMENT_FIELDS = (
+    "start_node_id",
+    "end_node_id",
+    "system",
+    "dn_mm",
+    "calc_case_ids",
+    "hydraulic_status",
+)
+
+
+def _segment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Comparable segment↔case binding rows (order-independent)."""
+    normalized = [{key: row.get(key) for key in _SEGMENT_FIELDS} for row in rows]
+    return sorted(
+        normalized,
+        key=lambda row: (str(row["start_node_id"]), str(row["end_node_id"]), str(row["system"])),
+    )
+
+
+def _active_design_segments(state: dict[str, Any], registry: dict[str, Any]) -> list[dict[str, Any]] | None:
+    from water_agent.multi_agent.contracts import DesignPackage
+
+    design_id = (state.get("active_artifact_ids") or {}).get("design")
+    design = registry.get(design_id) if isinstance(design_id, str) else None
+    if design is None:
+        return None
+    package = DesignPackage.model_validate(design.payload)
+    return _segment_rows([segment.model_dump(mode="json") for segment in package.segments])
+
+
+def _normalized_brief(raw: Any) -> dict[str, Any] | None:
+    from pydantic import ValidationError
+
+    from water_agent.multi_agent.contracts import ProjectBrief
+
+    try:
+        return ProjectBrief.model_validate(raw).model_dump(mode="json")
+    except ValidationError:
+        return None
 
 
 def _drift_drawing_plan(app: Any, config: dict[str, Any], paused: dict[str, Any]) -> None:
@@ -635,6 +712,24 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                 and int((result.get("revision_counts") or {}).get("hydraulic", 0)) > 0
             )
             checks.append(_check("has_recalc_request", expected["has_recalc_request"], recalculated))
+        if "design_segments" in expected:
+            # 管段 ↔ 工况绑定逐段对账：哪段管、哪个系统、DN、引用哪个工况、是否 verified
+            checks.append(
+                _check(
+                    "design_segments",
+                    _segment_rows(list(expected["design_segments"])),
+                    _active_design_segments(result, registry),
+                )
+            )
+        if "project_brief_unchanged" in expected:
+            # 用户输入（工况/拓扑）不得被自动重算悄悄改写
+            checks.append(
+                _check(
+                    "project_brief_unchanged",
+                    bool(expected["project_brief_unchanged"]),
+                    _normalized_brief(result.get("project_brief")) == brief.model_dump(mode="json"),
+                )
+            )
 
         release_expected = scenario in {
             "standard",
@@ -664,7 +759,7 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                     _check("no_exported_file", False, exported_file_exists),
                 ]
             )
-        if scenario in {"stale_reuse", "drawing_length_mismatch"}:
+        if scenario in {"stale_reuse", "drawing_length_mismatch", "binding_ambiguous"}:
             checks.extend(
                 [
                     _check("interrupt_not_observed", False, interrupt_observed),
