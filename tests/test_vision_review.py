@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+from pathlib import Path
 
 import pytest
 
@@ -113,9 +114,19 @@ def test_page_limit_is_declared(fake: _FakeTransport) -> None:
     assert "未审阅" in extracted.text
 
 
-def test_vision_failure_keeps_the_upload_and_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("UPLOAD_VISION_ENABLED", "true")
+def _no_dashscope_key_anywhere(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """三层来源全部清空：环境变量、Compose secret 文件、凭据卷。"""
+
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+
+
+def test_vision_failure_keeps_the_upload_and_says_why(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("UPLOAD_VISION_ENABLED", "true")
+    _no_dashscope_key_anywhere(monkeypatch, tmp_path)
     extracted = extract_text(_pdf([""]), ".pdf")
     assert "【视觉审阅未执行】" in extracted.text
     assert "DASHSCOPE_API_KEY" in extracted.text
@@ -152,6 +163,42 @@ def test_calls_go_through_the_gateway_and_usage_is_reconciled(monkeypatch: pytes
 def test_missing_key_is_refused_before_any_request() -> None:
     with pytest.raises(vision.VisionUnavailableError):
         vision.QwenVisionReviewer("  ")
+
+
+@pytest.mark.parametrize("source", ["secret_file", "volume"])
+def test_default_reviewer_resolves_the_key_like_every_other_reader(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, source: str
+) -> None:
+    """回归：视觉审阅曾直读 os.environ，看不见 Compose secret 与凭据卷里的 Key。
+
+    面板清除一个由 secret 文件提供的 DASHSCOPE_API_KEY 后，进程环境里就没有它了，
+    而 credential_status 仍报已配置——上传的扫描件 PDF 于是一律"视觉审阅未执行"。
+    """
+    _no_dashscope_key_anywhere(monkeypatch, tmp_path)
+    if source == "secret_file":
+        secret = tmp_path / "dashscope_secret"
+        secret.write_text("sk-vision-from-secret-file", encoding="utf-8")
+        monkeypatch.setenv("DASHSCOPE_API_KEY_FILE", str(secret))
+        expected = "sk-vision-from-secret-file"
+    else:
+        volume = tmp_path / "no-credentials"
+        volume.mkdir()
+        (volume / "dashscope_api_key").write_text("sk-vision-from-volume", encoding="utf-8")
+        expected = "sk-vision-from-volume"
+    seen: list[str] = []
+    transport = _FakeTransport()
+    original = vision.QwenVisionReviewer
+
+    def build(api_key: str, **kwargs):
+        seen.append(api_key)
+        return original(api_key, transport=transport, **kwargs)
+
+    monkeypatch.setattr(vision, "QwenVisionReviewer", build)
+
+    review = vision.review_pdf_pages(_pdf([""]))
+
+    assert seen == [expected]
+    assert review.pages_reviewed == 1 and len(transport.payloads) == 1
 
 
 def test_vision_call_site_is_registered_and_governed() -> None:

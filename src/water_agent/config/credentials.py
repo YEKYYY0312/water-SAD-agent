@@ -9,10 +9,14 @@
 ``secrets/README.md`` 早已约定第 2 条的文件名，但 Compose 从未挂载它们，于是
 ``real_llm_configured()`` 认 ``_FILE``、``build_chat_model()`` 只认环境变量——
 手工配了文件反而得到「424 放行、真跑时 503」。本模块把三条路收敛到
-:func:`resolve_secret`，两处共用同一判断。
+:func:`resolve_secret`：对话模型、embedding、rerank、视觉审阅与各处预检共用
+同一判断。
 
-``embedding.py`` 与 ``retrieval/rerank.py`` 仍直接读 ``os.environ``，所以写入与
-启动回填都会把解析结果注入当前进程环境，让百炼那两处无需改动即可生效。
+启动回填与面板写入/清除仍会把**有效值**同步进当前进程环境。本进程内的消费方
+已不依赖它；保留同步是为了 os.environ 里不残留过时或被顶替的值，仍按变量名读
+环境的代码（CLI / harness 的旧路径）看到的也是有效值。子进程拿不到这些密钥：
+MCP 与 DWG 转换都只透传白名单变量。同步只动本模块注入的值：运维显式设置的
+环境变量是最高优先级，面板既不覆盖也不清除它。
 """
 from __future__ import annotations
 
@@ -47,8 +51,9 @@ SOURCE_NONE = "none"
 #
 # 写入与启动回填都会写 os.environ，而 os.environ 是解析优先级最高的一层；若不
 # 把这件事记下来，:func:`credential_status` 会把每一种来源都报成 "env"，用户便
-# 再也看不出密钥究竟配在 Compose secret 还是设置面板里。这是进程内状态，与
-# 单 worker 部署下的配置生命周期一致。
+# 再也看不出密钥究竟配在 Compose secret 还是设置面板里。:func:`_sync_environ`
+# 也靠它区分「可以改写的注入值」与「不得触碰的运维环境变量」。这是进程内状态，
+# 与单 worker 部署下的配置生命周期一致。
 _INJECTED: set[str] = set()
 
 
@@ -179,14 +184,50 @@ def _mtime_of(path_value: str | Path | None) -> str | None:
     return datetime.fromtimestamp(stamp, tz=UTC).isoformat()
 
 
-def write_credential(env_name: str, value: str) -> None:
-    """写入凭据卷并注入当前进程环境。
+def _resolve_beneath_injection(env_name: str) -> str | None:
+    """按 :func:`resolve_secret` 的口径解析，但把本模块注入的 env 值当作不存在。
 
-    注入 env 是为了让仍直接读 ``os.environ`` 的 ``embedding.py`` 与
-    ``retrieval/rerank.py`` 立刻看到新值；``build_chat_model`` 走
-    :func:`resolve_secret`，即使不注入也能读到卷内文件。单 worker 部署下
-    （见 compose.yml 中 app 服务的注释）这一步足以让下一次 run 用上新密钥，
-    无需重启进程。
+    注入的值只是某一层文件在某一时刻的副本；写入/删除之后它可能已经过时，
+    拿它参与解析会让旧值自我延续。
+    """
+
+    def getenv(name: str) -> str | None:
+        if name == env_name:
+            return None
+        return os.environ.get(name)
+
+    return resolve_secret(env_name, getenv=getenv)
+
+
+def _sync_environ(env_name: str) -> None:
+    """让进程环境里的 ``env_name`` 与三层解析得到的有效值保持一致。
+
+    - 运维显式设置的环境变量（非空且不在 :data:`_INJECTED`）本身就是最高优先级
+      的有效值，也不归面板管理：一律不碰；
+    - 否则重新解析 secret 文件与凭据卷：有有效值就注入，没有才清掉先前的注入。
+
+    此前写入无条件覆盖 env、删除无条件 pop 注入值：前者顶掉运维的 env（重启后
+    又悄悄换回去），后者连 Compose secret 回填的值也一起删——面板仍报已配置，
+    读环境的消费方却拿不到密钥，直到重启。
+    """
+    if (os.environ.get(env_name) or "").strip() and env_name not in _INJECTED:
+        return
+    effective = _resolve_beneath_injection(env_name)
+    if effective:
+        os.environ[env_name] = effective
+        _INJECTED.add(env_name)
+    elif env_name in _INJECTED:
+        os.environ.pop(env_name, None)
+        _INJECTED.discard(env_name)
+
+
+def write_credential(env_name: str, value: str) -> None:
+    """写入凭据卷，再把进程环境同步到三层解析的有效值。
+
+    卷是最低一层：环境变量或 Compose secret 在生效时，写入照样落盘，但生效的
+    仍是更高优先级的那一层——:func:`credential_status` 如实报告来源，设置面板
+    据此显示。卷是唯一来源时，单 worker 部署下（见 compose.yml 中 app 服务的
+    注释）同步这一步足以让下一次 run 用上新密钥，无需重启进程。
     """
     require_known(env_name)
     cleaned = validate_credential_value(value)
@@ -205,15 +246,16 @@ def write_credential(env_name: str, value: str) -> None:
     except OSError as error:
         temporary.unlink(missing_ok=True)
         raise CredentialStoreUnavailableError(str(credentials_dir())) from error
-    os.environ[env_name] = cleaned
-    _INJECTED.add(env_name)
+    _sync_environ(env_name)
 
 
 def delete_credential(env_name: str) -> None:
-    """删除凭据卷内的文件，并清掉进程环境里的同名值。
+    """删除凭据卷内的文件，再把进程环境同步到剩余来源的有效值。
 
-    环境变量或 Compose secret 提供的凭据不受影响——那两层不由本进程管理，
-    删除后 :func:`credential_status` 会如实报告它仍来自更高优先级的来源。
+    环境变量或 Compose secret 提供的凭据不受影响——那两层不由本进程管理：
+    运维的环境变量原样保留，secret 文件的值仍留在进程环境里；删除后
+    :func:`credential_status` 会如实报告它仍来自更高优先级的来源。只有卷是
+    唯一来源时，进程环境里的注入值才随之清掉。
     """
     require_known(env_name)
     target = credentials_dir() / CREDENTIALS[env_name]
@@ -221,11 +263,7 @@ def delete_credential(env_name: str) -> None:
         target.unlink(missing_ok=True)
     except OSError as error:
         raise CredentialStoreUnavailableError(str(credentials_dir())) from error
-    # 只清掉本模块注入的值。用户显式设置的环境变量不属于这里管理的范围，
-    # 删掉它会让「面板删除」产生超出预期的副作用。
-    if env_name in _INJECTED:
-        os.environ.pop(env_name, None)
-        _INJECTED.discard(env_name)
+    _sync_environ(env_name)
 
 
 def load_credentials_into_environ(
