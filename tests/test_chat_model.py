@@ -66,3 +66,18 @@ def test_build_chat_model_defaults_temperature_zero(monkeypatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-123")
     build_chat_model()
     assert captured["temperature"] == 0.0, "规范问答是事实问答：temperature 必须默认为 0"
+
+
+def test_build_chat_model_enables_stream_usage(monkeypatch) -> None:
+    """流式时让最后一个 chunk 带 usage：自定义 base_url 下 langchain-openai 不会自动开启。
+
+    没有它，流式调用在网关账本里恒为 USAGE_UNKNOWN、预算按 0 结清；端到端效果见
+    tests/test_governed_chat_streaming.py::TestChatOpenAIOverLocalSSE。
+    """
+    captured: dict[str, object] = {}
+    _spy_chat_openai(monkeypatch, captured)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-123")
+    model = build_chat_model()
+    assert captured["stream_usage"] is True
+    assert model.inner.stream_usage is True
+    assert captured["max_retries"] == 0, "重试只由 ProviderGateway 承担"
