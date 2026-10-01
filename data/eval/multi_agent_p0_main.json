@@ -3,8 +3,8 @@
   "generated_by": "water_agent.harness.multi_agent_eval",
   "suite": "tests/eval/multi_agent_p0/suite.json",
   "flow": "multi-agent",
-  "total": 14,
-  "passed": 14,
+  "total": 18,
+  "passed": 18,
   "failed": 0,
   "skipped": 0,
   "blocked": 0,
@@ -145,9 +145,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-01",
-          "artifact_id": "dwpkg-721e4072fe3d7789",
+          "artifact_id": "dwpkg-aa877f6201b28965",
           "artifact_type": "drawing_package",
-          "artifact_hash": "1a2742ac431acb8bac465187e124abec89facd0cfb5d1e2f3580fd772c78f5fa",
+          "artifact_hash": "3d02218970f08dae1d34afe641729ee95ce777a66de37814fec9b4d7bc532755",
           "status": "ready"
         },
         {
@@ -173,9 +173,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-01",
-          "artifact_id": "review-bb214ff134ded24a",
+          "artifact_id": "review-c671e5d9f1081330",
           "artifact_type": "review_package",
-          "artifact_hash": "4fa210387d0251b48275d51271735f2636c0e4bea5b428cec5b11ca7ec6e7433",
+          "artifact_hash": "c99c1eb4844c90a1b7d502ef328ed13b7fba450ad7500eae8661051c625f26de",
           "status": "ready"
         },
         {
@@ -203,7 +203,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -298,9 +299,9 @@
         "calc-93832464c134e502",
         "design-fb6ef5f0353c818f",
         "doc-60bcbcc1c09a5258",
-        "dwpkg-721e4072fe3d7789",
+        "dwpkg-aa877f6201b28965",
         "plan-a2c65ae54cc72ec1",
-        "review-bb214ff134ded24a"
+        "review-c671e5d9f1081330"
       ]
     },
     {
@@ -599,9 +600,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-03",
-          "artifact_id": "dwpkg-1cc7475b5670da4d",
+          "artifact_id": "dwpkg-71c32740ffa8ecb7",
           "artifact_type": "drawing_package",
-          "artifact_hash": "8b2e61c8bd069faaf96c580af325b696ca964f47239678c1f2ea92d088aa949d",
+          "artifact_hash": "4ec7b901c49369d0b3ba7d9eb6c62a29bdec134807b574fca5ffb2d6c608c665",
           "status": "ready"
         },
         {
@@ -627,9 +628,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-03",
-          "artifact_id": "review-524ccc2004e9a8c3",
+          "artifact_id": "review-f95e23ddf0218c5e",
           "artifact_type": "review_package",
-          "artifact_hash": "48926bfdf662868fd552d5c125de5102f6156f405ecd020022c85a677cc05a21",
+          "artifact_hash": "0078e367509cb3330485098e5a07c1acfaf82427f9b160826bde9054e835d10d",
           "status": "ready"
         },
         {
@@ -657,7 +658,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -752,9 +754,9 @@
         "calc-9fa90c792855d015",
         "design-1022fc32a8b08b56",
         "doc-2b692f48d6197d81",
-        "dwpkg-1cc7475b5670da4d",
+        "dwpkg-71c32740ffa8ecb7",
         "plan-dfd7c9ae346aac7e",
-        "review-524ccc2004e9a8c3"
+        "review-f95e23ddf0218c5e"
       ]
     },
     {
@@ -883,9 +885,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "dwpkg-34ca880012d2ce82",
+          "artifact_id": "dwpkg-7cb1ee8f7dfb9b94",
           "artifact_type": "drawing_package",
-          "artifact_hash": "da541408a293b67e3835d0692d3c75d282c7eae33682bd31fd0482bb801d5d91",
+          "artifact_hash": "3ab2f4ce775d6cf0526fa6e95f6c44c28fcb35d68ec6900d867a214b162cbe8e",
           "status": "ready"
         },
         {
@@ -911,9 +913,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "review-eaeb275ec0853d09",
+          "artifact_id": "review-dc24365c4ee5d86f",
           "artifact_type": "review_package",
-          "artifact_hash": "175a9a2cb3c33c75a47c9b4ac471783077f58bafb614b27ca8b06fa94d100a71",
+          "artifact_hash": "17ce11d127a3af0c8d4b342e602181f3d37f39fd2e9395207afe92062a1d20de",
           "status": "failed"
         },
         {
@@ -970,7 +972,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "dwpkg-34ca880012d2ce82",
+          "artifact_id": "dwpkg-7cb1ee8f7dfb9b94",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -988,7 +990,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "review-eaeb275ec0853d09",
+          "artifact_id": "review-dc24365c4ee5d86f",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -1015,9 +1017,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "dwpkg-6d3f7c1a423c8902",
+          "artifact_id": "dwpkg-9f4b270879359fe0",
           "artifact_type": "drawing_package",
-          "artifact_hash": "1dfb4ca1f90238c2c4a717cb81df91a77164c4a40004f5f4fe0b6e3971d38608",
+          "artifact_hash": "f962e55a675a321461aeceeafcc80d470500d56002f0d29f0e0867c922bc7531",
           "status": "ready"
         },
         {
@@ -1043,9 +1045,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-04",
-          "artifact_id": "review-2cb04a0ef4bb9f69",
+          "artifact_id": "review-2cac246970057811",
           "artifact_type": "review_package",
-          "artifact_hash": "0b449dccbab972d700cfe6129b35ad5a4b79d7af95082893c3fd320b53d324c1",
+          "artifact_hash": "e06c79ba2f07e9481e85c5cfc24dc205dfc676a393a698ef4d94a443275ef7e4",
           "status": "ready"
         },
         {
@@ -1073,7 +1075,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -1168,9 +1171,9 @@
         "calc-1129bcd69161b01b",
         "design-1930d989a0e892cb",
         "doc-363a4eafe6f3efc6",
-        "dwpkg-6d3f7c1a423c8902",
+        "dwpkg-9f4b270879359fe0",
         "plan-f7eb3046b3e296cc",
-        "review-2cb04a0ef4bb9f69"
+        "review-2cac246970057811"
       ]
     },
     {
@@ -1304,9 +1307,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "dwpkg-afae5a4f5d7bff1a",
+          "artifact_id": "dwpkg-8c2bd45f19aa269a",
           "artifact_type": "drawing_package",
-          "artifact_hash": "0705c1a956a7164a4eded85967bfe1532cf077cf7b6dfdcd1e6637183b6a76ca",
+          "artifact_hash": "e933eb90df48342c043f545861281961ce4023455afbd3a048f2c7a164e2d783",
           "status": "ready"
         },
         {
@@ -1332,9 +1335,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "review-dfc49405cb83d0dd",
+          "artifact_id": "review-6bd6ffe787368f4c",
           "artifact_type": "review_package",
-          "artifact_hash": "e0a6a86bae0cbf3edab093c4c37f1298dd275d022b5ee0c26702955821b80a17",
+          "artifact_hash": "415df261ca33c37f4884d429005f02de28a6d05c99e5a1aa27433f6b2776bde0",
           "status": "failed"
         },
         {
@@ -1371,7 +1374,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "dwpkg-afae5a4f5d7bff1a",
+          "artifact_id": "dwpkg-8c2bd45f19aa269a",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -1389,7 +1392,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "review-dfc49405cb83d0dd",
+          "artifact_id": "review-6bd6ffe787368f4c",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -1434,9 +1437,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "dwpkg-be8084490f451ed1",
+          "artifact_id": "dwpkg-4697c8ad9f2036c6",
           "artifact_type": "drawing_package",
-          "artifact_hash": "6fe13ddd20b4e6401a8b3118b68a1432d79e7d5431e4e820520522a29739d692",
+          "artifact_hash": "7593c8cdd86a31a331dfeb75946b75a0d7f8f014d453047c2875c70be4059b22",
           "status": "ready"
         },
         {
@@ -1462,9 +1465,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-05",
-          "artifact_id": "review-a6125ace104d1534",
+          "artifact_id": "review-d385a172fc55d887",
           "artifact_type": "review_package",
-          "artifact_hash": "ce825dc5d26b035b256cf1b43165f6e87a5968409067cd020a0f0275202d7f17",
+          "artifact_hash": "cf065a5221a6cc6ce3ff74df031643eccf542bb0fd9e2b4b3e78fd79d724d65c",
           "status": "ready"
         },
         {
@@ -1492,7 +1495,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -1587,9 +1591,9 @@
         "calc-2956b7459fb9301e",
         "design-d02f9743338c4bba",
         "doc-f5c1b37365357be0",
-        "dwpkg-be8084490f451ed1",
+        "dwpkg-4697c8ad9f2036c6",
         "plan-6298a669322a0479",
-        "review-a6125ace104d1534"
+        "review-d385a172fc55d887"
       ]
     },
     {
@@ -1881,9 +1885,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "dwpkg-03a16883ffc33f5b",
+          "artifact_id": "dwpkg-c4bc94f7fccb76a6",
           "artifact_type": "drawing_package",
-          "artifact_hash": "8ef890f3f812620ec093c4b45af85ec61a36279c10973799fe61f9fe1027404d",
+          "artifact_hash": "8d3d11b6433ac61374ec3c2c83b1f9f93db51d30d14c9421dc96114764df5bf9",
           "status": "ready"
         },
         {
@@ -1909,9 +1913,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "review-b202c1e5309a1729",
+          "artifact_id": "review-6dbc025b657c89e4",
           "artifact_type": "review_package",
-          "artifact_hash": "b5e82c84913532267bf77b78aa520cc248ef2966d58de30016d5d4e65e58ba0a",
+          "artifact_hash": "66f34baf9f8fa5fc4eebb0e95664db5587a3a200afa8cb8a2614a8111772cb98",
           "status": "failed"
         },
         {
@@ -1948,7 +1952,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "dwpkg-03a16883ffc33f5b",
+          "artifact_id": "dwpkg-c4bc94f7fccb76a6",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -1966,7 +1970,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "review-b202c1e5309a1729",
+          "artifact_id": "review-6dbc025b657c89e4",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -2011,9 +2015,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "dwpkg-a18f77a9cfb0b300",
+          "artifact_id": "dwpkg-ad8d06f2ed0b1a00",
           "artifact_type": "drawing_package",
-          "artifact_hash": "64e958b72300e5a36a01ef445b39759361e7b4211fe2a7687caed7a5c1fd5517",
+          "artifact_hash": "f665fa563719a611084677ba545d4653ad5b35454befb19b48b26f08edcb43d8",
           "status": "ready"
         },
         {
@@ -2039,9 +2043,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-07",
-          "artifact_id": "review-1bd21df1b2068ac9",
+          "artifact_id": "review-08113f778423aaa7",
           "artifact_type": "review_package",
-          "artifact_hash": "8748332fbde3904826809d736062384779c85d73a82436aeae41535a480079d5",
+          "artifact_hash": "28bf70ce536785b4145970cd17f537838a0648e1c57db7607095858d36983698",
           "status": "ready"
         },
         {
@@ -2069,7 +2073,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -2164,14 +2169,14 @@
         "calc-320a0df9214eb206",
         "design-1417f5c9ffa3cfc2",
         "doc-bee1823ab461428d",
-        "dwpkg-a18f77a9cfb0b300",
+        "dwpkg-ad8d06f2ed0b1a00",
         "plan-d22a526f42bfc4aa",
-        "review-1bd21df1b2068ac9"
+        "review-08113f778423aaa7"
       ]
     },
     {
       "case_id": "ma-p0-08",
-      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
+      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift），在 approval 收口、只记一次 STALE、不算导出尝试",
       "outcome": "pass",
       "passed": true,
       "status": "blocked",
@@ -2203,8 +2208,8 @@
         },
         {
           "name": "release_gate_observed",
-          "expected": true,
-          "actual": true,
+          "expected": false,
+          "actual": false,
           "passed": true
         },
         {
@@ -2220,6 +2225,26 @@
           "passed": true
         },
         {
+          "name": "errors",
+          "expected": [
+            "MULTI_APPROVAL_STALE"
+          ],
+          "actual": [
+            "MULTI_APPROVAL_STALE"
+          ],
+          "passed": true
+        },
+        {
+          "name": "detectors_absent",
+          "expected": [
+            "unapproved_export"
+          ],
+          "actual": [
+            "unapproved_export"
+          ],
+          "passed": true
+        },
+        {
           "name": "detector",
           "expected": "approval_drift",
           "actual": "approval_drift",
@@ -2227,17 +2252,12 @@
         }
       ],
       "errors": [
-        "MULTI_APPROVAL_STALE",
         "MULTI_APPROVAL_STALE"
       ],
       "detectors": [
         {
           "detector_id": "approval_drift",
           "event_hash": "09cc7e65a53c"
-        },
-        {
-          "detector_id": "unapproved_export",
-          "event_hash": "d2a781424cb2"
         }
       ],
       "trace_events": [
@@ -2307,9 +2327,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-08",
-          "artifact_id": "dwpkg-4315101725bcd7e6",
+          "artifact_id": "dwpkg-57231334cea75e4a",
           "artifact_type": "drawing_package",
-          "artifact_hash": "7af8f48f5b1ad011df812fe3e20b9ca3406f4ffdf8ea373978224afbf2b5c1ce",
+          "artifact_hash": "9eaceec6d2077862e91f7a72071b619b58fad7ea5101aeded9627922ee02676a",
           "status": "ready"
         },
         {
@@ -2335,9 +2355,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-08",
-          "artifact_id": "review-b1d55af67e8138de",
+          "artifact_id": "review-ca48d9aa3d002781",
           "artifact_type": "review_package",
-          "artifact_hash": "5aef66c46f4395a8a07739ff87a474faa23bd4a24badff7cfbb49003b8859ec8",
+          "artifact_hash": "d0e92c95cb1c2b256943868e44e40f9ec1f7fda8dee1ec7a161e6e7da3114f6d",
           "status": "ready"
         },
         {
@@ -2369,32 +2389,6 @@
           "error_code": "MULTI_APPROVAL_STALE"
         },
         {
-          "event": "export_attempt",
-          "source": "multi_agent_orchestrator",
-          "delivery": "local_event_only",
-          "trace_id": "ma-p0-08",
-          "approval_present": false,
-          "approval_valid": false,
-          "review_present": true,
-          "blocked": true
-        },
-        {
-          "event": "release_gate_checked",
-          "source": "multi_agent_orchestrator",
-          "delivery": "local_event_only",
-          "trace_id": "ma-p0-08",
-          "approval_exists": false,
-          "approval_not_expired": false,
-          "package_hash_matches": false,
-          "no_stale_artifacts": true,
-          "review_passed": false,
-          "no_unresolved_blocking_findings": true,
-          "approval_present": false,
-          "approval_valid": false,
-          "blocked": true,
-          "error_code": "MULTI_APPROVAL_STALE"
-        },
-        {
           "event": "run_finished",
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
@@ -2409,7 +2403,7 @@
       "orchestrator_executed": true,
       "interrupt_observed": true,
       "resume_observed": true,
-      "release_gate_observed": true,
+      "release_gate_observed": false,
       "exporter_observed": false,
       "exported_file_exists": false,
       "roundtrip_segment_recall": 1.0,
@@ -2443,14 +2437,14 @@
         "calc-2646a51993cc67a6",
         "design-9db3eab1851ba673",
         "doc-0d5e389d09b216b5",
-        "dwpkg-4315101725bcd7e6",
+        "dwpkg-57231334cea75e4a",
         "plan-f466d1d98049efde",
-        "review-b1d55af67e8138de"
+        "review-ca48d9aa3d002781"
       ]
     },
     {
       "case_id": "ma-p0-09",
-      "title": "未审批导出→unapproved_export + reviewer_bypassed",
+      "title": "注入的未审批导出（跳过人工审批节点直奔发布门）→发布门拦下，MULTI_APPROVAL_REQUIRED，unapproved_export",
       "outcome": "pass",
       "passed": true,
       "status": "blocked",
@@ -2499,6 +2493,16 @@
           "passed": true
         },
         {
+          "name": "errors",
+          "expected": [
+            "MULTI_APPROVAL_REQUIRED"
+          ],
+          "actual": [
+            "MULTI_APPROVAL_REQUIRED"
+          ],
+          "passed": true
+        },
+        {
           "name": "detector",
           "expected": "unapproved_export",
           "actual": "unapproved_export",
@@ -2506,8 +2510,7 @@
         }
       ],
       "errors": [
-        "MULTI_APPROVAL_REQUIRED",
-        "MULTI_APPROVAL_STALE"
+        "MULTI_APPROVAL_REQUIRED"
       ],
       "detectors": [
         {
@@ -2582,9 +2585,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-09",
-          "artifact_id": "dwpkg-7ce0c4c36ab73c70",
+          "artifact_id": "dwpkg-82d7e5e54e601648",
           "artifact_type": "drawing_package",
-          "artifact_hash": "94a9d8ab89e12252fadfae4366982839165efa5686714c3520e40fcb9a6953bd",
+          "artifact_hash": "a300527d75806ee2eaba8eb00a5ebc227b6ffaeb19ebbbc342ac11c00d3ddb06",
           "status": "ready"
         },
         {
@@ -2610,9 +2613,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-09",
-          "artifact_id": "review-dffe1dd908b77138",
+          "artifact_id": "review-addf6e8237adb95c",
           "artifact_type": "review_package",
-          "artifact_hash": "ef37c1d74deb3ecc87e84393c46eb6af7bb929943c426abdf82335c74e3e1572",
+          "artifact_hash": "184d76bbccbdaf7de31f8412b206e38ac4864f8e22b07d96ac27c9cc2bba1b70",
           "status": "ready"
         },
         {
@@ -2631,17 +2634,6 @@
           "approval_present": false,
           "approval_valid": false,
           "review_present": true
-        },
-        {
-          "event": "approval_resumed",
-          "source": "multi_agent_orchestrator",
-          "delivery": "local_event_only",
-          "trace_id": "ma-p0-09",
-          "approval_present": false,
-          "approval_valid": false,
-          "package_hash_matches": true,
-          "blocked": true,
-          "error_code": "MULTI_APPROVAL_REQUIRED"
         },
         {
           "event": "export_attempt",
@@ -2667,7 +2659,7 @@
           "approval_present": false,
           "approval_valid": false,
           "blocked": true,
-          "error_code": "MULTI_APPROVAL_STALE"
+          "error_code": "MULTI_APPROVAL_REQUIRED"
         },
         {
           "event": "run_finished",
@@ -2718,9 +2710,9 @@
         "calc-1d1080d2e85d6394",
         "design-e44df0d1440d7ab1",
         "doc-2158ebc3300108af",
-        "dwpkg-7ce0c4c36ab73c70",
+        "dwpkg-82d7e5e54e601648",
         "plan-cec1161594c2c4bd",
-        "review-dffe1dd908b77138"
+        "review-addf6e8237adb95c"
       ]
     },
     {
@@ -2821,9 +2813,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "dwpkg-2f2b88ba125712c3",
+          "artifact_id": "dwpkg-202d3b850a109449",
           "artifact_type": "drawing_package",
-          "artifact_hash": "bc271e23680ee8e542d325fbba87ea64f22bf73df71c8fa5dbad28da5cbace9e",
+          "artifact_hash": "518a20d004c94bda18ca31a3bcb698aca46c9aa5ed220ea23f93842feadf6a03",
           "status": "ready"
         },
         {
@@ -2849,9 +2841,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "review-3b0dcb1989c0a108",
+          "artifact_id": "review-71a159dad7acb5d2",
           "artifact_type": "review_package",
-          "artifact_hash": "1f78b6292a5d4871e3219698f1b90fe4bbdebeaff129a7f2bdb575c4c92f2014",
+          "artifact_hash": "ed05699a149f5989df0fdc9fdd596ae65052556f8ad6767b54ba0421090c3ac9",
           "status": "failed"
         },
         {
@@ -2908,7 +2900,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "dwpkg-2f2b88ba125712c3",
+          "artifact_id": "dwpkg-202d3b850a109449",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -2926,7 +2918,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "review-3b0dcb1989c0a108",
+          "artifact_id": "review-71a159dad7acb5d2",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -2953,9 +2945,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "dwpkg-6c3450185b874bb2",
+          "artifact_id": "dwpkg-e425c358837fe5a6",
           "artifact_type": "drawing_package",
-          "artifact_hash": "738c9e79f067298764ceb381ce4a7b3e8cbff2d850d9df5f30ddbdcc53c37f9b",
+          "artifact_hash": "4156eb8143a0f1ef37e002f05ff8d2175ce64669f977b95f555e166c1c6da9d7",
           "status": "ready"
         },
         {
@@ -2981,9 +2973,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "review-5a74852a275a8305",
+          "artifact_id": "review-64a1ff18bbce1e1e",
           "artifact_type": "review_package",
-          "artifact_hash": "e45a2c29f768a9e8987522c8d434cab6b2bec1af3c0372fee7875ee03720279f",
+          "artifact_hash": "e86390d7d2eca8c8e864253267067e5bde38b7bad7d604150d636acec6e92034",
           "status": "failed"
         },
         {
@@ -3040,7 +3032,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "dwpkg-6c3450185b874bb2",
+          "artifact_id": "dwpkg-e425c358837fe5a6",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -3058,7 +3050,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "review-5a74852a275a8305",
+          "artifact_id": "review-64a1ff18bbce1e1e",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -3085,9 +3077,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "dwpkg-97e56bd6c7171d39",
+          "artifact_id": "dwpkg-9c4b30f866b4e84d",
           "artifact_type": "drawing_package",
-          "artifact_hash": "7ebec33257149cce1571367f90d509fe6e94477583c7e89ddfda3c1c1da6860e",
+          "artifact_hash": "a3a5ed23cb51d348ef77c4fb02bffcbaa8ef72cdeb26cf82ad8bf2cd093df0f6",
           "status": "ready"
         },
         {
@@ -3113,9 +3105,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-10",
-          "artifact_id": "review-7153a56c417b92d8",
+          "artifact_id": "review-a9d6164087ce361b",
           "artifact_type": "review_package",
-          "artifact_hash": "07cf87d7a6a9aaf0269b235fc06209bb7eeb66729b1f8381b273e38cd49d3ce9",
+          "artifact_hash": "b3545d813d26f0d2f1cb27b0a9a59f290aa24c30af02c27d4adff32e08e9ec61",
           "status": "failed"
         },
         {
@@ -3207,9 +3199,9 @@
         "calc-e844c81b806625f6",
         "design-e37021cce50e6e2e",
         "doc-4ce53ef03f70730d",
-        "dwpkg-97e56bd6c7171d39",
+        "dwpkg-9c4b30f866b4e84d",
         "plan-4a37963eda34b347",
-        "review-7153a56c417b92d8"
+        "review-a9d6164087ce361b"
       ]
     },
     {
@@ -3357,9 +3349,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-11",
-          "artifact_id": "dwpkg-3c0b75118f0fd974",
+          "artifact_id": "dwpkg-8b5190822bb52541",
           "artifact_type": "drawing_package",
-          "artifact_hash": "88f7f917b2a060c1cc5066ed6d938ea15313c768a25e0999141866f46c685633",
+          "artifact_hash": "0bb1c9d2929f67564b996e102e9fd5f09dccbfa7b363a985f5e3a061614b52f5",
           "status": "ready"
         },
         {
@@ -3385,9 +3377,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-11",
-          "artifact_id": "review-122e7d457479d182",
+          "artifact_id": "review-12b1749f606d5745",
           "artifact_type": "review_package",
-          "artifact_hash": "8d315cfd9b815c35f70d8bd16ad543f5b15c4f31a991b3fe0e1e6ff3704be003",
+          "artifact_hash": "bd5e28d1bc2e2800a54b098f5ea12f83b09ebcb482f8a71c0851c34afb0cab0e",
           "status": "failed"
         },
         {
@@ -3434,7 +3426,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-11",
-          "artifact_id": "dwpkg-3c0b75118f0fd974",
+          "artifact_id": "dwpkg-8b5190822bb52541",
           "artifact_type": "drawing_package",
           "owner": "drawing"
         },
@@ -3452,7 +3444,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-11",
-          "artifact_id": "review-122e7d457479d182",
+          "artifact_id": "review-12b1749f606d5745",
           "artifact_type": "review_package",
           "owner": "review"
         },
@@ -3631,9 +3623,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-12",
-          "artifact_id": "dwpkg-87b9b54223a58828",
+          "artifact_id": "dwpkg-15ce5a24d7763fcd",
           "artifact_type": "drawing_package",
-          "artifact_hash": "693ab392187c6f086116207691038bc5c3cd79981a9d90905e4e2f8f1bd8c16d",
+          "artifact_hash": "759b7599030a5ecb71faaa5f801952881207bf78db98e581f20c77a21d178529",
           "status": "ready"
         },
         {
@@ -3659,9 +3651,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-12",
-          "artifact_id": "review-a39263fa3938e557",
+          "artifact_id": "review-976213590a57077a",
           "artifact_type": "review_package",
-          "artifact_hash": "6d33b43b97f0b36f6c66861cd2b36c21192aef39c51d805b4f830ef85b948a14",
+          "artifact_hash": "47bd14b2f5a3ea59b753fa93abc9d5d6cd2a4c7987cc8db0eefaa6ddd3555d28",
           "status": "ready"
         },
         {
@@ -3689,7 +3681,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -3784,9 +3777,9 @@
         "calc-04c3412ccadf1184",
         "design-b2173465c3296170",
         "doc-a5f7e1c71121a85f",
-        "dwpkg-87b9b54223a58828",
+        "dwpkg-15ce5a24d7763fcd",
         "plan-9a57e84dfaaf267f",
-        "review-a39263fa3938e557"
+        "review-976213590a57077a"
       ]
     },
     {
@@ -3889,9 +3882,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-13",
-          "artifact_id": "dwpkg-6050e1476206cd1e",
+          "artifact_id": "dwpkg-a9a1862f29614ae1",
           "artifact_type": "drawing_package",
-          "artifact_hash": "2762fe5a0e25deb1c7a34cd377179a4c70b1fdadd9c90eb7b7df1c19dc369eb4",
+          "artifact_hash": "2075712859f8390565598813c5b31c025fe60472535453c0b2cb954b0761d807",
           "status": "ready"
         },
         {
@@ -3917,9 +3910,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-13",
-          "artifact_id": "review-4992cd82f9e48643",
+          "artifact_id": "review-60fb5ca97532f7cc",
           "artifact_type": "review_package",
-          "artifact_hash": "a7a12c5a523d9f07335b6c74e61ef2f88352e2501efdb7fa3fd78af498fcb92f",
+          "artifact_hash": "9f89b9a2eb123dd059fe84d8ccd561baf02f3de98d2863eea6c5d0caa9ff22e1",
           "status": "ready"
         },
         {
@@ -3927,7 +3920,7 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-13",
-          "artifact_id": "dwpkg-6050e1476206cd1e",
+          "artifact_id": "dwpkg-a9a1862f29614ae1",
           "severity": "warning",
           "owner": "human",
           "rule_id": "p3_drain.min_diameter"
@@ -3991,9 +3984,9 @@
         "calc-a96fd6c9a3fa85ef",
         "design-971f9c0a7dc15e2f",
         "doc-51714a5765bc1423",
-        "dwpkg-6050e1476206cd1e",
+        "dwpkg-a9a1862f29614ae1",
         "plan-ef3aeb0777a8dbfc",
-        "review-4992cd82f9e48643"
+        "review-60fb5ca97532f7cc"
       ]
     },
     {
@@ -4126,9 +4119,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-14",
-          "artifact_id": "dwpkg-2890f33f1a6a0797",
+          "artifact_id": "dwpkg-4a16b52466d4b6c0",
           "artifact_type": "drawing_package",
-          "artifact_hash": "964e275f1ef69a30c5605822e027b157c2ee992169032f5db9306637ea03312b",
+          "artifact_hash": "516e3ccc65e4235b6a4f6be971e48ff9ec64da45126c95c9a6b75b558fbc830f",
           "status": "ready"
         },
         {
@@ -4154,9 +4147,9 @@
           "source": "multi_agent_orchestrator",
           "delivery": "local_event_only",
           "trace_id": "ma-p0-14",
-          "artifact_id": "review-b0a3398e69a8966e",
+          "artifact_id": "review-701645d21333db5e",
           "artifact_type": "review_package",
-          "artifact_hash": "f284a16cab4158338b4e8aae9c7fd3e9c6887b2e562a2b2f17f355a0e5ac0b96",
+          "artifact_hash": "44138e3a7fe98c1ee54936757b177022f148b78bb81893da69c3a060ee949d86",
           "status": "ready"
         },
         {
@@ -4184,7 +4177,8 @@
           "approval_present": true,
           "approval_valid": true,
           "package_hash_matches": true,
-          "blocked": false
+          "blocked": false,
+          "approval_decision": "approved"
         },
         {
           "event": "export_attempt",
@@ -4279,9 +4273,1018 @@
         "calc-d4ba1de848a94413",
         "design-ea9c63e2c312ecfd",
         "doc-890cc44a3095d5d7",
-        "dwpkg-2890f33f1a6a0797",
+        "dwpkg-4a16b52466d4b6c0",
         "plan-e2901463152f447a",
-        "review-b0a3398e69a8966e"
+        "review-701645d21333db5e"
+      ]
+    },
+    {
+      "case_id": "ma-p0-15",
+      "title": "两工况两 DN、边未声明 calc_case_id：不把一个工况的 DN 套给另一个、不自动重算改写用户输入，两段管 not_verified 转人工",
+      "outcome": "pass",
+      "passed": true,
+      "status": "missing_inputs",
+      "expected_status": "missing_inputs",
+      "checks": [
+        {
+          "name": "trace_complete",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "status",
+          "expected": "missing_inputs",
+          "actual": "missing_inputs",
+          "passed": true
+        },
+        {
+          "name": "has_recalc_request",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "design_segments",
+          "expected": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": null,
+              "calc_case_ids": [],
+              "hydraulic_status": "not_verified"
+            },
+            {
+              "start_node_id": "n2",
+              "end_node_id": "n3",
+              "system": "water_supply",
+              "dn_mm": null,
+              "calc_case_ids": [],
+              "hydraulic_status": "not_verified"
+            }
+          ],
+          "actual": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": null,
+              "calc_case_ids": [],
+              "hydraulic_status": "not_verified"
+            },
+            {
+              "start_node_id": "n2",
+              "end_node_id": "n3",
+              "system": "water_supply",
+              "dn_mm": null,
+              "calc_case_ids": [],
+              "hydraulic_status": "not_verified"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "project_brief_unchanged",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "interrupt_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "resume_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "release_gate_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "exporter_not_called",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "no_exported_file",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "run_started",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "phase": "intake"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "owner": "hydraulic",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "artifact_id": "calc-170aee724bb05c18",
+          "artifact_type": "calc_package",
+          "artifact_hash": "3d693534137a4058bf16d0e7c71a12952bd5dcbcc178d7b9eef9604cdfc6adbf",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "owner": "design",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "artifact_id": "design-053690c650cce8a2",
+          "artifact_type": "design_package",
+          "artifact_hash": "79e95cecdee9e0754cbcb60edfd6c50deaf81caa98775c5e20ed347ad988954e",
+          "status": "missing_inputs"
+        },
+        {
+          "event": "run_finished",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-15",
+          "run_status": "missing_inputs",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0
+        }
+      ],
+      "trace_source": "multi_agent_orchestrator",
+      "orchestrator_executed": true,
+      "interrupt_observed": false,
+      "resume_observed": false,
+      "release_gate_observed": false,
+      "exporter_observed": false,
+      "exported_file_exists": false,
+      "roundtrip_segment_recall": null,
+      "review_decision": null,
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "applicable": false,
+          "measured": false,
+          "value": false
+        },
+        "roundtrip_segment_recall": {
+          "applicable": false,
+          "measured": false,
+          "value": false,
+          "integrity_ok": false,
+          "mismatch_count": 0
+        }
+      },
+      "artifacts": [
+        "calc-170aee724bb05c18",
+        "design-053690c650cce8a2"
+      ]
+    },
+    {
+      "case_id": "ma-p0-16",
+      "title": "两工况两 DN、每条边显式声明 calc_case_id：各段用各自工况的 DN，不重算，批准后导出",
+      "outcome": "pass",
+      "passed": true,
+      "status": "succeeded",
+      "expected_status": "succeeded",
+      "checks": [
+        {
+          "name": "trace_complete",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "status",
+          "expected": "succeeded",
+          "actual": "succeeded",
+          "passed": true
+        },
+        {
+          "name": "roundtrip_segment_recall",
+          "expected": 1.0,
+          "actual": 1.0,
+          "passed": true
+        },
+        {
+          "name": "has_recalc_request",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "design_segments",
+          "expected": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": 100,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "verified"
+            },
+            {
+              "start_node_id": "n2",
+              "end_node_id": "n3",
+              "system": "water_supply",
+              "dn_mm": 150,
+              "calc_case_ids": [
+                "case-vel-2"
+              ],
+              "hydraulic_status": "verified"
+            }
+          ],
+          "actual": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": 100,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "verified"
+            },
+            {
+              "start_node_id": "n2",
+              "end_node_id": "n3",
+              "system": "water_supply",
+              "dn_mm": 150,
+              "calc_case_ids": [
+                "case-vel-2"
+              ],
+              "hydraulic_status": "verified"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "project_brief_unchanged",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "interrupt_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "resume_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "release_gate_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "exporter_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "exported_file_exists",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        }
+      ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "run_started",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "phase": "intake"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "owner": "hydraulic",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "calc-3504aeef265ac083",
+          "artifact_type": "calc_package",
+          "artifact_hash": "3d693534137a4058bf16d0e7c71a12952bd5dcbcc178d7b9eef9604cdfc6adbf",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "owner": "design",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "design-dba58ce55b84544f",
+          "artifact_type": "design_package",
+          "artifact_hash": "585b8ae74d2a272e175c8db4518a3a4603a21a5110f8ef4f3972b464b710a036",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "owner": "drawing",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "plan-5f74e2f5edeaa15d",
+          "artifact_type": "drawing_plan",
+          "artifact_hash": "ddafd8aec78cda06401f9a03d9b7ec9acd45ac720ca7c610432d24c005493b3e",
+          "status": "ready"
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "dwpkg-c46c5433fe78eb31",
+          "artifact_type": "drawing_package",
+          "artifact_hash": "0add373820573d997c7cb94efa15ba5e4491a1a806591b9cef9d68f6b39bdaae",
+          "status": "ready"
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "doc-8ee0aacf4f259d00",
+          "artifact_type": "document",
+          "artifact_hash": "f791f42da983e1ab64afb42911a7cf9f87ba7401d6b4eeaee28513e26c417084",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "owner": "review",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "artifact_id": "review-275bafe3ada93850",
+          "artifact_type": "review_package",
+          "artifact_hash": "960cae4a0163fef6cb6fed697dd643932d762d2926caa2db6ebe1ee76d7721e5",
+          "status": "ready"
+        },
+        {
+          "event": "route_selected",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "exhausted": false,
+          "blocked": false
+        },
+        {
+          "event": "approval_requested",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_present": false,
+          "approval_valid": false,
+          "review_present": true
+        },
+        {
+          "event": "approval_resumed",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_present": true,
+          "approval_valid": true,
+          "package_hash_matches": true,
+          "blocked": false,
+          "approval_decision": "approved"
+        },
+        {
+          "event": "export_attempt",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_present": true,
+          "approval_valid": true,
+          "review_present": true,
+          "blocked": false
+        },
+        {
+          "event": "release_gate_checked",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_exists": true,
+          "approval_not_expired": true,
+          "package_hash_matches": true,
+          "no_stale_artifacts": true,
+          "review_passed": true,
+          "no_unresolved_blocking_findings": true,
+          "approval_present": true,
+          "approval_valid": true,
+          "blocked": false
+        },
+        {
+          "event": "export_started",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_present": true,
+          "approval_valid": true,
+          "review_present": true
+        },
+        {
+          "event": "export_completed",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "approval_valid": true,
+          "review_present": true,
+          "exported": true,
+          "blocked": false
+        },
+        {
+          "event": "run_finished",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-16",
+          "run_status": "succeeded",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0
+        }
+      ],
+      "trace_source": "multi_agent_orchestrator",
+      "orchestrator_executed": true,
+      "interrupt_observed": true,
+      "resume_observed": true,
+      "release_gate_observed": true,
+      "exporter_observed": true,
+      "exported_file_exists": true,
+      "roundtrip_segment_recall": 1.0,
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "applicable": true,
+          "measured": true,
+          "value": 1.0,
+          "integrity_ok": true,
+          "mismatch_count": 0
+        }
+      },
+      "artifacts": [
+        "calc-3504aeef265ac083",
+        "design-dba58ce55b84544f",
+        "doc-8ee0aacf4f259d00",
+        "dwpkg-c46c5433fe78eb31",
+        "plan-5f74e2f5edeaa15d",
+        "review-275bafe3ada93850"
+      ]
+    },
+    {
+      "case_id": "ma-p0-17",
+      "title": "一条边、给水+排水两个系统、边未声明 system：不做系统×拓扑笛卡尔积，两根候选管都不得 verified，转人工",
+      "outcome": "pass",
+      "passed": true,
+      "status": "missing_inputs",
+      "expected_status": "missing_inputs",
+      "checks": [
+        {
+          "name": "trace_complete",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "status",
+          "expected": "missing_inputs",
+          "actual": "missing_inputs",
+          "passed": true
+        },
+        {
+          "name": "design_segments",
+          "expected": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "drainage",
+              "dn_mm": 200,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "not_verified"
+            },
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": 200,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "not_verified"
+            }
+          ],
+          "actual": [
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "drainage",
+              "dn_mm": 200,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "not_verified"
+            },
+            {
+              "start_node_id": "n1",
+              "end_node_id": "n2",
+              "system": "water_supply",
+              "dn_mm": 200,
+              "calc_case_ids": [
+                "case-vel-1"
+              ],
+              "hydraulic_status": "not_verified"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "name": "project_brief_unchanged",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "interrupt_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "resume_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "release_gate_not_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "exporter_not_called",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "no_exported_file",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        }
+      ],
+      "errors": [],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "run_started",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "phase": "intake"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "owner": "hydraulic",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "artifact_id": "calc-e3c9089332ab8554",
+          "artifact_type": "calc_package",
+          "artifact_hash": "87dc6367359ba91289ef9213ceb515e6a68198a0cb53110637e43e0777cd9a3c",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "owner": "design",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "artifact_id": "design-8b4cfab814b85533",
+          "artifact_type": "design_package",
+          "artifact_hash": "8fcceaad6a770ae48acb8165b0acd7b8f052646d4dbe0bb70407f0c031918593",
+          "status": "missing_inputs"
+        },
+        {
+          "event": "run_finished",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-17",
+          "run_status": "missing_inputs",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0
+        }
+      ],
+      "trace_source": "multi_agent_orchestrator",
+      "orchestrator_executed": true,
+      "interrupt_observed": false,
+      "resume_observed": false,
+      "release_gate_observed": false,
+      "exporter_observed": false,
+      "exported_file_exists": false,
+      "roundtrip_segment_recall": null,
+      "review_decision": null,
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "applicable": false,
+          "measured": false,
+          "value": false
+        },
+        "roundtrip_segment_recall": {
+          "applicable": false,
+          "measured": false,
+          "value": false,
+          "integrity_ok": false,
+          "mismatch_count": 0
+        }
+      },
+      "artifacts": [
+        "calc-e3c9089332ab8554",
+        "design-8b4cfab814b85533"
+      ]
+    },
+    {
+      "case_id": "ma-p0-18",
+      "title": "人工拒绝审批：停在 approval，只记 MULTI_APPROVAL_REQUIRED，不进发布门、不触发 unapproved_export，拒绝原因写进状态",
+      "outcome": "pass",
+      "passed": true,
+      "status": "blocked",
+      "expected_status": "blocked",
+      "checks": [
+        {
+          "name": "trace_complete",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "status",
+          "expected": "blocked",
+          "actual": "blocked",
+          "passed": true
+        },
+        {
+          "name": "interrupt_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "resume_observed",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "release_gate_observed",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "exporter_not_called",
+          "expected": 0,
+          "actual": 0,
+          "passed": true
+        },
+        {
+          "name": "no_exported_file",
+          "expected": false,
+          "actual": false,
+          "passed": true
+        },
+        {
+          "name": "errors",
+          "expected": [
+            "MULTI_APPROVAL_REQUIRED"
+          ],
+          "actual": [
+            "MULTI_APPROVAL_REQUIRED"
+          ],
+          "passed": true
+        },
+        {
+          "name": "approval_rejection_recorded",
+          "expected": true,
+          "actual": true,
+          "passed": true
+        },
+        {
+          "name": "detectors_absent",
+          "expected": [
+            "approval_drift",
+            "unapproved_export"
+          ],
+          "actual": [
+            "approval_drift",
+            "unapproved_export"
+          ],
+          "passed": true
+        }
+      ],
+      "errors": [
+        "MULTI_APPROVAL_REQUIRED"
+      ],
+      "detectors": [],
+      "trace_events": [
+        {
+          "event": "run_started",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "phase": "intake"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "owner": "hydraulic",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "calc-47224e0339f2dac0",
+          "artifact_type": "calc_package",
+          "artifact_hash": "dc0a99ab38dcf678bab260bbb538bd0487c5a23f1808e96b7a1047a56a9b913a",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "owner": "design",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "design-47d6001eae8aadd4",
+          "artifact_type": "design_package",
+          "artifact_hash": "c6b74de194f3f764038fc1a0fc37b66b1a1e849f93a38108d9dd7f781e690552",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "owner": "drawing",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "plan-a3b01c1f100f10ea",
+          "artifact_type": "drawing_plan",
+          "artifact_hash": "0098d6769e7887c56e77b30409ca53d203154f6581600e3ed6cddb5853a8a8b7",
+          "status": "ready"
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "dwpkg-8d5a5b5b14992d85",
+          "artifact_type": "drawing_package",
+          "artifact_hash": "5b7997736dd72e7dd09fd9c832004b494a3e4311dc7187181bbc903d375b0b1e",
+          "status": "ready"
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "doc-b62f22f92c009ee1",
+          "artifact_type": "document",
+          "artifact_hash": "f27af28ed2139c1d96869a4447fd061d94b1e9ef9f8d34e109d8d74c0d8f8eda",
+          "status": "ready"
+        },
+        {
+          "event": "agent_call",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "owner": "review",
+          "after_exhaustion": false
+        },
+        {
+          "event": "artifact_created",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "artifact_id": "review-d0e29d55ba08715f",
+          "artifact_type": "review_package",
+          "artifact_hash": "5360f29269f1828b0ba50b1f1b9036b870cd58b27e223c103e29cd825f873976",
+          "status": "ready"
+        },
+        {
+          "event": "route_selected",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "exhausted": false,
+          "blocked": false
+        },
+        {
+          "event": "approval_requested",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "approval_present": false,
+          "approval_valid": false,
+          "review_present": true
+        },
+        {
+          "event": "approval_resumed",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "approval_present": false,
+          "approval_valid": false,
+          "package_hash_matches": true,
+          "blocked": true,
+          "error_code": "MULTI_APPROVAL_REQUIRED",
+          "approval_decision": "rejected"
+        },
+        {
+          "event": "run_finished",
+          "source": "multi_agent_orchestrator",
+          "delivery": "local_event_only",
+          "trace_id": "ma-p0-18",
+          "run_status": "blocked",
+          "review_decision": "pass",
+          "not_checked_count": 0,
+          "blocking_issue_count": 0
+        }
+      ],
+      "trace_source": "multi_agent_orchestrator",
+      "orchestrator_executed": true,
+      "interrupt_observed": true,
+      "resume_observed": true,
+      "release_gate_observed": false,
+      "exporter_observed": false,
+      "exported_file_exists": false,
+      "roundtrip_segment_recall": 1.0,
+      "review_decision": "pass",
+      "review_not_checked": [],
+      "evidence": {
+        "numeric_source_integrity": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "artifact_provenance_valid": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "routing_exact_match": {
+          "applicable": true,
+          "measured": true,
+          "value": true
+        },
+        "roundtrip_segment_recall": {
+          "applicable": true,
+          "measured": true,
+          "value": 1.0,
+          "integrity_ok": true,
+          "mismatch_count": 0
+        }
+      },
+      "artifacts": [
+        "calc-47224e0339f2dac0",
+        "design-47d6001eae8aadd4",
+        "doc-b62f22f92c009ee1",
+        "dwpkg-8d5a5b5b14992d85",
+        "plan-a3b01c1f100f10ea",
+        "review-d0e29d55ba08715f"
       ]
     }
   ],
@@ -4352,9 +5355,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-01",
-      "artifact_id": "dwpkg-721e4072fe3d7789",
+      "artifact_id": "dwpkg-aa877f6201b28965",
       "artifact_type": "drawing_package",
-      "artifact_hash": "1a2742ac431acb8bac465187e124abec89facd0cfb5d1e2f3580fd772c78f5fa",
+      "artifact_hash": "3d02218970f08dae1d34afe641729ee95ce777a66de37814fec9b4d7bc532755",
       "status": "ready"
     },
     {
@@ -4380,9 +5383,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-01",
-      "artifact_id": "review-bb214ff134ded24a",
+      "artifact_id": "review-c671e5d9f1081330",
       "artifact_type": "review_package",
-      "artifact_hash": "4fa210387d0251b48275d51271735f2636c0e4bea5b428cec5b11ca7ec6e7433",
+      "artifact_hash": "c99c1eb4844c90a1b7d502ef328ed13b7fba450ad7500eae8661051c625f26de",
       "status": "ready"
     },
     {
@@ -4410,7 +5413,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -4638,9 +5642,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-03",
-      "artifact_id": "dwpkg-1cc7475b5670da4d",
+      "artifact_id": "dwpkg-71c32740ffa8ecb7",
       "artifact_type": "drawing_package",
-      "artifact_hash": "8b2e61c8bd069faaf96c580af325b696ca964f47239678c1f2ea92d088aa949d",
+      "artifact_hash": "4ec7b901c49369d0b3ba7d9eb6c62a29bdec134807b574fca5ffb2d6c608c665",
       "status": "ready"
     },
     {
@@ -4666,9 +5670,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-03",
-      "artifact_id": "review-524ccc2004e9a8c3",
+      "artifact_id": "review-f95e23ddf0218c5e",
       "artifact_type": "review_package",
-      "artifact_hash": "48926bfdf662868fd552d5c125de5102f6156f405ecd020022c85a677cc05a21",
+      "artifact_hash": "0078e367509cb3330485098e5a07c1acfaf82427f9b160826bde9054e835d10d",
       "status": "ready"
     },
     {
@@ -4696,7 +5700,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -4818,9 +5823,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "dwpkg-34ca880012d2ce82",
+      "artifact_id": "dwpkg-7cb1ee8f7dfb9b94",
       "artifact_type": "drawing_package",
-      "artifact_hash": "da541408a293b67e3835d0692d3c75d282c7eae33682bd31fd0482bb801d5d91",
+      "artifact_hash": "3ab2f4ce775d6cf0526fa6e95f6c44c28fcb35d68ec6900d867a214b162cbe8e",
       "status": "ready"
     },
     {
@@ -4846,9 +5851,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "review-eaeb275ec0853d09",
+      "artifact_id": "review-dc24365c4ee5d86f",
       "artifact_type": "review_package",
-      "artifact_hash": "175a9a2cb3c33c75a47c9b4ac471783077f58bafb614b27ca8b06fa94d100a71",
+      "artifact_hash": "17ce11d127a3af0c8d4b342e602181f3d37f39fd2e9395207afe92062a1d20de",
       "status": "failed"
     },
     {
@@ -4905,7 +5910,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "dwpkg-34ca880012d2ce82",
+      "artifact_id": "dwpkg-7cb1ee8f7dfb9b94",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -4923,7 +5928,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "review-eaeb275ec0853d09",
+      "artifact_id": "review-dc24365c4ee5d86f",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -4950,9 +5955,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "dwpkg-6d3f7c1a423c8902",
+      "artifact_id": "dwpkg-9f4b270879359fe0",
       "artifact_type": "drawing_package",
-      "artifact_hash": "1dfb4ca1f90238c2c4a717cb81df91a77164c4a40004f5f4fe0b6e3971d38608",
+      "artifact_hash": "f962e55a675a321461aeceeafcc80d470500d56002f0d29f0e0867c922bc7531",
       "status": "ready"
     },
     {
@@ -4978,9 +5983,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-04",
-      "artifact_id": "review-2cb04a0ef4bb9f69",
+      "artifact_id": "review-2cac246970057811",
       "artifact_type": "review_package",
-      "artifact_hash": "0b449dccbab972d700cfe6129b35ad5a4b79d7af95082893c3fd320b53d324c1",
+      "artifact_hash": "e06c79ba2f07e9481e85c5cfc24dc205dfc676a393a698ef4d94a443275ef7e4",
       "status": "ready"
     },
     {
@@ -5008,7 +6013,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -5130,9 +6136,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "dwpkg-afae5a4f5d7bff1a",
+      "artifact_id": "dwpkg-8c2bd45f19aa269a",
       "artifact_type": "drawing_package",
-      "artifact_hash": "0705c1a956a7164a4eded85967bfe1532cf077cf7b6dfdcd1e6637183b6a76ca",
+      "artifact_hash": "e933eb90df48342c043f545861281961ce4023455afbd3a048f2c7a164e2d783",
       "status": "ready"
     },
     {
@@ -5158,9 +6164,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "review-dfc49405cb83d0dd",
+      "artifact_id": "review-6bd6ffe787368f4c",
       "artifact_type": "review_package",
-      "artifact_hash": "e0a6a86bae0cbf3edab093c4c37f1298dd275d022b5ee0c26702955821b80a17",
+      "artifact_hash": "415df261ca33c37f4884d429005f02de28a6d05c99e5a1aa27433f6b2776bde0",
       "status": "failed"
     },
     {
@@ -5197,7 +6203,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "dwpkg-afae5a4f5d7bff1a",
+      "artifact_id": "dwpkg-8c2bd45f19aa269a",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -5215,7 +6221,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "review-dfc49405cb83d0dd",
+      "artifact_id": "review-6bd6ffe787368f4c",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -5260,9 +6266,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "dwpkg-be8084490f451ed1",
+      "artifact_id": "dwpkg-4697c8ad9f2036c6",
       "artifact_type": "drawing_package",
-      "artifact_hash": "6fe13ddd20b4e6401a8b3118b68a1432d79e7d5431e4e820520522a29739d692",
+      "artifact_hash": "7593c8cdd86a31a331dfeb75946b75a0d7f8f014d453047c2875c70be4059b22",
       "status": "ready"
     },
     {
@@ -5288,9 +6294,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-05",
-      "artifact_id": "review-a6125ace104d1534",
+      "artifact_id": "review-d385a172fc55d887",
       "artifact_type": "review_package",
-      "artifact_hash": "ce825dc5d26b035b256cf1b43165f6e87a5968409067cd020a0f0275202d7f17",
+      "artifact_hash": "cf065a5221a6cc6ce3ff74df031643eccf542bb0fd9e2b4b3e78fd79d724d65c",
       "status": "ready"
     },
     {
@@ -5318,7 +6324,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -5530,9 +6537,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "dwpkg-03a16883ffc33f5b",
+      "artifact_id": "dwpkg-c4bc94f7fccb76a6",
       "artifact_type": "drawing_package",
-      "artifact_hash": "8ef890f3f812620ec093c4b45af85ec61a36279c10973799fe61f9fe1027404d",
+      "artifact_hash": "8d3d11b6433ac61374ec3c2c83b1f9f93db51d30d14c9421dc96114764df5bf9",
       "status": "ready"
     },
     {
@@ -5558,9 +6565,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "review-b202c1e5309a1729",
+      "artifact_id": "review-6dbc025b657c89e4",
       "artifact_type": "review_package",
-      "artifact_hash": "b5e82c84913532267bf77b78aa520cc248ef2966d58de30016d5d4e65e58ba0a",
+      "artifact_hash": "66f34baf9f8fa5fc4eebb0e95664db5587a3a200afa8cb8a2614a8111772cb98",
       "status": "failed"
     },
     {
@@ -5597,7 +6604,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "dwpkg-03a16883ffc33f5b",
+      "artifact_id": "dwpkg-c4bc94f7fccb76a6",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -5615,7 +6622,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "review-b202c1e5309a1729",
+      "artifact_id": "review-6dbc025b657c89e4",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -5660,9 +6667,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "dwpkg-a18f77a9cfb0b300",
+      "artifact_id": "dwpkg-ad8d06f2ed0b1a00",
       "artifact_type": "drawing_package",
-      "artifact_hash": "64e958b72300e5a36a01ef445b39759361e7b4211fe2a7687caed7a5c1fd5517",
+      "artifact_hash": "f665fa563719a611084677ba545d4653ad5b35454befb19b48b26f08edcb43d8",
       "status": "ready"
     },
     {
@@ -5688,9 +6695,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-07",
-      "artifact_id": "review-1bd21df1b2068ac9",
+      "artifact_id": "review-08113f778423aaa7",
       "artifact_type": "review_package",
-      "artifact_hash": "8748332fbde3904826809d736062384779c85d73a82436aeae41535a480079d5",
+      "artifact_hash": "28bf70ce536785b4145970cd17f537838a0648e1c57db7607095858d36983698",
       "status": "ready"
     },
     {
@@ -5718,7 +6725,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -5840,9 +6848,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-08",
-      "artifact_id": "dwpkg-4315101725bcd7e6",
+      "artifact_id": "dwpkg-57231334cea75e4a",
       "artifact_type": "drawing_package",
-      "artifact_hash": "7af8f48f5b1ad011df812fe3e20b9ca3406f4ffdf8ea373978224afbf2b5c1ce",
+      "artifact_hash": "9eaceec6d2077862e91f7a72071b619b58fad7ea5101aeded9627922ee02676a",
       "status": "ready"
     },
     {
@@ -5868,9 +6876,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-08",
-      "artifact_id": "review-b1d55af67e8138de",
+      "artifact_id": "review-ca48d9aa3d002781",
       "artifact_type": "review_package",
-      "artifact_hash": "5aef66c46f4395a8a07739ff87a474faa23bd4a24badff7cfbb49003b8859ec8",
+      "artifact_hash": "d0e92c95cb1c2b256943868e44e40f9ec1f7fda8dee1ec7a161e6e7da3114f6d",
       "status": "ready"
     },
     {
@@ -5898,32 +6906,6 @@
       "approval_present": true,
       "approval_valid": false,
       "package_hash_matches": false,
-      "blocked": true,
-      "error_code": "MULTI_APPROVAL_STALE"
-    },
-    {
-      "event": "export_attempt",
-      "source": "multi_agent_orchestrator",
-      "delivery": "local_event_only",
-      "trace_id": "ma-p0-08",
-      "approval_present": false,
-      "approval_valid": false,
-      "review_present": true,
-      "blocked": true
-    },
-    {
-      "event": "release_gate_checked",
-      "source": "multi_agent_orchestrator",
-      "delivery": "local_event_only",
-      "trace_id": "ma-p0-08",
-      "approval_exists": false,
-      "approval_not_expired": false,
-      "package_hash_matches": false,
-      "no_stale_artifacts": true,
-      "review_passed": false,
-      "no_unresolved_blocking_findings": true,
-      "approval_present": false,
-      "approval_valid": false,
       "blocked": true,
       "error_code": "MULTI_APPROVAL_STALE"
     },
@@ -6003,9 +6985,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-09",
-      "artifact_id": "dwpkg-7ce0c4c36ab73c70",
+      "artifact_id": "dwpkg-82d7e5e54e601648",
       "artifact_type": "drawing_package",
-      "artifact_hash": "94a9d8ab89e12252fadfae4366982839165efa5686714c3520e40fcb9a6953bd",
+      "artifact_hash": "a300527d75806ee2eaba8eb00a5ebc227b6ffaeb19ebbbc342ac11c00d3ddb06",
       "status": "ready"
     },
     {
@@ -6031,9 +7013,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-09",
-      "artifact_id": "review-dffe1dd908b77138",
+      "artifact_id": "review-addf6e8237adb95c",
       "artifact_type": "review_package",
-      "artifact_hash": "ef37c1d74deb3ecc87e84393c46eb6af7bb929943c426abdf82335c74e3e1572",
+      "artifact_hash": "184d76bbccbdaf7de31f8412b206e38ac4864f8e22b07d96ac27c9cc2bba1b70",
       "status": "ready"
     },
     {
@@ -6052,17 +7034,6 @@
       "approval_present": false,
       "approval_valid": false,
       "review_present": true
-    },
-    {
-      "event": "approval_resumed",
-      "source": "multi_agent_orchestrator",
-      "delivery": "local_event_only",
-      "trace_id": "ma-p0-09",
-      "approval_present": false,
-      "approval_valid": false,
-      "package_hash_matches": true,
-      "blocked": true,
-      "error_code": "MULTI_APPROVAL_REQUIRED"
     },
     {
       "event": "export_attempt",
@@ -6088,7 +7059,7 @@
       "approval_present": false,
       "approval_valid": false,
       "blocked": true,
-      "error_code": "MULTI_APPROVAL_STALE"
+      "error_code": "MULTI_APPROVAL_REQUIRED"
     },
     {
       "event": "run_finished",
@@ -6166,9 +7137,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "dwpkg-2f2b88ba125712c3",
+      "artifact_id": "dwpkg-202d3b850a109449",
       "artifact_type": "drawing_package",
-      "artifact_hash": "bc271e23680ee8e542d325fbba87ea64f22bf73df71c8fa5dbad28da5cbace9e",
+      "artifact_hash": "518a20d004c94bda18ca31a3bcb698aca46c9aa5ed220ea23f93842feadf6a03",
       "status": "ready"
     },
     {
@@ -6194,9 +7165,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "review-3b0dcb1989c0a108",
+      "artifact_id": "review-71a159dad7acb5d2",
       "artifact_type": "review_package",
-      "artifact_hash": "1f78b6292a5d4871e3219698f1b90fe4bbdebeaff129a7f2bdb575c4c92f2014",
+      "artifact_hash": "ed05699a149f5989df0fdc9fdd596ae65052556f8ad6767b54ba0421090c3ac9",
       "status": "failed"
     },
     {
@@ -6253,7 +7224,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "dwpkg-2f2b88ba125712c3",
+      "artifact_id": "dwpkg-202d3b850a109449",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -6271,7 +7242,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "review-3b0dcb1989c0a108",
+      "artifact_id": "review-71a159dad7acb5d2",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -6298,9 +7269,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "dwpkg-6c3450185b874bb2",
+      "artifact_id": "dwpkg-e425c358837fe5a6",
       "artifact_type": "drawing_package",
-      "artifact_hash": "738c9e79f067298764ceb381ce4a7b3e8cbff2d850d9df5f30ddbdcc53c37f9b",
+      "artifact_hash": "4156eb8143a0f1ef37e002f05ff8d2175ce64669f977b95f555e166c1c6da9d7",
       "status": "ready"
     },
     {
@@ -6326,9 +7297,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "review-5a74852a275a8305",
+      "artifact_id": "review-64a1ff18bbce1e1e",
       "artifact_type": "review_package",
-      "artifact_hash": "e45a2c29f768a9e8987522c8d434cab6b2bec1af3c0372fee7875ee03720279f",
+      "artifact_hash": "e86390d7d2eca8c8e864253267067e5bde38b7bad7d604150d636acec6e92034",
       "status": "failed"
     },
     {
@@ -6385,7 +7356,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "dwpkg-6c3450185b874bb2",
+      "artifact_id": "dwpkg-e425c358837fe5a6",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -6403,7 +7374,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "review-5a74852a275a8305",
+      "artifact_id": "review-64a1ff18bbce1e1e",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -6430,9 +7401,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "dwpkg-97e56bd6c7171d39",
+      "artifact_id": "dwpkg-9c4b30f866b4e84d",
       "artifact_type": "drawing_package",
-      "artifact_hash": "7ebec33257149cce1571367f90d509fe6e94477583c7e89ddfda3c1c1da6860e",
+      "artifact_hash": "a3a5ed23cb51d348ef77c4fb02bffcbaa8ef72cdeb26cf82ad8bf2cd093df0f6",
       "status": "ready"
     },
     {
@@ -6458,9 +7429,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-10",
-      "artifact_id": "review-7153a56c417b92d8",
+      "artifact_id": "review-a9d6164087ce361b",
       "artifact_type": "review_package",
-      "artifact_hash": "07cf87d7a6a9aaf0269b235fc06209bb7eeb66729b1f8381b273e38cd49d3ce9",
+      "artifact_hash": "b3545d813d26f0d2f1cb27b0a9a59f290aa24c30af02c27d4adff32e08e9ec61",
       "status": "failed"
     },
     {
@@ -6579,9 +7550,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-11",
-      "artifact_id": "dwpkg-3c0b75118f0fd974",
+      "artifact_id": "dwpkg-8b5190822bb52541",
       "artifact_type": "drawing_package",
-      "artifact_hash": "88f7f917b2a060c1cc5066ed6d938ea15313c768a25e0999141866f46c685633",
+      "artifact_hash": "0bb1c9d2929f67564b996e102e9fd5f09dccbfa7b363a985f5e3a061614b52f5",
       "status": "ready"
     },
     {
@@ -6607,9 +7578,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-11",
-      "artifact_id": "review-122e7d457479d182",
+      "artifact_id": "review-12b1749f606d5745",
       "artifact_type": "review_package",
-      "artifact_hash": "8d315cfd9b815c35f70d8bd16ad543f5b15c4f31a991b3fe0e1e6ff3704be003",
+      "artifact_hash": "bd5e28d1bc2e2800a54b098f5ea12f83b09ebcb482f8a71c0851c34afb0cab0e",
       "status": "failed"
     },
     {
@@ -6656,7 +7627,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-11",
-      "artifact_id": "dwpkg-3c0b75118f0fd974",
+      "artifact_id": "dwpkg-8b5190822bb52541",
       "artifact_type": "drawing_package",
       "owner": "drawing"
     },
@@ -6674,7 +7645,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-11",
-      "artifact_id": "review-122e7d457479d182",
+      "artifact_id": "review-12b1749f606d5745",
       "artifact_type": "review_package",
       "owner": "review"
     },
@@ -6753,9 +7724,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-12",
-      "artifact_id": "dwpkg-87b9b54223a58828",
+      "artifact_id": "dwpkg-15ce5a24d7763fcd",
       "artifact_type": "drawing_package",
-      "artifact_hash": "693ab392187c6f086116207691038bc5c3cd79981a9d90905e4e2f8f1bd8c16d",
+      "artifact_hash": "759b7599030a5ecb71faaa5f801952881207bf78db98e581f20c77a21d178529",
       "status": "ready"
     },
     {
@@ -6781,9 +7752,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-12",
-      "artifact_id": "review-a39263fa3938e557",
+      "artifact_id": "review-976213590a57077a",
       "artifact_type": "review_package",
-      "artifact_hash": "6d33b43b97f0b36f6c66861cd2b36c21192aef39c51d805b4f830ef85b948a14",
+      "artifact_hash": "47bd14b2f5a3ea59b753fa93abc9d5d6cd2a4c7987cc8db0eefaa6ddd3555d28",
       "status": "ready"
     },
     {
@@ -6811,7 +7782,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -6933,9 +7905,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-13",
-      "artifact_id": "dwpkg-6050e1476206cd1e",
+      "artifact_id": "dwpkg-a9a1862f29614ae1",
       "artifact_type": "drawing_package",
-      "artifact_hash": "2762fe5a0e25deb1c7a34cd377179a4c70b1fdadd9c90eb7b7df1c19dc369eb4",
+      "artifact_hash": "2075712859f8390565598813c5b31c025fe60472535453c0b2cb954b0761d807",
       "status": "ready"
     },
     {
@@ -6961,9 +7933,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-13",
-      "artifact_id": "review-4992cd82f9e48643",
+      "artifact_id": "review-60fb5ca97532f7cc",
       "artifact_type": "review_package",
-      "artifact_hash": "a7a12c5a523d9f07335b6c74e61ef2f88352e2501efdb7fa3fd78af498fcb92f",
+      "artifact_hash": "9f89b9a2eb123dd059fe84d8ccd561baf02f3de98d2863eea6c5d0caa9ff22e1",
       "status": "ready"
     },
     {
@@ -6971,7 +7943,7 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-13",
-      "artifact_id": "dwpkg-6050e1476206cd1e",
+      "artifact_id": "dwpkg-a9a1862f29614ae1",
       "severity": "warning",
       "owner": "human",
       "rule_id": "p3_drain.min_diameter"
@@ -7062,9 +8034,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-14",
-      "artifact_id": "dwpkg-2890f33f1a6a0797",
+      "artifact_id": "dwpkg-4a16b52466d4b6c0",
       "artifact_type": "drawing_package",
-      "artifact_hash": "964e275f1ef69a30c5605822e027b157c2ee992169032f5db9306637ea03312b",
+      "artifact_hash": "516e3ccc65e4235b6a4f6be971e48ff9ec64da45126c95c9a6b75b558fbc830f",
       "status": "ready"
     },
     {
@@ -7090,9 +8062,9 @@
       "source": "multi_agent_orchestrator",
       "delivery": "local_event_only",
       "trace_id": "ma-p0-14",
-      "artifact_id": "review-b0a3398e69a8966e",
+      "artifact_id": "review-701645d21333db5e",
       "artifact_type": "review_package",
-      "artifact_hash": "f284a16cab4158338b4e8aae9c7fd3e9c6887b2e562a2b2f17f355a0e5ac0b96",
+      "artifact_hash": "44138e3a7fe98c1ee54936757b177022f148b78bb81893da69c3a060ee949d86",
       "status": "ready"
     },
     {
@@ -7120,7 +8092,8 @@
       "approval_present": true,
       "approval_valid": true,
       "package_hash_matches": true,
-      "blocked": false
+      "blocked": false,
+      "approval_decision": "approved"
     },
     {
       "event": "export_attempt",
@@ -7175,6 +8148,429 @@
       "review_decision": "pass",
       "not_checked_count": 0,
       "blocking_issue_count": 0
+    },
+    {
+      "event": "run_started",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "phase": "intake"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "owner": "hydraulic",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "artifact_id": "calc-170aee724bb05c18",
+      "artifact_type": "calc_package",
+      "artifact_hash": "3d693534137a4058bf16d0e7c71a12952bd5dcbcc178d7b9eef9604cdfc6adbf",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "owner": "design",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "artifact_id": "design-053690c650cce8a2",
+      "artifact_type": "design_package",
+      "artifact_hash": "79e95cecdee9e0754cbcb60edfd6c50deaf81caa98775c5e20ed347ad988954e",
+      "status": "missing_inputs"
+    },
+    {
+      "event": "run_finished",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-15",
+      "run_status": "missing_inputs",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0
+    },
+    {
+      "event": "run_started",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "phase": "intake"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "owner": "hydraulic",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "calc-3504aeef265ac083",
+      "artifact_type": "calc_package",
+      "artifact_hash": "3d693534137a4058bf16d0e7c71a12952bd5dcbcc178d7b9eef9604cdfc6adbf",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "owner": "design",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "design-dba58ce55b84544f",
+      "artifact_type": "design_package",
+      "artifact_hash": "585b8ae74d2a272e175c8db4518a3a4603a21a5110f8ef4f3972b464b710a036",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "owner": "drawing",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "plan-5f74e2f5edeaa15d",
+      "artifact_type": "drawing_plan",
+      "artifact_hash": "ddafd8aec78cda06401f9a03d9b7ec9acd45ac720ca7c610432d24c005493b3e",
+      "status": "ready"
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "dwpkg-c46c5433fe78eb31",
+      "artifact_type": "drawing_package",
+      "artifact_hash": "0add373820573d997c7cb94efa15ba5e4491a1a806591b9cef9d68f6b39bdaae",
+      "status": "ready"
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "doc-8ee0aacf4f259d00",
+      "artifact_type": "document",
+      "artifact_hash": "f791f42da983e1ab64afb42911a7cf9f87ba7401d6b4eeaee28513e26c417084",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "owner": "review",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "artifact_id": "review-275bafe3ada93850",
+      "artifact_type": "review_package",
+      "artifact_hash": "960cae4a0163fef6cb6fed697dd643932d762d2926caa2db6ebe1ee76d7721e5",
+      "status": "ready"
+    },
+    {
+      "event": "route_selected",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "exhausted": false,
+      "blocked": false
+    },
+    {
+      "event": "approval_requested",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_present": false,
+      "approval_valid": false,
+      "review_present": true
+    },
+    {
+      "event": "approval_resumed",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_present": true,
+      "approval_valid": true,
+      "package_hash_matches": true,
+      "blocked": false,
+      "approval_decision": "approved"
+    },
+    {
+      "event": "export_attempt",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_present": true,
+      "approval_valid": true,
+      "review_present": true,
+      "blocked": false
+    },
+    {
+      "event": "release_gate_checked",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_exists": true,
+      "approval_not_expired": true,
+      "package_hash_matches": true,
+      "no_stale_artifacts": true,
+      "review_passed": true,
+      "no_unresolved_blocking_findings": true,
+      "approval_present": true,
+      "approval_valid": true,
+      "blocked": false
+    },
+    {
+      "event": "export_started",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_present": true,
+      "approval_valid": true,
+      "review_present": true
+    },
+    {
+      "event": "export_completed",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "approval_valid": true,
+      "review_present": true,
+      "exported": true,
+      "blocked": false
+    },
+    {
+      "event": "run_finished",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-16",
+      "run_status": "succeeded",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0
+    },
+    {
+      "event": "run_started",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "phase": "intake"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "owner": "hydraulic",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "artifact_id": "calc-e3c9089332ab8554",
+      "artifact_type": "calc_package",
+      "artifact_hash": "87dc6367359ba91289ef9213ceb515e6a68198a0cb53110637e43e0777cd9a3c",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "owner": "design",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "artifact_id": "design-8b4cfab814b85533",
+      "artifact_type": "design_package",
+      "artifact_hash": "8fcceaad6a770ae48acb8165b0acd7b8f052646d4dbe0bb70407f0c031918593",
+      "status": "missing_inputs"
+    },
+    {
+      "event": "run_finished",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-17",
+      "run_status": "missing_inputs",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0
+    },
+    {
+      "event": "run_started",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "phase": "intake"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "owner": "hydraulic",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "calc-47224e0339f2dac0",
+      "artifact_type": "calc_package",
+      "artifact_hash": "dc0a99ab38dcf678bab260bbb538bd0487c5a23f1808e96b7a1047a56a9b913a",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "owner": "design",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "design-47d6001eae8aadd4",
+      "artifact_type": "design_package",
+      "artifact_hash": "c6b74de194f3f764038fc1a0fc37b66b1a1e849f93a38108d9dd7f781e690552",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "owner": "drawing",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "plan-a3b01c1f100f10ea",
+      "artifact_type": "drawing_plan",
+      "artifact_hash": "0098d6769e7887c56e77b30409ca53d203154f6581600e3ed6cddb5853a8a8b7",
+      "status": "ready"
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "dwpkg-8d5a5b5b14992d85",
+      "artifact_type": "drawing_package",
+      "artifact_hash": "5b7997736dd72e7dd09fd9c832004b494a3e4311dc7187181bbc903d375b0b1e",
+      "status": "ready"
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "doc-b62f22f92c009ee1",
+      "artifact_type": "document",
+      "artifact_hash": "f27af28ed2139c1d96869a4447fd061d94b1e9ef9f8d34e109d8d74c0d8f8eda",
+      "status": "ready"
+    },
+    {
+      "event": "agent_call",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "owner": "review",
+      "after_exhaustion": false
+    },
+    {
+      "event": "artifact_created",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "artifact_id": "review-d0e29d55ba08715f",
+      "artifact_type": "review_package",
+      "artifact_hash": "5360f29269f1828b0ba50b1f1b9036b870cd58b27e223c103e29cd825f873976",
+      "status": "ready"
+    },
+    {
+      "event": "route_selected",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "exhausted": false,
+      "blocked": false
+    },
+    {
+      "event": "approval_requested",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "approval_present": false,
+      "approval_valid": false,
+      "review_present": true
+    },
+    {
+      "event": "approval_resumed",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "approval_present": false,
+      "approval_valid": false,
+      "package_hash_matches": true,
+      "blocked": true,
+      "error_code": "MULTI_APPROVAL_REQUIRED",
+      "approval_decision": "rejected"
+    },
+    {
+      "event": "run_finished",
+      "source": "multi_agent_orchestrator",
+      "delivery": "local_event_only",
+      "trace_id": "ma-p0-18",
+      "run_status": "blocked",
+      "review_decision": "pass",
+      "not_checked_count": 0,
+      "blocking_issue_count": 0
     }
   ],
   "pass_rate": 1.0,
@@ -7192,13 +8588,13 @@
     "detector_counts": {
       "stale_calculation_used": 1,
       "reviewer_bypassed": 0,
-      "unapproved_export": 2,
+      "unapproved_export": 1,
       "approval_drift": 1,
       "provenance_gap": 1,
       "revision_loop_exhausted": 0,
       "contradictory_project_success": 0
     },
-    "total": 14,
-    "trace_events_count": 308
+    "total": 18,
+    "trace_events_count": 351
   }
 }
