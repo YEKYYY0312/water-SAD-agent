@@ -30,6 +30,7 @@ from water_agent.multi_agent.contracts import (
     MULTI_APPROVAL_REQUIRED,
     MULTI_APPROVAL_STALE,
     MULTI_EXPORT_FAILED,
+    MULTI_INVALID_BRIEF,
     MULTI_MISSING_INPUTS,
     MULTI_RETRY_EXHAUSTED,
     MULTI_REVIEW_REJECTED,
@@ -43,6 +44,7 @@ from water_agent.multi_agent.contracts import (
     ReviewPackage,
     compute_artifact_collection_hash,
     compute_payload_hash,
+    project_brief_conflicts,
     verify_envelope_hash,
 )
 from water_agent.multi_agent.drawing_executor import stage_drawing_package
@@ -455,11 +457,14 @@ def _brief_with_recalculation_updates(
         if segment is None:
             missing.append(f"segment_id.{segment_id}")
             continue
+        # Two edges may share both nodes in different declared systems; the
+        # segment's own system selects its edge.
         edge_candidates = [
             edge
             for edge in brief_data["topology"]
             if edge["start_node_id"] == segment.start_node_id
             and edge["end_node_id"] == segment.end_node_id
+            and edge.get("system") in (None, segment.system)
         ]
         if len(edge_candidates) != 1:
             missing.append(f"segment_id.{segment_id}.topology")
@@ -609,13 +614,28 @@ def build_orchestrator_graph(
     def intake(state: MultiAgentProjectState) -> dict[str, Any]:
         events = [_trace_event("run_started", phase="intake")]
         try:
-            ProjectBrief.model_validate(state.get("project_brief") or {})
+            brief = ProjectBrief.model_validate(state.get("project_brief") or {})
         except ValidationError as exc:
             events.append(_run_finished_event(state, run_status="missing_inputs"))
             return {
                 "phase": "intake",
                 "status": "missing_inputs",
                 "errors": [*state.get("errors", []), f"invalid project brief: {exc}"],
+                "trace_events": events,
+            }
+        # 跨字段冲突（重复管段 (system, start, end)、引用未声明的系统/工况、重复 ID）在任何
+        # Agent 运行前结构化拒绝；此前会在设计阶段抛裸 ValidationError 冒出 app.invoke。
+        conflicts = project_brief_conflicts(brief)
+        if conflicts:
+            events.append(_run_finished_event(state, run_status="missing_inputs"))
+            return {
+                "phase": "intake",
+                "status": "missing_inputs",
+                "errors": [
+                    *state.get("errors", []),
+                    MULTI_INVALID_BRIEF,
+                    *(f"invalid project brief: {conflict}" for conflict in conflicts),
+                ],
                 "trace_events": events,
             }
         return {"phase": "intake", "status": "running", "trace_events": events}
