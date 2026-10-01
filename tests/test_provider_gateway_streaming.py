@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 
 import pytest
@@ -601,6 +602,52 @@ class TestCallerClose:
         assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
 
 
+#: 非 ``Exception`` 的 ``BaseException``：进程或任务要停下的信号，不是 provider 的失败。
+_INTERRUPTS = [
+    pytest.param(KeyboardInterrupt, id="KeyboardInterrupt"),
+    pytest.param(SystemExit, id="SystemExit"),
+    pytest.param(asyncio.CancelledError, id="CancelledError"),
+]
+
+
+class TestInterruptPassthrough:
+    """中断信号首块之前与之后同一处理：原样上抛，不分类、不计熔断、不重试，预留恰好回滚一次。
+
+    回归：首块之前的尝试走重试内核，那里此前 ``except BaseException`` 之后一律分类，
+    ``KeyboardInterrupt`` 被判成永久错误、包装成 ``PROVIDER_UNAVAILABLE``；首块之后只接
+    ``Exception``，中断原样上抛——同一个 Ctrl-C，落在首块前后结果不一样。
+    """
+
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    @pytest.mark.parametrize("where", ["opener", "first_chunk", "mid_stream"])
+    def test_interrupt_propagates_unchanged_before_and_after_first_chunk(
+        self, where: str, interrupt: type[BaseException]
+    ) -> None:
+        records: list[UsageRecord] = []
+        ledger = _SpyLedger()
+        gw = _gateway(config=_config(attempts=3, threshold=1), records=records, ledger=ledger)
+        error = interrupt()
+        source: object = {
+            "opener": error,
+            "first_chunk": _FakeStream([error]),
+            "mid_stream": _FakeStream([_Chunk("a"), error]),
+        }[where]
+        opener = _Opener(source, _FakeStream([_Chunk("never")]))
+        received: list[str] = []
+        with pytest.raises(interrupt) as exc:
+            for chunk in gw.stream_call(_ctx(), _call(), opener, usage_of=_usage_of):
+                received.append(chunk.text)
+        assert exc.value is error  # 原样上抛，没有包装成 GovernanceError
+        assert received == (["a"] if where == "mid_stream" else [])
+        assert opener.calls == 1  # max_attempts=3 也不重试
+        assert gw.provider_call_count == 1
+        assert gw.breaker_open(_call()) is False  # 阈值为 1：不计熔断失败
+        assert all(stream.closed for stream in opener.opened)  # 打开过的上游流都已关闭
+        assert ledger.events == [("rollback",)]  # 恰好结清一次
+        assert _snapshot(gw).reserved_tokens == 0
+        assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
+
+
 class TestAdmissionBeforeSending:
     def test_rate_limited_stream_yields_nothing_and_records_failure(self) -> None:
         records: list[UsageRecord] = []
@@ -812,6 +859,22 @@ class TestHalfOpenProbeWithoutVerdict:
         assert fallback.value == "整块回答"
         assert gw.breaker_open(_call()) is False
 
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    @pytest.mark.parametrize("where", ["opener", "first_chunk"])
+    def test_interrupted_probe_releases_slot(
+        self, where: str, interrupt: type[BaseException]
+    ) -> None:
+        """中断原样上抛、不经错误分类，名额照样在重试内核的 finally 里归还。"""
+        clock = _FakeClock()
+        gw = _gateway(config=_config(attempts=1, threshold=1), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        error = interrupt()
+        source = error if where == "opener" else _FakeStream([error])
+        with pytest.raises(interrupt):
+            list(gw.stream_call(_ctx(thread="a"), _call(), _Opener(source), usage_of=_usage_of))
+        self._assert_slot_was_released(gw)
+
 
 def _drive(scenario: str, gw: ProviderGateway, clock: _FakeClock) -> None:
     """按场景跑一条流，吞掉预期内的异常（结清方式由调用方断言）。"""
@@ -838,6 +901,14 @@ def _drive(scenario: str, gw: ProviderGateway, clock: _FakeClock) -> None:
     elif scenario == "not_implemented":
         with pytest.raises(NotImplementedError):
             list(gw.stream_call(ctx, _call(), _Opener(NotImplementedError()), usage_of=_usage_of))
+    elif scenario in ("interrupt_before_first_chunk", "interrupt_mid_stream"):
+        interrupted: list[object] = {
+            "interrupt_before_first_chunk": [KeyboardInterrupt()],
+            "interrupt_mid_stream": [_Chunk("a"), KeyboardInterrupt()],
+        }[scenario]
+        with pytest.raises(KeyboardInterrupt):
+            list(gw.stream_call(ctx, _call(), _Opener(_FakeStream(interrupted)),
+                                usage_of=_usage_of))
     elif scenario == "thrown_in":
         it = gw.stream_call(ctx, _call(), _Opener(_FakeStream([_Chunk("a"), _Chunk("b")])),
                             usage_of=_usage_of)
@@ -861,6 +932,8 @@ class TestReservationResolvedExactlyOnce:
             ("error_after_first_chunk", ("rollback",)),
             ("deadline_mid_stream", ("rollback",)),
             ("not_implemented", ("rollback",)),
+            ("interrupt_before_first_chunk", ("rollback",)),  # 中断原样上抛，finally 兜底
+            ("interrupt_mid_stream", ("rollback",)),
             ("thrown_in", ("rollback",)),  # finally 兜底
         ],
     )

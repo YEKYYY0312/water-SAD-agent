@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import threading
 
 import httpx
@@ -845,6 +846,122 @@ class TestCircuitBreaker:
         gw.call(_ctx(), _call(model="model-b"), _ok())
 
 
+class _SpyLedger(InMemoryBudgetLedger):
+    """记录每次结清是 settle 还是 rollback（两者在内存账本上效果相同，语义不同）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[str] = []
+
+    def settle(self, key, reservation_id, *, actual_tokens, actual_cost_usd):  # type: ignore[override]
+        self.events.append("settle")
+        super().settle(key, reservation_id, actual_tokens=actual_tokens,
+                       actual_cost_usd=actual_cost_usd)
+
+    def rollback(self, key, reservation_id):  # type: ignore[override]
+        self.events.append("rollback")
+        super().rollback(key, reservation_id)
+
+
+#: 非 ``Exception`` 的 ``BaseException``：进程或任务要停下的信号，不是 provider 的失败。
+_INTERRUPTS = [
+    pytest.param(KeyboardInterrupt, id="KeyboardInterrupt"),
+    pytest.param(SystemExit, id="SystemExit"),
+    pytest.param(asyncio.CancelledError, id="CancelledError"),
+]
+
+
+class TestInterruptPassthrough:
+    """executor 里的中断信号原样上抛：不分类、不计熔断、不重试，预留恰好回滚一次。
+
+    回归：重试内核此前 ``except BaseException`` 之后一律分类，``KeyboardInterrupt`` 没有状态码、
+    类名也不在瞬时清单里，被判成永久错误、包装成 ``PROVIDER_UNAVAILABLE``（"上游服务返回不可
+    重试的错误：KeyboardInterrupt"）——Ctrl-C 打断不了一次慢请求，``SystemExit`` 退不出进程，
+    ``CancelledError`` 取消不了任务。另一面：``call`` 只在 ``except GovernanceError`` 里回滚，
+    原样上抛的中断（退避 sleep 中途的 Ctrl-C 此前就是如此）会把预留永久占住。
+    """
+
+    @staticmethod
+    def _config(*, attempts: int, threshold: int, backoff: float = 0.0) -> GovernanceConfig:
+        return GovernanceConfig(
+            budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=10_000),
+            profiles={
+                ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                    timeout_seconds=10.0,
+                    retry=RetryPolicy(max_attempts=attempts, base_backoff_seconds=backoff),
+                    breaker=CircuitBreakerPolicy(failure_threshold=threshold),
+                )
+            },
+        )
+
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    def test_interrupt_from_executor_propagates_unchanged(
+        self, interrupt: type[BaseException]
+    ) -> None:
+        records: list[UsageRecord] = []
+        ledger = _SpyLedger()
+        config = self._config(attempts=3, threshold=1)
+        gw = ProviderGateway(config=config, sleep=lambda _d: None, budget_ledger=ledger,
+                             on_usage=records.append)
+        error = interrupt()
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            raise error
+
+        with pytest.raises(interrupt) as exc:
+            gw.call(_ctx(), _call(), executor)
+        assert exc.value is error  # 原样上抛，没有包装成 GovernanceError
+        assert calls["n"] == 1  # max_attempts=3 也不重试
+        assert gw.provider_call_count == 1
+        assert gw.breaker_open(_call()) is False  # 阈值为 1：不计熔断失败
+        assert ledger.events == ["rollback"]  # 恰好结清一次
+        snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
+        assert snap.reserved_tokens == 0 and snap.spent_tokens == 0
+        # 请求可能已经发出：记 usage 未知，不记失败码，也不估算用量
+        assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
+        assert records[0].usage_known is False and records[0].input_tokens is None
+
+    def test_interrupt_is_neither_breaker_failure_nor_success(self) -> None:
+        """中断不出成败判定：既不计一次失败，也不把此前的连续失败清零。"""
+        gw = _gateway(config=self._config(attempts=1, threshold=2))
+        boom = lambda: (_ for _ in ()).throw(_HttpError(503))
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(), _call(), boom)
+        with pytest.raises(KeyboardInterrupt):
+            gw.call(_ctx(), _call(), lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+        assert gw.breaker_open(_call()) is False  # 中断没计失败：连续失败仍是 1 次
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(), _call(), boom)
+        assert gw.breaker_open(_call()) is True  # 中断也没清零：两次 503 凑够阈值 2
+
+    def test_interrupt_during_backoff_sleep_releases_reservation(self) -> None:
+        """退避等待中途 Ctrl-C：中断从 sleep 里冒出来，不经 executor，预留同样要回滚。"""
+        records: list[UsageRecord] = []
+        ledger = _SpyLedger()
+        config = self._config(attempts=3, threshold=100, backoff=1.0)
+
+        def interrupted_sleep(_delay: float) -> None:
+            raise KeyboardInterrupt
+
+        gw = ProviderGateway(config=config, clock=_FakeClock(), sleep=interrupted_sleep,
+                             budget_ledger=ledger, on_usage=records.append)
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            raise _HttpError(503)
+
+        with pytest.raises(KeyboardInterrupt):
+            gw.call(_ctx(), _call(), executor)
+        assert calls["n"] == 1  # 退避被打断，没有第二次尝试
+        assert ledger.events == ["rollback"]
+        snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
+        assert snap.reserved_tokens == 0 and snap.spent_tokens == 0
+        assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
+
+
 class _SlowLedger(InMemoryBudgetLedger):
     """预留时推进假时钟：模拟共享账本（Redis/Postgres adapter）慢到在发送前就耗尽 deadline。"""
 
@@ -988,6 +1105,18 @@ class TestHalfOpenProbeWithoutVerdict:
         with pytest.raises(GovernanceError) as exc:
             gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(error))
         assert exc.value.code == expected_code
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    def test_interrupted_probe_releases_slot(self, interrupt: type[BaseException]) -> None:
+        """中断原样上抛、不经错误分类，名额照样要在重试内核的 finally 里归还——只在分类分支里
+        还的话，被 Ctrl-C 打断的探测会把半开期永久占住。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        with pytest.raises(interrupt):
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(interrupt()))
         self._assert_slot_was_released(gw)
 
     def test_probe_whose_deadline_runs_out_before_sending_releases_slot(self) -> None:
