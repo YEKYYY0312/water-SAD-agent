@@ -7,7 +7,9 @@
 - reject + reason 带反馈回流到 draft，draft_rounds 递增，再次挂起时 approval 复位 None；
 - 拒绝达上限 → failed 且 errors 可见；
 - 无 checkpointer 构建时报错（护住会话纪律）；
-- checkpointer 落盘：SqliteSaver 挂起 → 关闭连接 → 新连接/新图恢复 → 走完。
+- checkpointer 落盘：SqliteSaver 挂起 → 关闭连接 → 新连接/新图恢复 → 走完；
+- 非法 resume 值（非严格 bool）带可见 error 重新挂起、不进 approval_log，之后合法值照常恢复
+  （含跨进程）。
 """
 from __future__ import annotations
 
@@ -38,14 +40,83 @@ def _thread(thread_id: str = "t1") -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
+def _pending_requests(app, config: dict) -> list[dict]:
+    """get_state 里挂起的审批请求。
+
+    判挂起看 interrupts 而不是 next：非法 resume 值让会话重新挂起后，LangGraph 1.2.11
+    的 ``get_state().next`` 是 ``()``（该任务已有 RESUME 写入），interrupts 才是准的。
+    """
+    snapshot = app.get_state(config)
+    return [i.value for task in snapshot.tasks for i in task.interrupts]
+
+
+# 严格 bool 之外的 resume 形态：字符串/数字/None/缺键都不得被当作审批决定
+INVALID_RESUME_VALUES = [
+    {"approved": "false"},
+    {"approved": "true"},
+    {"approved": 1},
+    {"approved": 0},
+    {"approved": None},
+    {"reason": "缺 approved 键"},
+    "false",
+    1,
+]
+
+
 class TestResumeContract:
-    def test_non_dict_non_bool_resume_raises_clear_error(self) -> None:
-        """审批 resume 只接受严格 bool 或 {'approved': bool}；字符串 false 必须被拒绝。"""
+    @pytest.mark.parametrize("bad", INVALID_RESUME_VALUES, ids=repr)
+    def test_invalid_resume_resuspends_and_valid_value_still_resumes(self, bad) -> None:
+        """非法 resume 值不被当作决定：会话带可见 error 重新挂起，之后传合法值照常恢复。
+
+        回归：approval 节点原先在 interrupt() 返回之后才校验、失败即抛 TypeError；而
+        LangGraph 已把这个值记进本任务的 resume 列表，并随 ERROR 一起落进 checkpoint。
+        之后每次恢复都先在第 0 个 interrupt 上重放它，合法值永远轮不到——会话被永久
+        毒化（get_state().next 同时变成 ()，CLI --resume 以为没有挂起任务）。
+        """
+        cfg = _thread("strict-bool")
         with MemorySaver() as saver:
             app = build_docgen_graph(checkpointer=saver)
-            app.invoke(_initial_state(), config=_thread("strict-bool"))
-            with pytest.raises(TypeError, match="approved 必须是严格 bool"):
-                app.invoke(Command(resume={"approved": "false"}), config=_thread("strict-bool"))
+            app.invoke(_initial_state(), config=cfg)
+            state = app.invoke(Command(resume=bad), config=cfg)
+
+            assert state.get("__interrupt__"), "非法 resume 值必须让会话重新挂起，而不是抛异常"
+            request = state["__interrupt__"][0].value
+            offending = bad.get("approved") if isinstance(bad, dict) else bad
+            assert "严格 bool" in request["error"] and repr(offending) in request["error"], request["error"]
+            assert request["draft_preview"], "重新挂起时草稿预览仍在，审批人可以接着审"
+            # 非法值不是决定：不进审批记录，审批状态不变
+            assert state["approval_log"] == []
+            assert state["approval"] is None
+            assert state["status"] == STATUS_WAITING
+            assert [r.get("error") for r in _pending_requests(app, cfg)] == [request["error"]], "get_state 必须仍显示挂起"
+
+            resumed = app.invoke(Command(resume={"approved": True}), config=cfg)
+        assert resumed["status"] == STATUS_SUCCEEDED
+        assert resumed["final_doc"]
+        assert resumed["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+
+    def test_repeated_invalid_resumes_then_reject_redrafts_cleanly(self) -> None:
+        """连续多个非法值逐个重新挂起（错误指向最近一个）；随后的合法拒绝照常回流重拟。
+
+        同一节点内的多次 interrupt 按序号匹配 resume 值：重放时每个非法值落回原来的
+        序号再次被判非法，新的合法值接在最后被取到。新一稿是新任务，审批请求不带旧错误。
+        """
+        cfg = _thread("strict-seq")
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_initial_state(), config=cfg)
+            for bad in ({"approved": "false"}, 1, "true"):
+                state = app.invoke(Command(resume=bad), config=cfg)
+                offending = bad.get("approved") if isinstance(bad, dict) else bad
+                assert repr(offending) in state["__interrupt__"][0].value["error"]
+                assert state["approval_log"] == []
+
+            state = app.invoke(Command(resume={"approved": False, "reason": "补充管径表格"}), config=cfg)
+        request = state["__interrupt__"][0].value
+        assert "error" not in request, "新一稿的审批请求不得带着上一稿的输入错误"
+        assert "补充管径表格" in request["draft_preview"]
+        assert state["draft_rounds"] == 1
+        assert state["approval_log"] == [{"decision": "rejected", "reason": "补充管径表格", "draft_rounds": 0}]
 
     def test_route_after_approval_failed_never_finalize(self) -> None:
         """failed 状态在 approval 之后直接终止，不得进入 finalize。"""
@@ -207,3 +278,31 @@ class TestPersistence:
         captured = capsys.readouterr()
         assert "Blocked deserialization" not in captured.err
         assert "Blocked deserialization" not in captured.out
+
+    def test_invalid_resume_stays_suspended_across_reopen(self, tmp_path) -> None:
+        """非法 resume 值落盘后跨进程仍是"挂起 + 可见错误"，新进程传合法值能恢复。"""
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        from water_agent.session import default_checkpoint_serde
+
+        db = tmp_path / "docgen.sqlite"
+        cfg = _thread("persist-invalid")
+
+        conn1 = sqlite3.connect(str(db), check_same_thread=False)
+        try:
+            app1 = build_docgen_graph(checkpointer=SqliteSaver(conn1, serde=default_checkpoint_serde()))
+            app1.invoke(_initial_state(), config=cfg)
+            app1.invoke(Command(resume={"approved": "false"}), config=cfg)
+        finally:
+            conn1.close()
+
+        conn2 = sqlite3.connect(str(db), check_same_thread=False)
+        try:
+            app2 = build_docgen_graph(checkpointer=SqliteSaver(conn2, serde=default_checkpoint_serde()))
+            pending = _pending_requests(app2, cfg)
+            assert len(pending) == 1 and "严格 bool" in pending[0]["error"]
+            state = app2.invoke(Command(resume={"approved": True}), config=cfg)
+        finally:
+            conn2.close()
+        assert state["status"] == STATUS_SUCCEEDED
+        assert state["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
