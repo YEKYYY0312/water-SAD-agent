@@ -58,6 +58,7 @@ from water_agent.runtime.governance.gateway import (
     _retry_after_of,
 )
 from water_agent.runtime.governance.stores import (
+    BudgetVerdict,
     InMemoryBudgetLedger,
     InMemoryRateLimitStore,
 )
@@ -842,6 +843,213 @@ class TestCircuitBreaker:
         assert gw.breaker_open(_call(model="model-a")) is True
         # 另一模型仍可用
         gw.call(_ctx(), _call(model="model-b"), _ok())
+
+
+class _SlowLedger(InMemoryBudgetLedger):
+    """预留时推进假时钟：模拟共享账本（Redis/Postgres adapter）慢到在发送前就耗尽 deadline。"""
+
+    def __init__(self, clock: _FakeClock) -> None:
+        super().__init__()
+        self._fake_clock = clock
+        self.delay = 0.0
+
+    def reserve(self, key: str, tokens: int, config: BudgetConfig) -> BudgetVerdict:
+        self._fake_clock.advance(self.delay)
+        return super().reserve(key, tokens, config)
+
+
+class _InFlightCall:
+    """在后台线程发起一次 ``gw.call``，executor 停在"已发出、未返回"，直到 :meth:`finish`。
+
+    让一个请求在熔断状态变化期间一直挂着（真实场景里就是一个慢请求）。
+    """
+
+    def __init__(self, gw: ProviderGateway, outcome: BaseException | str, *, thread: str) -> None:
+        self._sending = threading.Event()
+        self._go = threading.Event()
+        self.value: str | None = None
+        self.error: GovernanceError | None = None
+
+        def executor() -> tuple[str, ProviderUsage]:
+            self._sending.set()
+            assert self._go.wait(timeout=10), "测试没有放行这个请求"
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome, ProviderUsage.of(input_tokens=1, output_tokens=1)
+
+        def run() -> None:
+            try:
+                self.value = gw.call(_ctx(thread=thread), _call(), executor).value
+            except GovernanceError as exc:
+                self.error = exc
+            finally:
+                self._sending.set()  # 发送前就被拒时别让主线程干等
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+        assert self._sending.wait(timeout=10)
+        assert self.error is None, f"请求没能发出：{self.error}"
+
+    def finish(self) -> None:
+        self._go.set()
+        self._thread.join(timeout=10)
+        assert not self._thread.is_alive()
+
+
+class TestHalfOpenProbeWithoutVerdict:
+    """半开探测没出成败判定就结束时，必须归还探测名额。
+
+    回归：名额此前只在探测成功（闭合）或瞬时失败（重新开路）时清零。探测若被限流/预算
+    拒绝、认证失败（401/403 不计熔断）、永久错误（不计熔断）或 deadline 用尽，名额就一直
+    占着，此后**每个**请求都是 ``CIRCUIT_OPEN``（"上游服务恢复探测中"），推进时钟也没用，
+    只能重启进程。熔断规则本身不变：成功闭合、瞬时失败重新开路、401/403 与永久错误不计熔断。
+    """
+
+    @staticmethod
+    def _config(
+        *, rate_limit: RateLimitPolicy | None = None, budget: BudgetConfig | None = None
+    ) -> GovernanceConfig:
+        """阈值 1、恢复 30s、半开只放 1 个探测、不重试：一次 503 即开路，31s 后半开。"""
+        return GovernanceConfig(
+            budget=budget or BudgetConfig(),
+            profiles={
+                ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                    timeout_seconds=10.0,
+                    retry=RetryPolicy(max_attempts=1),
+                    breaker=CircuitBreakerPolicy(
+                        failure_threshold=1, recovery_seconds=30.0, half_open_max_calls=1
+                    ),
+                    rate_limit=rate_limit or RateLimitPolicy(),
+                )
+            },
+        )
+
+    @staticmethod
+    def _enter_half_open(gw: ProviderGateway, clock: _FakeClock) -> None:
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(_HttpError(503)))
+        assert gw.breaker_open(_call()) is True
+        clock.advance(31.0)
+
+    @staticmethod
+    def _assert_slot_was_released(gw: ProviderGateway) -> None:
+        """没出判定：熔断既没闭合也没重新开路；名额已还，下一个请求（换一个主体）立刻作为
+        新探测放行、不必再等恢复窗口，成功即闭合。修复前这里是 CIRCUIT_OPEN，且永远如此。"""
+        assert gw.breaker_open(_call()) is True
+        result = gw.call(_ctx(thread="b"), _call(), _ok())
+        assert result.value == "答案"
+        assert gw.breaker_open(_call()) is False
+
+    def test_rate_limited_probe_releases_slot(self) -> None:
+        """限流按主体计：一个主体用满本地配额，不能把所有主体都关在熔断外。"""
+        clock = _FakeClock()
+        config = self._config(rate_limit=RateLimitPolicy(max_requests_per_minute=1))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)  # 开路那次用掉了主体 a 这一分钟唯一的请求配额
+
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(), _ok())
+        assert exc.value.code == CODE_RATE_LIMITED
+        assert gw.provider_call_count == sent  # 发送前被拒
+        self._assert_slot_was_released(gw)
+
+    def test_budget_rejected_probe_releases_slot(self) -> None:
+        clock = _FakeClock()
+        config = self._config(budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=1_000))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)
+
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(est_in=5_000), _ok())  # 预留 5,200 > 额度 1,000
+        assert exc.value.code == CODE_BUDGET_EXCEEDED
+        assert gw.provider_call_count == sent
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize(
+        ("error", "expected_code"),
+        [
+            (_HttpError(401), CODE_PROVIDER_AUTH_FAILED),
+            (_HttpError(403), CODE_PROVIDER_AUTH_FAILED),
+            (_HttpError(400), CODE_PROVIDER_UNAVAILABLE),
+            (ValueError("bad payload"), CODE_PROVIDER_UNAVAILABLE),  # 未知错误按永久处理
+        ],
+        ids=["auth-401", "auth-403", "permanent-400", "permanent-unknown-error"],
+    )
+    def test_auth_or_permanent_error_releases_slot_and_still_does_not_trip_breaker(
+        self, error: BaseException, expected_code: str
+    ) -> None:
+        """阈值为 1：若 401/403 或永久错误计了熔断，这里会重新开路，下一个请求还得再等 30s。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(error))
+        assert exc.value.code == expected_code
+        self._assert_slot_was_released(gw)
+
+    def test_probe_whose_deadline_runs_out_before_sending_releases_slot(self) -> None:
+        """deadline 是调用方的时间预算，不计熔断；在发送前就用尽时探测同样没出判定。"""
+        clock = _FakeClock()
+        ledger = _SlowLedger(clock)
+        gw = ProviderGateway(
+            config=self._config(), clock=clock, sleep=lambda _d: None, budget_ledger=ledger
+        )
+        self._enter_half_open(gw, clock)
+
+        ledger.delay = 10.0  # 预留就耗掉 10s，超过 5s 的 deadline
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a", deadline=5.0), _call(), _ok())
+        assert exc.value.code == CODE_PROVIDER_TIMEOUT
+        assert gw.provider_call_count == sent  # 一次都没发出
+        ledger.delay = 0.0
+        self._assert_slot_was_released(gw)
+
+    def test_in_flight_probe_holds_its_slot_until_it_ends(self) -> None:
+        """名额在探测结束时才还，不是一放行就还：探测在途期间其他请求照旧被拒。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        probe = _InFlightCall(gw, _HttpError(401), thread="a")
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="b"), _call(), _ok())
+        assert exc.value.code == CODE_CIRCUIT_OPEN
+        assert "恢复探测中" in exc.value.message
+
+        probe.finish()
+        assert probe.error is not None and probe.error.code == CODE_PROVIDER_AUTH_FAILED
+        self._assert_slot_was_released(gw)
+
+    def test_stale_slot_from_an_earlier_round_does_not_free_a_later_rounds_slot(self) -> None:
+        """名额按熔断代次归还：上一轮半开期的探测拖到下一轮才结束，不得腾出下一轮的名额。
+
+        只记"占没占名额"、结束时一律减一的话，第一轮探测的 401 会把第二轮那个仍在途的探测
+        的名额减掉，半开期同时放进两个探测，超过 ``half_open_max_calls=1``。
+        """
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        slow = _InFlightCall(gw, _HttpError(503), thread="slow")  # 闭合期放行的慢请求，不占名额
+        self._enter_half_open(gw, clock)  # 第一轮半开
+        stale = _InFlightCall(gw, _HttpError(401), thread="a")  # 第一轮的探测
+
+        slow.finish()  # 503 是瞬时失败 → 重新开路，第一轮的名额随之作废
+        assert gw.breaker_open(_call()) is True
+        clock.advance(31.0)  # 第二轮半开
+        current = _InFlightCall(gw, "答案", thread="b")  # 第二轮的探测，占着唯一的名额
+
+        stale.finish()  # 第一轮的探测这时才以 401 结束
+        assert stale.error is not None and stale.error.code == CODE_PROVIDER_AUTH_FAILED
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="c"), _call(), _ok())
+        assert exc.value.code == CODE_CIRCUIT_OPEN
+
+        current.finish()  # 第二轮探测成功 → 闭合
+        assert current.value == "答案"
+        assert gw.breaker_open(_call()) is False
 
 
 class TestNoSilentFallback:
