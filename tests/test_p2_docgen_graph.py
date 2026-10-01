@@ -1,5 +1,6 @@
 """P2 测试：docgen 图结构化渲染接线（doc_type 状态 / 终稿不带稿次 / 材料行可选）+ CLI --doc-type
-+ CLI 人审的恢复安全（非法 resume 值后仍可 --resume、CLI 边界先校验再 invoke）。"""
++ CLI 人审的恢复安全（非法 resume 值后仍可 --resume、CLI 边界先校验再 invoke、同一会话的新文档
+不继承上一份的状态、两处提示的 Ctrl-C/EOF 都是挂起）。"""
 from __future__ import annotations
 
 import json
@@ -355,3 +356,76 @@ class TestCliResumeSafety:
         assert second["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
         assert "第一份的拒绝原因" not in second["final_doc"]
         assert "第一份的拒绝原因" not in captured.err, "第二份文档的草稿预览里也不得出现上一份的拒绝原因"
+
+
+def _approval_decision_events(trace_dir: Path) -> list[dict]:
+    """trace 目录里所有 approval_decision 事件（docgen 的 gather 另有一条 RAG trace，一并扫）。"""
+    events: list[dict] = []
+    for path in sorted(trace_dir.glob("*.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        events.extend(e for e in doc["events"] if e.get("event_type") == "approval_decision")
+    return events
+
+
+class TestCliPromptInterrupts:
+    """CLI 两处人审提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定，exit 0，--resume 恢复。"""
+
+    def test_eof_at_reason_prompt_on_last_draft_suspends_instead_of_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """回归：最后一稿在"拒绝原因"处 EOF 曾直接提交一次空原因的拒绝，文档收口 failed（exit 1）。"""
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["n", "第一稿不行", "n", EOFError])
+        code = main([*args, "生成 DN150 给水管道计算书"])
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "审批挂起" in out and "状态: failed" not in out
+        session_id = _suspended_session_id(out)
+        with _session_graph(tmp_path) as app:
+            pending = _pending_requests(app, _thread(session_id))
+            values = app.get_state(_thread(session_id)).values
+        assert [r["draft_rounds"] for r in pending] == [1], "仍挂在第 2 稿的审批上"
+        assert [e["reason"] for e in values["approval_log"]] == ["第一稿不行"], "中断不得提交任何决定"
+        assert [e["data"]["approved"] for e in _approval_decision_events(tmp_path / "t")] == [False]
+
+        _scripted_input(monkeypatch, ["y"])
+        code = main([*args, "--resume", session_id, "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0 and payload["status"] == "succeeded"
+        assert [e["decision"] for e in payload["approval_log"]] == ["rejected", "approved"]
+
+    def test_ctrl_c_at_reason_prompt_suspends_without_submitting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """回归：第一稿在"拒绝原因"处 Ctrl-C 曾提交空原因的拒绝并进入第 2 稿；现与第一个提示一致，挂起。"""
+        args = _docgen_cli_args(tmp_path)
+        # 末尾的 EOFError 只为旧行为兜底：若仍被当成拒绝，第 2 稿的提示会读到它
+        _scripted_input(monkeypatch, ["n", KeyboardInterrupt, EOFError])
+        code = main([*args, "生成 DN150 给水管道计算书"])
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "第 2 稿" not in out
+        session_id = _suspended_session_id(out)
+        with _session_graph(tmp_path) as app:
+            pending = _pending_requests(app, _thread(session_id))
+            values = app.get_state(_thread(session_id)).values
+        assert [r["draft_rounds"] for r in pending] == [0], "仍挂在第 1 稿的审批上"
+        assert values["approval_log"] == []
+        assert _approval_decision_events(tmp_path / "t") == []
+
+    def test_unrecognized_answer_is_asked_again_not_taken_as_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """只认显式回答（y/yes/是、n/no/否）：空行与无法识别的回答重新询问，不当作拒绝。
+
+        回归：此前非 y 一律当拒绝——误按回车就提交一次拒绝，最后一稿上即收口 failed。
+        """
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["", "maybe", "y"])
+        code = main([*args, "--json", "生成 DN150 给水管道计算书"])
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        payload = json.loads(captured.out)
+        assert payload["status"] == "succeeded"
+        assert payload["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+        assert "请输入 y" in captured.err

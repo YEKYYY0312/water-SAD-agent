@@ -423,18 +423,28 @@ def _read_cli_input(prompt: str, ui) -> str:
     return input()
 
 
+_APPROVE_ANSWERS = frozenset({"y", "yes", "是"})
+_REJECT_ANSWERS = frozenset({"n", "no", "否"})
+
+
 def _prompt_docgen_decision(ui) -> dict[str, Any] | None:
-    """docgen 人审提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；返回 None = 挂起。"""
+    """docgen 人审提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；返回 None = 挂起。
+
+    两处提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定（此前在"拒绝原因"处中断会提交
+    一次空原因的拒绝，最后一稿上即收口 failed，不可撤回）。只认显式回答：y/yes/是 = 批准，
+    n/no/否 = 拒绝，其余（含空行）重新询问——不把没认出的输入当成拒绝。
+    """
     try:
-        answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return None
-    if answer in {"y", "yes", "是"}:
-        return {"approved": True}
-    try:
+        while True:
+            answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
+            if answer in _APPROVE_ANSWERS:
+                return {"approved": True}
+            if answer in _REJECT_ANSWERS:
+                break
+            print("请输入 y（批准）或 n（拒绝）；Ctrl-C 挂起审批。", file=ui)
         reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
     except (EOFError, KeyboardInterrupt):
-        reason = ""
+        return None
     return {"approved": False, "reason": reason}
 
 
