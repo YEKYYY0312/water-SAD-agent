@@ -9,15 +9,16 @@ forgotten body cannot be read back.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 
 from water_agent.storage.database import Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
 from water_agent.webapp.app import create_app
 from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
@@ -69,6 +70,7 @@ def _candidate(
     scope_type: str = "user",
     kind: str = "user_preference",
     project_id: str | None = None,
+    expires_at: str | None = None,
 ) -> tuple[int, dict]:
     response = client.post(
         "/api/memories/candidates",
@@ -78,6 +80,7 @@ def _candidate(
             "semantic_key": key,
             "content": content,
             "project_id": project_id,
+            "expires_at": expires_at,
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
@@ -382,6 +385,77 @@ def test_disabling_expires_and_reactivation_is_refused(
     )
     assert enabled.status_code == 409
     assert enabled.json()["error"]["code"] == "MEMORY_STATUS_TRANSITION_INVALID"
+
+
+def _pass_deadline(database: Database, memory_id: str) -> None:
+    """模拟到期：只把 expires_at 改到过去，不跑任何清扫（与生产无调度时一致）。"""
+
+    with database.transaction() as session:
+        session.execute(
+            update(MemoryRecordRow)
+            .where(MemoryRecordRow.memory_id == memory_id)
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+
+def _remember_for_an_hour(client: TestClient, content: str) -> str:
+    soon = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    status, candidate = _candidate(client, content=content, expires_at=soon)
+    assert status == 201, candidate
+    status, confirmed = _confirm(client, candidate)
+    assert status == 201, confirmed
+    return str(confirmed["data"]["memory"]["memory_id"])
+
+
+def test_an_expired_preference_releases_its_key_for_a_new_save(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：带过期时间的记忆到期后仍是 active，一直占着 semantic_key。
+
+    复现：到期后列表、召回都看不到它；对同一 key 新建候选却得到 conflict 并展示
+    已过期的正文，不选处理方式确认 409，选 correct_existing 201 corrected，而列表与
+    检索仍为空——界面显示成功，实际永远召回不到。
+    """
+    client, _ = _login(database, tmp_path, "expiry")
+    old_id = _remember_for_an_hour(client, "默认 SI 单位")
+    _pass_deadline(database, old_id)
+    assert client.get("/api/memories").json()["data"]["memories"] == []
+
+    status, renewed = _candidate(client, content="默认英制单位")
+
+    assert status == 201, renewed
+    assert renewed["data"]["disposition"] == "ready"
+    assert renewed["data"]["conflict"] is None, "预览不得展示已过期的正文"
+    status, saved = _confirm(client, renewed)
+    assert status == 201, saved
+    assert saved["data"]["action"] == "created"
+    listed = client.get("/api/memories").json()["data"]["memories"]
+    searched = client.get("/api/memories", params={"query": "英制单位"}).json()["data"]["memories"]
+    assert [item["content"] for item in listed] == ["默认英制单位"]
+    assert [item["content"] for item in searched] == ["默认英制单位"]
+    old = client.get(f"/api/memories/{old_id}").json()["data"]
+    assert old["status"] == "expired"
+    events = client.get(f"/api/memories/{old_id}/events").json()["data"]["events"]
+    assert [item["event_type"] for item in events] == ["created", "expired"]
+
+
+def test_correcting_an_expired_memory_is_gone_not_a_silent_success(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：PATCH 更正到期记录曾返回 200，结果却永远不可见；现在如实 410。"""
+    client, _ = _login(database, tmp_path, "expired-patch")
+    memory_id = _remember_for_an_hour(client, "默认 SI 单位")
+    _pass_deadline(database, memory_id)
+
+    response = client.patch(
+        f"/api/memories/{memory_id}",
+        json={"content": "默认英制单位", "expected_revision": 1},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+
+    assert response.status_code == 410, response.text
+    assert response.json()["error"]["code"] == "MEMORY_EXPIRED"
+    assert client.get(f"/api/memories/{memory_id}").json()["data"]["status"] == "expired"
 
 
 def test_csrf_is_required_for_memory_writes(database: Database, tmp_path: Path) -> None:
