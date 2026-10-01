@@ -23,6 +23,10 @@ export type WorkspaceRunState = {
   status: string;
   answer: string;
   tokens: string;
+  /** 正在写的回答草稿（已过输出护栏，可能被撤回；收口后只认 answer）。 */
+  draft: string;
+  /** 本轮已撤回过草稿的次数（回流重写或护栏拦截），界面据此提示"正在修订"。 */
+  draftRetractions: number;
   events: WorkspaceRunEvent[];
   tools: ToolCard[];
   citations: CitationCard[];
@@ -39,6 +43,8 @@ export const emptyRunState = (): WorkspaceRunState => ({
   status: "idle",
   answer: "",
   tokens: "",
+  draft: "",
+  draftRetractions: 0,
   events: [],
   tools: [],
   citations: [],
@@ -156,6 +162,20 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
     const text = asString(payload.text) ?? "";
     return { ...next, status: "running", tokens: next.tokens + text };
   }
+  if (event.type === "draft_delta") {
+    // offset 是这段文字在本条草稿里的起点：重连回放或乱序时只接上紧挨着的那一段，
+    // 重复的、跳号的一律丢弃——宁可少显示，也不拼出模型没写过的句子。
+    const text = asString(payload.text) ?? "";
+    const offset = typeof payload.offset === "number" ? payload.offset : next.draft.length;
+    if (!text || offset !== next.draft.length) return next;
+    return { ...next, status: "running", draft: next.draft + text };
+  }
+  if (event.type === "draft_retract") {
+    return { ...next, draft: "", draftRetractions: next.draftRetractions + 1 };
+  }
+  if (event.type === "draft_closed") {
+    return next;
+  }
   if (event.type === "agent_message") {
     return { ...next, status: "running" };
   }
@@ -203,6 +223,8 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       ...next,
       status: finalStatus,
       answer: finalAnswer,
+      // 收口后草稿作废：最终回答只认 finalize 的 answer（输出护栏 + 引用校验之后）
+      draft: "",
       citations: citationsFromFinalPayload(payload.citations),
       calculations: calculationsFromFinalPayload(payload.calculations),
       errors,

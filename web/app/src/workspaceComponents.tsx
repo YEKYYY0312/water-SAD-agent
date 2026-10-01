@@ -328,11 +328,12 @@ export function ConversationPanel({
   const fileInput = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = useState(false);
-  // 收口后只显示 finalize 给出的回答；token 只作为运行中的进度预览。
-  const answer = run.answer || (isTerminalStatus(run.status) ? "" : run.tokens);
+  // 收口后只显示 finalize 给出的回答；运行中的草稿另行显示并标明"待校验"，绝不当成回答。
+  const answer = isTerminalStatus(run.status) ? run.answer : "";
+  const draft = isTerminalStatus(run.status) ? "" : run.draft;
   const uploading = attachments.some((item) => item.status === "uploading");
   const hasReadyAttachment = attachments.some((item) => item.status === "ready");
-  const empty = session !== null && messages.length === 0 && !answer && !streaming && run.status === "idle";
+  const empty = session !== null && messages.length === 0 && !answer && !draft && !streaming && run.status === "idle";
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter 发送、Shift+Enter 换行；输入法组字时的 Enter 不算。
@@ -406,7 +407,18 @@ export function ConversationPanel({
                 <AnswerActions run={run} exportState={exportState} feedbackState={feedbackState} onDownload={onDownload} onFeedback={onFeedback} />
               </article>
             )}
-            {streaming && <p className="streaming-note"><span className="pulse" aria-hidden="true" />正在检索与计算…</p>}
+            {draft && (
+              <article className="message message-agent draft-answer" aria-label="回答草稿（待校验）" aria-busy="true">
+                <p className="draft-note">草稿 · 引用与输出校验完成前可能修改或撤回</p>
+                <AnswerMarkdown text={draft} />
+              </article>
+            )}
+            {streaming && (
+              <p className="streaming-note">
+                <span className="pulse" aria-hidden="true" />
+                {run.draftRetractions > 0 && !draft ? "正在修订回答…" : draft ? "正在生成…" : "正在检索与计算…"}
+              </p>
+            )}
             {run.warnings.map((warning) => <div className="warning-state" role="status" key={warning}>{warning}</div>)}
             {run.status !== "idle" && run.status !== "succeeded" && isTerminal(run.status) && !answer && (
               <div className="error-state" role="alert">
