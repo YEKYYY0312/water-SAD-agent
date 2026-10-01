@@ -13,7 +13,11 @@ from water_agent.storage.models import AuthSession, User
 from water_agent.webapp.auth.models import SessionRecord, UserRecord, UserRole
 from water_agent.webapp.auth.password import hash_password
 from water_agent.webapp.auth.session_store import SessionNotFoundError
-from water_agent.webapp.auth.user_store import UsernameTakenError, UserNotFoundError
+from water_agent.webapp.auth.user_store import (
+    LastActiveAdminError,
+    UsernameTakenError,
+    UserNotFoundError,
+)
 
 
 def _user(record: User) -> UserRecord:
@@ -125,6 +129,32 @@ class PostgresUserStore:
             if record is None:
                 raise UserNotFoundError(str(user_id))
             record.is_active = active
+            record.updated_at = datetime.now(UTC)
+
+    def deactivate(self, user_id: UUID) -> None:
+        """Deactivate ``user_id`` unless it is the last active admin.
+
+        Check and write share one transaction.  Every active admin row is locked
+        ``FOR UPDATE`` in a fixed order first, so on PostgreSQL two admins
+        deactivating each other concurrently serialize: the second re-reads the
+        rows after the first commits, no longer sees the other admin as active,
+        and is refused.  (SQLite ignores FOR UPDATE and serializes writers itself.)
+        """
+        with self.database.transaction() as session:
+            active_admins = set(
+                session.execute(
+                    select(User.user_id)
+                    .where(User.role == UserRole.ADMIN.value, User.is_active.is_(True))
+                    .order_by(User.user_id)
+                    .with_for_update()
+                ).scalars()
+            )
+            record = session.get(User, str(user_id))
+            if record is None:
+                raise UserNotFoundError(str(user_id))
+            if active_admins == {record.user_id}:
+                raise LastActiveAdminError(str(user_id))
+            record.is_active = False
             record.updated_at = datetime.now(UTC)
 
 

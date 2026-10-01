@@ -48,6 +48,7 @@ from water_agent.webapp.auth.password import (
 from water_agent.webapp.auth.rate_limit import get_rate_limiter
 from water_agent.webapp.auth.session_store import SessionNotFoundError, get_session_store
 from water_agent.webapp.auth.user_store import (
+    LastActiveAdminError,
     UsernameTakenError,
     UserNotFoundError,
     get_user_store,
@@ -360,15 +361,34 @@ async def deactivate_user(
     auth: tuple = Depends(require_admin),
 ) -> JSONResponse:
     admin_user, _ = auth
+    if user_id == admin_user.user_id:
+        # 停用自己即把自己锁在门外；唯一的管理员这么做之后连 bootstrap-admin 也救不回来
+        # （它不会重新激活已存在的同名账号），只能直接改库。
+        return JSONResponse(
+            status_code=409,
+            content=_err(
+                "AUTH_CANNOT_DEACTIVATE_SELF",
+                "Administrators cannot deactivate their own account",
+            ),
+        )
     user_store = get_user_store()
     try:
-        user_store.get_by_id(user_id)
+        # 判定与写入在存储层是同一个原子步骤：两个管理员同时互相停用时，后提交的
+        # 那个会发现自己要停用的是最后一个活跃管理员。
+        user_store.deactivate(user_id)
     except UserNotFoundError:
         return JSONResponse(
             status_code=404,
             content=_err("AUTH_USER_NOT_FOUND", "User not found"),
         )
-    user_store.set_active(user_id, active=False)
+    except LastActiveAdminError:
+        return JSONResponse(
+            status_code=409,
+            content=_err(
+                "AUTH_LAST_ACTIVE_ADMIN",
+                "The last active administrator cannot be deactivated",
+            ),
+        )
     audit.audit_user_deactivated(target_user_id=str(user_id), actor_user_id=str(admin_user.user_id))
     # Evict all sessions for the deactivated user
     get_session_store().delete_all_for_user(user_id)
