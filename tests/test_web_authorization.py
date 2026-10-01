@@ -465,6 +465,89 @@ def test_global_viewer_role_cannot_create_projects_or_sessions(
     assert session.json()["error"]["code"] == "WEB_FORBIDDEN"
 
 
+def test_project_viewer_cannot_post_messages_into_a_project_session(
+    database: Database, tmp_path: Path
+) -> None:
+    """Regression: a project viewer could start runs in the owner's project session.
+
+    Creating a project session was already refused for a viewer (403), but
+    posting a message into an existing one answered 202 and started a run under
+    the viewer's name.  A global VIEWER is refused the same way even when its
+    project role is ``member`` (``_can_write_project`` checks both).
+    """
+
+    factory = _FakeFactory(tmp_path / "traces")
+    owner_client, owner_id = _login(
+        database, tmp_path, f"owner-{uuid4()}", session_factory=factory
+    )
+    viewer_client, viewer_id = _login(
+        database, tmp_path, f"viewer-{uuid4()}", session_factory=factory
+    )
+    global_viewer_client, global_viewer_id = _login(
+        database,
+        tmp_path,
+        f"global-viewer-{uuid4()}",
+        role=UserRole.VIEWER,
+        session_factory=factory,
+    )
+    projects = ProjectRepository(database)
+    project = projects.create(owner_id, _PROJECT_TITLE)
+    session = WebSessionRepository(database).create(
+        owner_id, project_id=project.project_id, title=_SESSION_TITLE
+    )
+    projects.add_member(project.project_id, owner_id, viewer_id, role="viewer")
+    projects.add_member(project.project_id, owner_id, global_viewer_id, role="member")
+    url = f"/api/sessions/{session.thread_id}/messages"
+
+    for client in (viewer_client, global_viewer_client):
+        refused = client.post(
+            url, json={"message": "viewer 提问"}, headers={"X-CSRF-Token": _csrf(client)}
+        )
+        assert refused.status_code == 403, refused.text
+        assert refused.json()["error"]["code"] == "WEB_FORBIDDEN"
+        assert _SESSION_TITLE not in refused.text
+        # A write refusal, not a hidden resource: the session stays readable.
+        assert client.get(f"/api/sessions/{session.thread_id}").status_code == 200
+
+    # The refusal happens before the run row is created: nothing is queued.
+    assert RunRepository(database).list_for_session(session.thread_id, owner_id) == []
+
+    accepted = owner_client.post(
+        url, json={"message": "owner 提问"}, headers={"X-CSRF-Token": _csrf(owner_client)}
+    )
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()["data"]["run_id"]
+    events = owner_client.get(f"/api/runs/{run_id}/events")
+    assert [item["type"] for item in _parse_sse(events)][-2:] == ["finalize", "stream_end"]
+
+
+def test_project_write_refusal_precedes_model_configuration_disclosure(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The viewer is answered 403 before the route reveals a missing model (424)."""
+
+    for name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_FILE", "LOCAL_MODEL_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    _, owner_id = _login(database, tmp_path, f"owner-{uuid4()}")
+    viewer_client, viewer_id = _login(database, tmp_path, f"viewer-{uuid4()}")
+    projects = ProjectRepository(database)
+    project = projects.create(owner_id, _PROJECT_TITLE)
+    session = WebSessionRepository(database).create(
+        owner_id, project_id=project.project_id, title=_SESSION_TITLE
+    )
+    projects.add_member(project.project_id, owner_id, viewer_id, role="viewer")
+
+    refused = viewer_client.post(
+        f"/api/sessions/{session.thread_id}/messages",
+        json={"message": "viewer 提问"},
+        headers={"X-CSRF-Token": _csrf(viewer_client)},
+    )
+
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["error"]["code"] == "WEB_FORBIDDEN"
+
+
 # ---------------------------------------------------------------------------
 # 5. A deactivated account is refused mid-session
 # ---------------------------------------------------------------------------
