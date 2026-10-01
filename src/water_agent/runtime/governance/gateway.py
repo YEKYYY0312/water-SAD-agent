@@ -60,6 +60,26 @@ TRANSIENT_HTTP_CODES = frozenset({408, 429, 500, 502, 503, 504})
 #: 认证/授权失败（永久）。403 是 rerank 的已知阻塞码，必须零重试。
 AUTH_HTTP_CODES = frozenset({401, 403})
 
+#: 无状态码时按异常类名识别瞬时错误。**沿 MRO 匹配**，不只看 ``type(exc).__name__``：
+#: langchain-openai 1.6 把 openai SDK 的 ``APITimeoutError`` / ``APIConnectionError``
+#: 重包装成子类 ``OpenAITimeoutError`` / ``OpenAIConnectionError`` 再抛，只比对类名时
+#: ChatOpenAI 的超时与连接失败被判成永久错误、零重试、不计熔断（实测）。
+#: httpx 传输层基类也在此：流式输出中途断连时 openai SDK 不再包装，原始的
+#: ``RemoteProtocolError`` / ``ReadError`` 直接冒出来。
+_TRANSIENT_ERROR_NAMES = frozenset(
+    {
+        "URLError",
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "TimeoutException",  # httpx：Connect/Read/Write/PoolTimeout 的基类
+        "NetworkError",  # httpx：Connect/Read/Write/CloseError 的基类
+        "RemoteProtocolError",  # httpx：对端没发完响应就断开（流式中途断流的典型形态）
+    }
+)
+_AUTH_ERROR_NAMES = frozenset({"AuthenticationError", "PermissionDeniedError"})
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderUsage:
@@ -129,7 +149,8 @@ def _http_status_of(exc: BaseException) -> int | None:
 def _classify_error(exc: BaseException) -> str:
     """区分瞬时 / 认证 / 永久错误。
 
-    分类依据优先级：HTTP 状态码 → 超时类型 → 异常类名特征。
+    分类依据优先级：HTTP 状态码 → 超时类型 → 异常类名特征（含父类，见
+    :data:`_TRANSIENT_ERROR_NAMES`）。
     **默认永久**（fail closed 的另一面：不确定就不重试，避免放大故障与成本）。
     """
     status = _http_status_of(exc)
@@ -148,10 +169,10 @@ def _classify_error(exc: BaseException) -> str:
     if isinstance(reason, (TimeoutError, ConnectionError)):
         return _ErrorClass.TRANSIENT
 
-    name = type(exc).__name__
-    if name in {"URLError", "APIConnectionError", "APITimeoutError", "ConnectTimeout", "ReadTimeout"}:
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    if names & _TRANSIENT_ERROR_NAMES:
         return _ErrorClass.TRANSIENT
-    if name in {"AuthenticationError", "PermissionDeniedError"}:
+    if names & _AUTH_ERROR_NAMES:
         return _ErrorClass.AUTH
     return _ErrorClass.PERMANENT
 

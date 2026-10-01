@@ -12,7 +12,15 @@ from __future__ import annotations
 
 import threading
 
+import httpx
 import pytest
+from langchain_openai.chat_models.base import (
+    OpenAIAuthenticationError,
+    OpenAIConnectionError,
+    OpenAIPermissionDeniedError,
+    OpenAIRateLimitError,
+    OpenAITimeoutError,
+)
 
 from water_agent.runtime.governance.config import (
     BudgetConfig,
@@ -568,6 +576,87 @@ class TestRetryAndErrorClassification:
         assert _retry_after_of(_HttpError(429, headers={"retry-after": "2"})) == 2.0
         assert _retry_after_of(_HttpError(429, headers={"Retry-After": "junk"})) is None
         assert _retry_after_of(_HttpError(429)) is None
+
+
+class TestWrappedSdkErrorClassification:
+    """SDK 异常被上层重包装成子类后，仍按瞬时 / 认证 / 永久正确分类（类名沿 MRO 匹配）。
+
+    langchain-openai 1.6 的 ChatOpenAI 把 openai SDK 的超时 / 连接错误重包装成
+    ``OpenAITimeoutError`` / ``OpenAIConnectionError`` 再抛。旧实现只比对
+    ``type(exc).__name__``，三个 DeepSeek chat 出口的超时与连接失败因此被判成永久错误：
+    零重试、不计熔断。本组用真实异常类型锁死（测试可以导入 SDK，gateway 本身不导入）。
+    """
+
+    _REQUEST = httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+
+    def test_subclass_of_known_transient_name_is_transient(self) -> None:
+        """不依赖任何 SDK：类名特征对子类同样生效。"""
+
+        class APITimeoutError(Exception):
+            pass
+
+        class VendorTimeoutError(APITimeoutError):
+            pass
+
+        assert _classify_error(VendorTimeoutError()) == "transient"
+
+    def test_langchain_openai_timeout_and_connection_errors_are_transient(self) -> None:
+        assert _classify_error(OpenAITimeoutError(self._REQUEST)) == "transient"
+        assert (
+            _classify_error(OpenAIConnectionError(message="refused", request=self._REQUEST))
+            == "transient"
+        )
+
+    @pytest.mark.parametrize(("status", "expected"), [(401, "auth"), (403, "auth"), (429, "transient")])
+    def test_langchain_openai_status_errors_still_classified_by_status(
+        self, status: int, expected: str
+    ) -> None:
+        response = httpx.Response(status, request=self._REQUEST)
+        error_cls = {
+            401: OpenAIAuthenticationError,
+            403: OpenAIPermissionDeniedError,
+            429: OpenAIRateLimitError,
+        }[status]
+        assert _classify_error(error_cls(message="x", response=response, body=None)) == expected
+
+    @pytest.mark.parametrize(
+        ("exc", "expected"),
+        [
+            # 流式中途断连：openai SDK 不再包装，原始 httpx 异常直接冒出
+            (httpx.RemoteProtocolError("peer closed connection", request=_REQUEST), "transient"),
+            (httpx.ReadError("connection reset", request=_REQUEST), "transient"),
+            (httpx.ConnectError("refused", request=_REQUEST), "transient"),
+            (httpx.PoolTimeout("pool exhausted", request=_REQUEST), "transient"),
+            # 本端协议错误：重试同一个请求毫无意义
+            (httpx.LocalProtocolError("illegal header"), "permanent"),
+        ],
+    )
+    def test_httpx_transport_errors(self, exc: BaseException, expected: str) -> None:
+        assert _classify_error(exc) == expected
+
+    def test_wrapped_timeout_is_retried_by_gateway(self) -> None:
+        gw = _gateway(
+            config=GovernanceConfig(
+                profiles={
+                    ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                        timeout_seconds=10.0,
+                        retry=RetryPolicy(max_attempts=3, base_backoff_seconds=0.0),
+                    )
+                }
+            )
+        )
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OpenAITimeoutError(self._REQUEST)
+            return "ok", ProviderUsage.of(input_tokens=1, output_tokens=1)
+
+        result = gw.call(_ctx(), _call(), executor)
+        assert result.value == "ok"
+        assert result.usage_record.retry_count == 1
+        assert gw.provider_call_count == 2
 
 
 class TestDeadline:
