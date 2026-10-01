@@ -17,6 +17,7 @@ from water_agent.memory.contracts import (
     MemoryRecord,
     MemoryScopeType,
     MemoryStatus,
+    MemoryStoreUnavailableError,
 )
 from water_agent.memory.recall import (
     MAX_MEMORY_CONTEXT_CHARACTERS,
@@ -511,3 +512,149 @@ def test_postgres_chinese_recall_is_verified_when_postgres_is_configured() -> No
     )
 
     assert [hit.memory.memory_id for hit in result.hits] == [record.memory_id]
+
+
+def _usage_rows_for(database: Database, memory_id: UUID) -> list[dict[str, str | None]]:
+    with database.transaction() as session:
+        rows = session.execute(
+            text(
+                "SELECT user_id, source_thread_id, run_id FROM memory_usage "
+                "WHERE memory_id = :memory_id"
+            ),
+            {"memory_id": str(memory_id)},
+        ).mappings()
+        return [dict(row) for row in rows]
+
+
+def _event_types_for(database: Database, memory_id: UUID) -> list[str]:
+    with database.transaction() as session:
+        rows = session.execute(
+            text("SELECT event_type FROM memory_events WHERE memory_id = :memory_id"),
+            {"memory_id": str(memory_id)},
+        ).scalars()
+        return sorted(str(row) for row in rows)
+
+
+def _assert_project_viewer_recall_is_read_only_for_project_hits(database: Database) -> None:
+    owner, viewer, tenant_id = uuid4(), uuid4(), uuid4()
+    _insert_users(database, owner, viewer)
+    service = _service(database)
+    projects = ProjectRepository(database)
+    project = projects.create(owner, "viewer-recall")
+    projects.add_member(project.project_id, owner, viewer, role="viewer")
+    project_memory = service.create_memory(
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        scope_type=MemoryScopeType.PROJECT,
+        project_id=UUID(project.project_id),
+        kind=MemoryKind.PROJECT_FACT,
+        semantic_key="pump-room",
+        content="本项目泵房设在地下一层",
+        origin=MemoryOrigin.EXPLICIT_USER,
+    )
+    personal_memory = _user_memory(
+        service,
+        tenant_id=tenant_id,
+        actor_user_id=viewer,
+        content="个人偏好：泵房大样图用 1:50",
+        semantic_key="viewer-pump-scale",
+    )
+    thread_id, run_id = uuid4(), uuid4()
+
+    result = MemoryRecallService(database).recall(
+        tenant_id=tenant_id,
+        actor_user_id=viewer,
+        project_id=project.project_id,
+        query="泵房",
+        source_thread_id=thread_id,
+        run_id=run_id,
+    )
+
+    # The viewer reads both memories: its own and the project's.
+    assert {hit.memory.memory_id for hit in result.hits} == {
+        personal_memory.memory_id,
+        project_memory.memory_id,
+    }
+    # Usage is a write (memory_usage row + RECALLED event): it is recorded for
+    # the memory the viewer may write and skipped for the read-only project one.
+    assert _usage_rows_for(database, personal_memory.memory_id) == [
+        {"user_id": str(viewer), "source_thread_id": str(thread_id), "run_id": str(run_id)}
+    ]
+    assert _event_types_for(database, personal_memory.memory_id) == ["created", "recalled"]
+    assert _usage_rows_for(database, project_memory.memory_id) == []
+    assert _event_types_for(database, project_memory.memory_id) == ["created"]
+
+
+def test_project_viewer_recall_skips_usage_for_read_only_hits(database: Database) -> None:
+    """Regression: a project viewer's recall used to fail as a whole.
+
+    The recall SQL returns project memories on read access, then usage was
+    recorded per hit through ``record_usage`` -- which requires write access --
+    so the project hit raised and the whole recall became
+    ``MEMORY_STORE_UNAVAILABLE`` (Web search 503, run ``MEMORY_RECALL_DEGRADED``),
+    taking the viewer's own memory down with it after its usage row had
+    already been committed.
+    """
+
+    _assert_project_viewer_recall_is_read_only_for_project_hits(database)
+
+
+def test_usage_recording_failure_does_not_fail_the_recall(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    record = _user_memory(
+        _service(database),
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        content="给水管材默认 PPR",
+        semantic_key="pipe-material",
+    )
+
+    def unavailable(self: MemoryRepository, *args: object, **kwargs: object) -> None:
+        raise MemoryStoreUnavailableError()
+
+    monkeypatch.setattr(MemoryRepository, "record_usage", unavailable)
+
+    result = MemoryRecallService(database).recall(
+        tenant_id=tenant_id, actor_user_id=owner, query="给水"
+    )
+
+    # Usage is best-effort audit metadata: the authorized hits are still returned.
+    assert [hit.memory.memory_id for hit in result.hits] == [record.memory_id]
+    assert "给水管材默认 PPR" in result.context_text
+
+
+def test_recall_without_usage_recording_writes_nothing(database: Database) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    record = _user_memory(
+        _service(database),
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        content="给水管材默认 PPR",
+        semantic_key="pipe-material",
+    )
+
+    result = MemoryRecallService(database).recall(
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        query="给水",
+        source_thread_id=uuid4(),
+        record_usage=False,
+    )
+
+    assert [hit.memory.memory_id for hit in result.hits] == [record.memory_id]
+    assert _usage_rows_for(database, record.memory_id) == []
+    assert _event_types_for(database, record.memory_id) == ["created"]
+
+
+def test_postgres_project_viewer_recall_is_verified_when_postgres_is_configured() -> None:
+    url = os.getenv("P5_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("P5_TEST_DATABASE_URL is not configured")
+    database = Database(url=url)
+    database.require_ready()
+
+    _assert_project_viewer_recall_is_read_only_for_project_hits(database)
