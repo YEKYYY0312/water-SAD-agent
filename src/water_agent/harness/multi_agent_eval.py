@@ -1,8 +1,9 @@
 """Step 34 multi-agent P0 harness driven by the production graph.
 
-The harness may inject faults into real agent outputs, but it never constructs
-approval records, review packages, exports, or trace events. Those facts must
-come from ``MultiAgentOrchestrator`` and its persisted interrupt/resume path.
+The harness may inject faults into real agent outputs (or skip the approval node
+to model an unapproved export attempt), but it never constructs approval records,
+review packages, exports, or trace events. Those facts must come from
+``MultiAgentOrchestrator`` and its persisted interrupt/resume path.
 """
 
 from __future__ import annotations
@@ -512,6 +513,28 @@ def _active_design_segments(state: dict[str, Any], registry: dict[str, Any]) -> 
     return _segment_rows([segment.model_dump(mode="json") for segment in package.segments])
 
 
+def _approval_rejection_recorded(state: dict[str, Any], trace_events: list[dict[str, Any]]) -> bool:
+    """A human rejection is persisted in state and visible as such in the trace."""
+    from pydantic import ValidationError
+
+    from water_agent.multi_agent.contracts import ApprovalRecord
+
+    try:
+        record = ApprovalRecord.model_validate(state.get("approval_record"))
+    except ValidationError:
+        return False
+    return (
+        record.approved is False
+        and bool(record.reason.strip())
+        and record.final_package_hash is not None
+        and record.final_package_hash == state.get("approval_context_hash")
+        and any(
+            _event_name(event) == "approval_resumed" and event.get("approval_decision") == "rejected"
+            for event in trace_events
+        )
+    )
+
+
 def _normalized_brief(raw: Any) -> dict[str, Any] | None:
     from pydantic import ValidationError
 
@@ -610,11 +633,18 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
         if interrupt_observed:
             if scenario == "approval_drift":
                 _drift_drawing_plan(app, config, paused)
-            decision = {
-                "approved": scenario != "unapproved_export",
-                "reason": "approved by mechanism harness" if scenario != "unapproved_export" else "not approved",
-            }
-            result = dict(app.invoke(Command(resume=decision), config=config))
+            if scenario == "unapproved_export":
+                # 注入的未审批导出：跳过人工审批节点（没有任何人工决定、也不构造批准记录），
+                # 直接把运行推向发布门。拦不拦得住完全由生产 release_gate 决定。
+                app.update_state(config, {"status": "running"}, as_node="approval")
+                result = dict(app.invoke(None, config=config))
+            else:
+                rejected = scenario == "approval_rejected"
+                decision = {
+                    "approved": not rejected,
+                    "reason": "rejected by mechanism harness" if rejected else "approved by mechanism harness",
+                }
+                result = dict(app.invoke(Command(resume=decision), config=config))
             resume_observed = True
 
         safe_events = [
@@ -749,12 +779,18 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                     _check("exported_file_exists", True, exported_file_exists),
                 ]
             )
-        if scenario in {"approval_drift", "unapproved_export"}:
+        if scenario in {"approval_drift", "unapproved_export", "approval_rejected"}:
+            # 审批漂移与人工拒绝在 approval 节点收口、不进发布门；只有被注入的"绕过审批的
+            # 导出尝试"才到发布门，由它拦下。三者都不得调用导出器。
             checks.extend(
                 [
                     _check("interrupt_observed", True, interrupt_observed),
                     _check("resume_observed", True, resume_observed),
-                    _check("release_gate_observed", True, "release_gate_checked" in event_names),
+                    _check(
+                        "release_gate_observed",
+                        scenario == "unapproved_export",
+                        "release_gate_checked" in event_names,
+                    ),
                     _check("exporter_not_called", 0, calls["export"]),
                     _check("no_exported_file", False, exported_file_exists),
                 ]
@@ -785,10 +821,30 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                 )
             )
 
+        if "errors" in expected:
+            checks.append(_check("errors", list(expected["errors"]), list(result.get("errors") or [])))
+        if "approval_rejection_recorded" in expected:
+            checks.append(
+                _check(
+                    "approval_rejection_recorded",
+                    bool(expected["approval_rejection_recorded"]),
+                    _approval_rejection_recorded(result, safe_events),
+                )
+            )
+
         detectors = [
             {"detector_id": finding["detector_id"], "event_hash": finding["event_hash"]}
             for finding in detect_multi_agent_events(safe_events)
         ]
+        if "detectors_absent" in expected:
+            fired = {detector["detector_id"] for detector in detectors}
+            checks.append(
+                _check(
+                    "detectors_absent",
+                    sorted(expected["detectors_absent"]),
+                    sorted(set(expected["detectors_absent"]) - fired),
+                )
+            )
         if "detector" in expected:
             actual_detector = next(
                 (

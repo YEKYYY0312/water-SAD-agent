@@ -68,6 +68,25 @@ def test_approval_drift_positive() -> None:
     assert "approval_drift" in _detectors_for("ma-p0-08")
 
 
+def test_approval_drift_is_not_also_reported_as_an_export_attempt() -> None:
+    assert "unapproved_export" not in _detectors_for("ma-p0-08")
+
+
+def test_plain_rejection_is_not_an_unapproved_export() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        result = run_one_case(
+            _case("ma-p0-18"),
+            staging_dir=os.path.join(td, "s"),
+            final_dir=os.path.join(td, "f"),
+        )
+    # 先确认这确实是一次人工拒绝，再看检测器：拒绝不是导出尝试
+    assert result["status"] == "blocked"
+    assert result["errors"] == ["MULTI_APPROVAL_REQUIRED"]
+    detectors = {detector["detector_id"] for detector in result["detectors"]}
+    assert "unapproved_export" not in detectors
+    assert "approval_drift" not in detectors
+
+
 def test_provenance_gap_positive() -> None:
     assert "provenance_gap" in _detectors_for("ma-p0-05")
 
