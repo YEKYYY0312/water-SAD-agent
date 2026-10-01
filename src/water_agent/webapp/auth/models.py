@@ -103,5 +103,7 @@ AUTH_ERROR_CODES: frozenset[str] = frozenset(
         "AUTH_USER_NOT_FOUND",           # admin-facing; not exposed on login path
         "AUTH_USERNAME_TAKEN",           # admin creates duplicate username
         "AUTH_WEAK_PASSWORD",            # password policy violation
+        "AUTH_CANNOT_DEACTIVATE_SELF",   # an admin may not deactivate their own account
+        "AUTH_LAST_ACTIVE_ADMIN",        # deactivation would leave no active admin
     }
 )
