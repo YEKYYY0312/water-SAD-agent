@@ -669,6 +669,7 @@ class ApprovalRecord(BaseModel):
     # this optional for pre-Step-33 persisted records; release_gate rejects a
     # record that does not carry it.
     final_package_hash: str | None = None
+    #: 人工决定的时间。``approved=False`` 的拒绝记录同样填写（字段名沿用旧契约）。
     approved_at: str = Field(min_length=1)
     expires_at: str | None = None
 
@@ -759,6 +760,9 @@ class FinalProjectPackage(BaseModel):
 
     @model_validator(mode="after")
     def _validate_approval_ids(self) -> FinalProjectPackage:
+        # ApprovalRecord 也承载人工拒绝（approved=False）；拒绝记录绝不能组装成最终包。
+        if not self.approval_record.approved:
+            raise ValueError(f"{MULTI_APPROVAL_REQUIRED}: final package requires an approved record")
         declared = [
             self.calc_artifact_id,
             self.design_artifact_id,
