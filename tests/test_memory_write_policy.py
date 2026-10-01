@@ -36,6 +36,7 @@ from water_agent.memory import (
     MemoryWriteAction,
     MemoryWriteGuard,
     adapt_remember_command,
+    pending_candidates,
 )
 from water_agent.memory.pending_candidates import PendingCandidateStore
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -223,6 +224,122 @@ def test_pending_candidates_are_bounded_and_expire_without_persistence(
     with pytest.raises(MemoryNotFoundError, match="candidate not found"):
         store.get(second.candidate_id)
     assert _count_rows(database, "memory_records") == 0
+
+
+# ---------------------------------------------------------------------------
+# 待确认候选按用户设配额
+#
+# 回归（已复现）：上限 256 是全局共享的，超限时按插入顺序淘汰最旧的候选，不看是谁的。
+# bob 连发 256 个预览后，alice 确认自己的预览返回 404 MEMORY_NOT_FOUND——任何登录
+# 用户都能让别人的「保存记忆」确认失败。
+# ---------------------------------------------------------------------------
+
+
+def _copies(candidate, count: int) -> list:
+    return [candidate.model_copy(update={"candidate_id": uuid4()}) for _ in range(count)]
+
+
+def _held(store: PendingCandidateStore, candidate) -> bool:
+    try:
+        store.get(candidate.candidate_id)
+    except MemoryNotFoundError:
+        return False
+    return True
+
+
+def _template(database: Database, tenant_id: UUID, actor: UUID):
+    _insert_users(database, actor)
+    return _candidate(_write_service(database), tenant_id=tenant_id, actor_user_id=actor)
+
+
+def test_one_users_preview_flood_never_evicts_another_users_candidate(
+    database: Database,
+) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore()
+    (mine,) = _copies(template, 1)
+    store.put(mine, tenant_id=tenant_id, actor_user_id=alice)
+
+    flood = _copies(template, pending_candidates.PENDING_CANDIDATE_LIMIT)
+    for item in flood:
+        store.put(item, tenant_id=tenant_id, actor_user_id=bob)
+
+    assert _held(store, mine), "别的用户的预览不得挤掉我的候选"
+    quota = pending_candidates.PENDING_CANDIDATE_PER_USER_LIMIT
+    assert all(_held(store, item) for item in flood[-quota:])
+    assert not any(_held(store, item) for item in flood[:-quota]), "超额只淘汰 bob 自己最旧的"
+
+
+def test_per_user_quota_evicts_only_that_users_oldest_candidate(database: Database) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=10, per_user_limit=2)
+    (theirs,) = _copies(template, 1)
+    a1, a2, a3 = _copies(template, 3)
+    store.put(theirs, tenant_id=tenant_id, actor_user_id=bob)
+    for item in (a1, a2, a3):
+        store.put(item, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, a1)
+    assert _held(store, a2) and _held(store, a3)
+    assert _held(store, theirs)
+
+
+def test_global_cap_evicts_only_the_heaviest_users_oldest_candidate(
+    database: Database,
+) -> None:
+    """总上限仍在（防内存无界），但超限时只拿占用最多的那个用户开刀。"""
+
+    alice, bob, carol, tenant_id = uuid4(), uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=3)
+    b1, b2, b3 = _copies(template, 3)
+    a1, c1 = _copies(template, 2)
+    for item in (b1, b2, b3):
+        store.put(item, tenant_id=tenant_id, actor_user_id=bob)
+    store.put(a1, tenant_id=tenant_id, actor_user_id=alice)
+
+    store.put(c1, tenant_id=tenant_id, actor_user_id=carol)
+
+    assert not _held(store, b1)
+    assert all(_held(store, item) for item in (b2, b3, a1, c1))
+
+
+def test_global_cap_tie_evicts_the_submitters_own_oldest_first(database: Database) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=3)
+    a1, a2, a3 = _copies(template, 3)
+    b1, b2 = _copies(template, 2)
+    for item, owner in ((a1, alice), (b1, bob), (a2, alice), (b2, bob)):
+        store.put(item, tenant_id=tenant_id, actor_user_id=owner)
+
+    store.put(a3, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, a1), "并列最多时先淘汰提交者自己的"
+    assert all(_held(store, item) for item in (a2, a3, b1, b2))
+
+
+def test_global_cap_tie_among_others_evicts_the_longest_waiting_users_oldest(
+    database: Database,
+) -> None:
+    alice, bob, carol, tenant_id = uuid4(), uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=4)
+    b1, c1, b2, c2, a1 = _copies(template, 5)
+    for item, owner in ((b1, bob), (c1, carol), (b2, bob), (c2, carol)):
+        store.put(item, tenant_id=tenant_id, actor_user_id=owner)
+
+    store.put(a1, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, b1)
+    assert all(_held(store, item) for item in (c1, b2, c2, a1))
+
+
+def test_pending_store_rejects_a_non_positive_per_user_limit() -> None:
+    with pytest.raises(ValueError):
+        PendingCandidateStore(per_user_limit=0)
 
 
 @pytest.mark.parametrize(
