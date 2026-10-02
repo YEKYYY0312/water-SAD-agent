@@ -63,6 +63,10 @@ class _SpyLedger(InMemoryBudgetLedger):
         self.events.append(("rollback",))
         super().rollback(key, reservation_id)
 
+    def settle_unknown(self, key, reservation_id):  # type: ignore[override]
+        self.events.append(("settle_unknown",))
+        super().settle_unknown(key, reservation_id)
+
 
 class _FakeClock:
     """可手动推进的单调时钟。"""
@@ -926,8 +930,8 @@ class TestReservationResolvedExactlyOnce:
         ("scenario", "expected"),
         [
             ("normal_with_usage", ("settle", 130)),
-            ("normal_without_usage", ("settle", 0, None)),  # usage 未知：不估算
-            ("caller_close", ("settle", 0, None)),  # 提前关闭：按 usage 未知结清
+            ("normal_without_usage", ("settle_unknown",)),  # usage 未知：不估算账单，额度按预留计入
+            ("caller_close", ("settle_unknown",)),  # 提前关闭：按 usage 未知结清
             ("error_before_first_chunk", ("rollback",)),
             ("error_after_first_chunk", ("rollback",)),
             ("deadline_mid_stream", ("rollback",)),
@@ -980,3 +984,40 @@ class TestHundredStreamInvariant:
         assert snap.reserved_tokens == 0
         assert snap.spent_tokens == expected_spent == 25 * 15
         assert gw.provider_call_count == 100
+
+
+class TestEarlyCloseCannotDodgeTheTokenCap:
+    """review 2026-09-30：提前关闭的流按 0 token 结清，反复提前关闭就能绕过每日 token 额度。
+
+    额度是失控保护，拿不到账单（provider 不回 usage、调用方提前关闭）时也必须成立：请求已经
+    发出、上游可能已经计费，预留额度计入"未确认用量"；账单侧照旧不估算。
+    """
+
+    def test_repeated_early_close_hits_the_daily_cap(self) -> None:
+        config = _config(budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=1_000))
+        gw = _gateway(config=config)
+        accepted = 0
+        for _ in range(10):  # 每次预留 100 + 200 = 300：第 4 次起超额
+            stream = _FakeStream([_Chunk("a"), _Chunk("b")])
+            it = gw.stream_call(_ctx(), _call(), _Opener(stream), usage_of=_usage_of)
+            try:
+                next(it)
+            except GovernanceError as exc:
+                assert exc.code == "BUDGET_EXCEEDED"
+                break
+            accepted += 1
+            it.close()
+        assert accepted == 3, "提前关闭不得让额度永远不涨"
+        snap = _snapshot(gw)
+        assert snap.unconfirmed_tokens == 900 and snap.spent_tokens == 0, "未确认用量与真实账单分开记"
+        assert snap.reserved_tokens == 0
+
+    def test_unknown_usage_is_not_reported_as_spend(self) -> None:
+        records: list[UsageRecord] = []
+        gw = _gateway(records=records)
+        stream = _FakeStream([_Chunk("a")])
+        list(gw.stream_call(_ctx(), _call(), _Opener(stream), usage_of=_usage_of))
+        snap = _snapshot(gw)
+        assert snap.spent_tokens == 0 and snap.spent_cost_usd == 0.0
+        assert snap.unconfirmed_tokens == 300
+        assert records[0].usage_known is False and records[0].input_tokens is None

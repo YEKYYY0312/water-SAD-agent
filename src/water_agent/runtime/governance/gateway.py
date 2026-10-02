@@ -452,11 +452,12 @@ class ProviderGateway:
         - ``provider_call_count`` 与 :meth:`call` 同口径：每次尝试加 1。
         - **usage**：取流里最后一个非 ``None`` 的 ``usage_of(chunk)``（OpenAI 兼容接口开启
           ``include_usage`` 后 usage 在最后一个 chunk）。正常结束的对账与 :meth:`call` 一致：
-          有 usage 按真实用量结清，没有就记 ``USAGE_UNKNOWN`` 并释放预留。空流（首个 chunk
+          有 usage 按真实用量结清，没有就记 ``USAGE_UNKNOWN``，预留额度计入"未确认用量"。空流（首个 chunk
           就是 ``StopIteration``）按正常结束、usage 未知处理。
-        - **调用方提前关闭**（``GeneratorExit``：取消、上层预算超限）：关闭上游迭代器，预留按
-          usage 未知结清（``actual_tokens=0``，不估算），落一条 ``USAGE_UNKNOWN`` 账，
-          **不计熔断失败**——不是上游的错。
+        - **调用方提前关闭**（``GeneratorExit``：取消、上层预算超限）：关闭上游迭代器，按 usage
+          未知结清——账单侧不记 token、不估算（落一条 ``USAGE_UNKNOWN`` 账），额度侧把预留额度
+          计入"未确认用量"（``BudgetLedger.settle_unknown``：请求已发出、上游可能已经计费；按 0
+          结清的话反复提前关闭就能绕过每日 token 额度）；**不计熔断失败**——不是上游的错。
         - ``opener()`` 或首个 chunk 抛 ``NotImplementedError``（上游不支持流式）：不是 provider
           失败——不重试、不计熔断、不落账，回滚预留、归还半开探测名额后原样抛出，调用方据此
           回退到 :meth:`call`（名额不还的话，回退的那次 ``call`` 会被这条流自己挡在熔断外）。
@@ -705,11 +706,10 @@ class ProviderGateway:
                 retry_count=retries,
             )
         else:
-            # provider 未返回 usage：只释放预留，不记 token（无从得知），不估成本。
-            self.budget_ledger.settle(
-                admission.budget_key, admission.reservation_id,
-                actual_tokens=0, actual_cost_usd=None,
-            )
+            # provider 未返回 usage（或流被调用方提前关闭）：请求已发出、用量无从得知。账单侧不记
+            # token、不估成本（UsageRecord 保持 usage 未知）；额度侧按预留额度计入"未确认用量"，
+            # 否则反复提前关闭流就能让每日 token 额度永远不涨（review 2026-09-30）。
+            self.budget_ledger.settle_unknown(admission.budget_key, admission.reservation_id)
             record = self._unknown_usage_record(ctx, call, latency_ms, retries, cache_status)
 
         self._emit(record)

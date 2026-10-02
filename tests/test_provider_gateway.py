@@ -423,7 +423,21 @@ class TestBudget:
         gw.call(_ctx(), _call(), lambda: ("x", ProviderUsage.unknown()))
         snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
         assert snap.spent_cost_usd == 0.0  # 不猜成本
-        assert snap.reserved_tokens == 0  # 预留已释放
+        assert snap.spent_tokens == 0  # 账单侧不估算
+        assert snap.reserved_tokens == 0  # 预留已结清
+        assert snap.unconfirmed_tokens > 0  # 额度侧按预留计入，不能让 usage 未知的调用免额度
+
+    def test_calls_without_usage_still_exhaust_the_daily_cap(self) -> None:
+        """provider 一直不回 usage：此前按 0 结清，额度永远不涨（review 2026-09-30）。"""
+        config = self._blocking_config(cap=10_000)
+        gw = _gateway(config=config)
+        sent = 0
+        with pytest.raises(GovernanceError) as exc:
+            for _ in range(1_000):
+                gw.call(_ctx(), _call(), lambda: ("x", ProviderUsage.unknown()))
+                sent += 1
+        assert exc.value.code == "BUDGET_EXCEEDED"
+        assert 0 < sent < 1_000
 
 
 class TestRetryAndErrorClassification:
@@ -861,6 +875,10 @@ class _SpyLedger(InMemoryBudgetLedger):
     def rollback(self, key, reservation_id):  # type: ignore[override]
         self.events.append("rollback")
         super().rollback(key, reservation_id)
+
+    def settle_unknown(self, key, reservation_id):  # type: ignore[override]
+        self.events.append("settle_unknown")
+        super().settle_unknown(key, reservation_id)
 
 
 #: 非 ``Exception`` 的 ``BaseException``：进程或任务要停下的信号，不是 provider 的失败。
