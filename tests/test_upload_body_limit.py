@@ -1191,9 +1191,13 @@ def test_request_ceiling_leaves_room_for_the_largest_legitimate_body(app: FastAP
     worst["GenerationRequest"] = _worst_json_bytes(drawing, drawing.get("$defs", {}))
 
     unbounded = sorted(name for name, size in worst.items() if size is None)
-    # Usernames and passwords: no declared limit, a few hundred bytes in practice
-    # (users.username is varchar(128)); the ceiling is now their bound.
-    assert unbounded == ["_ChangePassBody", "_CreateUserBody", "_LoginBody", "_ResetPasswordBody"]
+    # Only the auth bodies (usernames and passwords, a few hundred bytes in practice;
+    # users.username is varchar(128)) may lack a declared bound -- the ceiling is then
+    # their bound.  Which of them still lack one depends on whether the auth-hardening
+    # branch (field limits on login / change-pass / reset) is merged, so assert the
+    # allow-list, not the exact set: any other unbounded body turns this red.
+    auth_bodies = {"_ChangePassBody", "_CreateUserBody", "_LoginBody", "_ResetPasswordBody"}
+    assert set(unbounded) <= auth_bodies, unbounded
     bounded = {name: size for name, size in worst.items() if size is not None}
     largest = max(bounded, key=lambda name: bounded[name])
     assert largest == "MessageRequest", bounded
