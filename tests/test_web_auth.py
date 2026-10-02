@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,8 +16,8 @@ from water_agent.webapp.auth import audit as auth_audit
 from water_agent.webapp.auth.bootstrap import run_bootstrap
 from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
 from water_agent.webapp.auth.dependencies import SESSION_COOKIE_NAME
-from water_agent.webapp.auth.models import UserRole
-from water_agent.webapp.auth.password import hash_password
+from water_agent.webapp.auth.models import AUTH_ERROR_CODES, UserRole
+from water_agent.webapp.auth.password import hash_password, verify_password
 from water_agent.webapp.auth.rate_limit import LoginRateLimiter
 from water_agent.webapp.auth.session_store import SessionStore
 from water_agent.webapp.auth.user_store import UserStore
@@ -168,6 +169,67 @@ def test_bootstrap_is_idempotent(tmp_path: Path):
 
     skipped = [e for e in auth_audit._get_events() if e["event"] == "auth.bootstrap_admin_skipped"]
     assert len(skipped) == 1
+
+
+def _bootstrap_against(store: UserStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    import water_agent.webapp.auth.bootstrap as bs_mod
+    import water_agent.webapp.auth.user_store as us_mod
+
+    monkeypatch.setattr(us_mod, "_store", store)
+    monkeypatch.setattr(bs_mod, "configure_database_stores", lambda: object())
+
+
+def test_bootstrap_with_a_deactivated_same_named_admin_succeeds_without_touching_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """回归：唯一的管理员停用自己后，bootstrap 每次都以 "username 'admin' already exists"
+    退出 1，而 compose 里 app 依赖 bootstrap-admin 成功退出——app 永远起不来。
+
+    现在同名管理员已存在即按幂等成功（退出 0），但 bootstrap 不是恢复后门：不重新激活
+    该账号、不用 secret 文件里的密码重置它，也不需要 secret 文件。
+    """
+    store = UserStore()
+    admin = store.create_user("admin", "OriginalAdminPass2026!", UserRole.ADMIN)
+    store.set_active(admin.user_id, active=False)
+    before = store.get_by_id(admin.user_id)
+    secret = tmp_path / "admin_password"
+    secret.write_text("ReplacementAdminPass2026!", encoding="utf-8")
+    _bootstrap_against(store, monkeypatch)
+
+    assert run_bootstrap(secret_path=secret) == 0
+    assert run_bootstrap(secret_path=tmp_path / "missing-secret") == 0
+
+    after = store.get_by_id(admin.user_id)
+    assert after.is_active is False
+    assert after.password_hash == before.password_hash
+    assert after.must_change_password is before.must_change_password
+    assert verify_password("OriginalAdminPass2026!", after.password_hash)
+    assert not verify_password("ReplacementAdminPass2026!", after.password_hash)
+    assert [user.user_id for user in store.list_users()] == [admin.user_id]
+    assert store.has_admin() is False
+    err = capsys.readouterr().err
+    assert "already exists but is deactivated" in err
+    assert "ReplacementAdminPass2026!" not in err
+    skipped = [e for e in auth_audit._get_events() if e["event"] == "auth.bootstrap_admin_skipped"]
+    assert [e["reason"] for e in skipped] == ["admin_exists_inactive", "admin_exists_inactive"]
+
+
+def test_bootstrap_still_refuses_when_the_admin_name_belongs_to_a_non_admin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """同名账号不是管理员时 bootstrap 无法完成本职（建出管理员），仍退出 1 且不改动该账号。"""
+    store = UserStore()
+    member = store.create_user("admin", "MemberNamedAdmin2026!", UserRole.MEMBER)
+    before = store.get_by_id(member.user_id)
+    secret = tmp_path / "admin_password"
+    secret.write_text("SecureBootstrapPass!2026", encoding="utf-8")
+    _bootstrap_against(store, monkeypatch)
+
+    assert run_bootstrap(secret_path=secret) == 1
+
+    assert store.get_by_id(member.user_id) == before
+    assert len(store.list_users()) == 1
+    assert "is taken by a non-admin account" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +613,86 @@ def test_admin_can_create_and_deactivate_user():
     )
     assert r2.status_code == 200
     assert r2.json()["data"]["deactivated"] is True
+
+
+def _admin_client(store: UserStore, monkeypatch: pytest.MonkeyPatch, username: str) -> TestClient:
+    """A TestClient over ``store`` that is already logged in as ``username``."""
+    import water_agent.webapp.auth.rate_limit as rl_mod
+    import water_agent.webapp.auth.session_store as ss_mod
+    import water_agent.webapp.auth.user_store as us_mod
+    from water_agent.webapp.app import create_app
+
+    monkeypatch.setattr(us_mod, "_store", store)
+    monkeypatch.setattr(ss_mod, "_store", SessionStore())
+    monkeypatch.setattr(rl_mod, "_limiter", LoginRateLimiter())
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    login = client.post("/api/auth/login", json={"username": username, "password": "AdminPass2026!"})
+    assert login.status_code == 200, login.text
+    return client
+
+
+def _deactivate(client: TestClient, user_id: object):
+    return client.patch(
+        f"/api/admin/users/{user_id}/deactivate",
+        headers={"X-CSRF-Token": client.cookies.get(CSRF_COOKIE_NAME) or ""},
+    )
+
+
+def test_admin_cannot_deactivate_their_own_account(monkeypatch: pytest.MonkeyPatch):
+    """回归：唯一的活跃管理员能停用自己。之后 bootstrap-admin 因同名账号已存在每次退出 1，
+    compose 里依赖它成功退出的 app 再也起不来。现在一律拒绝停用自己（409）。"""
+    store = UserStore()
+    admin = store.create_user("admin", "AdminPass2026!", UserRole.ADMIN)
+    client = _admin_client(store, monkeypatch, "admin")
+
+    refused = _deactivate(client, admin.user_id)
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["error"]["code"] == "AUTH_CANNOT_DEACTIVATE_SELF"
+    assert "AUTH_CANNOT_DEACTIVATE_SELF" in AUTH_ERROR_CODES
+    assert store.get_by_id(admin.user_id).is_active is True
+    assert client.get("/api/admin/users").status_code == 200, "会话没有被顺手吊销"
+
+    # 有别的管理员时同样拒绝停用自己；停用别人照常可以。
+    other = store.create_user("second-admin", "AdminPass2026!", UserRole.ADMIN)
+    assert _deactivate(client, admin.user_id).status_code == 409
+    allowed = _deactivate(client, other.user_id)
+    assert allowed.status_code == 200, allowed.text
+    assert store.get_by_id(other.user_id).is_active is False
+
+
+class _ConcurrentDeactivationStore(UserStore):
+    """确定性地模拟两个管理员同时互相停用：对方的请求先提交，本请求的写入后到。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lands_first: UUID | None = None
+
+    def deactivate(self, user_id: UUID) -> None:
+        if self.lands_first is not None:
+            other, self.lands_first = self.lands_first, None
+            super().deactivate(other)
+        super().deactivate(user_id)
+
+
+def test_concurrent_deactivation_cannot_remove_the_last_active_admin(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """管理员 A、B 同时互相停用：两边都通过了"不是自己"的检查，只有原子的
+    "最后一个活跃管理员"判定能保证至少留下一个（409 AUTH_LAST_ACTIVE_ADMIN）。"""
+    store = _ConcurrentDeactivationStore()
+    first = store.create_user("admin", "AdminPass2026!", UserRole.ADMIN)
+    second = store.create_user("second-admin", "AdminPass2026!", UserRole.ADMIN)
+    client = _admin_client(store, monkeypatch, "admin")
+    store.lands_first = first.user_id  # B 停用 A 的请求抢先提交
+
+    refused = _deactivate(client, second.user_id)
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["error"]["code"] == "AUTH_LAST_ACTIVE_ADMIN"
+    assert "AUTH_LAST_ACTIVE_ADMIN" in AUTH_ERROR_CODES
+    assert store.get_by_id(second.user_id).is_active is True
+    assert store.has_admin() is True
 
 
 # ---------------------------------------------------------------------------

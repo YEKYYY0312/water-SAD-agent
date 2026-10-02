@@ -20,8 +20,9 @@ Order of checks (the order is the authorization property):
    ``/api/runs/{id}/trace``; recorded as a known limitation, not hidden.
 
 Exports are written to the exports volume (``resolve_export_dir``) under a fresh
-per-request directory and removed once the response has been sent -- the volume
-is a staging area, not an archive.
+per-request directory, read back into memory and the directory removed before
+the response is returned, on every branch -- the volume is a staging area, not
+an archive.  ``Range`` is not honoured: the response is always the whole file.
 """
 
 from __future__ import annotations
@@ -34,8 +35,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
-from starlette.background import BackgroundTask
+from fastapi.responses import JSONResponse, Response
 
 from water_agent.docgen.docx_export import (
     DocxExportError,
@@ -230,23 +230,26 @@ async def export_run(
             _render_docx(snapshot, title, target)
         else:
             _render_xlsx(snapshot, title, target)
+        content = target.read_bytes()
     except DocxExportError as exc:
-        shutil.rmtree(workdir, ignore_errors=True)
         # 自检失败不是服务故障：答案里有未声明的条款号或自相矛盾的数值，
         # 如实说"这份内容不能成为正式文档"，问题清单给用户看。
         return _error("WEB_EXPORT_SELF_CHECK_FAILED", str(exc)[:1000], status_code=422)
     except (OSError, ValueError, ImportError):
-        shutil.rmtree(workdir, ignore_errors=True)
         return _error("WEB_EXPORT_FAILED", "Export could not be generated", status_code=500)
+    finally:
+        # 暂存目录在返回之前删除，与响应走哪条分支无关。此前用 FileResponse 的
+        # background 删除：Range 非法时它直接回 416/400、不执行 background，每个这样
+        # 的请求都在导出卷上留下一个目录。单个导出文件很小，整份读进内存即可。
+        shutil.rmtree(workdir, ignore_errors=True)
 
-    return FileResponse(
-        target,
+    return Response(
+        content=content,
         media_type=EXPORT_FORMATS[export_format],
         headers={
             "Content-Disposition": content_disposition(filename),
             "Cache-Control": "no-store",
         },
-        background=BackgroundTask(shutil.rmtree, workdir, ignore_errors=True),
     )
 
 

@@ -18,6 +18,7 @@ from water_agent.runtime.agentic import (
     real_llm_configured,
 )
 from water_agent.storage.repository import (
+    ProjectRepository,
     ResourceNotFoundError,
     RunRepository,
     WebSessionRepository,
@@ -32,6 +33,7 @@ from water_agent.webapp.run_manager import (
     WebAgenticSessionFactory,
     parse_last_event_id,
 )
+from water_agent.webapp.workspace_routes import _can_write_project
 
 router = APIRouter()
 _API_VERSION = "v1"
@@ -115,6 +117,19 @@ def _not_configured(code: str, message: str) -> JSONResponse:
     )
 
 
+def _forbidden() -> JSONResponse:
+    """403：会话可读，但当前账号在该项目里没有写权限。"""
+
+    return JSONResponse(
+        status_code=403,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {"code": "WEB_FORBIDDEN", "message": "This action is not authorized"},
+        },
+    )
+
+
 @router.post(
     "/api/sessions/{thread_id}/messages",
     dependencies=[Depends(validate_csrf)],
@@ -140,6 +155,17 @@ async def create_message(
         web_session = sessions.get_for_user(thread_id, user.user_id)
     except ResourceNotFoundError:
         return _not_found()
+    # 能读不等于能写：在项目会话里发消息会以本人名义建 run、写该会话的 checkpoint，
+    # 与新建项目会话同一条写权限规则（项目 viewer、全局 VIEWER 一律 403）。
+    if web_session.project_id is not None:
+        try:
+            role = ProjectRepository(database).membership_role(
+                web_session.project_id, user.user_id
+            )
+        except ResourceNotFoundError:
+            return _not_found()
+        if not _can_write_project(role, user.role):
+            return _forbidden()
 
     factory = manager.session_factory
     if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator:
