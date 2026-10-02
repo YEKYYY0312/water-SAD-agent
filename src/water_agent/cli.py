@@ -423,6 +423,31 @@ def _read_cli_input(prompt: str, ui) -> str:
     return input()
 
 
+_APPROVE_ANSWERS = frozenset({"y", "yes", "是"})
+_REJECT_ANSWERS = frozenset({"n", "no", "否"})
+
+
+def _prompt_docgen_decision(ui) -> dict[str, Any] | None:
+    """docgen 人审提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；返回 None = 挂起。
+
+    两处提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定（此前在"拒绝原因"处中断会提交
+    一次空原因的拒绝，最后一稿上即收口 failed，不可撤回）。只认显式回答：y/yes/是 = 批准，
+    n/no/否 = 拒绝，其余（含空行）重新询问——不把没认出的输入当成拒绝。
+    """
+    try:
+        while True:
+            answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
+            if answer in _APPROVE_ANSWERS:
+                return {"approved": True}
+            if answer in _REJECT_ANSWERS:
+                break
+            print("请输入 y（批准）或 n（拒绝）；Ctrl-C 挂起审批。", file=ui)
+        reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return {"approved": False, "reason": reason}
+
+
 def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
     """``--flow docgen``：gather → draft → 人审（y/n + 原因）→ finalize；``--resume`` 恢复挂起会话。
 
@@ -430,7 +455,7 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
     """
     from langgraph.types import Command
 
-    from water_agent.graphs.docgen import build_docgen_graph
+    from water_agent.graphs.docgen import approval_decision_error, build_docgen_graph
 
     session_id = args.resume or new_session_id()
     session_dir = Path(args.session_dir)
@@ -455,12 +480,15 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             return 2
         app = build_docgen_graph(checkpointer=saver)
         snapshot = app.get_state(config) if args.resume else None
-        if snapshot is not None and snapshot.next:
+        # 判挂起以 interrupts 为准、不能只看 next：图内拒收非法 resume 值后会带 error 再
+        # interrupt 一次，会话仍挂起，但 LangGraph 1.2.11 下此时 next 为 ()（见 graphs/docgen.py
+        # 「resume 值契约」）。只看 next 会把挂起的会话当成已结束。
+        interrupts = (
+            [i for t in snapshot.tasks for i in (getattr(t, "interrupts", ()) or ())] if snapshot is not None else []
+        )
+        if snapshot is not None and (interrupts or snapshot.next):
             print(f"恢复审批会话 {session_id}", file=ui)
-            interrupts = [i for t in snapshot.tasks for i in (getattr(t, "interrupts", ()) or ())]
-            result: dict = {"__interrupt__": interrupts, **dict(snapshot.values)} if interrupts else dict(snapshot.values)
-            if not interrupts:
-                result = app.invoke(None, config=config)
+            result: dict = {"__interrupt__": interrupts, **dict(snapshot.values)} if interrupts else app.invoke(None, config=config)
         else:
             if not query:
                 print("请提供要生成的文档描述（或用 --resume 恢复挂起的审批会话）。", file=sys.stderr)
@@ -496,21 +524,21 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             print("\n===== 草稿预览（待审批）=====", file=ui)
             print(preview.get("draft_preview", ""), file=ui)
             print("=============================", file=ui)
-            try:
-                answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            if preview.get("error"):
+                # 图内拒收了上一次提交的 resume 值、会话重新挂起：说清楚，这次给出的决定才算数
+                print(f"上一次提交的审批决定无效，未被采纳：{preview['error']}", file=ui)
+            decision = _prompt_docgen_decision(ui)
+            if decision is None:
                 print(f"\n审批挂起，稍后用 --resume {session_id} 恢复。", file=ui)
                 recorder.finish("waiting", data={"session_id": session_id})
                 return 0
-            decision: dict[str, Any]
-            if answer in {"y", "yes", "是"}:
-                decision = {"approved": True}
-            else:
-                try:
-                    reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
-                except (EOFError, KeyboardInterrupt):
-                    reason = ""
-                decision = {"approved": False, "reason": reason}
+            # CLI 边界先校验再 invoke（与图内同一判定）：非法值哪怕会被图内拒收，也已被记进
+            # 本任务的 resume 列表并落盘，之后每次恢复都要重放一遍——不让它进图
+            if (error := approval_decision_error(decision)) is not None:
+                print(json.dumps({"ok": False, "error": f"审批决定未提交：{error}"}, ensure_ascii=False), file=sys.stderr)
+                print(f"会话仍挂起，稍后用 --resume {session_id} 恢复。", file=ui)
+                recorder.finish("waiting", data={"session_id": session_id, "error": error})
+                return 2
             recorder.record(node="approval", event="approval_decision", status="running", data={**decision, "session_id": session_id})
             result = app.invoke(Command(resume=decision), config=config)
 
