@@ -13,11 +13,11 @@ P2.5（Step 12）：``BailianReranker`` 的远程调用经 ``ProviderGateway``�
 from __future__ import annotations
 
 import json
-import os
 from abc import ABC, abstractmethod
 from typing import Any
 from urllib import request
 
+from water_agent.config.credentials import resolve_secret
 from water_agent.domain.models import RetrievedClause
 from water_agent.retrieval.base import Retriever
 from water_agent.runtime.governance.binding import default_gateway, local_request_context
@@ -240,7 +240,8 @@ def build_bailian_reranker(
     request_context: RequestContext | None = None,
     gateway: ProviderGateway | None = None,
 ) -> BailianReranker:
-    key = api_key if api_key is not None else os.environ.get("DASHSCOPE_API_KEY", "")
+    # 与 embedding 同一解析顺序（env → _FILE → 凭据卷），不直读 os.environ。
+    key = api_key if api_key is not None else (resolve_secret("DASHSCOPE_API_KEY") or "")
     return BailianReranker(
         api_key=key,
         model=model,
