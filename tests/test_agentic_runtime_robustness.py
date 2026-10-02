@@ -426,3 +426,117 @@ class TestDraftsStreamForReal:
                                          cancel_check=cancelled.is_set))
         assert len(model.timeline) < 3, "取消后模型不应继续写完"
         assert kinds[-2:] == ["draft_retract", "draft_closed"]
+
+
+class _MalformedCallModel(BaseChatModel):
+    """第一次响应给出参数不是合法 JSON 的工具调用（provider 解析失败），之后正常作答。"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    stream_mode: bool = False
+    calls: list[list[Any]] = Field(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "malformed-call"
+
+    def _reply(self, messages):
+        self.calls.append(list(messages))
+        return len(self.calls)
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        n = self._reply(messages)
+        if n == 1:
+            bad = AIMessage(content="我来检索一下相关规范。", invalid_tool_calls=[{
+                "name": "retrieve_clauses", "args": '{"query": "设计秒流量", "top_k": 5',
+                "id": "call_bad_1", "error": "not valid JSON", "type": "invalid_tool_call"}])
+            return ChatResult(generations=[ChatGeneration(message=bad)])
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="好的，有需要随时问我。"))])
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        if not self.stream_mode:
+            raise NotImplementedError
+        from langchain_core.messages import AIMessageChunk
+        from langchain_core.outputs import ChatGenerationChunk
+
+        n = self._reply(messages)
+        if n == 1:
+            yield ChatGenerationChunk(message=AIMessageChunk(content="我来检索一下相关规范。"))
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[
+                {"name": "retrieve_clauses", "args": '{"query": "设计秒流量", ', "id": "call_bad_1", "index": 0}]))
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[
+                {"name": None, "args": '"top_k": 5', "id": None, "index": 0}]))
+            return
+        yield ChatGenerationChunk(message=AIMessageChunk(content="好的，有需要随时问我。"))
+
+
+class TestMalformedToolCallsAreObservationsNotAnswers:
+    """模型给出参数不是合法 JSON 的工具调用：此前两条路径都把它前面那句"我来检索一下。"当成
+    最终回答判 succeeded；同步路径还把畸形调用存进 thread，下一轮请求里出现没有应答的
+    tool_call id（OpenAI 兼容接口拒绝整个请求，这条 thread 从此每轮失败）。"""
+
+    @staticmethod
+    def _wire_has_dangling_calls(messages: list[Any]) -> list[str]:
+        from langchain_openai.chat_models.base import _convert_message_to_dict
+
+        wire = [_convert_message_to_dict(m) for m in messages if not getattr(m, "type", "") == "system"]
+        ids = [tc["id"] for d in wire if d["role"] == "assistant" for tc in d.get("tool_calls", [])]
+        answered = {d.get("tool_call_id") for d in wire if d["role"] == "tool"}
+        return [i for i in ids if i not in answered]
+
+    @pytest.mark.parametrize("stream_mode", [False, True], ids=["invoke", "stream"])
+    def test_model_gets_an_error_observation_and_the_thread_stays_valid(
+        self, tmp_path: Path, stream_mode: bool
+    ) -> None:
+        model = _MalformedCallModel(stream_mode=stream_mode)
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        with ExitStack() as stack:
+            session = _session(tmp_path, stack, model, saver)
+            result = asyncio.run(session.aask("你好，你能做什么", run_id="r-bad"))
+            messages = session.app.get_state(session.config).values["messages"]
+        assert result["answer"] != "我来检索一下相关规范。", "工具调用前置文本不是回答"
+        assert result["answer"] == "好的，有需要随时问我。"
+        assert len(model.calls) == 2, "模型应收到错误 observation 后再作答一次"
+        observation = [m for m in model.calls[1] if isinstance(m, ToolMessage)]
+        assert observation and "invalid_tool_call" in str(observation[-1].name or observation[-1].content)
+        assert self._wire_has_dangling_calls(messages) == []
+        assert not any(getattr(m, "invalid_tool_calls", None) for m in messages)
+
+
+class TestHistoryKeepsEachTurnsOutcome:
+    """历史投影此前不带收口状态，前端把非 withheld 的回答一律标 succeeded：一个引用校验失败的
+    回答刷新后"未通过校验"的横幅消失，看起来和正常回答一样。"""
+
+    def test_failed_and_succeeded_answers_keep_their_status_after_reload(self, tmp_path: Path) -> None:
+        from water_agent.webapp.run_manager import project_conversation
+
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        failing = [
+            _retrieve("设计秒流量"),
+            _cite("FIX 9.9.9"), {"content": "按 FIX 9.9.9 条，设计秒流量取 3.5 L/s。"},
+            _cite("FIX 9.9.9"), {"content": "按 FIX 9.9.9 条，设计秒流量取 3.5 L/s。"},
+            _cite("FIX 9.9.9"), {"content": "按 FIX 9.9.9 条，设计秒流量取 3.5 L/s。"},
+        ]
+        good = [_retrieve("设计秒流量"), _cite("FIX 1.1.1"), {"content": "依据 FIX 1.1.1 确定。"}]
+        with ExitStack() as stack:
+            first = _session(tmp_path, stack, ScriptedChatModel(steps=failing), saver)
+            assert asyncio.run(first.aask("设计秒流量如何确定", run_id="r1"))["status"] == "failed"
+            second = _session(tmp_path, stack, ScriptedChatModel(steps=good), saver)
+            assert asyncio.run(second.aask("再问一次", run_id="r2"))["status"] == "succeeded"
+            messages = second.app.get_state(second.config).values["messages"]
+        agents = [m for m in project_conversation(messages, thread_id="t") if m["role"] == "agent"]
+        assert [m.get("status") for m in agents] == ["failed", "succeeded"]
+
+    def test_the_status_stamp_never_reaches_the_provider(self, tmp_path: Path) -> None:
+        from langchain_openai.chat_models.base import _convert_message_to_dict
+
+        from water_agent.graphs.agent_rag import TURN_STATUS_KEY
+
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        with ExitStack() as stack:
+            asyncio.run(_session(tmp_path, stack, ScriptedChatModel(steps=[{"content": "好的。"}]), saver)
+                        .aask("你好", run_id="r1"))
+            second = ScriptedChatModel(steps=[{"content": "不客气。"}])
+            asyncio.run(_session(tmp_path, stack, second, saver).aask("谢谢", run_id="r2"))
+        wire = json.dumps([_convert_message_to_dict(m) for m in second.state["received"][0]], ensure_ascii=False)
+        assert TURN_STATUS_KEY not in wire

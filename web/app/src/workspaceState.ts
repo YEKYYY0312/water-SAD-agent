@@ -85,12 +85,19 @@ export function archiveRun(messages: ConversationMessage[], run: WorkspaceRunSta
  * 只去掉最后一个用户问题之后的 agent 消息——问题本身保留（run 视图不渲染问题）。
  */
 export function mergeHistory(
-  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  history: { role: "user" | "agent"; text: string; withheld?: boolean; status?: string }[],
   hasLatestRun: boolean,
 ): ConversationMessage[] {
+  // 状态以后端随答案持久化的收口状态为准；没有标记的是旧会话的回答（只能按"已显示"处理）。
+  // 此前非 withheld 一律标 succeeded：失败的回答刷新后"未通过校验"的横幅就没了。
   const messages: ConversationMessage[] = history.map((item) => (
     item.role === "agent"
-      ? { role: "agent", text: item.text, status: item.withheld ? "blocked" : "succeeded", withheld: Boolean(item.withheld) }
+      ? {
+          role: "agent",
+          text: item.text,
+          status: item.withheld ? "blocked" : (item.status ?? "succeeded"),
+          withheld: Boolean(item.withheld),
+        }
       : { role: "user", text: item.text }
   ));
   if (!hasLatestRun) return messages;
@@ -107,7 +114,7 @@ export function mergeHistory(
  *   不能让"正在检索与计算…"一直挂着，也不能什么都不显示。
  */
 export function replayUnavailable(
-  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  history: { role: "user" | "agent"; text: string; withheld?: boolean; status?: string }[],
   latestStatus: string,
 ): ConversationMessage[] {
   const messages = mergeHistory(history, false);

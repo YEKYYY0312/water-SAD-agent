@@ -273,3 +273,16 @@ test("the conversation shows the draft separately and only the finalized answer 
   assert.match(components, /draft-answer/);
   assert.doesNotMatch(components, /run\.tokens/);
 });
+
+test("history keeps a failed answer's status so the unverified banner survives a reload", () => {
+  const history = [
+    { role: "user", text: "问 1" },
+    { role: "agent", text: "按 FIX 9.9.9 条……", status: "failed" },
+    { role: "user", text: "问 2" },
+    { role: "agent", text: "依据 FIX 1.1.1。", status: "succeeded" },
+    { role: "user", text: "问 3" },
+    { role: "agent", text: "旧会话的回答（没有状态标记）" },
+  ];
+  const merged = mergeHistory(history, false);
+  assert.deepEqual(merged.filter((m) => m.role === "agent").map((m) => m.status), ["failed", "succeeded", "succeeded"]);
+});
