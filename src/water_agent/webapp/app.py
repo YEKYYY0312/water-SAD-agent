@@ -35,6 +35,7 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
+from water_agent.webapp.body_limit import UploadBodyLimitMiddleware
 from water_agent.webapp.drawing_routes import router as drawing_router
 from water_agent.webapp.export_routes import router as export_router
 from water_agent.webapp.memory_routes import router as memory_router
@@ -102,6 +103,11 @@ def create_app(
     # StaticFiles mount below), so browsers never issue a cross-origin preflight.
     # The previous 8001-origin exception existed only for the standalone
     # login.html scaffolding, which P5-S47 removed.
+
+    # FastAPI parses a multipart body before it solves the route's auth/CSRF
+    # dependencies, so the upload byte ceiling has to bite below FastAPI --
+    # otherwise an anonymous request is received and spooled in full first.
+    app.add_middleware(UploadBodyLimitMiddleware)
 
     app.include_router(auth_router)
     app.include_router(run_router)
