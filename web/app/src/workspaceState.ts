@@ -23,6 +23,10 @@ export type WorkspaceRunState = {
   status: string;
   answer: string;
   tokens: string;
+  /** 正在写的回答草稿（已过输出护栏，可能被撤回；收口后只认 answer）。 */
+  draft: string;
+  /** 本轮已撤回过草稿的次数（回流重写或护栏拦截），界面据此提示"正在修订"。 */
+  draftRetractions: number;
   events: WorkspaceRunEvent[];
   tools: ToolCard[];
   citations: CitationCard[];
@@ -39,6 +43,8 @@ export const emptyRunState = (): WorkspaceRunState => ({
   status: "idle",
   answer: "",
   tokens: "",
+  draft: "",
+  draftRetractions: 0,
   events: [],
   tools: [],
   citations: [],
@@ -79,12 +85,19 @@ export function archiveRun(messages: ConversationMessage[], run: WorkspaceRunSta
  * 只去掉最后一个用户问题之后的 agent 消息——问题本身保留（run 视图不渲染问题）。
  */
 export function mergeHistory(
-  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  history: { role: "user" | "agent"; text: string; withheld?: boolean; status?: string }[],
   hasLatestRun: boolean,
 ): ConversationMessage[] {
+  // 状态以后端随答案持久化的收口状态为准；没有标记的是旧会话的回答（只能按"已显示"处理）。
+  // 此前非 withheld 一律标 succeeded：失败的回答刷新后"未通过校验"的横幅就没了。
   const messages: ConversationMessage[] = history.map((item) => (
     item.role === "agent"
-      ? { role: "agent", text: item.text, status: item.withheld ? "blocked" : "succeeded", withheld: Boolean(item.withheld) }
+      ? {
+          role: "agent",
+          text: item.text,
+          status: item.withheld ? "blocked" : (item.status ?? "succeeded"),
+          withheld: Boolean(item.withheld),
+        }
       : { role: "user", text: item.text }
   ));
   if (!hasLatestRun) return messages;
@@ -101,7 +114,7 @@ export function mergeHistory(
  *   不能让"正在检索与计算…"一直挂着，也不能什么都不显示。
  */
 export function replayUnavailable(
-  history: { role: "user" | "agent"; text: string; withheld?: boolean }[],
+  history: { role: "user" | "agent"; text: string; withheld?: boolean; status?: string }[],
   latestStatus: string,
 ): ConversationMessage[] {
   const messages = mergeHistory(history, false);
@@ -156,6 +169,20 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
     const text = asString(payload.text) ?? "";
     return { ...next, status: "running", tokens: next.tokens + text };
   }
+  if (event.type === "draft_delta") {
+    // offset 是这段文字在本条草稿里的起点：重连回放或乱序时只接上紧挨着的那一段，
+    // 重复的、跳号的一律丢弃——宁可少显示，也不拼出模型没写过的句子。
+    const text = asString(payload.text) ?? "";
+    const offset = typeof payload.offset === "number" ? payload.offset : next.draft.length;
+    if (!text || offset !== next.draft.length) return next;
+    return { ...next, status: "running", draft: next.draft + text };
+  }
+  if (event.type === "draft_retract") {
+    return { ...next, draft: "", draftRetractions: next.draftRetractions + 1 };
+  }
+  if (event.type === "draft_closed") {
+    return next;
+  }
   if (event.type === "agent_message") {
     return { ...next, status: "running" };
   }
@@ -203,6 +230,8 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       ...next,
       status: finalStatus,
       answer: finalAnswer,
+      // 收口后草稿作废：最终回答只认 finalize 的 answer（输出护栏 + 引用校验之后）
+      draft: "",
       citations: citationsFromFinalPayload(payload.citations),
       calculations: calculationsFromFinalPayload(payload.calculations),
       errors,

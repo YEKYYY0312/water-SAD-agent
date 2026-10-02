@@ -66,6 +66,7 @@ from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
+from water_agent.runtime.cancellation import raise_if_cancelled
 from water_agent.runtime.governance.binding import local_request_context
 from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.runtime.governance.contracts import (
@@ -126,6 +127,39 @@ DEFAULT_AGENTIC_PROMPT = ROLE_AND_PRINCIPLES + (
 
 class ToolBudgetExceeded(RuntimeError):
     """agent_loop 内模型工具调用轮数超预算。"""
+
+
+#: 模型给出的工具调用参数不是合法 JSON（provider 解析失败，落在 ``invalid_tool_calls``）时，
+#: 改写成一次合法的"错误回填"调用：工具名换成这个保留名，ToolNode 找不到同名工具会返回
+#: 带可用工具清单的错误 observation——模型看得到错误、可以重试，计入工具轮数预算。
+INVALID_TOOL_CALL_NAME = "invalid_tool_call"
+
+
+def _repair_invalid_tool_calls(message: AIMessage) -> AIMessage:
+    """把 ``invalid_tool_calls`` 改写成可被应答的工具调用；没有就原样返回。
+
+    此前两条路径都不处理它：create_react_agent 只看 ``tool_calls``，带畸形调用的回复被当成
+    最终回答（"我来检索一下。"判 succeeded）；同步路径还把它原样存进 thread，下一轮请求里
+    出现一个没有应答的 tool_call id，OpenAI 兼容接口会拒绝整个请求、这条 thread 从此每轮失败
+    （review 2026-09-30）。改写后：模型收到错误 observation 重试一次，thread 里只有合法消息。
+    """
+    invalid = list(message.invalid_tool_calls or [])
+    if not invalid:
+        return message
+    repaired = list(message.tool_calls or [])
+    for index, call in enumerate(invalid):
+        repaired.append(
+            {
+                "name": INVALID_TOOL_CALL_NAME,
+                "args": {
+                    "intended_tool": str(call.get("name") or ""),
+                    "error": str(call.get("error") or "工具调用参数不是合法 JSON")[:300],
+                },
+                "id": str(call.get("id") or f"invalid-{uuid4().hex[:8]}-{index}"),
+                "type": "tool_call",
+            }
+        )
+    return message.model_copy(update={"tool_calls": repaired, "invalid_tool_calls": []})
 
 
 def _to_generation_chunk(message: BaseMessage) -> ChatGenerationChunk:
@@ -228,12 +262,17 @@ class _BudgetChatModel(BaseChatModel):
         return "budget-chat-model"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        # 取消在每次模型调用之前生效：此前取消后内层循环照样跑完剩下的模型调用（继续计费）
+        raise_if_cancelled()
         started = time.perf_counter()
         result = self.inner._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         message = result.generations[0].message
         self.holder.setdefault("llm_calls", []).append(
             _llm_call_record(message, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
         )
+        if isinstance(message, AIMessage) and message.invalid_tool_calls:
+            message = _repair_invalid_tool_calls(message)
+            result = ChatResult(generations=[ChatGeneration(message=message)])
         if isinstance(message, AIMessage) and message.tool_calls:
             self.holder["turns"] += 1
             if self.holder["turns"] > self.max_tool_turns:
@@ -243,11 +282,17 @@ class _BudgetChatModel(BaseChatModel):
         return result
 
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):
-        """流式路径同样执行轮数预算（每个新 tool-call 起始计一轮），并透传 token。
+        """流式路径同样执行轮数预算，并逐块透传。
 
-        不支持的底层流式的模型（如 ``FakeMessagesListChatModel._stream`` 抛
+        计轮口径与 ``_generate`` 一致：**一次带工具调用的模型响应计一轮**（不论并行调用了几个
+        工具）。此前按 tool-call index 计数，一次并行调用两个工具就吃掉两轮预算，与非流式路径
+        对不上，也与 :func:`inner_recursion_limit` 的推导前提（一轮一次模型调用）不符。
+
+        不支持底层流式的模型（如 ``FakeMessagesListChatModel._stream`` 抛
         ``NotImplementedError``）回退到 ``_generate`` 单块，保证离线 fake 路径可用。
+        预算超限、取消或任何异常中断时显式关闭上游生成器：受治理模型据此关闭连接、结清预算预留。
         """
+        raise_if_cancelled()
         try:
             inner = self.inner._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
             first_chunk = next(inner)
@@ -257,22 +302,48 @@ class _BudgetChatModel(BaseChatModel):
             result = self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
             yield _to_generation_chunk(result.generations[0].message)
             return
-        seen: set[int] = set()
+        counted = False
         started = time.perf_counter()
         merged: Any = None
-        for chunk in itertools.chain((first_chunk,), inner):
-            if isinstance(chunk, AIMessageChunk):
-                merged = chunk if merged is None else merged + chunk
-                for tool_chunk in chunk.tool_call_chunks or []:
-                    idx = getattr(tool_chunk, "index", None)
-                    if idx is not None and idx not in seen:
-                        seen.add(idx)
-                        self.holder["turns"] += 1
-                        if self.holder["turns"] > self.max_tool_turns:
-                            raise ToolBudgetExceeded(
-                                f"工具调用轮数超过预算（{self.max_tool_turns}）"
-                            )
-            yield chunk
+        # 工具调用分块先攒着、流结束时整理成合法调用一次交出（_settle_streamed_calls）：参数 JSON
+        # 是逐块拼出来的，只有收齐才知道合不合法；畸形调用原样交出会被当成"没有工具调用"的最终
+        # 回答，前置文本"我来检索一下。"就判 succeeded（review 2026-09-30）。文本分块照常即时交出。
+        pending_calls: dict[int, dict[str, str]] = {}
+        try:
+            for chunk in itertools.chain((first_chunk,), inner):
+                # 流式分块之间同样检查取消：已取消就不再继续收（也不再继续计费）
+                raise_if_cancelled()
+                message = getattr(chunk, "message", chunk)
+                if isinstance(message, AIMessageChunk):
+                    merged = message if merged is None else merged + message
+                    if message.tool_call_chunks:
+                        if not counted:
+                            counted = True
+                            self.holder["turns"] += 1
+                            if self.holder["turns"] > self.max_tool_turns:
+                                raise ToolBudgetExceeded(
+                                    f"工具调用轮数超过预算（{self.max_tool_turns}）"
+                                )
+                        _accumulate_call_chunks(pending_calls, message.tool_call_chunks)
+                        chunk = ChatGenerationChunk(
+                            message=message.model_copy(
+                                update={"tool_call_chunks": [], "tool_calls": [], "invalid_tool_calls": []}
+                            ),
+                            generation_info=getattr(chunk, "generation_info", None),
+                        )
+                yield chunk
+        finally:
+            close = getattr(inner, "close", None)
+            if callable(close):
+                close()
+        if pending_calls:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content="",
+                    tool_call_chunks=_settle_streamed_calls(pending_calls),
+                    id=getattr(merged, "id", None),
+                )
+            )
         if merged is not None:
             self.holder.setdefault("llm_calls", []).append(
                 _llm_call_record(merged, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
@@ -291,6 +362,49 @@ class _BudgetChatModel(BaseChatModel):
             for t in tools
         ]
         return RunnableBinding(bound=self, kwargs={"tools": tool_defs, **kwargs})
+
+
+def _accumulate_call_chunks(pending: dict[int, dict[str, str]], chunks: Sequence[Any]) -> None:
+    """按 index 拼接流式工具调用分块（name/args 逐块追加，id 取首个非空值）。"""
+    for position, item in enumerate(chunks):
+        index = item.get("index") if isinstance(item, dict) else getattr(item, "index", None)
+        key = int(index) if isinstance(index, int) else position
+        entry = pending.setdefault(key, {"name": "", "args": "", "id": ""})
+        for field in ("name", "args"):
+            value = item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+            if isinstance(value, str):
+                entry[field] += value
+        call_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+        if isinstance(call_id, str) and call_id and not entry["id"]:
+            entry["id"] = call_id
+
+
+def _settle_streamed_calls(pending: dict[int, dict[str, str]]) -> list[ToolCallChunk]:
+    """收齐的流式工具调用：参数是合法 JSON 对象的原样交出，其余改写成"错误回填"调用。"""
+    settled: list[ToolCallChunk] = []
+    for index in sorted(pending):
+        entry = pending[index]
+        raw = entry["args"].strip() or "{}"
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        call_id = entry["id"] or f"invalid-{uuid4().hex[:8]}-{index}"
+        if entry["name"] and isinstance(parsed, dict):
+            settled.append(ToolCallChunk(name=entry["name"], args=raw, id=call_id, index=index))
+            continue
+        settled.append(
+            ToolCallChunk(
+                name=INVALID_TOOL_CALL_NAME,
+                args=json.dumps(
+                    {"intended_tool": entry["name"], "error": "工具调用参数不是合法 JSON 对象"},
+                    ensure_ascii=False,
+                ),
+                id=call_id,
+                index=index,
+            )
+        )
+    return settled
 
 
 def _payload_of(message: ToolMessage) -> dict[str, Any]:
@@ -348,7 +462,7 @@ def _extract_validation_signal(
     )
     boundary = -1
     for i, m in enumerate(turn):
-        if isinstance(m, ToolMessage) and m.name == "citation_validator":
+        if _is_validator_feedback(m):
             boundary = i
     cited_ids: list[str] = []
     for m in turn[boundary + 1 :]:
@@ -357,6 +471,20 @@ def _extract_validation_signal(
                 if cid not in cited_ids:
                     cited_ids.append(cid)
     return context_ids, cited_ids, retrieved_this_turn
+
+
+def _is_validator_feedback(message: Any) -> bool:
+    """校验器自己注入的回流消息（按保留的 tool_call_id 前缀识别，不按名字）。
+
+    模型在历史里见过 ``citation_validator`` 调用，可能模仿着调用它：ToolNode 回填一条同名的
+    "工具不存在"错误。按名字识别边界时，这条伪造的消息会把本轮有效的 cite 声明切到边界之前、
+    整轮判成零引用失败（review 2026-09-30 实测）。只有校验器注入的调用才带这个前缀。
+    """
+    return (
+        isinstance(message, ToolMessage)
+        and message.name == "citation_validator"
+        and str(message.tool_call_id or "").startswith(f"{_VALIDATOR_CALL_ID}-")
+    )
 
 
 def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) -> None:
@@ -567,6 +695,23 @@ def _rewrite(message: BaseMessage | None, text: str) -> list[BaseMessage]:
     return [message.model_copy(update={"content": text})]
 
 
+#: 本轮收口状态写在最终回答消息的 ``additional_kwargs`` 里（不发给 provider：OpenAI 兼容接口的
+#: 消息转换只取 tool_calls/function_call/audio 等已知键）。历史投影据此给失败的回答打标——此前
+#: 刷新后每条回答都显示成 succeeded，"未通过校验"的横幅消失（review 2026-09-30）。
+TURN_STATUS_KEY = "water_agent_turn_status"
+
+
+def _stamp_status(message: AIMessage | None, status: str, rewrites: list[BaseMessage]) -> list[BaseMessage]:
+    """把本轮收口状态盖到最终回答消息上（与正文改写合并为同一条同 id 替换）。"""
+    if message is None or message.id is None:
+        return rewrites
+    base = next((m for m in rewrites if m.id == message.id), message)
+    stamped = base.model_copy(
+        update={"additional_kwargs": {**(base.additional_kwargs or {}), TURN_STATUS_KEY: status}}
+    )
+    return [m for m in rewrites if m.id != message.id] + [stamped]
+
+
 def _last_human_message(messages: Sequence[BaseMessage]) -> HumanMessage | None:
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
@@ -605,6 +750,8 @@ WARNING_NON_NORMATIVE_NO_CITATION = "no_citation_non_normative"
 #: 诚实拒答：本轮确实检索过、零命中（或回流后仍判定依据不足），回答明确说明无依据且不含
 #: 规范性结论。与非规范性豁免分开计，便于统计"系统说不知道"的比例。
 WARNING_NO_BASIS_REFUSAL = "no_citation_no_basis"
+#: trace 写盘失败：答案照常返回，只少了诊断现场（见 make_finalize._finish_trace）。
+WARNING_TRACE_WRITE_FAILED = "trace_write_failed"
 _NORMATIVE_MARKERS = (
     re.compile(r"(?:GB|CJJ|CECS|JGJ|DBJ?|T/)\s*/?\s*T?\s*\d{3,5}", re.IGNORECASE),
     re.compile(r"(?<![\d.])\d{1,2}\.\d{1,2}\.\d{1,3}(?![\d.])"),
@@ -886,6 +1033,21 @@ def make_finalize(
                 pass
         return outcome
 
+    def _finish_trace(**kwargs: Any) -> list[str]:
+        """落盘 trace；写失败只记一条 warning，绝不改变运行结果。
+
+        此前这里没有 try：trace 目录不可写（容器只读根文件系统、卷未挂载）时，已经通过引用
+        校验与输出护栏的答案在收口处随 ``OSError`` 一起丢失，checkpoint 停在 finalize 之前，
+        Web 报"agent run failed"、刷新后历史里却又出现这条答案（review 2026-09-30）。
+        """
+        if trace is None or not trace.started:
+            return []
+        try:
+            trace.finish(**kwargs)
+        except Exception:  # noqa: BLE001 — 可观测性失败不得改变运行结果
+            return [WARNING_TRACE_WRITE_FAILED]
+        return []
+
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
         answer_message = _final_answer_message(state.get("messages", []))
         answer = final_answer_text(state.get("messages", []))
@@ -899,14 +1061,16 @@ def make_finalize(
 
         # 输入护栏已阻断：直接收口 blocked，不再跑输出护栏。
         if status == STATUS_BLOCKED:
-            if trace is not None and trace.started:
-                trace.finish(
-                    status=STATUS_BLOCKED,
-                    error=errors[-1] if errors else None,
-                    citations=list(state.get("citations", [])),
-                    retry_count=int(state.get("retry_count", 0)),
-                )
-            return {"answer": "", "status": STATUS_BLOCKED}
+            trace_warnings = _finish_trace(
+                status=STATUS_BLOCKED,
+                error=errors[-1] if errors else None,
+                citations=list(state.get("citations", [])),
+                retry_count=int(state.get("retry_count", 0)),
+            )
+            result: dict[str, Any] = {"answer": "", "status": STATUS_BLOCKED}
+            if trace_warnings:
+                result["warnings"] = list(state.get("warnings", [])) + trace_warnings
+            return result
 
         # 输出护栏：succeeded 与引用校验组合；failed 的回答同样要过（见下方分支）。
         if status == STATUS_SUCCEEDED and answer:
@@ -975,19 +1139,18 @@ def make_finalize(
                 rewrites = _rewrite(answer_message, outcome.content)
                 answer = outcome.content
 
-        if trace is not None and trace.started:
-            trace.finish(
-                status=status,
-                error=errors[-1] if (status in (STATUS_FAILED, STATUS_BLOCKED) and errors) else None,
-                citations=list(state.get("citations", [])),
-                retry_count=int(state.get("retry_count", 0)),
-            )
+        trace_warnings = _finish_trace(
+            status=status,
+            error=errors[-1] if (status in (STATUS_FAILED, STATUS_BLOCKED) and errors) else None,
+            citations=list(state.get("citations", [])),
+            retry_count=int(state.get("retry_count", 0)),
+        )
         return {
             "answer": answer,
             "status": status,
             "errors": errors,
-            "warnings": list(state.get("warnings", [])),
-            "messages": rewrites,
+            "warnings": list(state.get("warnings", [])) + trace_warnings,
+            "messages": _stamp_status(answer_message, status, rewrites),
         }
 
     return finalize
@@ -1041,11 +1204,14 @@ def build_agentic_app(
         system_prompt: str | Callable[[dict], Any] = DEFAULT_AGENTIC_PROMPT
     else:
         system_prompt = prompt
+    # checkpointer=False：内层子图不持久化。``None`` 的含义是"继承父图的 checkpointer"——每轮
+    # 3 次工具调用就多写 9 个子图 checkpoint、消息字节约为父图的 2.5 倍，且永远不会被读取
+    # （外层 agent_loop 节点每次都以完整 state 重新调用子图；review 2026-09-30 实测）。
     react_agent = create_react_agent(
         model=budget_model,
         tools=tools,
         state_schema=AgenticRAGState,
-        checkpointer=None,
+        checkpointer=False,
         prompt=system_prompt,
     )
 
@@ -1119,6 +1285,244 @@ PER_TURN_RESET: dict[str, Any] = {
 }
 
 
+#: 草稿事件的类型：模型正在写的回答（已过输出护栏）、草稿作废、流式通道整体关闭。
+DRAFT_DELTA = "draft_delta"
+DRAFT_RETRACT = "draft_retract"
+DRAFT_CLOSED = "draft_closed"
+#: 草稿作废原因：被引用校验驳回（回流重写）/ 输出护栏拦截 / 运行失败或被拦截。
+RETRACT_REVISED = "revised"
+RETRACT_GUARDRAIL = "guardrail"
+RETRACT_RUN_ENDED = "run_ended"
+
+#: 草稿按"完整句子"下发：句末标点或换行处切分。只有已过输出护栏的完整片段才发出去——
+#: 危险指令、凭据、PII 的正则都需要完整的字面形态才能命中，半截 token 过检没有意义。
+_DRAFT_BOUNDARY = re.compile(r"[。！？；!?;\n]")
+#: 迟迟没有句末标点时的强制切分长度（防止一整段长文本憋到最后才出现）。
+_DRAFT_MAX_PENDING = 160
+#: 每条回复首次下发前至少攒这么多字：模型调用工具前常先写一句"我来检索一下。"，
+#: 不攒一下它会先闪现、再被撤回。
+_DRAFT_MIN_FIRST_RELEASE = 24
+#: 凭据、手机号、证件号、邮箱、URL 都是连续的非空白 ASCII 串：强制切分绝不切在这种串中间，
+#: 否则前半截按"不像凭据"放行、后半截才凑出完整形态，脱敏就晚了。
+_DRAFT_TOKEN_CHAR = re.compile(r"[A-Za-z0-9_\-./:@+=%#~?&]")
+
+
+class DraftPump:
+    """把模型的流式文本变成"已过输出护栏的草稿"事件。
+
+    语义（review 2026-09-30 第 4 批，"所有草稿都流式"）：
+
+    - 只接收 ``agent`` 节点（内层 react 子图的模型调用）的文本分块；工具结果、校验器回流
+      消息、带 tool_calls 的前置文本一律不是回答；
+    - 文本攒到完整句子才过一次 ``check_output``（危险指令 + PII/凭据，与 finalize 失败分支、
+      历史投影同一口径——引用是否成立在流式时还不知道，由草稿标注"待校验"表达）；
+      放行的发 ``draft_delta``（脱敏过的就发脱敏文本）；
+    - 一旦有片段被拦截：发 ``draft_retract(guardrail)`` 并**关闭流式通道**——本轮后续草稿
+      一律不再下发，回答只等 finalize。被拦截的原文永远不出现在任何事件里；
+    - 模型开始一条新的回复（回流重写、或前一条原来是"我来检索一下"的工具调用前置文本）：
+      先发 ``draft_retract(revised)``，新回复从头开始；
+    - 收口：``finish(status)``。succeeded 时把还没发出的尾巴补发出去，最终回答以 finalize 的
+      ``answer`` 为准；failed/blocked/cancelled 时发 ``draft_retract(run_ended)``。
+    """
+
+    def __init__(
+        self,
+        emit: Callable[[str, dict[str, Any]], None],
+        *,
+        pipeline: GuardrailPipeline | None = None,
+        request_context: RequestContext | None = None,
+    ) -> None:
+        self._emit = emit
+        self._pipeline = pipeline if pipeline is not None else default_guardrail_pipeline()
+        self._context = request_context or local_request_context(thread_id="draft-stream")
+        self._message_key: tuple[Any, Any] | None = None
+        self._pending = ""
+        self._released_raw = ""  # 本条回复已下发部分的原文（过检时与待发部分合在一起查）
+        self._sent = 0  # 本条回复已下发的字符数（脱敏后的长度）
+        self._closed = False
+        self._open_draft = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def feed(self, chunk: Any, metadata: dict[str, Any] | None) -> None:
+        if self._closed or not isinstance(chunk, AIMessageChunk):
+            return
+        meta = metadata or {}
+        if meta.get("langgraph_node") != "agent":
+            return
+        # 一次模型调用 = 内层子图的一个 superstep：(命名空间, step) 唯一标识"这一条回复"。
+        # 不能用 chunk.id：LangChain 收尾的空块用 run id，与 provider 给的消息 id 不同。
+        key = (meta.get("langgraph_checkpoint_ns"), meta.get("langgraph_step"))
+        if key != self._message_key:
+            self._start_message(key)
+        if chunk.tool_call_chunks or chunk.tool_calls:
+            # 这条回复其实是工具调用：附在上面的文字不是回答
+            self._withdraw(RETRACT_REVISED)
+            return
+        text = _message_text(chunk)
+        if text:
+            self._pending += text
+        # 一条回复写完（LangChain 的收尾块）：剩下的文字已是完整草稿，过检后下发
+        self._release(final=getattr(chunk, "chunk_position", None) == "last")
+
+    def finish(self, status: str) -> None:
+        if self._closed:
+            return
+        if status == STATUS_SUCCEEDED:
+            self._release(final=True)
+        else:
+            self._withdraw(RETRACT_RUN_ENDED)
+        self._close()
+
+    def abort(self) -> None:
+        """取消/异常：作废已下发的草稿并关闭通道。"""
+        if self._closed:
+            return
+        self._withdraw(RETRACT_RUN_ENDED)
+        self._close()
+
+    def _start_message(self, key: tuple[Any, Any]) -> None:
+        self._withdraw(RETRACT_REVISED)
+        self._message_key = key
+        self._pending = ""
+
+    def _withdraw(self, reason: str) -> None:
+        if self._open_draft:
+            self._emit(DRAFT_RETRACT, {"reason": reason})
+        self._open_draft = False
+        self._pending = ""
+        self._released_raw = ""
+        self._sent = 0
+
+    def _close(self) -> None:
+        self._closed = True
+        self._pending = ""
+        self._emit(DRAFT_CLOSED, {})
+
+    def _release(self, *, final: bool) -> None:
+        while self._pending and not self._closed:
+            cut = self._cut_point(final=final)
+            if cut <= 0:
+                return
+            # 过检对象是"本条回复至今收到的全部文本"（已发 + 待发），不是单个片段：跨句的危险
+            # 指令一旦在后文凑齐就能命中；放行时只下发切出的这一段（按同一规则脱敏）。
+            whole = self._pipeline.check_output(self._released_raw + self._pending, self._context)
+            if not whole.allowed:
+                self._withdraw(RETRACT_GUARDRAIL)
+                self._close()
+                return
+            piece, self._pending = self._pending[:cut], self._pending[cut:]
+            outcome = self._pipeline.check_output(piece, self._context)
+            if not outcome.allowed:
+                self._withdraw(RETRACT_GUARDRAIL)
+                self._close()
+                return
+            self._released_raw += piece
+            if outcome.content:
+                self._emit(DRAFT_DELTA, {"text": outcome.content, "offset": self._sent})
+                self._sent += len(outcome.content)
+                self._open_draft = True
+
+    def _cut_point(self, *, final: bool) -> int:
+        if final:
+            return len(self._pending)
+        if not self._open_draft and len(self._pending) < _DRAFT_MIN_FIRST_RELEASE:
+            return 0
+        last = -1
+        for match in _DRAFT_BOUNDARY.finditer(self._pending):
+            last = match.end()
+        if last > 0:
+            return last
+        if len(self._pending) < _DRAFT_MAX_PENDING:
+            return 0
+        return _token_safe_cut(self._pending, _DRAFT_MAX_PENDING)
+
+
+def _token_safe_cut(text: str, limit: int) -> int:
+    """不切在连续 ASCII 串中间的切分点（≤ limit）；整段都是一个串时返回 0（等更多文本）。"""
+    index = min(limit, len(text))
+    while index > 0 and (
+        _DRAFT_TOKEN_CHAR.match(text[index - 1]) and index < len(text) and _DRAFT_TOKEN_CHAR.match(text[index])
+    ):
+        index -= 1
+    return index
+
+
+def _agentic_input(
+    query: str,
+    messages: Sequence[BaseMessage] | None,
+    memory_context: Any | None,
+    upload_context: Any | None,
+    attachment_context: Any | None,
+) -> dict[str, Any]:
+    # 两个 *_context 是**本轮**的召回结果，必须每轮无条件写入（没有就写 None）。
+    # 它们是无 reducer 的 state 键，会随 checkpoint 持久化：只在"有值"时才写，
+    # 下一轮不传时图里留着的是上一轮的值——而且经生产 serde（allowed_msgpack_modules
+    # 只放行 CitationClaim）读回来已不是 MemoryRecallResult/UploadRecallResult，
+    # 只是个 dict，PromptAssembler 当场 TypeError（第二问与上传无关、或记忆降级即崩，
+    # 两轮实测复现）。即便类型能读回，把上一问的检索资料塞进这一问也是错的上下文。
+    return {
+        "messages": list(messages) if messages is not None else [HumanMessage(content=query)],
+        "query": query,
+        "memory_context": memory_context,
+        "upload_context": upload_context,
+        "attachment_context": attachment_context,
+        **PER_TURN_RESET,
+    }
+
+
+class _StreamRouter:
+    """把 ``astream(..., subgraphs=True)`` 的事件分发给观察者、草稿泵与 token 回调。
+
+    - ``on_event`` 收外层图的全部事件，外加内层的 ``messages`` 事件（模型的逐块输出与工具
+      结果消息）：开 subgraphs 之后，内层已发过的消息在外层按 id 去重、不再重发，观察者只有
+      从内层事件里才能看到"模型发起了哪个工具调用"。内层每步的完整 state 不给它；
+    - ``on_token``：本轮已过护栏的草稿文本（CLI 实时打印用）；
+    - ``on_draft``：草稿事件（delta/retract/closed，Web SSE 用）。
+    """
+
+    def __init__(self, on_token, on_event, on_draft, pipeline, request_context) -> None:
+        self.final_state: dict[str, Any] = {}
+        self._on_event = on_event
+        self._pump: DraftPump | None = None
+        if on_token is not None or on_draft is not None:
+
+            def emit(kind: str, payload: dict[str, Any]) -> None:
+                if kind == DRAFT_DELTA and on_token is not None:
+                    on_token(payload["text"])
+                if on_draft is not None:
+                    on_draft(kind, payload)
+
+            self._pump = DraftPump(emit, pipeline=pipeline, request_context=request_context)
+
+    def handle(self, event: Any) -> None:
+        if not isinstance(event, tuple) or len(event) != 3:
+            return
+        namespace, mode, payload = event
+        inner = bool(namespace)
+        # 外层的全部事件 + 内层的 messages 事件交给观察者（工具卡片在模型发出调用时就出现）；
+        # 内层每一步的完整 state 不给——外层 values 才是"本轮做了什么"的权威快照。
+        if self._on_event is not None and (not inner or mode == "messages"):
+            self._on_event(mode, payload)
+        if not inner:
+            if mode == "values" and isinstance(payload, dict):
+                self.final_state = payload
+            return
+        if mode == "messages" and self._pump is not None and isinstance(payload, tuple) and payload:
+            metadata = payload[1] if len(payload) > 1 and isinstance(payload[1], dict) else None
+            self._pump.feed(payload[0], metadata)
+
+    def finish(self) -> None:
+        if self._pump is not None:
+            self._pump.finish(str(self.final_state.get("status") or STATUS_FAILED))
+
+    def abort(self) -> None:
+        if self._pump is not None:
+            self._pump.abort()
+
+
 async def astream_agentic(
     app,
     query: str,
@@ -1127,66 +1531,74 @@ async def astream_agentic(
     on_token: Callable[[str], None] | None = None,
     messages: Sequence[BaseMessage] | None = None,
     on_event: Callable[[str, Any], None] | None = None,
+    on_draft: Callable[[str, dict[str, Any]], None] | None = None,
     memory_context: Any | None = None,
     upload_context: Any | None = None,
     attachment_context: Any | None = None,
+    pipeline: GuardrailPipeline | None = None,
+    request_context: RequestContext | None = None,
 ) -> dict[str, Any]:
-    """以 messages+values 双模式流式运行 agentic 图，返回最终状态。
+    """流式运行 agentic 图（``subgraphs=True``，内层模型逐块到达），返回最终状态。
 
-    - ``stream_mode=["messages", "values"]`` 的事件形态为 ``(mode, payload)``：
-      ``("values", dict)`` 为每步完整状态（最后一个为 finalize 后的终态）；
-      ``("messages", (message_chunk, metadata))`` 为模型输出（含 tool call 与文本）；
-    - ``on_token``：收到模型文本时回调（CLI 借此实时打印）。tool-call 轮经由
-      ``_BudgetChatModel._stream`` 同步计数，超预算抛 ``ToolBudgetExceeded``；
-    - ``messages``：可选的初始消息列表（Step 8 用于注入运行时上下文）；
-      默认 ``[HumanMessage(content=query)]``；
-    - ``on_event``：可选的只读 stream 观察回调。回调收到 ``messages`` 或 ``values``
-      原始事件，调用方必须自行决定安全摘要，不能把完整 state 直接发送给浏览器；
-    - ``memory_context``：可选的已授权长期记忆召回结果，只进入独立 data 段，不能改变
-      registry、capability、引用校验或程序化计算路径；
-    - ``upload_context``：可选的已授权上传资料召回结果，同上——只是一个 RETRIEVED_FILE
-      数据段，不承载指令、不参与数值推导、不改变引用校验。
+    - ``on_event``：原始 ``(mode, payload)`` 事件——外层图的全部事件（``values`` 为每步完整
+      状态，最后一个为 finalize 后的终态）与内层模型/工具的 ``messages`` 事件。调用方必须自行
+      决定安全摘要，不能把完整 state 或消息正文直接发给浏览器；
+    - ``on_token``：本轮**已过输出护栏**的回答草稿文本（完整句子为单位，见 :class:`DraftPump`）；
+      工具输出、校验器回流提示、工具调用前置文本、被拦截的片段都不会出现；
+    - ``on_draft``：草稿事件 ``(kind, payload)``，kind 为 ``draft_delta``/``draft_retract``/
+      ``draft_closed``——草稿可撤回，最终回答只以 finalize 的 ``answer`` 为准；
+    - ``messages``：可选的初始消息列表（Step 8 用于注入运行时上下文），默认只有问题本身；
+    - ``memory_context`` / ``upload_context`` / ``attachment_context``：本轮召回结果，只进入
+      独立 data 段，不承载指令、不参与数值推导、不改变引用校验；
+    - ``pipeline`` / ``request_context``：草稿过检用的护栏与主体（缺省回落默认实例）。
     """
-    final_state: dict[str, Any] = {}
-    if messages is None:
-        messages = [HumanMessage(content=query)]
-    # 两个 *_context 是**本轮**的召回结果，必须每轮无条件写入（没有就写 None）。
-    # 它们是无 reducer 的 state 键，会随 checkpoint 持久化：只在"有值"时才写，
-    # 下一轮不传时图里留着的是上一轮的值——而且经生产 serde（allowed_msgpack_modules
-    # 只放行 CitationClaim）读回来已不是 MemoryRecallResult/UploadRecallResult，
-    # 只是个 dict，PromptAssembler 当场 TypeError（第二问与上传无关、或记忆降级即崩，
-    # 两轮实测复现）。即便类型能读回，把上一问的检索资料塞进这一问也是错的上下文。
-    input_state: dict[str, Any] = {
-        "messages": messages,
-        "query": query,
-        "memory_context": memory_context,
-        "upload_context": upload_context,
-        "attachment_context": attachment_context,
-        **PER_TURN_RESET,
-    }
-    async for event in app.astream(
-        input_state,
-        config=config,
-        stream_mode=["messages", "values"],
-    ):
-        if not isinstance(event, tuple) or len(event) != 2:
-            continue
-        mode, payload = event
-        if on_event is not None:
-            on_event(mode, payload)
-        if mode == "values" and isinstance(payload, dict):
-            final_state = payload
-        elif mode == "messages" and isinstance(payload, tuple) and payload:
-            chunk = payload[0]
-            # 只转发模型的文本回复：ToolMessage（检索原始 JSON）、校验器回流提示、带 tool_calls
-            # 的前置文本都不是回答（此前全部当成回答 token 推出去，review 2026-09-30）。
-            if (
-                on_token is not None
-                and isinstance(chunk, AIMessage)
-                and not chunk.tool_calls
-                and not getattr(chunk, "tool_call_chunks", None)
-            ):
-                content = _message_text(chunk)
-                if content:
-                    on_token(content)
-    return final_state
+    router = _StreamRouter(on_token, on_event, on_draft, pipeline, request_context)
+    input_state = _agentic_input(query, messages, memory_context, upload_context, attachment_context)
+    try:
+        async for event in app.astream(
+            input_state,
+            config=config,
+            stream_mode=["messages", "values"],
+            subgraphs=True,
+        ):
+            router.handle(event)
+    except BaseException:
+        router.abort()
+        raise
+    router.finish()
+    return router.final_state
+
+
+def stream_agentic(
+    app,
+    query: str,
+    config: dict,
+    *,
+    on_token: Callable[[str], None] | None = None,
+    messages: Sequence[BaseMessage] | None = None,
+    on_event: Callable[[str, Any], None] | None = None,
+    on_draft: Callable[[str, dict[str, Any]], None] | None = None,
+    pipeline: GuardrailPipeline | None = None,
+    request_context: RequestContext | None = None,
+) -> dict[str, Any]:
+    """:func:`astream_agentic` 的同步版本（CLI ``--stream``）。
+
+    CLI 的会话 checkpointer 是同步 ``SqliteSaver``，LangGraph 拒绝经由它的 async 方法驱动图
+    （此前 ``--mode agentic --stream`` 接真实模型必然 ``NotImplementedError``）；这里走同步
+    ``app.stream``，草稿语义与 Web 完全相同。CLI 不做召回，三个 *_context 显式写 None。
+    """
+    router = _StreamRouter(on_token, on_event, on_draft, pipeline, request_context)
+    input_state = _agentic_input(query, messages, None, None, None)
+    try:
+        for event in app.stream(
+            input_state,
+            config=config,
+            stream_mode=["messages", "values"],
+            subgraphs=True,
+        ):
+            router.handle(event)
+    except BaseException:
+        router.abort()
+        raise
+    router.finish()
+    return router.final_state
