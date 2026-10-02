@@ -540,3 +540,36 @@ class TestHistoryKeepsEachTurnsOutcome:
             asyncio.run(_session(tmp_path, stack, second, saver).aask("谢谢", run_id="r2"))
         wire = json.dumps([_convert_message_to_dict(m) for m in second.state["received"][0]], ensure_ascii=False)
         assert TURN_STATUS_KEY not in wire
+
+
+class TestLoopBookkeeping:
+    """两处循环内部的记账缺陷（review 2026-09-30 低优先级项）。"""
+
+    def test_a_model_imitating_the_validator_cannot_forge_the_reflow_boundary(self, tmp_path: Path) -> None:
+        """模型模仿历史里见过的 citation_validator 调用：ToolNode 回填一条同名的"工具不存在"错误。
+        此前按名字识别边界，这条伪造消息把本轮有效的 cite 声明切到边界之前，整轮判零引用失败。"""
+        script = [
+            _retrieve("设计秒流量"),
+            _cite("FIX 1.1.1"),
+            {"tool_calls": [{"name": "citation_validator", "args": {}}]},
+            {"content": "依据 FIX 1.1.1 确定设计秒流量。"},
+        ]
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        with ExitStack() as stack:
+            result = asyncio.run(_session(tmp_path, stack, ScriptedChatModel(steps=script), saver)
+                                 .aask("设计秒流量如何确定", run_id="r-f"))
+        assert result["status"] == "succeeded"
+        assert [c["source_id"] for c in result["citations"]] == ["FIX 1.1.1"]
+
+    def test_the_inner_react_loop_writes_no_checkpoints_of_its_own(self, tmp_path: Path) -> None:
+        """内层子图 checkpointer=None 是"继承父图"：每次工具调用多写子图 checkpoint，永不被读取。"""
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        script = [_retrieve("设计秒流量"), _cite("FIX 1.1.1"), {"content": "依据 FIX 1.1.1 确定。"}]
+        with ExitStack() as stack:
+            session = _session(tmp_path, stack, ScriptedChatModel(steps=script), saver)
+            asyncio.run(session.aask("设计秒流量如何确定", run_id="r-c"))
+            namespaces = {
+                c.config["configurable"].get("checkpoint_ns", "")
+                for c in saver.list({"configurable": {"thread_id": session.thread_id}})
+            }
+        assert namespaces == {""}, namespaces
