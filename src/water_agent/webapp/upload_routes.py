@@ -11,7 +11,9 @@ Two things this module does own, because they are HTTP concerns:
   chunks and refuses it as soon as it passes ``MAX_UPLOAD_BYTES``.  This is *not*
   what keeps an oversized request out: FastAPI parses the whole multipart body
   before the route -- and before its auth and CSRF dependencies -- runs.  That
-  ceiling sits below FastAPI, in ``body_limit.UploadBodyLimitMiddleware``.
+  ceiling sits below FastAPI, in ``body_limit.RequestBodyLimitMiddleware``, and
+  so does the refusal of an upload its auth dependencies would refuse
+  (``body_limit.UploadPreauthMiddleware``, which replays them unread).
 * **authorization precedes everything else the route does**, including parsing
   the document.  An upload aimed at a project the caller is not a member of must
   answer 404 without revealing whether that project exists, and without spending
