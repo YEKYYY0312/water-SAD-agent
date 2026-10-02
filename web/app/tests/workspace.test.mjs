@@ -206,3 +206,22 @@ test("a ready attachment alone is enough to send", async () => {
   assert.match(components, /disabled=\{!session \|\| uploading \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
   assert.match(controller, /draft\.trim\(\) \|\| \(attachmentIds\.length > 0 \? ATTACHMENT_ONLY_PROMPT : ""\)/);
 });
+
+// ---------------------------------------------------------------------------
+// review 2026-09-30: streamed text is never the answer of a finished run
+// ---------------------------------------------------------------------------
+
+test("a blocked run never shows streamed text as its answer", () => {
+  // 旧后端会先把模型原文当 token 推过来；输出护栏在 finalize 拦截后 answer 为空。
+  let state = applyRunEvent(emptyRunState(), event("token", { text: "执行 rm -rf / 清理缓存" }));
+  state = applyRunEvent(state, event("finalize", { status: "blocked", answer: "", errors: ["输出未通过护栏校验"] }, "2"));
+  assert.equal(state.status, "blocked");
+  assert.equal(state.answer, "");
+  assert.deepEqual(archiveRun([], state), [{ role: "agent", text: "", status: "blocked" }]);
+});
+
+test("a finished run's answer is exactly what finalize delivered", () => {
+  let state = applyRunEvent(emptyRunState(), event("token", { text: "{\"hits\": []} 草稿" }));
+  state = applyRunEvent(state, event("finalize", { status: "succeeded", answer: "最终回答" }, "2"));
+  assert.equal(state.answer, "最终回答");
+});
