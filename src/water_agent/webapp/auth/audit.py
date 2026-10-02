@@ -104,8 +104,9 @@ def audit_bootstrap_admin_created(*, user_id: str) -> None:
     _emit("auth.bootstrap_admin_created", {"user_id": user_id})
 
 
-def audit_bootstrap_admin_skipped() -> None:
-    _emit("auth.bootstrap_admin_skipped", {})
+def audit_bootstrap_admin_skipped(*, reason: str = "active_admin_exists") -> None:
+    """reason is a category ('active_admin_exists' / 'admin_exists_inactive'), never a username."""
+    _emit("auth.bootstrap_admin_skipped", {"reason": reason})
 
 
 # ---------------------------------------------------------------------------

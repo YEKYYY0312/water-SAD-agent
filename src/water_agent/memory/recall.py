@@ -26,6 +26,7 @@ from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import (
     MemoryKind,
     MemoryRecord,
+    MemoryScopeDeniedError,
     MemoryScopeType,
     MemoryStoreUnavailableError,
     content_hash,
@@ -447,8 +448,14 @@ class MemoryRecallService:
         max_characters: int = MAX_MEMORY_CONTEXT_CHARACTERS,
         source_thread_id: UUID | str | None = None,
         run_id: UUID | str | None = None,
+        record_usage: bool = True,
     ) -> MemoryRecallResult:
-        """Recall only active, unexpired records visible to the authenticated actor."""
+        """Recall only active, unexpired records visible to the authenticated actor.
+
+        ``record_usage`` appends a ``memory_usage`` row and a RECALLED event per
+        hit the actor may write; pass ``False`` for pure reads (Web list/search)
+        that never inject memory into a run.
+        """
 
         normalized_query = normalize_recall_query(query)
         item_limit = self._bounded_limit(max_items, MAX_MEMORY_RECALL_ITEMS, "item")
@@ -513,13 +520,14 @@ class MemoryRecallService:
             provider_name=provider.name,
             fallback_used=fallback_used,
         )
-        self._record_usage(
-            result.hits,
-            tenant_id=tenant_key,
-            actor_user_id=actor_key,
-            source_thread_id=source_thread_id,
-            run_id=run_id,
-        )
+        if record_usage:
+            self._record_usage(
+                result.hits,
+                tenant_id=tenant_key,
+                actor_user_id=actor_key,
+                source_thread_id=source_thread_id,
+                run_id=run_id,
+            )
         self._emit_trace(result)
         return result
 
@@ -551,6 +559,14 @@ class MemoryRecallService:
         source_thread_id: UUID | str | None,
         run_id: UUID | str | None,
     ) -> None:
+        """Best-effort usage audit: it never changes the recall result.
+
+        Each hit is its own transaction.  The hits are already authorized and
+        selected, so a usage write must not turn a successful recall into
+        ``MEMORY_STORE_UNAVAILABLE`` -- that used to drop the whole memory
+        context, the actor's own memories included.
+        """
+
         for hit in hits:
             try:
                 self._usage_repository.record_usage(
@@ -561,8 +577,13 @@ class MemoryRecallService:
                     run_id=run_id,
                     score=hit.score,
                 )
-            except DomainMemoryError as exc:
-                raise MemoryStoreUnavailableError() from exc
+            except MemoryScopeDeniedError:
+                # Recall needs read access; usage appends a RECALLED event and
+                # needs write access.  A project viewer's project hits are
+                # injected without a usage row by design.
+                continue
+            except DomainMemoryError:
+                continue
 
     def _emit_trace(self, result: MemoryRecallResult) -> None:
         if self.trace is None or not self.trace.started:
