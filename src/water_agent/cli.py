@@ -703,6 +703,87 @@ def _parse_multi_agent_project_brief(
     return brief.model_dump(mode="json"), []
 
 
+def _summary_value(value: Any) -> str:
+    """摘要里的值原样转成文本：数值不取整、不换单位（铁律 1），缺省显示为 —。"""
+    if value is None:
+        return "—"
+    if isinstance(value, dict):
+        return ", ".join(f"{key}={_summary_value(item)}" for key, item in value.items()) or "—"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_summary_value(item) for item in value) or "—"
+    return str(value)
+
+
+def _print_multi_agent_approval_request(
+    request: dict[str, Any], ui, *, fallback_summary: dict[str, Any] | None = None
+) -> None:
+    """批准前逐项摆出待批准的最终包（此前只打印一个哈希，批准人是盲批）。
+
+    内容来自审批请求里的 ``summary``（``orchestrator.approval_summary``），这里只排版。升级前挂起的
+    会话，持久化的请求里没有 summary，用调用方从会话状态重建的同源摘要（``fallback_summary``）。
+    ``--json`` 时 ``ui`` 是 stderr，stdout 只留最终 JSON。
+    """
+    summary = request.get("summary") or fallback_summary or {}
+    print("\n===== 待批准最终包（批准前请逐项核对）=====", file=ui)
+    print(f"待批准最终包：{request['final_package_hash']}", file=ui)
+    if not summary:
+        print("（无法生成摘要：会话里没有完整的发布产物集，请勿批准）", file=ui)
+    artifacts = summary.get("artifacts") or []
+    print(f"产物清单（{len(artifacts)} 项）：", file=ui)
+    for row in artifacts:
+        print(
+            f"  - {row['artifact_type']} rev{row['revision']} hash={row['payload_hash_prefix']}… "
+            f"[{row['status']}] {row['artifact_id']}",
+            file=ui,
+        )
+    segments = summary.get("segments") or []
+    print(f"管段（{len(segments)} 段）：", file=ui)
+    for seg in segments:
+        dn = f"DN{seg['dn_mm']}" if seg.get("dn_mm") is not None else "DN —"
+        print(
+            f"  - {seg['segment_id']} | {seg['system']} | {seg['start_node_id']}→{seg['end_node_id']} | {dn} | "
+            f"长度 {_summary_value(seg.get('length_m'))} m | 材质 {_summary_value(seg.get('material'))} | "
+            f"坡度 {_summary_value(seg.get('slope'))} | hydraulic_status={seg['hydraulic_status']} | "
+            f"计算工况 {_summary_value(seg.get('calc_case_ids'))}",
+            file=ui,
+        )
+    cases = summary.get("calc_cases") or []
+    print(f"水力工况（{len(cases)} 个）：", file=ui)
+    for case in cases:
+        print(f"  - {case['calc_case_id']} | {case['formula']} | {case['status']}", file=ui)
+        print(f"      输入：{_summary_value(case.get('inputs'))}", file=ui)
+        print(f"      结果：{_summary_value(case.get('outputs'))}", file=ui)
+        for note in case.get("assumptions") or []:
+            print(f"      assumption：{note}", file=ui)
+    citations = summary.get("citations") or []
+    print(f"设计依据（{len(citations)} 条）：", file=ui)
+    for citation in citations:
+        status = citation.get("version_status") or "未校验"
+        print(f"  - {citation['source_id']}（规范版本状态：{status}）", file=ui)
+    review = summary.get("review") or {}
+    issues = review.get("issues") or []
+    not_checked = review.get("not_checked") or []
+    print(
+        f"审查：decision={review.get('decision')}，问题 {len(issues)} 条，未检查 {len(not_checked)} 项",
+        file=ui,
+    )
+    for issue in issues:
+        print(
+            f"  - 问题 [{issue['severity']}/{issue['owner']}] {issue['rule_id']}"
+            f"{' @' + issue['object_ref'] if issue.get('object_ref') else ''}：{issue['message']}",
+            file=ui,
+        )
+    for item in not_checked:
+        print(f"  - 未检查：{item}", file=ui)
+    print(f"staging 草图（DXF）：{_summary_value(summary.get('staging_dxf_path'))}", file=ui)
+    disclosed = request.get("disclosed_limitations") or []
+    if disclosed:
+        print(f"批准前请确认以下 {len(disclosed)} 项披露（审查器未能判定合规的内容）：", file=ui)
+        for item in disclosed:
+            print(f"  - {item}", file=ui)
+    print("==========================================", file=ui)
+
+
 def _prompt_multi_agent_decision(ui) -> dict[str, Any] | None:
     """multi-agent 审批提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；None = 挂起。
 
@@ -726,6 +807,7 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
 
     from water_agent.multi_agent.contracts import MULTI_MISSING_INPUTS
     from water_agent.multi_agent.orchestrator import (
+        approval_summary,
         build_orchestrator_graph,
         default_multi_agent_state,
         review_disclosures,
@@ -805,12 +887,7 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
             if request.get("error"):
                 # 图内拒收了上一次提交的 resume 值、会话重新挂起：说清楚，这次给出的决定才算数
                 print(f"上一次提交的审批决定无效，未被采纳：{request['error']}", file=ui)
-            print(f"待批准最终包：{request['final_package_hash']}", file=ui)
-            disclosed = request.get("disclosed_limitations") or []
-            if disclosed:
-                print(f"批准前请确认以下 {len(disclosed)} 项披露（审查器未能判定合规的内容）：", file=ui)
-                for item in disclosed:
-                    print(f"  - {item}", file=ui)
+            _print_multi_agent_approval_request(request, ui, fallback_summary=approval_summary(result))
             decision = _prompt_multi_agent_decision(ui)
             if decision is None:
                 print(f"\n审批已挂起，稍后使用 --resume {session_id} 恢复。", file=ui)
@@ -826,6 +903,8 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         "project_brief": result.get("project_brief"),
         "retrieved_source_ids": result.get("retrieved_source_ids", []),
         "disclosed_limitations": review_disclosures(result),
+        # 结构化的最终包摘要（与审批请求同一来源）；发布集不完整时为 null
+        "approval_summary": approval_summary(result),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
     return 0 if payload["ok"] else 1

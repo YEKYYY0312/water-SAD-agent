@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.multi_agent import export_adapter
 from water_agent.multi_agent.agents.design import run_design_agent
 from water_agent.multi_agent.agents.drawing import run_drawing_agent
@@ -29,21 +30,29 @@ from water_agent.multi_agent.agents.review import run_review_agent
 from water_agent.multi_agent.contracts import (
     MULTI_APPROVAL_REQUIRED,
     MULTI_APPROVAL_STALE,
+    MULTI_CALC_BLOCKED,
+    MULTI_DESIGN_CONFLICT,
+    MULTI_DRAWING_CONFLICT,
+    MULTI_DRAWING_UNAVAILABLE,
     MULTI_EXPORT_FAILED,
     MULTI_INVALID_BRIEF,
     MULTI_MISSING_INPUTS,
+    MULTI_RECALC_REQUIRED,
     MULTI_RETRY_EXHAUSTED,
     MULTI_REVIEW_REJECTED,
     ApprovalRecord,
     ArtifactEnvelope,
     CalcPackage,
     DesignPackage,
+    DrawingPackage,
     DrawingPlan,
     FinalProjectPackage,
     ProjectBrief,
+    ReviewIssue,
     ReviewPackage,
     compute_artifact_collection_hash,
     compute_payload_hash,
+    project_brief_conflict_fields,
     project_brief_conflicts,
     verify_envelope_hash,
 )
@@ -59,6 +68,10 @@ from water_agent.session import default_checkpoint_serde
 
 DEFAULT_APPROVAL_TTL_SECONDS = 24 * 60 * 60
 _SCHEMA_VERSION = "p4.5-2026-09-11"
+#: 发布集（批准绑定的最终包）由这六个角色的活动产物组成，顺序即审批摘要里的展示顺序。
+_RELEASE_ROLES = ("calc", "design", "drawing_plan", "document", "drawing", "review")
+#: 审批摘要里 payload_hash 只给前缀（完整哈希在 final_package_hash 与产物里）。
+_HASH_PREFIX_CHARS = 12
 _TRACE_SOURCE = "multi_agent_orchestrator"
 _TRACE_DELIVERY = "local_event_only"
 _INTERNAL_TRACE_ID_RE = re.compile(
@@ -147,6 +160,181 @@ def _short_repr(value: Any, limit: int = 80) -> str:
     """Bounded repr for an error message that is persisted in the interrupt payload."""
     text = repr(value)
     return text if len(text) <= limit else f"{text[: limit - 3]}..."
+
+
+#: 原因摘要有界：errors 是给人读的顶层输出，完整细节留在产物与 checkpoint 里。
+_MAX_FAILURE_REASONS = 20
+_MAX_REASON_CHARS = 300
+
+#: 一个阶段的收口原因：(MULTI_* 码, 该码下逐条的原因摘要)。
+_Failure = tuple[str, list[str]]
+
+
+def _bounded_reason(text: Any) -> str:
+    cleaned = " ".join(str(text).split())
+    return cleaned if len(cleaned) <= _MAX_REASON_CHARS else f"{cleaned[: _MAX_REASON_CHARS - 1]}…"
+
+
+def _failure_errors(state: Mapping[str, Any], failures: list[_Failure]) -> list[str]:
+    """errors 追加阶段收口的 MULTI_* 码与原因摘要（任务书 §10）。
+
+    此前各阶段节点失败只设 status、不追加 errors，真实原因只在 checkpoint 的产物里，CLI 顶层输出
+    ``errors=[]``（review 2026-09-30）。口径沿用 intake 的 MULTI_INVALID_BRIEF：码单独一项（调用方
+    按码精确匹配），原因逐条跟在码后面、带阶段前缀；同一个码只写一次，原因去重、有界。
+    """
+    grouped: dict[str, list[str]] = {}
+    for code, reasons in failures:
+        bucket = grouped.setdefault(code, [])
+        for reason in reasons:
+            line = _bounded_reason(reason)
+            if line and line not in bucket:
+                bucket.append(line)
+    errors = list(state.get("errors") or [])
+    for code, lines in grouped.items():
+        if len(lines) > _MAX_FAILURE_REASONS:
+            hidden = len(lines) - _MAX_FAILURE_REASONS
+            lines = [*lines[:_MAX_FAILURE_REASONS], f"（另有 {hidden} 条原因未列出，详见产物）"]
+        errors.extend([code, *lines])
+    return errors
+
+
+def _field_path(loc: tuple[Any, ...]) -> str:
+    """pydantic 错误位置 → ``topology[0].length_m`` 形态（与 CLI 缺项列表同一写法）。"""
+    path = ""
+    for part in loc:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        else:
+            path = f"{path}.{part}" if path else str(part)
+    return path or "project_brief"
+
+
+def _calc_stage_failures(
+    env: ArtifactEnvelope,
+    package: CalcPackage | None,
+) -> tuple[list[_Failure], list[str]]:
+    """水力阶段收口：缺参 → MULTI_MISSING_INPUTS（缺项不得为空）；其余 → MULTI_CALC_BLOCKED。"""
+    if env.status == "ready":
+        return [], []
+    if package is None:
+        return [(MULTI_CALC_BLOCKED, [f"hydraulic: 计算产物 {env.artifact_id} 的 payload 不是合法 CalcPackage"])], []
+    missing = list(package.missing_inputs)
+    missing_reasons = [
+        f"hydraulic: 工况 {case.calc_case_id}（{case.formula}）缺少计算输入"
+        for case in package.cases
+        if case.status == "missing_inputs"
+    ]
+    if not package.cases:
+        missing.append("hydraulic_cases")
+        missing_reasons.append("hydraulic: ProjectBrief 没有任何水力计算工况（hydraulic_cases 为空）")
+    if env.status == "missing_inputs":
+        if not missing:
+            missing = [f"calc:{env.artifact_id} 缺少计算输入"]
+        return [(MULTI_MISSING_INPUTS, missing_reasons)], missing
+    reasons = [
+        f"hydraulic: 工况 {case.calc_case_id}（{case.formula}）：{error}"
+        for case in package.cases
+        if case.status == "failed"
+        for error in (case.errors or ["水力计算失败"])
+    ]
+    reasons.extend(missing_reasons)
+    if not reasons:
+        reasons = [
+            f"hydraulic: 计算产物 {env.artifact_id} 状态为 {env.status}",
+            *(f"hydraulic: {error}" for error in package.errors),
+        ]
+    return [(MULTI_CALC_BLOCKED, reasons)], missing
+
+
+def _design_stage_failures(env: ArtifactEnvelope, package: DesignPackage, status: str) -> list[_Failure]:
+    """设计阶段收口：缺参 → MULTI_MISSING_INPUTS（缺项即 unresolved_items）；
+    brief 冲突 → MULTI_INVALID_BRIEF；未检索的依据、无计算支撑等 → MULTI_DESIGN_CONFLICT。"""
+    if status == "missing_inputs":
+        return [(MULTI_MISSING_INPUTS, [])]
+    if status not in {"blocked", "failed"}:
+        return []
+    brief_lines = [item for item in package.unresolved_items if item.startswith("invalid project brief:")]
+    if brief_lines:
+        return [(MULTI_INVALID_BRIEF, brief_lines)]
+    reasons = [
+        f"design: 设计请求的规范依据 {source_id} 不在本轮检索集合中"
+        "（retrieved_source_ids ∪ 引用校验器已确认的引用），未进入设计依据"
+        for source_id in package.invalid_citation_ids
+    ]
+    reasons.extend(
+        f"design: 管段 {segment.segment_id} 没有活动计算工况支撑（hydraulic_status=not_verified）"
+        for segment in package.segments
+        if segment.hydraulic_status == "not_verified"
+    )
+    if not reasons:
+        reasons = [f"design: {item}" for item in package.unresolved_items] or [
+            f"design: 设计产物 {env.artifact_id} 状态为 {env.status}",
+            *(f"design: {warning}" for warning in env.warnings),
+        ]
+    return [(MULTI_DESIGN_CONFLICT, reasons)]
+
+
+def _drawing_stage_failures(
+    plan: ArtifactEnvelope,
+    package: ArtifactEnvelope,
+    document: ArtifactEnvelope,
+) -> tuple[list[_Failure], list[str]]:
+    """出图阶段收口：DrawingPlan 与上游冲突 → MULTI_DRAWING_CONFLICT；计划缺输入 →
+    MULTI_MISSING_INPUTS（缺项来自 DrawingPlan）；草图渲染/回读或文档模板不可用 → MULTI_DRAWING_UNAVAILABLE。"""
+    failures: list[_Failure] = []
+    missing: list[str] = []
+    try:
+        plan_payload: DrawingPlan | None = DrawingPlan.model_validate(plan.payload)
+    except ValidationError:
+        plan_payload = None
+    if plan.status == "blocked" or (plan_payload is not None and plan_payload.integration_conflicts):
+        conflicts = list(plan_payload.integration_conflicts) if plan_payload is not None else []
+        failures.append(
+            (
+                MULTI_DRAWING_CONFLICT,
+                [f"drawing: {conflict}" for conflict in conflicts]
+                or [f"drawing: DrawingPlan {plan.artifact_id} 状态为 {plan.status}"],
+            )
+        )
+    if plan.status == "missing_inputs" or (plan_payload is not None and plan_payload.missing_inputs):
+        missing = list(plan_payload.missing_inputs) if plan_payload is not None else []
+        failures.append((MULTI_MISSING_INPUTS, []))
+    if plan.status == "failed":
+        failures.append((MULTI_DRAWING_UNAVAILABLE, [f"drawing: DrawingPlan {plan.artifact_id} 生成失败"]))
+    # 计划本身就绪时，草图包失败/受阻只能是渲染或回读环节的问题（依赖、格式或环境）。
+    if package.status == "failed" or (package.status != "ready" and plan.status == "ready"):
+        try:
+            unresolved = list(DrawingPackage.model_validate(package.payload).unresolved_items)
+        except ValidationError:
+            unresolved = []
+        failures.append(
+            (
+                MULTI_DRAWING_UNAVAILABLE,
+                [f"drawing: {item}" for item in unresolved]
+                or [f"drawing: 草图包 {package.artifact_id} 状态为 {package.status}"],
+            )
+        )
+    if document.status == "failed":
+        document_errors = document.payload.get("errors")
+        failures.append(
+            (
+                MULTI_DRAWING_UNAVAILABLE,
+                [f"document: {item}" for item in document_errors]
+                if isinstance(document_errors, list) and document_errors
+                else [f"document: 设计说明 {document.artifact_id} 生成失败"],
+            )
+        )
+    statuses = {plan.status, package.status, document.status}
+    if statuses != {"ready"} and not failures:
+        failures.append((MULTI_DRAWING_UNAVAILABLE, [f"drawing: 出图阶段产物状态 {sorted(statuses)}"]))
+    if "missing_inputs" in statuses and not missing:
+        missing = [f"drawing_plan:{plan.artifact_id} 缺少出图输入"]
+    return failures, missing
+
+
+def _issue_reason(issue: ReviewIssue) -> str:
+    where = f" @{issue.object_ref}" if issue.object_ref else ""
+    return f"review: {issue.rule_id}（{issue.owner}/{issue.severity}）{where}：{issue.message}"
 
 
 def approval_decision_error(value: Any) -> str | None:
@@ -555,10 +743,103 @@ def _put(
 
 
 def _release_artifacts(registry: dict[str, ArtifactEnvelope], active: dict[str, str]) -> dict[str, ArtifactEnvelope] | None:
-    roles = ("calc", "design", "drawing_plan", "document", "drawing", "review")
-    if any(role not in active or active[role] not in registry for role in roles):
+    if any(role not in active or active[role] not in registry for role in _RELEASE_ROLES):
         return None
-    return {active[role]: registry[active[role]] for role in roles}
+    return {active[role]: registry[active[role]] for role in _RELEASE_ROLES}
+
+
+def approval_summary(state: Mapping[str, Any]) -> dict[str, Any] | None:
+    """待批准最终包的可审阅摘要（审批请求、CLI 与最终输出共用这一个来源）。
+
+    此前审批请求只有最终包哈希，批准人看不到要批准的是什么（盲批，review 2026-09-30）。
+    摘要只读当前发布集里已通过哈希校验的登记产物，原样搬运其中的数值与文本——不重新计算、
+    不换算、不取整任何数值（铁律 1）；发布集不完整（没有可批准的最终包）时返回 None。
+    ``state`` 接受任意映射：CLI 手里是 ``app.invoke`` 返回的普通 dict。
+    """
+    registry = _registry(cast(MultiAgentProjectState, state))
+    active = dict(state.get("active_artifact_ids") or {})
+    artifacts = _release_artifacts(registry, active)
+    if artifacts is None:
+        return None
+    envelopes = {role: registry[active[role]] for role in _RELEASE_ROLES}
+    try:
+        calc = CalcPackage.model_validate(envelopes["calc"].payload)
+        design = DesignPackage.model_validate(envelopes["design"].payload)
+        drawing = DrawingPackage.model_validate(envelopes["drawing"].payload)
+        review = ReviewPackage.model_validate(envelopes["review"].payload)
+    except ValidationError:
+        return None
+    staging_dir = state.get("staging_dir")
+    staged_file_id = drawing.staged_file_id if drawing.staged_file_verified else None
+    # 与 drawing_executor / export_adapter 同一个命名规则：<staging_dir>/<file_id>.dxf
+    staging_dxf_path = (
+        str(Path(staging_dir) / f"{staged_file_id}.dxf")
+        if isinstance(staging_dir, str) and staging_dir and staged_file_id
+        else None
+    )
+    citations: dict[str, dict[str, Any]] = {}
+    for citation in design.citations:
+        citations.setdefault(
+            citation.source_id,
+            {"source_id": citation.source_id, "version_status": citation.version_status},
+        )
+    return {
+        "final_package_hash": _package_hash(artifacts),
+        "artifacts": [
+            {
+                "role": role,
+                "artifact_type": envelopes[role].artifact_type,
+                "artifact_id": envelopes[role].artifact_id,
+                "revision": envelopes[role].revision,
+                "payload_hash_prefix": envelopes[role].payload_hash[:_HASH_PREFIX_CHARS],
+                "status": envelopes[role].status,
+            }
+            for role in _RELEASE_ROLES
+        ],
+        "segments": [
+            {
+                "segment_id": segment.segment_id,
+                "system": segment.system,
+                "start_node_id": segment.start_node_id,
+                "end_node_id": segment.end_node_id,
+                "dn_mm": segment.dn_mm,
+                "length_m": segment.length_m,
+                "material": segment.material,
+                "slope": segment.slope,
+                "hydraulic_status": segment.hydraulic_status,
+                "calc_case_ids": list(segment.calc_case_ids),
+            }
+            for segment in design.segments
+        ],
+        "calc_cases": [
+            {
+                "calc_case_id": case.calc_case_id,
+                "formula": case.formula,
+                "status": case.status,
+                "inputs": dict(case.inputs),
+                "outputs": dict(case.outputs),
+                "assumptions": list(case.assumptions),
+            }
+            for case in calc.cases
+        ],
+        "citations": list(citations.values()),
+        "review": {
+            "decision": review.decision,
+            "issues": [
+                {
+                    "rule_id": issue.rule_id,
+                    "severity": issue.severity,
+                    "owner": issue.owner,
+                    "object_ref": issue.object_ref,
+                    "message": issue.message,
+                }
+                for issue in review.issues
+            ],
+            "not_checked": list(review.not_checked),
+            "disclosed_limitations": list(review.disclosed_limitations),
+        },
+        "staging_dxf_path": staging_dxf_path,
+    }
 
 
 def _package_hash(artifacts: dict[str, ArtifactEnvelope]) -> str:
@@ -647,20 +928,34 @@ def build_orchestrator_graph(
     review_runner: Callable[..., ArtifactEnvelope] = run_review_agent,
     drawing_stager: Callable[..., ArtifactEnvelope] = stage_drawing_package,
     exporter: Callable[..., str] = export_adapter.assemble_export_path,
+    version_registry: Any | None = None,
 ) -> Any:
-    """Compile the only P4.5 orchestration graph; interrupt needs persistence."""
+    """Compile the only P4.5 orchestration graph; interrupt needs persistence.
+
+    ``version_registry`` 缺省用 ``data/versions.json`` 单例（与 legacy/agentic RAG 图同口径），
+    交给设计 Agent 解析设计依据的规范版本状态——此前从不传，版本状态恒为 None。
+    """
     if checkpointer is None:
         raise ValueError("multi-agent graph requires a persistent checkpointer for interrupt/resume")
     if approval_ttl_seconds <= 0:
         raise ValueError("approval_ttl_seconds must be positive")
     clock = now or (lambda: datetime.now(UTC))
+    registry_for_design = version_registry if version_registry is not None else get_version_registry()
 
     def consume(state: MultiAgentProjectState, phase: str) -> dict[str, Any] | None:
         if state.get("step_count", 0) >= MAX_MULTI_AGENT_STEPS:
             return {
                 "phase": phase,
                 "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_RETRY_EXHAUSTED],
+                "errors": _failure_errors(
+                    state,
+                    [
+                        (
+                            MULTI_RETRY_EXHAUSTED,
+                            [f"{phase}: 已达多 Agent 步数上限 {MAX_MULTI_AGENT_STEPS}，不再调用任何 Agent"],
+                        )
+                    ],
+                ),
                 "trace_events": [_run_finished_event(state, run_status="blocked")],
             }
         return None
@@ -670,11 +965,20 @@ def build_orchestrator_graph(
         try:
             brief = ProjectBrief.model_validate(state.get("project_brief") or {})
         except ValidationError as exc:
+            # 字段级校验失败同样是 MULTI_INVALID_BRIEF（此前只有一句 str(exc)、不带码），缺项列出要改的字段；
+            # 原因只取字段位置与校验说明，不回显输入值。
+            details = exc.errors()
+            fields = [_field_path(tuple(error.get("loc", ()))) for error in details]
+            reasons = [
+                f"invalid project brief: {field}: {error.get('msg', 'invalid')}"
+                for field, error in zip(fields, details, strict=True)
+            ]
             events.append(_run_finished_event(state, run_status="missing_inputs"))
             return {
                 "phase": "intake",
                 "status": "missing_inputs",
-                "errors": [*state.get("errors", []), f"invalid project brief: {exc}"],
+                "errors": _failure_errors(state, [(MULTI_INVALID_BRIEF, reasons)]),
+                "missing_inputs": [*state.get("missing_inputs", []), *dict.fromkeys(fields)],
                 "trace_events": events,
             }
         # 跨字段冲突（重复管段 (system, start, end)、引用未声明的系统/工况、重复 ID）在任何
@@ -685,11 +989,11 @@ def build_orchestrator_graph(
             return {
                 "phase": "intake",
                 "status": "missing_inputs",
-                "errors": [
-                    *state.get("errors", []),
-                    MULTI_INVALID_BRIEF,
-                    *(f"invalid project brief: {conflict}" for conflict in conflicts),
-                ],
+                "errors": _failure_errors(
+                    state,
+                    [(MULTI_INVALID_BRIEF, [f"invalid project brief: {conflict}" for conflict in conflicts])],
+                ),
+                "missing_inputs": [*state.get("missing_inputs", []), *project_brief_conflict_fields(brief)],
                 "trace_events": events,
             }
         return {"phase": "intake", "status": "running", "trace_events": events}
@@ -717,7 +1021,11 @@ def build_orchestrator_graph(
             },
             keep_previous=True,
         )
-        missing = CalcPackage.model_validate(env.payload).missing_inputs if env.status == "missing_inputs" else []
+        try:
+            package: CalcPackage | None = CalcPackage.model_validate(env.payload)
+        except ValidationError:
+            package = None
+        failures, missing = _calc_stage_failures(env, package)
         status = "running" if env.status == "ready" else env.status
         events = [
             _trace_event("agent_call", owner="hydraulic", after_exhaustion=False),
@@ -744,6 +1052,7 @@ def build_orchestrator_graph(
             "step_count": state.get("step_count", 0) + 1,
             "status": status,
             "missing_inputs": [*state.get("missing_inputs", []), *missing],
+            **({"errors": _failure_errors(state, failures)} if failures else {}),
             "trace_events": events,
         }
 
@@ -754,10 +1063,20 @@ def build_orchestrator_graph(
         registry_before, active_before = dict(registry), dict(active)
         calc = registry[active["calc"]]
         previous = DesignPackage.model_validate(registry[active["design"]].payload) if active.get("design") in registry else None
-        env = design_runner(ProjectBrief.model_validate(state["project_brief"]), calc, retrieved_source_ids=list(state.get("retrieved_source_ids") or []), prev_design=previous)
+        env = design_runner(
+            ProjectBrief.model_validate(state["project_brief"]),
+            calc,
+            retrieved_source_ids=list(state.get("retrieved_source_ids") or []),
+            prev_design=previous,
+            version_registry=registry_for_design,
+        )
         registry, active = _put(registry, active, env, role="design", invalidates={"design_package", "drawing_plan", "drawing_package", "document", "review_package"})
         package = DesignPackage.model_validate(env.payload)
         status = "running" if env.status == "ready" or package.recalculation_requests else env.status
+        failures = _design_stage_failures(env, package, status)
+        missing = list(package.unresolved_items)
+        if status == "missing_inputs" and not missing:
+            missing = [f"design:{env.artifact_id} 缺少设计输入"]
         events = [
             _trace_event("agent_call", owner="design", after_exhaustion=False),
             *_artifact_trace_events(
@@ -782,7 +1101,8 @@ def build_orchestrator_graph(
             "active_artifact_ids": active,
             "step_count": state.get("step_count", 0) + 1,
             "status": status,
-            "missing_inputs": [*state.get("missing_inputs", []), *package.unresolved_items],
+            "missing_inputs": [*state.get("missing_inputs", []), *missing],
+            **({"errors": _failure_errors(state, failures)} if failures else {}),
             "trace_events": events,
         }
 
@@ -792,7 +1112,20 @@ def build_orchestrator_graph(
             return {
                 "phase": "recalculate",
                 "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_RETRY_EXHAUSTED],
+                "errors": _failure_errors(
+                    state,
+                    [
+                        (
+                            MULTI_RETRY_EXHAUSTED,
+                            [
+                                (
+                                    f"recalculate: 水力重算已达上限 {MAX_HYDRAULIC_REVISIONS} 次，"
+                                    "设计仍要求重算，不再调用水力 Agent"
+                                )
+                            ],
+                        )
+                    ],
+                ),
                 "trace_events": [_run_finished_event(state, run_status="blocked")],
             }
         registry, active = _registry(state), dict(state.get("active_artifact_ids") or {})
@@ -802,11 +1135,20 @@ def build_orchestrator_graph(
             active,
         )
         if updated_brief is None:
+            # 必须重算却执行不了：MULTI_RECALC_REQUIRED 说明为什么停，MULTI_MISSING_INPUTS 指向缺项。
+            reason = (
+                "recalculate: 需要重算水力工况，但设计产物里没有可执行的结构化重算请求"
+                if missing == ["recalculation_requests"]
+                else "recalculate: 设计改变了水力输入、必须重算，但重算请求缺少可执行的结构化输入（缺项见 missing_inputs）"
+            )
             return {
                 "phase": "recalculate",
                 "status": "waiting",
                 "route_target": "human",
-                "errors": [*state.get("errors", []), MULTI_MISSING_INPUTS],
+                "errors": _failure_errors(
+                    state,
+                    [(MULTI_RECALC_REQUIRED, [reason]), (MULTI_MISSING_INPUTS, [])],
+                ),
                 "missing_inputs": [*state.get("missing_inputs", []), *missing],
                 "trace_events": [_run_finished_event(state, run_status="waiting")],
             }
@@ -860,6 +1202,7 @@ def build_orchestrator_graph(
         )
         statuses = {plan.status, package.status, document.status}
         status = "running" if statuses == {"ready"} else ("failed" if "failed" in statuses else ("blocked" if "blocked" in statuses else "missing_inputs"))
+        failures, missing = _drawing_stage_failures(plan, package, document) if status != "running" else ([], [])
         if status != "running":
             events.append(
                 _run_finished_event(
@@ -875,6 +1218,9 @@ def build_orchestrator_graph(
             "active_artifact_ids": active,
             "step_count": state.get("step_count", 0) + 1,
             "status": status,
+            # 出图阶段此前不写 missing_inputs：$INSUNITS 不支持等缺项只在 DrawingPlan 里，顶层为空列表
+            "missing_inputs": [*state.get("missing_inputs", []), *missing],
+            **({"errors": _failure_errors(state, failures)} if failures else {}),
             "trace_events": events,
         }
 
@@ -940,7 +1286,10 @@ def build_orchestrator_graph(
             return {
                 "phase": "router",
                 "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_REVIEW_REJECTED],
+                "errors": _failure_errors(
+                    state,
+                    [(MULTI_REVIEW_REJECTED, ["review: 没有可用的审查包（缺失或未通过哈希校验），不能放行"])],
+                ),
                 "trace_events": events,
             }
         package = ReviewPackage.model_validate(env.payload)
@@ -962,10 +1311,16 @@ def build_orchestrator_graph(
                     active=active,
                 ),
             ]
+            blocking = [
+                _issue_reason(issue) for issue in package.issues if issue.severity in {"blocking", "error"}
+            ]
             return {
                 "phase": "router",
                 "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_REVIEW_REJECTED],
+                "errors": _failure_errors(
+                    state,
+                    [(MULTI_REVIEW_REJECTED, blocking or ["review: 审查结论为 blocked"])],
+                ),
                 "trace_events": events,
             }
         decision = route_review(package, revision_counts=dict(state.get("revision_counts") or {}))
@@ -982,7 +1337,9 @@ def build_orchestrator_graph(
                 "phase": "router",
                 "status": "blocked",
                 "route_target": None,
-                "errors": [*state.get("errors", []), decision["error_code"]],
+                "errors": _failure_errors(
+                    state, [(decision["error_code"], [f"router: {decision.get('reason', '')}"])]
+                ),
                 "trace_events": [
                     route_event,
                     _run_finished_event(
@@ -1010,13 +1367,32 @@ def build_orchestrator_graph(
                 "phase": "router",
                 "route_target": "approval" if status == "running" else "human",
                 "status": status,
+                **(
+                    {
+                        "errors": _failure_errors(
+                            state,
+                            [
+                                (
+                                    MULTI_REVIEW_REJECTED,
+                                    [f"review: 未检查：{item}" for item in package.not_checked]
+                                    or [f"review: 审查结论为 {package.decision}，没有可回流的责任方"],
+                                )
+                            ],
+                        )
+                    }
+                    if status == "waiting"
+                    else {}
+                ),
                 "trace_events": events,
             }
         if owner == "human":
+            # 只有人能处理的审查问题（例如 P3 在草图上查出的缺陷）：停在 waiting，原因带到顶层输出。
+            human_issues = [_issue_reason(issue) for issue in package.issues if issue.owner == "human"]
             return {
                 "phase": "router",
                 "route_target": "human",
                 "status": "waiting",
+                "errors": _failure_errors(state, [(MULTI_REVIEW_REJECTED, human_issues)]),
                 "trace_events": [
                     route_event,
                     _run_finished_event(
@@ -1075,10 +1451,19 @@ def build_orchestrator_graph(
             review_present=bool(active.get("review") in registry),
         )
         if artifacts is None:
+            absent = [role for role in _RELEASE_ROLES if active.get(role) not in registry]
             return {
                 "phase": "prepare_approval",
                 "status": "blocked",
-                "errors": [*state.get("errors", []), MULTI_APPROVAL_REQUIRED],
+                "errors": _failure_errors(
+                    state,
+                    [
+                        (
+                            MULTI_APPROVAL_REQUIRED,
+                            [f"approval: 发布产物集不完整（缺 {', '.join(absent)}），无法请求人工审批"],
+                        )
+                    ],
+                ),
                 "trace_events": [
                     requested,
                     _run_finished_event(
@@ -1121,9 +1506,16 @@ def build_orchestrator_graph(
         expected_hash = _package_hash(artifacts) if artifacts else None
         if artifacts is None or expected_hash != state.get("approval_context_hash"):
             return approval_stale(state, approval_present=True)
-        # 披露项随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个哈希，
-        # 人工批准实际是盲批（review 2026-09-30）。
-        request = {"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds, "disclosed_limitations": review_disclosures(state)}
+        # 披露项与可审阅摘要随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个
+        # 哈希，人工批准实际是盲批（review 2026-09-30）。摘要与 expected_hash 读的是同一个发布集。
+        request = {
+            "approval_required": True,
+            "final_package_hash": expected_hash,
+            "artifact_ids": sorted(artifacts),
+            "expires_in_seconds": approval_ttl_seconds,
+            "disclosed_limitations": review_disclosures(state),
+            "summary": approval_summary(state),
+        }
         decision = interrupt(request)
         # 非法 resume 值不抛异常：带 error 再挂起一次（原因见 approval_decision_error）。每次恢复
         # 本节点都从头重跑、按序号依次重放此前收到的值：非法值仍落在原序号上被判非法，合法值
