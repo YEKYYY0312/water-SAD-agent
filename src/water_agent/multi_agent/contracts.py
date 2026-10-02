@@ -590,6 +590,11 @@ class ReviewPackage(BaseModel):
     issues: list[ReviewIssue] = Field(default_factory=list)
     not_checked: list[str] = Field(default_factory=list)
     reviewed_artifact_hashes: list[str] = Field(default_factory=list)
+    #: 带条件进入人审的披露项（任务书 §5.6 "是否允许带条件进入人审由明确规则决定"，
+    #: 2026-09-30 定为：P3 图纸规则的覆盖缺口 + 水力越界提示）。不参与 decision，但随
+    #: 审查包进入审批请求、在批准前逐条展示，并与批准绑定在同一个审查包哈希上。
+    #: 关键未检查项仍在 ``not_checked``，照旧阻止 pass。
+    disclosed_limitations: list[str] = Field(default_factory=list)
 
 
 class ApprovalRecord(BaseModel):
