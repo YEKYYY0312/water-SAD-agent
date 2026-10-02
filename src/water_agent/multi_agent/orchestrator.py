@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.multi_agent import export_adapter
 from water_agent.multi_agent.agents.design import run_design_agent
 from water_agent.multi_agent.agents.drawing import run_drawing_agent
@@ -745,13 +746,19 @@ def build_orchestrator_graph(
     review_runner: Callable[..., ArtifactEnvelope] = run_review_agent,
     drawing_stager: Callable[..., ArtifactEnvelope] = stage_drawing_package,
     exporter: Callable[..., str] = export_adapter.assemble_export_path,
+    version_registry: Any | None = None,
 ) -> Any:
-    """Compile the only P4.5 orchestration graph; interrupt needs persistence."""
+    """Compile the only P4.5 orchestration graph; interrupt needs persistence.
+
+    ``version_registry`` 缺省用 ``data/versions.json`` 单例（与 legacy/agentic RAG 图同口径），
+    交给设计 Agent 解析设计依据的规范版本状态——此前从不传，版本状态恒为 None。
+    """
     if checkpointer is None:
         raise ValueError("multi-agent graph requires a persistent checkpointer for interrupt/resume")
     if approval_ttl_seconds <= 0:
         raise ValueError("approval_ttl_seconds must be positive")
     clock = now or (lambda: datetime.now(UTC))
+    registry_for_design = version_registry if version_registry is not None else get_version_registry()
 
     def consume(state: MultiAgentProjectState, phase: str) -> dict[str, Any] | None:
         if state.get("step_count", 0) >= MAX_MULTI_AGENT_STEPS:
@@ -852,7 +859,13 @@ def build_orchestrator_graph(
         registry_before, active_before = dict(registry), dict(active)
         calc = registry[active["calc"]]
         previous = DesignPackage.model_validate(registry[active["design"]].payload) if active.get("design") in registry else None
-        env = design_runner(ProjectBrief.model_validate(state["project_brief"]), calc, retrieved_source_ids=list(state.get("retrieved_source_ids") or []), prev_design=previous)
+        env = design_runner(
+            ProjectBrief.model_validate(state["project_brief"]),
+            calc,
+            retrieved_source_ids=list(state.get("retrieved_source_ids") or []),
+            prev_design=previous,
+            version_registry=registry_for_design,
+        )
         registry, active = _put(registry, active, env, role="design", invalidates={"design_package", "drawing_plan", "drawing_package", "document", "review_package"})
         package = DesignPackage.model_validate(env.payload)
         status = "running" if env.status == "ready" or package.recalculation_requests else env.status
