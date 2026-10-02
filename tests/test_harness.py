@@ -79,6 +79,80 @@ class TestScoring:
         assert "citations not present in retrieved context" in result.failure_reason
 
 
+class TestTrapCaseScoring:
+    """陷阱用例（``expected_rejected_citations``）：通过 = 校验器确实拒绝了伪造引用。
+
+    此前陷阱用例在任何实现下都判失败，门禁只能断言 "failed == 1"：把引用校验器整个
+    关掉，陷阱用例照样失败（原因从"引用不在上下文"变成"期望 failed 实得 succeeded"），
+    个数不变，门禁察觉不到（review 2026-09-30 变异实测）。
+    """
+
+    TRAP = EvalCase(
+        id="trap",
+        query="给水管道的设计秒流量",
+        expected_status="failed",
+        expected_rejected_citations=["FAKE 0.0.0"],
+    )
+    REJECTION = "引用 'FAKE 0.0.0' 不在本次检索结果中；本次可用 source_id：['FIX 1.1.1']。"
+
+    def test_passes_when_run_failed_because_the_fake_citation_was_rejected(self) -> None:
+        result = score_eval_case(
+            self.TRAP,
+            actual_status="failed",
+            actual_citations=["FAKE 0.0.0"],
+            context_articles=["FIX 1.1.1"],
+            errors=[self.REJECTION, "达到引用校验重试上限，仍有无效引用"],
+        )
+        assert result.passed is True, result.failure_reason
+
+    def test_passes_when_the_rejected_citation_was_stripped_from_the_output(self) -> None:
+        """剔除伪造引用是合理改进，不得因此判红（不要求伪造引用留在最终 citations 里）。"""
+        result = score_eval_case(
+            self.TRAP,
+            actual_status="failed",
+            actual_citations=[],
+            context_articles=["FIX 1.1.1"],
+            errors=[self.REJECTION],
+        )
+        assert result.passed is True, result.failure_reason
+
+    def test_fails_when_the_validator_let_the_fake_citation_through(self) -> None:
+        result = score_eval_case(
+            self.TRAP,
+            actual_status="succeeded",
+            actual_citations=["FAKE 0.0.0"],
+            context_articles=["FIX 1.1.1"],
+            errors=[],
+        )
+        assert result.passed is False
+        assert "expected status failed, got succeeded" in result.failure_reason
+        assert "was not rejected" in result.failure_reason
+
+    def test_fails_when_the_run_failed_for_an_unrelated_reason(self) -> None:
+        """失败了但错误里没有这条引用 = 陷阱没被校验器拦下，只是别处先坏了。"""
+        result = score_eval_case(
+            self.TRAP,
+            actual_status="failed",
+            actual_citations=[],
+            context_articles=[],
+            errors=["检索无结果：无法在语料中定位相关条款"],
+        )
+        assert result.passed is False
+        assert "'FAKE 0.0.0' was not rejected" in result.failure_reason
+
+    def test_other_invalid_citations_still_fail_a_trap_case(self) -> None:
+        """豁免只针对声明为陷阱的那几条；别的越界引用照旧判负。"""
+        result = score_eval_case(
+            self.TRAP,
+            actual_status="failed",
+            actual_citations=["FAKE 0.0.0", "FAKE 1.2.3"],
+            context_articles=["FIX 1.1.1"],
+            errors=[self.REJECTION],
+        )
+        assert result.passed is False
+        assert "FAKE 1.2.3" in result.failure_reason
+
+
 class _FixedOrderRetriever:
     """按固定 source_id 顺序返回夹具条款的检索器（query 无关，测试确定性）。
 
@@ -302,12 +376,14 @@ class TestHarnessRunner:
         )
         report, report_path, load_issues = runner.run()
         assert report.total == 12
-        assert report.passed >= 8
-        assert report.failed == report.total - report.passed
-        assert report.pass_rate == pytest.approx(report.passed / report.total)
+        # 机制层基线 12/12：陷阱用例按"校验器拒绝了伪造引用"判通过，门禁因此可以要求
+        # exit 0，而不是靠"恰好 1 条失败"这种区分不出原因的计数。
+        assert report.failed == 0, [c.failure_reason for c in report.cases if not c.passed]
+        assert report.pass_rate == pytest.approx(1.0)
         assert report_path.exists()
-        assert len(load_issues) == 1
-        assert load_issues[0]["line_no"] == 13
+        # 数据集本身必须干净：加载问题的处理另有独立用例（test_main_returns_nonzero_on_invalid_jsonl），
+        # 坏行留在门禁数据集里会逼得门禁放弃看退出码。
+        assert load_issues == []
         assert all(case.trace_id for case in report.cases)
 
     def test_report_file_is_valid_json(self, tmp_path: Path) -> None:
@@ -325,7 +401,31 @@ class TestHarnessRunner:
         assert "created_at" in payload
         assert isinstance(payload["cases"], list)
 
-    def test_failed_case_from_bad_citation_variant(self, tmp_path: Path) -> None:
+    def test_bad_citation_trap_passes_because_the_validator_rejected_it(self, tmp_path: Path) -> None:
+        runner = HarnessRunner(
+            eval_path=EVAL_PATH,
+            report_dir=tmp_path / "reports",
+            trace_dir=tmp_path / "traces",
+            fixture_path=FIXTURE_PATH,
+        )
+        report, _, _ = runner.run()
+        bad_case = next(case for case in report.cases if case.case_id == "rag-p0-0011")
+        assert bad_case.passed is True, bad_case.failure_reason
+        assert bad_case.actual_status == "failed"
+        assert bad_case.trace_id
+
+    def test_bad_citation_trap_turns_red_when_the_validator_is_disabled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """变异：legacy 图的引用校验恒放行 → 陷阱用例必须失败、runner 必须非零退出。"""
+        from water_agent.domain.citation import CitationCheckResult
+        from water_agent.graphs import rag as rag_graph
+
+        monkeypatch.setattr(
+            rag_graph,
+            "validate_citations",
+            lambda cited, context, **_: CitationCheckResult(ok=True),
+        )
         runner = HarnessRunner(
             eval_path=EVAL_PATH,
             report_dir=tmp_path / "reports",
@@ -335,21 +435,50 @@ class TestHarnessRunner:
         report, _, _ = runner.run()
         bad_case = next(case for case in report.cases if case.case_id == "rag-p0-0011")
         assert bad_case.passed is False
-        assert bad_case.actual_status == "failed"
-        assert bad_case.trace_id
+        assert "was not rejected" in bad_case.failure_reason
 
 
 class TestCliEntryPoint:
-    def test_main_returns_nonzero_on_failed_eval(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_main_returns_zero_on_clean_mechanism_suite(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         report_dir = tmp_path / "reports"
         trace_dir = tmp_path / "traces"
         exit_code = main([str(EVAL_PATH), "--report-dir", str(report_dir), "--trace-dir", str(trace_dir), "--fixture-path", str(FIXTURE_PATH)])
         out = capsys.readouterr()
-        assert exit_code == 2
-        assert '"ok": true' in out.out
-        assert '"failed": 1' in out.out
-        assert report_dir.exists()
+        assert exit_code == 0, out.out
+        assert '"failed": 0' in out.out
         assert list(report_dir.glob("*.json"))
+
+    def test_main_returns_one_on_failed_case(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """用例失败（无加载问题）→ exit 1；门禁据退出码判定，不再解析"失败条数"。"""
+        failing = tmp_path / "failing.jsonl"
+        failing.write_text(
+            json.dumps(
+                {
+                    "id": "bad-cite",
+                    "type": "rag",
+                    "variant": "bad_citation",
+                    "query": "给水管道的设计秒流量",
+                    "gold_articles_any": ["FIX 1.1.1"],
+                    "expected_status": "succeeded",
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        exit_code = main([str(failing), "--report-dir", str(tmp_path / "reports"), "--trace-dir", str(tmp_path / "traces"), "--fixture-path", str(FIXTURE_PATH)])
+        out = capsys.readouterr()
+        assert exit_code == 1, out.out
+        assert '"failed": 1' in out.out
+
+    def test_main_returns_two_on_empty_dataset(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """0 条用例不是"全部通过"：数据集被清空/改坏时门禁必须变红。"""
+        empty = tmp_path / "empty.jsonl"
+        empty.write_text("\n", encoding="utf-8")
+        exit_code = main([str(empty), "--report-dir", str(tmp_path / "reports"), "--trace-dir", str(tmp_path / "traces"), "--fixture-path", str(FIXTURE_PATH)])
+        out = capsys.readouterr()
+        assert exit_code == 2, out.out
+        assert '"total": 0' in out.out
 
     def test_main_returns_nonzero_on_invalid_jsonl(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         bad = tmp_path / "bad.jsonl"

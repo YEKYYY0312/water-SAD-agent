@@ -264,6 +264,43 @@ def _build_candidates(formula: str, params: dict[str, Any], values: dict[str, fl
     return []
 
 
+def finish_calc_state(state: CalcState) -> dict:
+    """finish 节点：确定性生成回答（明示公式口径 / 越界提醒 / 候选方案 / 待澄清参数）。
+
+    模块级函数而非 ``build_calc_graph`` 内的闭包：它不依赖解析器，单测可直接驱动
+    "编排走到收口却没有计算结果"这类子图本身构造不出来的状态。
+    """
+    status = state.get("status", STATUS_SUCCEEDED)
+    formula = state.get("formula") or ""
+    if status == "missing_inputs":
+        keys = "、".join(sorted(set(state.get("missing_inputs", []))))
+        answer = (
+            f"缺少必要参数：{keys}。请补充后再计算。"
+            f"（公式口径：{formula or '未指定'}；禁止私自假设缺失参数）"
+        )
+        return {"answer": answer, "status": "missing_inputs"}
+    if status == "invalid_input":
+        errors = "；".join(state.get("errors", [])) or "输入非法"
+        return {"answer": f"输入非法：{errors}", "status": "invalid_input"}
+    if status == "failed":
+        errors = "；".join(state.get("errors", [])) or "计算失败"
+        return {"answer": f"计算失败：{errors}", "status": "failed"}
+
+    calc_result = state.get("calc_result")
+    if calc_result is None or not calc_result.ok:
+        # 走到这里却没有有效计算结果 = 编排缺陷（例如路由跳过了 compute）。
+        # 绝不收口为成功：此前会回答"按口径表公式 velocity 计算：。"并报 succeeded。
+        return {"answer": "计算失败：计算未执行（编排未产出有效计算结果）", "status": "failed"}
+
+    values = "；".join(f"{key}={value:.4g}" for key, value in calc_result.values.items())
+    answer = f"按口径表公式 {formula} 计算：{values}。"
+    if calc_result.assumptions:
+        answer += "注意：" + "；".join(calc_result.assumptions) + "。"
+    if state.get("candidates"):
+        answer += "候选方案：" + "；".join(state["candidates"])
+    return {"answer": answer, "status": STATUS_SUCCEEDED}
+
+
 def build_calc_graph(parser=parse_calc_query):
     """构建水力计算确定性子图。
 
@@ -346,38 +383,10 @@ def build_calc_graph(parser=parse_calc_query):
             "candidates": candidates,
         }
 
-    def finish_node(state: CalcState) -> dict:
-        status = state.get("status", STATUS_SUCCEEDED)
-        formula = state.get("formula") or ""
-        if status == "missing_inputs":
-            keys = "、".join(sorted(set(state.get("missing_inputs", []))))
-            answer = (
-                f"缺少必要参数：{keys}。请补充后再计算。"
-                f"（公式口径：{formula or '未指定'}；禁止私自假设缺失参数）"
-            )
-            return {"answer": answer, "status": "missing_inputs"}
-        if status == "invalid_input":
-            errors = "；".join(state.get("errors", [])) or "输入非法"
-            return {"answer": f"输入非法：{errors}", "status": "invalid_input"}
-        if status == "failed":
-            errors = "；".join(state.get("errors", [])) or "计算失败"
-            return {"answer": f"计算失败：{errors}", "status": "failed"}
-
-        calc_result = state.get("calc_result")
-        values = ""
-        if calc_result is not None:
-            values = "；".join(f"{key}={value:.4g}" for key, value in calc_result.values.items())
-        answer = f"按口径表公式 {formula} 计算：{values}。"
-        if calc_result is not None and calc_result.assumptions:
-            answer += "注意：" + "；".join(calc_result.assumptions) + "。"
-        if state.get("candidates"):
-            answer += "候选方案：" + "；".join(state["candidates"])
-        return {"answer": answer, "status": STATUS_SUCCEEDED}
-
     graph.add_node("parse", parse_params_node)
     graph.add_node("compute", compute_node)
     graph.add_node("validate", validate_node)
-    graph.add_node("finish", finish_node)
+    graph.add_node("finish", finish_calc_state)
 
     graph.add_edge(START, "parse")
     graph.add_conditional_edges("parse", route_after_parse, {"compute": "compute", "finish": "finish"})
