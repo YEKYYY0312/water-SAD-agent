@@ -317,6 +317,34 @@ def test_database_auth_and_session_records_survive_store_restart(tmp_path: Path)
     assert second_sessions.get(created.session_id).user_id == user.user_id
 
 
+def test_database_user_store_never_deactivates_the_last_active_admin(tmp_path: Path) -> None:
+    """The guard and the write are one transaction (admin rows locked FOR UPDATE on PG)."""
+
+    from water_agent.webapp.auth.db_store import PostgresUserStore
+    from water_agent.webapp.auth.models import UserRole
+    from water_agent.webapp.auth.user_store import LastActiveAdminError, UserNotFoundError
+
+    database = _database(tmp_path)
+    users = PostgresUserStore(database)
+    first = users.create_user("guard-admin-1", "GuardAdminPass2026!", UserRole.ADMIN)
+    second = users.create_user("guard-admin-2", "GuardAdminPass2026!", UserRole.ADMIN)
+    member = users.create_user("guard-member", "GuardMemberPass2026!", UserRole.MEMBER)
+
+    users.deactivate(member.user_id)
+    users.deactivate(second.user_id)
+    with pytest.raises(LastActiveAdminError):
+        users.deactivate(first.user_id)
+
+    assert users.get_by_id(first.user_id).is_active is True
+    assert users.get_by_id(second.user_id).is_active is False
+    assert users.get_by_id(member.user_id).is_active is False
+    assert users.has_admin() is True
+    # An already inactive account is a no-op, not a guard trip; unknown ids stay 404.
+    users.deactivate(second.user_id)
+    with pytest.raises(UserNotFoundError):
+        users.deactivate(uuid4())
+
+
 def test_sqlite_cli_legacy_checkpointer_remains_available(tmp_path: Path) -> None:
     from langgraph.checkpoint.sqlite import SqliteSaver
 
