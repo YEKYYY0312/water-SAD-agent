@@ -342,6 +342,10 @@ def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple
     result.  A segment bound to calc cases must match them; a segment bound to
     none (its calc case is ambiguous) is acceptable only when it honestly says
     ``not_verified`` and carries no DN other than one the user stated.
+
+    Slope follows the same rule: a bound segment's slope is its case's computed
+    ``outputs.slope`` when the formula produces one (``slope_manning``), otherwise
+    the case's ``slope`` input; an unbound segment has no slope source at all.
     """
     from water_agent.multi_agent.contracts import CalcPackage, DesignPackage
 
@@ -363,8 +367,10 @@ def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple
     valid = True
     for segment in design_package.segments:
         if not segment.calc_case_ids:
-            if segment.hydraulic_status != "not_verified" or (
-                segment.dn_mm is not None and segment.dn_mm not in declared_dns
+            if (
+                segment.hydraulic_status != "not_verified"
+                or (segment.dn_mm is not None and segment.dn_mm not in declared_dns)
+                or segment.slope is not None
             ):
                 valid = False
             continue
@@ -372,9 +378,17 @@ def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple
             valid = False
             continue
         for calc_case_id in segment.calc_case_ids:
-            diameter = verified[calc_case_id].inputs.get("diameter_mm")
+            case = verified[calc_case_id]
+            diameter = case.inputs.get("diameter_mm")
             if diameter is not None and segment.dn_mm is not None:
                 valid = valid and int(float(diameter)) == segment.dn_mm
+            if segment.slope is not None:
+                source = case.outputs.get("slope", case.inputs.get("slope"))
+                valid = valid and (
+                    isinstance(source, (int, float))
+                    and not isinstance(source, bool)
+                    and float(source) == segment.slope
+                )
     review = _review_package(state, registry)
     if review is not None and any(
         issue.rule_id in {"doc_value_mismatch", "doc_value_untraceable"}

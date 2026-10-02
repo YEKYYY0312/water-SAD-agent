@@ -252,6 +252,50 @@ def edge_segment_systems(
     return list(dict.fromkeys(brief.systems))
 
 
+def _brief_conflict_items(brief: ProjectBrief) -> list[tuple[str, str]]:
+    """``(field path, message)`` for every cross-field conflict, in check order."""
+    items: list[tuple[str, str]] = []
+    for system in sorted({s for s in brief.systems if brief.systems.count(s) > 1}):
+        items.append(("systems", f"systems: duplicate entry {system!r}"))
+    case_ids = [case.case_id for case in brief.hydraulic_cases]
+    for case_id in sorted({c for c in case_ids if case_ids.count(c) > 1}):
+        duplicate = [index for index, value in enumerate(case_ids) if value == case_id][1]
+        items.append(
+            (f"hydraulic_cases[{duplicate}].case_id", f"hydraulic_cases: duplicate case_id {case_id!r}")
+        )
+
+    owners: dict[tuple[str, str, str], int] = {}
+    for index, edge in enumerate(brief.topology):
+        if edge.system is not None and edge.system not in brief.systems:
+            items.append(
+                (f"topology[{index}].system", f"topology[{index}].system {edge.system!r} is not in systems")
+            )
+        if edge.calc_case_id is not None and edge.calc_case_id not in case_ids:
+            items.append(
+                (
+                    f"topology[{index}].calc_case_id",
+                    (
+                        f"topology[{index}].calc_case_id {edge.calc_case_id!r} "
+                        "does not match any hydraulic_cases[].case_id"
+                    ),
+                )
+            )
+        for system in edge_segment_systems(brief, edge):
+            key = (system, edge.start_node_id, edge.end_node_id)
+            first = owners.setdefault(key, index)
+            if first != index:
+                items.append(
+                    (
+                        f"topology[{index}]",
+                        (
+                            f"topology[{first}] and topology[{index}] both define segment "
+                            f"({system}, {edge.start_node_id}->{edge.end_node_id})"
+                        ),
+                    )
+                )
+    return items
+
+
 def project_brief_conflicts(brief: ProjectBrief) -> list[str]:
     """Cross-field conflicts that make the brief unusable (``MULTI_INVALID_BRIEF``).
 
@@ -260,31 +304,12 @@ def project_brief_conflicts(brief: ProjectBrief) -> list[str]:
     and two edges yielding the same ``(system, start, end)`` segment — which
     previously surfaced as a raw ``duplicate segment_id`` ValidationError.
     """
-    conflicts: list[str] = []
-    for system in sorted({s for s in brief.systems if brief.systems.count(s) > 1}):
-        conflicts.append(f"systems: duplicate entry {system!r}")
-    case_ids = [case.case_id for case in brief.hydraulic_cases]
-    for case_id in sorted({c for c in case_ids if case_ids.count(c) > 1}):
-        conflicts.append(f"hydraulic_cases: duplicate case_id {case_id!r}")
+    return list(dict.fromkeys(message for _, message in _brief_conflict_items(brief)))
 
-    owners: dict[tuple[str, str, str], int] = {}
-    for index, edge in enumerate(brief.topology):
-        if edge.system is not None and edge.system not in brief.systems:
-            conflicts.append(f"topology[{index}].system {edge.system!r} is not in systems")
-        if edge.calc_case_id is not None and edge.calc_case_id not in case_ids:
-            conflicts.append(
-                f"topology[{index}].calc_case_id {edge.calc_case_id!r} "
-                "does not match any hydraulic_cases[].case_id"
-            )
-        for system in edge_segment_systems(brief, edge):
-            key = (system, edge.start_node_id, edge.end_node_id)
-            first = owners.setdefault(key, index)
-            if first != index:
-                conflicts.append(
-                    f"topology[{first}] and topology[{index}] both define segment "
-                    f"({system}, {edge.start_node_id}->{edge.end_node_id})"
-                )
-    return list(dict.fromkeys(conflicts))
+
+def project_brief_conflict_fields(brief: ProjectBrief) -> list[str]:
+    """Brief field paths a user must fix for :func:`project_brief_conflicts` (missing_inputs)."""
+    return list(dict.fromkeys(field for field, _ in _brief_conflict_items(brief)))
 
 
 # ---------------------------------------------------------------------------
