@@ -462,7 +462,7 @@ def _extract_validation_signal(
     )
     boundary = -1
     for i, m in enumerate(turn):
-        if isinstance(m, ToolMessage) and m.name == "citation_validator":
+        if _is_validator_feedback(m):
             boundary = i
     cited_ids: list[str] = []
     for m in turn[boundary + 1 :]:
@@ -471,6 +471,20 @@ def _extract_validation_signal(
                 if cid not in cited_ids:
                     cited_ids.append(cid)
     return context_ids, cited_ids, retrieved_this_turn
+
+
+def _is_validator_feedback(message: Any) -> bool:
+    """校验器自己注入的回流消息（按保留的 tool_call_id 前缀识别，不按名字）。
+
+    模型在历史里见过 ``citation_validator`` 调用，可能模仿着调用它：ToolNode 回填一条同名的
+    "工具不存在"错误。按名字识别边界时，这条伪造的消息会把本轮有效的 cite 声明切到边界之前、
+    整轮判成零引用失败（review 2026-09-30 实测）。只有校验器注入的调用才带这个前缀。
+    """
+    return (
+        isinstance(message, ToolMessage)
+        and message.name == "citation_validator"
+        and str(message.tool_call_id or "").startswith(f"{_VALIDATOR_CALL_ID}-")
+    )
 
 
 def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) -> None:
@@ -1190,11 +1204,14 @@ def build_agentic_app(
         system_prompt: str | Callable[[dict], Any] = DEFAULT_AGENTIC_PROMPT
     else:
         system_prompt = prompt
+    # checkpointer=False：内层子图不持久化。``None`` 的含义是"继承父图的 checkpointer"——每轮
+    # 3 次工具调用就多写 9 个子图 checkpoint、消息字节约为父图的 2.5 倍，且永远不会被读取
+    # （外层 agent_loop 节点每次都以完整 state 重新调用子图；review 2026-09-30 实测）。
     react_agent = create_react_agent(
         model=budget_model,
         tools=tools,
         state_schema=AgenticRAGState,
-        checkpointer=None,
+        checkpointer=False,
         prompt=system_prompt,
     )
 
