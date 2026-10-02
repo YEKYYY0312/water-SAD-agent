@@ -21,8 +21,11 @@ def test_config_is_explicit_and_has_fixed_index_version():
     assert config.index_version == "qwen3.7-text-embedding__512__curated-v1"
 
 
-def test_missing_api_key_is_rejected_without_local_fallback(monkeypatch):
+def test_missing_api_key_is_rejected_without_local_fallback(monkeypatch, tmp_path):
+    # 三层来源（env / _FILE / 凭据卷）都清空，结论才不依赖本机环境。
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
     with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
         build_embedding_provider()
 

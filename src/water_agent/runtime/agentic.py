@@ -113,10 +113,9 @@ def embedding_required(args: argparse.Namespace | None = None) -> bool:
 def embedding_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Inspect only whether the embedding key exists，解析顺序与 chat model 一致。
 
-    ``embedding.build_embedding_provider`` 直读 ``os.environ``，靠 webapp 启动时的
-    ``load_credentials_into_environ()`` 把 ``_FILE``/凭据卷回填进来；这里改用
-    ``resolve_secret`` 是为了让预检与实际构造**在回填之前也一致**，否则会重演
-    chat model 那个「预检放行、真跑报错」的老问题。
+    与 ``embedding.build_embedding_provider`` 共用 ``resolve_secret``（env → _FILE →
+    凭据卷）：预检与实际构造不依赖启动回填，也不会因面板清掉了进程环境里的注入值
+    而分叉——否则会重演 chat model 那个「预检放行、真跑报错」的老问题。
     """
 
     from water_agent.config.credentials import resolve_secret
