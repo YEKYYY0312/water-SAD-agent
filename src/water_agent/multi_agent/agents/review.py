@@ -957,16 +957,55 @@ def _p3_finding_issues(artifact_id: str, roundtrip: dict[str, Any]) -> list[Revi
     return issues
 
 
+def _design_basis_disclosures(registry: dict[str, ArtifactEnvelope]) -> list[str]:
+    """设计依据的披露项：零引用、版本未经注册表校验、版本无法确认现行或非现行。
+
+    任务书 §7.3："规范版本 unknown → 改写为未知状态并披露，不能伪造核实"。版本状态只标记、
+    不判失败（与 ``validate_citations`` 同口径），所以这些不进 decision，而是交给批准人。
+    """
+    disclosed: list[str] = []
+    for env in _envelopes_of_type(registry, "design_package"):
+        try:
+            design = DesignPackage.model_validate(env.payload)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            continue
+        if design.segments and not design.citations:
+            disclosed.append(
+                f"design:{env.artifact_id} 设计依据零引用：DesignPackage 的 {len(design.segments)} 段管段"
+                "没有任何经检索或引用校验器确认的规范条款（设计依据未检索），批准前需人工核实设计依据"
+            )
+        statuses: dict[str, str | None] = {}
+        for citation in design.citations:
+            statuses.setdefault(citation.source_id, citation.version_status)
+        for source_id, status in statuses.items():
+            if status is None:
+                disclosed.append(
+                    f"design:{env.artifact_id} 设计依据 {source_id} 的规范版本未经版本注册表校验"
+                )
+            elif status == "unknown":
+                disclosed.append(
+                    f"design:{env.artifact_id} 设计依据 {source_id} 的规范版本无法确认现行有效"
+                    "（版本注册表未录入或未核实），不得表述为现行规范"
+                )
+            elif status != "current":
+                disclosed.append(
+                    f"design:{env.artifact_id} 设计依据 {source_id} 的规范版本状态为 {status}"
+                    "（非现行），需改用现行版本或说明依据"
+                )
+    return disclosed
+
+
 def collect_disclosed_limitations(registry: dict[str, ArtifactEnvelope]) -> list[str]:
-    """带条件进入人审的披露项：P3 规则覆盖缺口 + 水力越界提示。
+    """带条件进入人审的披露项：P3 规则覆盖缺口 + 水力越界提示 + 设计依据的引用与版本缺口。
 
     - P3 ``not_checked``：规则因缺输入或不适用而没跑（排水坡度/流速缺标高与流量、给水管段
       不在任何规则作用域内……）。审查器说不出"合规"，交给批准人知情决定；
-    - 未被取代的 CalcPackage 里每个工况的 assumptions（越界提示）。
+    - 未被取代的 CalcPackage 里每个工况的 assumptions（越界提示）；
+    - 设计依据零引用、版本未经注册表校验或不能确认现行（见 ``_design_basis_disclosures``）。
 
     关键未检查项（产物缺失、回读不可判定、零管段审查……）不在此列，仍进 ``not_checked``。
     """
-    disclosed: list[str] = []
+    disclosed: list[str] = _design_basis_disclosures(registry)
     for pkg_env in _envelopes_of_type(registry, "drawing_package"):
         roundtrip = pkg_env.payload.get("roundtrip_review")
         if not isinstance(roundtrip, dict):
