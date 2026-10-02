@@ -1,10 +1,15 @@
-"""P2 测试：docgen 图结构化渲染接线（doc_type 状态 / 终稿不带稿次 / 材料行可选）+ CLI --doc-type。"""
+"""P2 测试：docgen 图结构化渲染接线（doc_type 状态 / 终稿不带稿次 / 材料行可选）+ CLI --doc-type
++ CLI 人审的恢复安全（非法 resume 值后仍可 --resume、CLI 边界先校验再 invoke、同一会话的新文档
+不继承上一份的状态、两处提示的 Ctrl-C/EOF 都是挂起）。"""
 from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
@@ -13,13 +18,51 @@ from water_agent.cli import main
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import STATUS_FAILED, STATUS_SUCCEEDED, STATUS_WAITING
 from water_agent.graphs.docgen import MAX_SELF_CHECK_ATTEMPTS, build_docgen_graph
-from water_agent.session import default_checkpoint_serde
+from water_agent.session import default_checkpoint_serde, session_db_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _thread(thread_id: str = "t") -> dict:
     return {"configurable": {"thread_id": thread_id}}
+
+
+def _docgen_cli_args(tmp_path: Path) -> list[str]:
+    return ["--flow", "docgen", "--mock-generator", "--session-dir", str(tmp_path / "s"), "--trace-dir", str(tmp_path / "t")]
+
+
+def _scripted_input(monkeypatch: pytest.MonkeyPatch, answers: list) -> None:
+    """按序喂 CLI 的 input()；元素是异常类（EOFError / KeyboardInterrupt）时在那一次提示处抛出。"""
+    it = iter(answers)
+
+    def _input(_prompt: str = "") -> str:
+        answer = next(it)
+        if isinstance(answer, type) and issubclass(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr("builtins.input", _input)
+
+
+def _suspended_session_id(text: str) -> str:
+    """从"……用 --resume <id> 恢复"提示里取会话 ID。"""
+    return text.split("--resume ")[1].split()[0]
+
+
+@contextmanager
+def _session_graph(tmp_path: Path) -> Iterator:
+    """直接打开 CLI 落盘的会话库（与 CLI 同一 serde），模拟别的调用方操作同一 thread。"""
+    conn = sqlite3.connect(str(session_db_path(tmp_path / "s")), check_same_thread=False)
+    try:
+        yield build_docgen_graph(checkpointer=SqliteSaver(conn, serde=default_checkpoint_serde()))
+    finally:
+        conn.close()
+
+
+def _pending_requests(app, config: dict) -> list[dict]:
+    """挂起的审批请求（看 interrupts，不看 next——非法值重新挂起后 next 为 ()）。"""
+    snapshot = app.get_state(config)
+    return [i.value for task in snapshot.tasks for i in task.interrupts]
 
 
 class TestGraphStructuredRendering:
@@ -215,3 +258,174 @@ class TestSelfCheckNode:
         assert "__interrupt__" in rejected, "第 2 稿应再次挂起等待审批"
         assert rejected.get("self_check_attempts") == 1, "新稿自检预算已复位（新稿只自检 1 次）"
         assert rejected.get("draft_rounds") == 1
+
+    def test_second_document_in_thread_gets_full_self_check_budget(self, monkeypatch) -> None:
+        """同一 thread 的第二份文档自检从 0 计：首检失败仍可重试一次。
+
+        回归：曾继承上一份的 self_check_attempts=1，首检即记为第 2 次、直接 failed。
+        """
+        cfg = _thread("sc-two-docs")
+        with MemorySaver() as saver:
+            app = build_docgen_graph(checkpointer=saver)
+            app.invoke(_docgen_initial_state(), config=cfg)
+            first = app.invoke(Command(resume={"approved": True}), config=cfg)
+            assert first.get("status") == STATUS_SUCCEEDED and first.get("self_check_attempts") == 1
+
+            failures = {"left": 1}
+
+            def flaky_check(rendered, *, calc_result=None):
+                if failures["left"] > 0:
+                    failures["left"] -= 1
+                    return ["模拟自检失败：缺少必需章节：结论"]
+                return []
+
+            monkeypatch.setattr("water_agent.graphs.docgen.check_docgen_self_check", flaky_check)
+            second = app.invoke(_docgen_initial_state(query="生成 DN100 给水管道计算书"), config=cfg)
+        assert "__interrupt__" in second, "新文档首检失败应有界重试后到达审批，而不是直接 failed"
+        assert second.get("self_check_attempts") == 2
+        assert second.get("self_check_errors") == []
+        assert second.get("status") == STATUS_WAITING
+
+
+class TestCliResumeSafety:
+    """CLI 人审的恢复安全：非法 resume 值不毒化会话；CLI 自己绝不把非法决定送进图。"""
+
+    def test_resume_recovers_session_after_invalid_resume_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """别的调用方对挂起会话传过非法 resume 值后，CLI --resume 仍识别为挂起并能走完。
+
+        回归：修复前非法值让 approval 节点抛 TypeError，并被钉进 checkpoint（之后合法值也
+        恢复不了）；此时 get_state().next 为 ()，CLI 只看 next，判为"没有挂起任务"。
+        """
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, [EOFError])
+        assert main([*args, "生成 DN150 给水管道计算书"]) == 0
+        session_id = _suspended_session_id(capsys.readouterr().out)
+
+        with _session_graph(tmp_path) as app:
+            app.invoke(Command(resume={"approved": "false"}), config=_thread(session_id))
+
+        _scripted_input(monkeypatch, ["y"])
+        code = main([*args, "--resume", session_id, "--json"])
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        payload = json.loads(captured.out)
+        assert payload["status"] == "succeeded" and payload["final_doc"]
+        assert payload["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+        assert "严格 bool" in captured.err, "上一次被拒收的输入要让审批人看见"
+
+    def test_cli_validates_decision_before_invoking_graph(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """CLI 边界先校验再 invoke：构造出的决定不是严格 bool 时不送进图，会话原样挂起。"""
+        args = _docgen_cli_args(tmp_path)
+        monkeypatch.setattr("water_agent.cli._prompt_docgen_decision", lambda ui: {"approved": "false"})
+        code = main([*args, "生成 DN150 给水管道计算书"])
+        captured = capsys.readouterr()
+        assert code == 2
+        assert "严格 bool" in captured.err
+        session_id = _suspended_session_id(captured.out)
+        with _session_graph(tmp_path) as app:
+            pending = _pending_requests(app, _thread(session_id))
+            values = app.get_state(_thread(session_id)).values
+        assert len(pending) == 1 and "error" not in pending[0], "非法决定不得进图（图内校验都不该见到它）"
+        assert values["approval_log"] == []
+
+        monkeypatch.undo()
+        _scripted_input(monkeypatch, ["y"])
+        assert main([*args, "--resume", session_id]) == 0
+
+    def test_resume_finished_session_with_new_query_starts_a_clean_document(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--resume <已完成会话> "新描述"：同一 thread 上的第二份文档不继承第一份的拒绝原因与审批记录。"""
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["n", "第一份的拒绝原因", "y"])
+        assert main([*args, "--json", "生成 DN150 给水管道计算书"]) == 0
+        first = json.loads(capsys.readouterr().out)
+        assert first["status"] == "succeeded" and len(first["approval_log"]) == 2
+
+        _scripted_input(monkeypatch, ["y"])
+        code = main([*args, "--json", "--resume", first["session_id"], "生成某小区给水改造设计说明"])
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        second = json.loads(captured.out)
+        assert second["session_id"] == first["session_id"]
+        assert second["status"] == "succeeded"
+        assert second["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+        assert "第一份的拒绝原因" not in second["final_doc"]
+        assert "第一份的拒绝原因" not in captured.err, "第二份文档的草稿预览里也不得出现上一份的拒绝原因"
+
+
+def _approval_decision_events(trace_dir: Path) -> list[dict]:
+    """trace 目录里所有 approval_decision 事件（docgen 的 gather 另有一条 RAG trace，一并扫）。"""
+    events: list[dict] = []
+    for path in sorted(trace_dir.glob("*.json")):
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        events.extend(e for e in doc["events"] if e.get("event_type") == "approval_decision")
+    return events
+
+
+class TestCliPromptInterrupts:
+    """CLI 两处人审提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定，exit 0，--resume 恢复。"""
+
+    def test_eof_at_reason_prompt_on_last_draft_suspends_instead_of_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """回归：最后一稿在"拒绝原因"处 EOF 曾直接提交一次空原因的拒绝，文档收口 failed（exit 1）。"""
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["n", "第一稿不行", "n", EOFError])
+        code = main([*args, "生成 DN150 给水管道计算书"])
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "审批挂起" in out and "状态: failed" not in out
+        session_id = _suspended_session_id(out)
+        with _session_graph(tmp_path) as app:
+            pending = _pending_requests(app, _thread(session_id))
+            values = app.get_state(_thread(session_id)).values
+        assert [r["draft_rounds"] for r in pending] == [1], "仍挂在第 2 稿的审批上"
+        assert [e["reason"] for e in values["approval_log"]] == ["第一稿不行"], "中断不得提交任何决定"
+        assert [e["data"]["approved"] for e in _approval_decision_events(tmp_path / "t")] == [False]
+
+        _scripted_input(monkeypatch, ["y"])
+        code = main([*args, "--resume", session_id, "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0 and payload["status"] == "succeeded"
+        assert [e["decision"] for e in payload["approval_log"]] == ["rejected", "approved"]
+
+    def test_ctrl_c_at_reason_prompt_suspends_without_submitting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """回归：第一稿在"拒绝原因"处 Ctrl-C 曾提交空原因的拒绝并进入第 2 稿；现与第一个提示一致，挂起。"""
+        args = _docgen_cli_args(tmp_path)
+        # 末尾的 EOFError 只为旧行为兜底：若仍被当成拒绝，第 2 稿的提示会读到它
+        _scripted_input(monkeypatch, ["n", KeyboardInterrupt, EOFError])
+        code = main([*args, "生成 DN150 给水管道计算书"])
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "第 2 稿" not in out
+        session_id = _suspended_session_id(out)
+        with _session_graph(tmp_path) as app:
+            pending = _pending_requests(app, _thread(session_id))
+            values = app.get_state(_thread(session_id)).values
+        assert [r["draft_rounds"] for r in pending] == [0], "仍挂在第 1 稿的审批上"
+        assert values["approval_log"] == []
+        assert _approval_decision_events(tmp_path / "t") == []
+
+    def test_unrecognized_answer_is_asked_again_not_taken_as_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """只认显式回答（y/yes/是、n/no/否）：空行与无法识别的回答重新询问，不当作拒绝。
+
+        回归：此前非 y 一律当拒绝——误按回车就提交一次拒绝，最后一稿上即收口 failed。
+        """
+        args = _docgen_cli_args(tmp_path)
+        _scripted_input(monkeypatch, ["", "maybe", "y"])
+        code = main([*args, "--json", "生成 DN150 给水管道计算书"])
+        captured = capsys.readouterr()
+        assert code == 0, captured.err
+        payload = json.loads(captured.out)
+        assert payload["status"] == "succeeded"
+        assert payload["approval_log"] == [{"decision": "approved", "reason": "", "draft_rounds": 0}]
+        assert "请输入 y" in captured.err
