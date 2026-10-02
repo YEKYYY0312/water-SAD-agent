@@ -89,10 +89,22 @@ def _case_dn(case: CalcCase) -> int | None:
 
 
 def _case_slope(case: CalcCase | None) -> float | None:
-    raw = case.inputs.get("slope") if case is not None else None
-    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+    """Slope of the segment's own bound calc case — never another case's.
+
+    The programmatic result (``outputs.slope``, e.g. ``slope_manning``) comes first; a
+    slope given as a case input is used only when the formula does not compute one.
+    Previously only the input was read, so a drainage case whose slope is the
+    calculated result was reported as "missing slope" (review 2026-09-30).
+    """
+    if case is None:
         return None
-    return float(raw)
+    for raw in (case.outputs.get("slope"), case.inputs.get("slope")):
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            continue
+        value = float(raw)
+        if math.isfinite(value):
+            return value
+    return None
 
 
 def _resolve_declared_case(

@@ -1,7 +1,7 @@
 {
   "flow": "multi-agent",
   "schema_version": "p4.5-2026-10-01",
-  "description": "multi_agent_p0 18 用例合成机制层（offline deterministic）",
+  "description": "multi_agent_p0 19 用例合成机制层（offline deterministic）",
   "cases": [
     {
       "case_id": "ma-p0-01",
@@ -361,6 +361,32 @@
         "spatial_constraints": [{"kind": "material", "value": "PE"}],
         "required_outputs": ["calculation_book", "drawing"],
         "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-19",
+      "scenario": "standard",
+      "title": "排水 DN300 用 slope_manning 由程序算出坡度：设计取绑定工况的 outputs.slope，不再报缺坡度，排水主路径走到批准与导出",
+      "retrieved_source_ids": ["GB50014-2021 5.1.1"],
+      "expected": {
+        "status": "succeeded",
+        "roundtrip_segment_recall": 1.0,
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "drainage", "dn_mm": 300, "calc_case_ids": ["case-drain-mn"], "hydraulic_status": "verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-19",
+        "request": "室外排水管段设计，DN300，流量 30L/s，充满度 0.5，n=0.013，坡度由曼宁公式计算",
+        "systems": ["drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-drain-mn", "formula": "slope_manning", "inputs": {"flow_lps": 30, "diameter_mm": 300, "fill_ratio": 0.5, "manning_n": 0.013}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 30.0}],
+        "spatial_constraints": [{"kind": "material", "value": "钢筋混凝土"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["DN300"]
       }
     }
   ]
