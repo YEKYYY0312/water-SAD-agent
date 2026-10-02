@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.documents.attachments import MAX_ATTACHMENTS_PER_MESSAGE
 from water_agent.documents.repository import UploadRepository
@@ -26,6 +28,7 @@ from water_agent.webapp.auth.user_store import UserNotFoundError, get_user_store
 from water_agent.webapp.run_manager import (
     RunManager,
     RunNotManagedError,
+    ThreadBusyError,
     WebAgenticSessionFactory,
     parse_last_event_id,
 )
@@ -79,6 +82,22 @@ def _not_found() -> JSONResponse:
             "version": _API_VERSION,
             "ok": False,
             "error": {"code": "WEB_NOT_FOUND", "message": "Resource not found"},
+        },
+    )
+
+
+def _thread_busy() -> JSONResponse:
+    """409：该会话还有未收口的 run（等它结束或先取消，再发下一条）。"""
+
+    return JSONResponse(
+        status_code=409,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {
+                "code": "WEB_RUN_IN_PROGRESS",
+                "message": "This session is still answering the previous message",
+            },
         },
     )
 
@@ -148,6 +167,12 @@ async def create_message(
         except ResourceNotFoundError:
             return _not_found()
 
+    # 同一会话同一时间只跑一个 run：两个 run 写同一个 checkpoint，后写者覆盖先写者，
+    # 先问的问题和回答从历史里静默消失。检查放在授权之后（不向无权者透露会话状态）、
+    # 建 run 行之前（被拒的请求不留 queued 行）。
+    if manager.thread_busy(thread_id):
+        return _thread_busy()
+
     try:
         run = RunRepository(database).create(thread_id, user.user_id)
     except ResourceNotFoundError:
@@ -163,6 +188,14 @@ async def create_message(
             query=body.message,
             attachment_ids=attachment_ids,
         )
+    except ThreadBusyError:
+        # 上面的检查与 start 之间没有 await，单 worker 下走不到这里；兜底时把刚建的行收口，
+        # 不留一个永远 queued 的 run。
+        with contextlib.suppress(ResourceNotFoundError, SQLAlchemyError):
+            RunRepository(database).set_status(
+                run.run_id, user.user_id, "cancelled", expected_statuses=("queued",)
+            )
+        return _thread_busy()
     except (RuntimeError, ValueError):
         # A run row without a managed event log is not a successful API call.
         # Keep the public response generic; the repository row remains queued
