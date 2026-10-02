@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import request
 
+from water_agent.config.credentials import resolve_secret
 from water_agent.runtime.governance.binding import default_gateway, local_request_context
 from water_agent.runtime.governance.contracts import (
     CallCategory,
@@ -241,7 +242,8 @@ def review_pdf_pages(
     if not images:
         raise VisionUnavailableError("PDF 没有可渲染的页面")
     if reviewer is None:
-        reviewer = QwenVisionReviewer(os.environ.get("DASHSCOPE_API_KEY", ""))
+        # 与 embedding / rerank 同一解析顺序（env → _FILE → 凭据卷），不直读 os.environ。
+        reviewer = QwenVisionReviewer(resolve_secret("DASHSCOPE_API_KEY") or "")
     sections: list[str] = []
     in_tokens = out_tokens = 0
     known = True

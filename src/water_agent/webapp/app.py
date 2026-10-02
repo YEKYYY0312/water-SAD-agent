@@ -91,9 +91,10 @@ def create_app(
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     # Backfill LLM credentials from the Compose secret files and the writable
-    # credential volume into this process' environment.  This is what makes a
-    # key configured before a restart keep working, and it is what lets
-    # embedding.py / retrieval/rerank.py keep reading os.environ unchanged.
+    # credential volume into this process' environment.  In-process consumers
+    # (chat model, embedding, rerank, vision) resolve keys through
+    # resolve_secret() and do not depend on this; it keeps os.environ holding
+    # the effective value for code that still reads the variable by name.
     # Values already present in the environment win and are never overwritten.
     load_credentials_into_environ()
 
