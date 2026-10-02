@@ -235,6 +235,10 @@ async def list_memories(
     tenant = _tenant(request)
     try:
         if query and query.strip():
+            # A GET search is a read: it injects nothing into a run, so it
+            # records no usage row and no RECALLED event.  ``thread_id`` is an
+            # unverified query parameter and is only used by the authorized
+            # projection below, never written as a usage source.
             result = MemoryRecallService(
                 request.app.state.database,
                 provider=getattr(request.app.state, "memory_provider", None),
@@ -243,7 +247,7 @@ async def list_memories(
                 actor_user_id=actor,
                 query=query,
                 project_id=project_id,
-                source_thread_id=thread_id,
+                record_usage=False,
             )
             records = [hit.memory for hit in result.hits]
         else:
