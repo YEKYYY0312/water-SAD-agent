@@ -165,6 +165,8 @@ class _DesignBuild:
     #: not_verified 只因"需要人补声明"（系统/工况归属、显式 DN 归属）的管段 → missing_inputs。
     awaiting_human: set[str] = dataclass_field(default_factory=set)
     brief_conflicts: list[str] = dataclass_field(default_factory=list)
+    #: 引用校验器给出的版本提示（只标记、不判失败），进设计 envelope 的 warnings。
+    citation_warnings: list[str] = dataclass_field(default_factory=list)
 
 
 def _infer_material(brief: ProjectBrief) -> str | None:
@@ -202,39 +204,77 @@ def _requested_source_ids(brief: ProjectBrief) -> list[str]:
     return list(dict.fromkeys(requested))
 
 
-def _citation_candidates(
-    retrieved_source_ids: list[str] | None,
-    validated_citations: list[CitationClaim] | None,
-    *,
-    version_registry: Any | None,
-) -> dict[str, CitationClaim]:
-    """Return only IDs made available by retrieval or a prior validator run."""
-    candidates: dict[str, CitationClaim] = {}
-    for source_id in retrieved_source_ids or []:
-        cleaned = source_id.strip()
-        if cleaned:
-            candidates[cleaned] = CitationClaim(source_id=cleaned, declared_by="system")
-    for claim in validated_citations or []:
-        cleaned = claim.source_id.strip()
-        if cleaned:
-            candidates[cleaned] = claim.model_copy(update={"source_id": cleaned})
+_VERSION_STATUSES = frozenset({"current", "superseded", "deprecated", "unknown"})
 
-    if not candidates:
-        return {}
-    check = validate_citations(candidates, candidates, version_registry=version_registry)
-    return {claim.source_id: claim for claim in enrich_claims(candidates.values(), check)}
+
+@dataclass(frozen=True)
+class _CitationSelection:
+    #: 进设计依据的 source_id（已对照检索集合校验），顺序即管段 source_ids 的顺序。
+    source_ids: list[str]
+    #: 每个入选 source_id 带版本状态的 claim（版本信息来自 validate_citations）。
+    claims: dict[str, CitationClaim]
+    #: 被请求、但不在检索集合里的 source_id —— 不进任何管段。
+    invalid: list[str]
+    #: 版本无法确认 / 非现行的提示（只标记、不判失败，给人看）。
+    warnings: list[str]
 
 
 def _select_citations(
     brief: ProjectBrief,
-    candidates: dict[str, CitationClaim],
-) -> tuple[list[str], list[str]]:
-    requested = _requested_source_ids(brief)
-    if not requested:
-        return sorted(candidates), []
-    selected = [source_id for source_id in requested if source_id in candidates]
-    invalid = [source_id for source_id in requested if source_id not in candidates]
-    return selected, invalid
+    retrieved_source_ids: list[str] | None,
+    validated_citations: list[CitationClaim] | None,
+    *,
+    version_registry: Any | None,
+) -> _CitationSelection:
+    """被引候选对照真实检索到的集合校验，不再自证（review 2026-09-30）。
+
+    此前 ``validate_citations(candidates, candidates)``：被引集合就是检索集合本身，invalid 恒为空；
+    编排器也不传版本注册表，版本状态恒为 None。现在：
+
+    - 检索集合 = 本轮 ``retrieved_source_ids`` ∪ 引用校验器已交入的 claims；
+    - 被引候选 = 用户请求的 source_id（user_constraints 里只是请求，不是可信来源），没有请求时取
+      检索集合全体；
+    - 两者交给 ``validate_citations``：不在检索集合里的候选进 invalid、不进任何管段；传入版本注册表
+      时解析版本状态，无法确认现行的只标记（warnings），不判失败。
+    """
+    retrieved: dict[str, CitationClaim] = {}
+    for source_id in retrieved_source_ids or []:
+        cleaned = source_id.strip()
+        if cleaned:
+            retrieved[cleaned] = CitationClaim(source_id=cleaned, declared_by="system")
+    for claim in validated_citations or []:
+        cleaned = claim.source_id.strip()
+        if cleaned:
+            retrieved[cleaned] = claim.model_copy(update={"source_id": cleaned})
+
+    cited = _requested_source_ids(brief) or sorted(retrieved)
+    if not cited:
+        return _CitationSelection(source_ids=[], claims={}, invalid=[], warnings=[])
+    check = validate_citations(cited, retrieved, version_registry=version_registry)
+    invalid = set(check.invalid)
+    selected = [source_id for source_id in cited if source_id not in invalid]
+    claims = {
+        claim.source_id: claim
+        for claim in enrich_claims((retrieved[source_id] for source_id in selected), check)
+    }
+    return _CitationSelection(
+        source_ids=selected,
+        claims=claims,
+        invalid=list(check.invalid),
+        warnings=list(check.warnings),
+    )
+
+
+def _citation_version_status(
+    claim: CitationClaim,
+) -> Literal["current", "superseded", "deprecated", "unknown"] | None:
+    """未经注册表校验保持 None（审查会如实披露）；注册表给出契约外的取值一律按 unknown。"""
+    status = claim.version_status
+    if status is None:
+        return None
+    if status not in _VERSION_STATUSES:
+        return "unknown"
+    return cast(Literal["current", "superseded", "deprecated", "unknown"], status)
 
 
 def _infer_length(edge: TopologyEdge) -> float | None:
@@ -325,10 +365,11 @@ def _build_design_package(
         else set()
     )
     active_ids = verified_case_ids if active_calc_case_ids is None else verified_case_ids & active_calc_case_ids
-    citation_candidates = _citation_candidates(
-        retrieved_source_ids, validated_citations, version_registry=version_registry
+    citation_selection = _select_citations(
+        brief, retrieved_source_ids, validated_citations, version_registry=version_registry
     )
-    inferred_source_ids, invalid_citation_ids = _select_citations(brief, citation_candidates)
+    inferred_source_ids = citation_selection.source_ids
+    invalid_citation_ids = citation_selection.invalid
 
     material = _infer_material(brief)
     explicit_dns = _explicit_dn_values(brief)
@@ -585,11 +626,8 @@ def _build_design_package(
     citations = [
         DesignCitation(
             source_id=source_id,
-            spec_version=citation_candidates[source_id].spec_version,
-            version_status=cast(
-                Literal["current", "superseded", "deprecated", "unknown"] | None,
-                citation_candidates[source_id].version_status,
-            ),
+            spec_version=citation_selection.claims[source_id].spec_version,
+            version_status=_citation_version_status(citation_selection.claims[source_id]),
             location=f"segment:{segment.segment_id}:source_ids",
         )
         for segment in segments
@@ -605,7 +643,11 @@ def _build_design_package(
         citations=citations,
         invalid_citation_ids=invalid_citation_ids,
     )
-    return _DesignBuild(pkg, awaiting_human=awaiting_human)
+    return _DesignBuild(
+        pkg,
+        awaiting_human=awaiting_human,
+        citation_warnings=citation_selection.warnings,
+    )
 
 
 def run_design_agent(
@@ -706,6 +748,10 @@ def run_design_agent(
             "invalid citation source_id rejected: "
             + ", ".join(design_pkg.invalid_citation_ids)
         )
+    # 版本提示与零依据只标记、不改状态：由审查包披露给批准人（任务书 §7.3）。
+    warnings.extend(build.citation_warnings)
+    if design_pkg.segments and not design_pkg.citations:
+        warnings.append("design basis has no retrieved or validator-confirmed citation")
     if has_not_verified:
         warnings.append("hydraulic not_verified present")
     if has_recalculation:
