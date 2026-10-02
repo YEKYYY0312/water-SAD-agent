@@ -1,4 +1,4 @@
-"""Upload body ceiling enforced below FastAPI: before auth, before reading.
+"""Upload body guards enforced below FastAPI: before auth, before reading.
 
 The defect these tests pin down: FastAPI parses a multipart body
 (``await request.form()`` in ``fastapi.routing.get_request_handler``) *before*
@@ -12,10 +12,17 @@ before the fix, with a 30 MiB file:
   31 457 280 file bytes had been received and written to a temp file;
 - signed in: 413 from ``_read_bounded`` -- after the same 31 457 280 bytes.
 
+The byte ceiling bounded that, but under the ceiling the order was unchanged:
+an anonymous 5 MiB upload was still received and spooled in full (5 242 880
+bytes into a temp file) before the route's dependencies answered 403 -- every
+anonymous request could still make the server take ~10 MB.  The pre-auth check
+replays the upload route's own auth dependencies on the headers alone and
+refuses before the first body byte; the route's dependencies stay the authority.
+
 An HTTP status alone cannot tell "refused before reading" from "read everything,
 then refused"; the second one *is* the defect.  So these tests drive the real
 ``create_app()`` application at the ASGI level and count what it pulled from
-``receive`` -- and, for the spool test, what it wrote into temp files.
+``receive`` -- and, for the spool tests, what it wrote into temp files.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ import re
 import tempfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -33,16 +41,20 @@ from uuid import uuid4
 import pytest
 import starlette.formparsers
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
+from sqlalchemy.exc import OperationalError
 
 from water_agent.documents.extractors import MAX_UPLOAD_BYTES
 from water_agent.storage.database import Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import AuthSession, Base
 from water_agent.webapp.app import create_app
-from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
-from water_agent.webapp.auth.db_store import PostgresUserStore
+from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME, validate_csrf
+from water_agent.webapp.auth.db_store import PostgresSessionStore, PostgresUserStore
+from water_agent.webapp.auth.dependencies import require_password_changed
 from water_agent.webapp.auth.models import UserRole
+from water_agent.webapp.auth.session_store import SessionNotFoundError
 
 _PASSWORD = "BodyLimitPass2026!"
 _BOUNDARY = "wa-body-limit-test"
@@ -51,6 +63,9 @@ _BOUNDARY = "wa-body-limit-test"
 _CHUNK = 64 * 1024
 #: The reproduction size from the defect report: three times the per-file limit.
 _HUGE = 30 * 1024 * 1024
+#: Under the ceiling, past Starlette's 1 MiB in-memory spool: before the pre-auth
+#: check an anonymous body of this size was received in full and rolled to disk.
+_UNDER_CEILING = 5 * 1024 * 1024
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -94,6 +109,32 @@ def app(database: Database, tmp_path: Path, upload_root: Path) -> FastAPI:
 
 
 @pytest.fixture
+def route_only_app(database: Database, tmp_path: Path, upload_root: Path) -> FastAPI:
+    """The same application without the pre-auth check: the route answers alone.
+
+    Its answers are the reference the pre-auth check must reproduce byte for
+    byte -- after reading the whole body, which is exactly what it must not do.
+    Filtered by name so that this fixture builds the same app before the check
+    exists.
+    """
+
+    control = create_app(
+        static_dir=tmp_path,
+        database=database,
+        memory_enabled=False,
+        trace_dir=tmp_path / "traces-control",
+        session_dir=tmp_path / "sessions-control",
+        upload_dir=upload_root,
+    )
+    control.user_middleware = [
+        middleware
+        for middleware in control.user_middleware
+        if getattr(middleware.cls, "__name__", "") != "UploadPreauthMiddleware"
+    ]
+    return control
+
+
+@pytest.fixture
 def spooled(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """Every temp file Starlette's multipart parser creates, with what went into it."""
 
@@ -118,9 +159,9 @@ def spooled(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     return created
 
 
-def _login(app: FastAPI, database: Database) -> TestClient:
+def _login(app: FastAPI, database: Database, role: UserRole = UserRole.MEMBER) -> TestClient:
     username = f"limit-{uuid4()}"
-    PostgresUserStore(database).create_user(username, _PASSWORD, UserRole.MEMBER)
+    PostgresUserStore(database).create_user(username, _PASSWORD, role)
     client = TestClient(app, raise_server_exceptions=True)
     response = client.post("/api/auth/login", json={"username": username, "password": _PASSWORD})
     assert response.status_code == 200, response.text
@@ -208,13 +249,20 @@ def _scope(path: str, headers: list[tuple[bytes, bytes]], method: str = "POST") 
     }
 
 
-def _drive(app: Any, *, path: str, headers: list[tuple[bytes, bytes]], client: _Client) -> _Result:
+def _drive(
+    app: Any,
+    *,
+    path: str,
+    headers: list[tuple[bytes, bytes]],
+    client: _Client,
+    method: str = "POST",
+) -> _Result:
     sent: list[dict[str, Any]] = []
 
     async def send(message: dict[str, Any]) -> None:
         sent.append(message)
 
-    asyncio.run(app(_scope(path, headers), client.receive, send))
+    asyncio.run(app(_scope(path, headers, method), client.receive, send))
     starts = [message for message in sent if message["type"] == "http.response.start"]
     assert len(starts) == 1, f"一个请求只能有一个响应：{[message['type'] for message in sent]}"
     return _Result(
@@ -294,16 +342,17 @@ def test_oversized_content_length_is_refused_before_any_body_byte_is_read(app: F
 # 2. No declared length (chunked): cut at the first message past the ceiling
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("signed_in", [False, True], ids=["anonymous", "signed-in"])
 def test_chunked_body_is_cut_as_soon_as_it_passes_the_ceiling(
-    app: FastAPI, database: Database, signed_in: bool
+    app: FastAPI, database: Database
 ) -> None:
-    """Before the fix: anonymous got 403 and signed-in got 413 -- both only after
-    the whole 30 MiB body had been received."""
+    """Before the fix: 413 only after the whole 30 MiB body had been received.
 
-    headers = _multipart_headers(content_length=None)
-    if signed_in:
-        headers += _session_headers(_login(app, database))
+    Signed in, so that the request gets past the pre-auth check and the ceiling
+    is what stops it; an anonymous chunked body is not read at all any more
+    (``test_anonymous_upload_under_the_ceiling_is_refused_before_its_body_is_read``).
+    """
+
+    headers = _multipart_headers(content_length=None) + _session_headers(_login(app, database))
     _, chunks = _upload_body(_HUGE)
     client = _Client(chunks)
     result = _drive(app, path="/api/uploads", headers=headers, client=client)
@@ -427,20 +476,25 @@ def test_routes_outside_the_upload_prefix_are_not_capped(app: FastAPI) -> None:
 # ---------------------------------------------------------------------------
 
 def test_anonymous_oversized_upload_is_not_spooled_any_more(
-    app: FastAPI, spooled: list[Any]
+    app: FastAPI, database: Database, spooled: list[Any]
 ) -> None:
     """Before the fix: 403 ``AUTH_CSRF_INVALID`` *after* the 31 457 280-byte file
     had been spooled and rolled over to a temp file (tmpfs in the container)."""
 
-    # Probe check first.  Under the ceiling an anonymous body is still parsed
-    # before auth -- FastAPI's order did not change -- so the probe does see a
-    # spool, and an empty spool list below is a real "nothing was spooled".
+    # Probe check first.  A signed-in body under the ceiling is still parsed by
+    # FastAPI before the route runs, so the probe does see a spool, and an empty
+    # spool list below is a real "nothing was spooled".  (Not a real .docx: the
+    # documents layer refuses it by magic number -- i.e. past both guards.)
+    signed_in = _session_headers(_login(app, database))
     small = 2 * 1024 * 1024  # past Starlette's 1 MiB in-memory spool: rolls to disk
-    total, chunks = _upload_body(small)
+    total, chunks = _upload_body(small, filename="probe.docx")
     result = _drive(
-        app, path="/api/uploads", headers=_multipart_headers(content_length=total), client=_Client(chunks)
+        app,
+        path="/api/uploads",
+        headers=_multipart_headers(content_length=total) + signed_in,
+        client=_Client(chunks),
     )
-    assert result.status == 403 and result.error_code == "AUTH_CSRF_INVALID", result.body
+    assert (result.status, result.error_code) == (400, "UPLOAD_MAGIC_MISMATCH"), result.body
     assert [(spool.bytes_written, spool.rolled_to_disk) for spool in spooled] == [(small, True)]
     spooled.clear()
 
@@ -454,17 +508,423 @@ def test_anonymous_oversized_upload_is_not_spooled_any_more(
     assert spooled == []
     assert result.status == 413
 
-    # Chunked oversized: what arrived before the cut is bounded by the ceiling,
-    # and the temp file is closed when the read is aborted.
-    from water_agent.webapp.body_limit import UPLOAD_BODY_LIMIT_BYTES
-
+    # Chunked oversized and anonymous: no length to judge by, so the pre-auth
+    # check is what refuses it -- still before a single temp-file byte.
     _, chunks = _upload_body(_HUGE)
     result = _drive(
         app, path="/api/uploads", headers=_multipart_headers(content_length=None), client=_Client(chunks)
     )
+    assert result.status == 403 and result.error_code == "AUTH_CSRF_INVALID", result.body
+    assert spooled == []
+
+    # Chunked oversized and signed in: what arrived before the cut is bounded by
+    # the ceiling, and the temp file is closed when the read is aborted.
+    from water_agent.webapp.body_limit import UPLOAD_BODY_LIMIT_BYTES
+
+    _, chunks = _upload_body(_HUGE)
+    result = _drive(
+        app,
+        path="/api/uploads",
+        headers=_multipart_headers(content_length=None) + signed_in,
+        client=_Client(chunks),
+    )
     assert result.status == 413
     assert 0 < sum(spool.bytes_written for spool in spooled) <= UPLOAD_BODY_LIMIT_BYTES
     assert all(spool.closed for spool in spooled)
+
+
+# ---------------------------------------------------------------------------
+# 6. Under the ceiling: an upload its own dependencies refuse is refused unread
+# ---------------------------------------------------------------------------
+
+#: Every way the upload route's dependencies refuse a request, with the answer
+#: they give: CSRF first (route-level ``dependencies``), then the session
+#: (``require_password_changed``).
+_REFUSALS: dict[str, tuple[int, str, str]] = {
+    "no-cookie-no-token": (403, "AUTH_CSRF_INVALID", "CSRF token missing"),
+    "token-cookie-only": (403, "AUTH_CSRF_INVALID", "CSRF token missing"),
+    "token-mismatch": (403, "AUTH_CSRF_INVALID", "CSRF token mismatch"),
+    "no-session": (401, "AUTH_SESSION_INVALID", "Not authenticated"),
+    "unknown-session": (401, "AUTH_SESSION_INVALID", "Session not found or expired"),
+    "expired-session": (401, "AUTH_SESSION_INVALID", "Session expired"),
+    "inactive-user": (403, "AUTH_USER_INACTIVE", "Account is disabled"),
+    "must-change-password": (
+        403,
+        "AUTH_MUST_CHANGE_PASSWORD",
+        "Temporary password must be changed before continuing",
+    ),
+}
+
+
+def _cookies(session_id: str | None, csrf: str, *, header: str | None) -> list[tuple[bytes, bytes]]:
+    jar = [f"{CSRF_COOKIE_NAME}={csrf}"] + ([f"wa_session={session_id}"] if session_id else [])
+    headers = [(b"cookie", "; ".join(jar).encode())]
+    if header is not None:
+        headers.append((b"x-csrf-token", header.encode()))
+    return headers
+
+
+def _refused_credentials(database: Database, case: str) -> tuple[list[tuple[bytes, bytes]], str | None]:
+    """Fresh cookies and headers for one refusal case, plus the session they name.
+
+    Fresh per call: the route deletes an expired session on first sight, so each
+    run needs its own.
+    """
+
+    if case == "no-cookie-no-token":
+        return [], None
+    if case == "token-cookie-only":
+        return _cookies(None, "token", header=None), None
+    if case == "token-mismatch":
+        return _cookies(None, "token", header="another-token"), None
+    if case == "no-session":
+        return _cookies(None, "token", header="token"), None
+    if case == "unknown-session":
+        return _cookies("no-such-session", "token", header="token"), "no-such-session"
+    users = PostgresUserStore(database)
+    user = users.create_user(
+        f"refused-{uuid4()}",
+        _PASSWORD,
+        UserRole.MEMBER,
+        must_change_password=case == "must-change-password",
+    )
+    session = PostgresSessionStore(database).create(user.user_id)
+    if case == "expired-session":
+        with database.transaction() as transaction:
+            row = transaction.get(AuthSession, session.session_id)
+            assert row is not None
+            row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    elif case == "inactive-user":
+        users.set_active(user.user_id, active=False)
+    else:
+        assert case == "must-change-password", case
+    return _cookies(session.session_id, session.csrf_token, header=session.csrf_token), session.session_id
+
+
+@pytest.fixture
+def session_lookups(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every session id the auth layer looks up, in order."""
+
+    looked_up: list[str] = []
+    original = PostgresSessionStore.get
+
+    def counting_get(self: PostgresSessionStore, session_id: str) -> Any:
+        looked_up.append(session_id)
+        return original(self, session_id)
+
+    monkeypatch.setattr(PostgresSessionStore, "get", counting_get)
+    return looked_up
+
+
+@pytest.mark.parametrize("declared", [True, False], ids=["content-length", "chunked"])
+@pytest.mark.parametrize(
+    ("credentials", "status", "code"),
+    [
+        # No cookie and no token at all: CSRF is the route's first dependency.
+        ("none", 403, "AUTH_CSRF_INVALID"),
+        # A self-made, matching double-submit pair gets past CSRF, not past the session.
+        ("forged-csrf-pair", 401, "AUTH_SESSION_INVALID"),
+    ],
+)
+def test_anonymous_upload_under_the_ceiling_is_refused_before_its_body_is_read(
+    app: FastAPI, spooled: list[Any], declared: bool, credentials: str, status: int, code: str
+) -> None:
+    """Before the fix: the same 403/401 -- after all 5 MiB had been received and
+    5 242 880 bytes written to a temp file rolled over to disk."""
+
+    total, chunks = _upload_body(_UNDER_CEILING)
+    headers = _multipart_headers(content_length=total if declared else None)
+    if credentials == "forged-csrf-pair":
+        headers += _cookies(None, "forged", header="forged")
+    stream = _Client(chunks)
+    result = _drive(app, path="/api/uploads", headers=headers, client=stream)
+
+    assert (result.status, result.error_code) == (status, code), result.body
+    assert stream.receive_calls == 0, f"拒绝之前已读了 {stream.bytes_pulled} 字节 body"
+    assert stream.bytes_pulled == 0
+    assert spooled == [], f"被拒绝的匿名上传写了 {sum(s.bytes_written for s in spooled)} 字节临时文件"
+    if declared:
+        # A declared remainder is bounded by the ceiling: the server discards it
+        # and keeps the connection, so a client still writing its body gets to
+        # read this answer instead of a reset.
+        assert "connection" not in result.headers
+    else:
+        # No length: the remainder is unbounded, and the connection is not reused.
+        assert result.headers.get("connection") == "close"
+
+
+@pytest.mark.parametrize(
+    ("token", "message"),
+    [(None, "CSRF token missing"), ("not-the-cookie-value", "CSRF token mismatch")],
+    ids=["missing", "mismatch"],
+)
+def test_signed_in_upload_without_a_matching_csrf_header_is_refused_before_its_body_is_read(
+    app: FastAPI, database: Database, spooled: list[Any], token: str | None, message: str
+) -> None:
+    """A valid session is not enough: without the double-submit header the route
+    answers 403 -- before the fix, after the whole body had been spooled."""
+
+    client = _login(app, database)
+    cookie = "; ".join(f"{name}={value}" for name, value in client.cookies.items())
+    headers = [(b"cookie", cookie.encode())]
+    if token is not None:
+        headers.append((b"x-csrf-token", token.encode()))
+    total, chunks = _upload_body(_UNDER_CEILING)
+    stream = _Client(chunks)
+    result = _drive(
+        app,
+        path="/api/uploads",
+        headers=_multipart_headers(content_length=total) + headers,
+        client=stream,
+    )
+
+    assert result.status == 403, result.body
+    assert result.payload["error"] == {"code": "AUTH_CSRF_INVALID", "message": message}
+    assert stream.receive_calls == 0, f"拒绝之前已读了 {stream.bytes_pulled} 字节 body"
+    assert spooled == []
+
+
+@pytest.mark.parametrize("case", sorted(_REFUSALS))
+def test_every_refusal_is_the_routes_own_answer_given_before_the_body_is_read(
+    app: FastAPI, route_only_app: FastAPI, database: Database, case: str
+) -> None:
+    """Same status, same bytes, same side effects as the route's dependencies --
+    which answer only after the whole body has been read."""
+
+    status, code, message = _REFUSALS[case]
+    answers: dict[str, tuple[_Result, _Client, str | None]] = {}
+    for name, target in (("route", route_only_app), ("guarded", app)):
+        headers, session_id = _refused_credentials(database, case)
+        total, chunks = _upload_body(256 * 1024)
+        stream = _Client(chunks)
+        result = _drive(
+            target,
+            path="/api/uploads",
+            headers=_multipart_headers(content_length=total) + headers,
+            client=stream,
+        )
+        answers[name] = (result, stream, session_id)
+
+    route, route_stream, _ = answers["route"]
+    guarded, guarded_stream, guarded_session = answers["guarded"]
+    # The reference: the route alone reads everything, then its dependencies refuse.
+    assert route.status == status, route.body
+    assert route.payload["error"] == {"code": code, "message": message}
+    assert not route_stream.body_left_unread
+    # The pre-auth check: the very same answer, without a single body byte.
+    assert guarded_stream.receive_calls == 0, f"拒绝之前已读了 {guarded_stream.bytes_pulled} 字节 body"
+    assert guarded.status == route.status
+    assert guarded.body == route.body
+    assert guarded.headers == route.headers
+    if case == "expired-session":
+        # Same side effect as the route: an expired session is deleted on sight.
+        assert guarded_session is not None
+        with pytest.raises(SessionNotFoundError):
+            PostgresSessionStore(database).get(guarded_session)
+
+
+def test_a_session_store_failure_answers_500_as_the_route_would(
+    app: FastAPI,
+    route_only_app: FastAPI,
+    database: Database,
+    spooled: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed: the lookup error surfaces exactly as it does in the route's
+    dependency -- the application's 500 -- only without parsing the body first."""
+
+    def unavailable(self: PostgresSessionStore, session_id: str) -> Any:
+        raise OperationalError("SELECT auth_sessions", {}, Exception("database is down"))
+
+    monkeypatch.setattr(PostgresSessionStore, "get", unavailable)
+    answers: dict[str, tuple[int, Any, int]] = {}
+    for name, target in (("route", route_only_app), ("guarded", app)):
+        client = TestClient(target, raise_server_exceptions=False)
+        client.cookies.set(CSRF_COOKIE_NAME, "t")
+        client.cookies.set("wa_session", "some-session")
+        response = client.post(
+            "/api/uploads",
+            files={"file": ("notes.txt", b"x" * (2 * 1024 * 1024), "text/plain")},
+            headers={"X-CSRF-Token": "t"},
+        )
+        answers[name] = (response.status_code, response.json(), len(spooled))
+        spooled.clear()
+
+    internal_error = {
+        "version": "v1",
+        "ok": False,
+        "error": {"code": "WEB_INTERNAL_ERROR", "message": "Internal server error"},
+    }
+    assert answers["route"] == (500, internal_error, 1), answers["route"]
+    assert answers["guarded"] == (500, internal_error, 0), answers["guarded"]
+
+
+def test_valid_uploads_pass_through_and_the_route_still_decides(
+    app: FastAPI, database: Database, upload_root: Path, session_lookups: list[str]
+) -> None:
+    """The check only refuses; it hands nothing to the route.  The route resolves
+    the session again and applies its own rules (a viewer is refused there)."""
+
+    from water_agent.webapp.body_limit import UploadPreauthMiddleware
+
+    assert UploadPreauthMiddleware in [middleware.cls for middleware in app.user_middleware]
+
+    member = _login(app, database)
+    session_lookups.clear()
+    payload = "给水管道设计流速说明。".encode() * 50
+    response = member.post(
+        "/api/uploads", files={"file": ("notes.txt", payload, "text/plain")}, headers=_csrf(member)
+    )
+    assert response.status_code == 201, response.text
+    upload_id = response.json()["data"]["upload_id"]
+    assert (upload_root / upload_id / "notes.txt").read_bytes() == payload
+    # Once by the pre-auth check, once by the route's own dependency.
+    session_id = member.cookies.get("wa_session")
+    assert session_lookups == [session_id, session_id]
+
+    # A viewer's session is valid, so the check lets the request through; the
+    # role is the route's business, decided after the body has been read.
+    viewer = _session_headers(_login(app, database, role=UserRole.VIEWER))
+    total, chunks = _upload_body(64 * 1024)
+    stream = _Client(chunks)
+    result = _drive(
+        app, path="/api/uploads", headers=_multipart_headers(content_length=total) + viewer, client=stream
+    )
+    assert result.status == 403 and result.error_code == "WEB_FORBIDDEN", result.body
+    assert not stream.body_left_unread
+    assert "connection" not in result.headers
+
+
+def test_only_the_upload_form_route_is_checked_before_its_body(app: FastAPI) -> None:
+    """The check replays one route's dependencies; anything else answers for itself.
+
+    Chunked on purpose: the check's refusal of a body without a declared length
+    is the one that says ``Connection: close``, which tells the answers apart.
+    """
+
+    def anonymous(path: str, method: str) -> tuple[_Result, _Client]:
+        _, chunks = _upload_body(64 * 1024)
+        stream = _Client(chunks)
+        result = _drive(
+            app,
+            path=path,
+            method=method,
+            headers=_multipart_headers(content_length=None),
+            client=stream,
+        )
+        return result, stream
+
+    # Positive control: the form route, refused by the check -- unread, and the
+    # connection not reused.
+    refused, stream = anonymous("/api/uploads", "POST")
+    assert refused.status == 403 and refused.error_code == "AUTH_CSRF_INVALID"
+    assert stream.receive_calls == 0
+    assert refused.headers.get("connection") == "close"
+
+    # GET /api/uploads has no CSRF dependency: the route says 401 where the
+    # check would have said 403.
+    listed, _ = anonymous("/api/uploads", "GET")
+    assert (listed.status, listed.error_code) == (401, "AUTH_SESSION_INVALID")
+    # DELETE carries the same dependencies, but takes no body: the route answers.
+    deleted, _ = anonymous(f"/api/uploads/{uuid4()}", "DELETE")
+    assert (deleted.status, deleted.error_code) == (403, "AUTH_CSRF_INVALID")
+    answered_by_the_route = [listed, deleted]
+    # Lookalike paths are other routes, or none.
+    for path in ("/api/uploadsx", f"/api/projects/{uuid4()}/uploads"):
+        other, _ = anonymous(path, "POST")
+        assert other.status in (404, 405), (path, other.status, other.body)
+        answered_by_the_route.append(other)
+    for result in answered_by_the_route:
+        assert "connection" not in result.headers, result
+
+
+def test_the_check_replays_exactly_the_upload_routes_dependencies() -> None:
+    """If the route's auth chain changes, the replay must change with it.
+
+    Read from the route as declared (``app.routes`` holds included routers
+    lazily in this FastAPI); ``create_app`` includes the router with no extra
+    dependencies, and the equivalence test above compares the actual answers.
+    """
+
+    from water_agent.webapp.body_limit import UPLOAD_AUTH_DEPENDENCIES
+    from water_agent.webapp.upload_routes import router
+
+    (route,) = [
+        candidate
+        for candidate in router.routes
+        if isinstance(candidate, APIRoute)
+        and candidate.path == "/api/uploads"
+        and "POST" in candidate.methods
+    ]
+    chain = [dependency.call for dependency in route.dependant.dependencies]
+    assert chain == [validate_csrf, require_password_changed]
+    assert tuple(chain) == UPLOAD_AUTH_DEPENDENCIES, (
+        "body_limit.UploadPreauthMiddleware 重放的依赖必须与上传路由声明的一致"
+    )
+
+
+def test_overridden_auth_dependencies_are_left_to_the_route(app: FastAPI, database: Database) -> None:
+    """The route's dependencies are the authority.  Where an application replaces
+    one (FastAPI's ``dependency_overrides``), the check stands aside instead of
+    judging by the originals."""
+
+    def forged_session_upload() -> tuple[_Result, _Client]:
+        total, chunks = _upload_body(64 * 1024)
+        stream = _Client(chunks)
+        result = _drive(
+            app,
+            path="/api/uploads",
+            headers=_multipart_headers(content_length=total) + _cookies(None, "t", header="t"),
+            client=stream,
+        )
+        return result, stream
+
+    refused, stream = forged_session_upload()
+    assert (refused.status, refused.error_code) == (401, "AUTH_SESSION_INVALID")
+    assert stream.receive_calls == 0
+
+    user = PostgresUserStore(database).create_user(f"override-{uuid4()}", _PASSWORD, UserRole.MEMBER)
+    app.dependency_overrides[require_password_changed] = lambda: (user, None)
+    try:
+        accepted, stream = forged_session_upload()
+    finally:
+        app.dependency_overrides.clear()
+    assert accepted.status == 201, accepted.body
+    assert not stream.body_left_unread
+
+
+def test_declared_size_is_judged_before_the_session_is_looked_up(
+    app: FastAPI, session_lookups: list[str]
+) -> None:
+    """Cheapest first: the declared length (free), then the session (a database
+    lookup), and only then the body."""
+
+    from water_agent.webapp.body_limit import UploadBodyLimitMiddleware, UploadPreauthMiddleware
+
+    # Outermost first: the ceiling wraps the check.
+    assert [middleware.cls for middleware in app.user_middleware][:2] == [
+        UploadBodyLimitMiddleware,
+        UploadPreauthMiddleware,
+    ]
+
+    credentials = _cookies("no-such-session", "t", header="t")
+    total, chunks = _upload_body(_HUGE)
+    stream = _Client(chunks)
+    too_large = _drive(
+        app, path="/api/uploads", headers=_multipart_headers(content_length=total) + credentials, client=stream
+    )
+    assert (too_large.status, too_large.error_code) == (413, "UPLOAD_TOO_LARGE")
+    assert session_lookups == [], "超限的声明长度不该花一次会话查询"
+    assert stream.receive_calls == 0
+
+    total, chunks = _upload_body(64 * 1024)
+    stream = _Client(chunks)
+    unknown = _drive(
+        app, path="/api/uploads", headers=_multipart_headers(content_length=total) + credentials, client=stream
+    )
+    assert (unknown.status, unknown.error_code) == (401, "AUTH_SESSION_INVALID")
+    assert session_lookups == ["no-such-session"]
+    assert stream.receive_calls == 0
 
 
 # ---------------------------------------------------------------------------
