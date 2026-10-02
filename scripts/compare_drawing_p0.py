@@ -79,6 +79,11 @@ def compare_reports(
     )
     if ptp_failures:
         violations.append(f"PASS_TO_PASS 违规：基线通过用例新失败 {ptp_failures}")
+    # 用例消失同样是回归：上面的 PTP 只看 head 里还在的用例，删掉一条（例如投毒标注
+    # 用例 dw-006）其余全过时会整体放行（review 2026-09-30）。
+    vanished = sorted(case_id for case_id in base_cases if case_id not in head_ids)
+    if vanished:
+        violations.append(f"基线用例在 HEAD 报告中缺失 {vanished}")
 
     # 2) 聚合观测指标下降（pt = 百分点）
     for key, threshold_pt in (
