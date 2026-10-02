@@ -107,7 +107,7 @@ AGENTS.md             # 指令层
 bash scripts/verify.sh
 ```
 
-预期：pytest 全绿、ruff 0 error、rag_p0 11/12、calc_p0 ≥95%。任一项不达标即失败，任务不得标为完成。
+预期：pytest 全绿、ruff 0 error、rag_p0 12/12、calc_p0 ≥95%。任一项不达标即失败，任务不得标为完成。
 
 ## 7. 标准工作循环（SDD 循环）
 
