@@ -179,6 +179,13 @@ class TopologyEdge(BaseModel):
     start_node_id: str = Field(min_length=1)
     end_node_id: str = Field(min_length=1)
     length_m: float | None = None
+    #: 这条边属于哪个系统（必须在 ``ProjectBrief.systems`` 内）。缺省时只有 systems 恰好
+    #: 一个才自动归属；多系统时缺省 = 归属不明，设计 Agent 不做系统 × 拓扑的笛卡尔积。
+    system: Literal["water_supply", "drainage", "fire_protection"] | None = None
+    #: 这条边由哪一个计算工况支撑（``ProjectBrief.hydraulic_cases[].case_id``，任务书 §2.1
+    #: "每个设计管段引用哪一个计算工况"）。缺省时只有恰好一个活动工况才自动绑定；多工况时
+    #: 缺省 = 绑定不明，转人工，不把某一个工况的输入套给别的管段。
+    calc_case_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("length_m")
     @classmethod
@@ -227,6 +234,57 @@ class ProjectBrief(BaseModel):
         if not _PROJECT_ID_RE.match(v):
             raise ValueError(f"project_id must match {_PROJECT_ID_RE.pattern!r}")
         return v
+
+
+def edge_segment_systems(
+    brief: ProjectBrief,
+    edge: TopologyEdge,
+) -> list[Literal["water_supply", "drainage", "fire_protection"]]:
+    """Systems a topology edge yields design segments for.
+
+    A declared ``edge.system`` is the only system.  Otherwise the edge belongs to
+    the brief's single system, or — with several systems — every system is only
+    a candidate whose ownership is unresolved (the design agent never marks such
+    a candidate verified).
+    """
+    if edge.system is not None:
+        return [edge.system]
+    return list(dict.fromkeys(brief.systems))
+
+
+def project_brief_conflicts(brief: ProjectBrief) -> list[str]:
+    """Cross-field conflicts that make the brief unusable (``MULTI_INVALID_BRIEF``).
+
+    Single-field validation stays in the models.  These checks need the whole
+    brief: duplicate identifiers, edges referencing an undeclared system or case,
+    and two edges yielding the same ``(system, start, end)`` segment — which
+    previously surfaced as a raw ``duplicate segment_id`` ValidationError.
+    """
+    conflicts: list[str] = []
+    for system in sorted({s for s in brief.systems if brief.systems.count(s) > 1}):
+        conflicts.append(f"systems: duplicate entry {system!r}")
+    case_ids = [case.case_id for case in brief.hydraulic_cases]
+    for case_id in sorted({c for c in case_ids if case_ids.count(c) > 1}):
+        conflicts.append(f"hydraulic_cases: duplicate case_id {case_id!r}")
+
+    owners: dict[tuple[str, str, str], int] = {}
+    for index, edge in enumerate(brief.topology):
+        if edge.system is not None and edge.system not in brief.systems:
+            conflicts.append(f"topology[{index}].system {edge.system!r} is not in systems")
+        if edge.calc_case_id is not None and edge.calc_case_id not in case_ids:
+            conflicts.append(
+                f"topology[{index}].calc_case_id {edge.calc_case_id!r} "
+                "does not match any hydraulic_cases[].case_id"
+            )
+        for system in edge_segment_systems(brief, edge):
+            key = (system, edge.start_node_id, edge.end_node_id)
+            first = owners.setdefault(key, index)
+            if first != index:
+                conflicts.append(
+                    f"topology[{first}] and topology[{index}] both define segment "
+                    f"({system}, {edge.start_node_id}->{edge.end_node_id})"
+                )
+    return list(dict.fromkeys(conflicts))
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +669,7 @@ class ApprovalRecord(BaseModel):
     # this optional for pre-Step-33 persisted records; release_gate rejects a
     # record that does not carry it.
     final_package_hash: str | None = None
+    #: 人工决定的时间。``approved=False`` 的拒绝记录同样填写（字段名沿用旧契约）。
     approved_at: str = Field(min_length=1)
     expires_at: str | None = None
 
@@ -701,6 +760,9 @@ class FinalProjectPackage(BaseModel):
 
     @model_validator(mode="after")
     def _validate_approval_ids(self) -> FinalProjectPackage:
+        # ApprovalRecord 也承载人工拒绝（approved=False）；拒绝记录绝不能组装成最终包。
+        if not self.approval_record.approved:
+            raise ValueError(f"{MULTI_APPROVAL_REQUIRED}: final package requires an approved record")
         declared = [
             self.calc_artifact_id,
             self.design_artifact_id,
