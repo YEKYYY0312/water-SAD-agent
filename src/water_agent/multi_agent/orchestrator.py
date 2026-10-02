@@ -38,6 +38,7 @@ from water_agent.multi_agent.contracts import (
     ArtifactEnvelope,
     CalcPackage,
     DesignPackage,
+    DrawingPackage,
     DrawingPlan,
     FinalProjectPackage,
     ProjectBrief,
@@ -59,6 +60,10 @@ from water_agent.session import default_checkpoint_serde
 
 DEFAULT_APPROVAL_TTL_SECONDS = 24 * 60 * 60
 _SCHEMA_VERSION = "p4.5-2026-09-11"
+#: 发布集（批准绑定的最终包）由这六个角色的活动产物组成，顺序即审批摘要里的展示顺序。
+_RELEASE_ROLES = ("calc", "design", "drawing_plan", "document", "drawing", "review")
+#: 审批摘要里 payload_hash 只给前缀（完整哈希在 final_package_hash 与产物里）。
+_HASH_PREFIX_CHARS = 12
 _TRACE_SOURCE = "multi_agent_orchestrator"
 _TRACE_DELIVERY = "local_event_only"
 _INTERNAL_TRACE_ID_RE = re.compile(
@@ -555,10 +560,103 @@ def _put(
 
 
 def _release_artifacts(registry: dict[str, ArtifactEnvelope], active: dict[str, str]) -> dict[str, ArtifactEnvelope] | None:
-    roles = ("calc", "design", "drawing_plan", "document", "drawing", "review")
-    if any(role not in active or active[role] not in registry for role in roles):
+    if any(role not in active or active[role] not in registry for role in _RELEASE_ROLES):
         return None
-    return {active[role]: registry[active[role]] for role in roles}
+    return {active[role]: registry[active[role]] for role in _RELEASE_ROLES}
+
+
+def approval_summary(state: Mapping[str, Any]) -> dict[str, Any] | None:
+    """待批准最终包的可审阅摘要（审批请求、CLI 与最终输出共用这一个来源）。
+
+    此前审批请求只有最终包哈希，批准人看不到要批准的是什么（盲批，review 2026-09-30）。
+    摘要只读当前发布集里已通过哈希校验的登记产物，原样搬运其中的数值与文本——不重新计算、
+    不换算、不取整任何数值（铁律 1）；发布集不完整（没有可批准的最终包）时返回 None。
+    ``state`` 接受任意映射：CLI 手里是 ``app.invoke`` 返回的普通 dict。
+    """
+    registry = _registry(cast(MultiAgentProjectState, state))
+    active = dict(state.get("active_artifact_ids") or {})
+    artifacts = _release_artifacts(registry, active)
+    if artifacts is None:
+        return None
+    envelopes = {role: registry[active[role]] for role in _RELEASE_ROLES}
+    try:
+        calc = CalcPackage.model_validate(envelopes["calc"].payload)
+        design = DesignPackage.model_validate(envelopes["design"].payload)
+        drawing = DrawingPackage.model_validate(envelopes["drawing"].payload)
+        review = ReviewPackage.model_validate(envelopes["review"].payload)
+    except ValidationError:
+        return None
+    staging_dir = state.get("staging_dir")
+    staged_file_id = drawing.staged_file_id if drawing.staged_file_verified else None
+    # 与 drawing_executor / export_adapter 同一个命名规则：<staging_dir>/<file_id>.dxf
+    staging_dxf_path = (
+        str(Path(staging_dir) / f"{staged_file_id}.dxf")
+        if isinstance(staging_dir, str) and staging_dir and staged_file_id
+        else None
+    )
+    citations: dict[str, dict[str, Any]] = {}
+    for citation in design.citations:
+        citations.setdefault(
+            citation.source_id,
+            {"source_id": citation.source_id, "version_status": citation.version_status},
+        )
+    return {
+        "final_package_hash": _package_hash(artifacts),
+        "artifacts": [
+            {
+                "role": role,
+                "artifact_type": envelopes[role].artifact_type,
+                "artifact_id": envelopes[role].artifact_id,
+                "revision": envelopes[role].revision,
+                "payload_hash_prefix": envelopes[role].payload_hash[:_HASH_PREFIX_CHARS],
+                "status": envelopes[role].status,
+            }
+            for role in _RELEASE_ROLES
+        ],
+        "segments": [
+            {
+                "segment_id": segment.segment_id,
+                "system": segment.system,
+                "start_node_id": segment.start_node_id,
+                "end_node_id": segment.end_node_id,
+                "dn_mm": segment.dn_mm,
+                "length_m": segment.length_m,
+                "material": segment.material,
+                "slope": segment.slope,
+                "hydraulic_status": segment.hydraulic_status,
+                "calc_case_ids": list(segment.calc_case_ids),
+            }
+            for segment in design.segments
+        ],
+        "calc_cases": [
+            {
+                "calc_case_id": case.calc_case_id,
+                "formula": case.formula,
+                "status": case.status,
+                "inputs": dict(case.inputs),
+                "outputs": dict(case.outputs),
+                "assumptions": list(case.assumptions),
+            }
+            for case in calc.cases
+        ],
+        "citations": list(citations.values()),
+        "review": {
+            "decision": review.decision,
+            "issues": [
+                {
+                    "rule_id": issue.rule_id,
+                    "severity": issue.severity,
+                    "owner": issue.owner,
+                    "object_ref": issue.object_ref,
+                    "message": issue.message,
+                }
+                for issue in review.issues
+            ],
+            "not_checked": list(review.not_checked),
+            "disclosed_limitations": list(review.disclosed_limitations),
+        },
+        "staging_dxf_path": staging_dxf_path,
+    }
 
 
 def _package_hash(artifacts: dict[str, ArtifactEnvelope]) -> str:
@@ -1121,9 +1219,16 @@ def build_orchestrator_graph(
         expected_hash = _package_hash(artifacts) if artifacts else None
         if artifacts is None or expected_hash != state.get("approval_context_hash"):
             return approval_stale(state, approval_present=True)
-        # 披露项随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个哈希，
-        # 人工批准实际是盲批（review 2026-09-30）。
-        request = {"approval_required": True, "final_package_hash": expected_hash, "artifact_ids": sorted(artifacts), "expires_in_seconds": approval_ttl_seconds, "disclosed_limitations": review_disclosures(state)}
+        # 披露项与可审阅摘要随审批请求一起给到批准人（带条件进入人审）：此前请求里只有一个
+        # 哈希，人工批准实际是盲批（review 2026-09-30）。摘要与 expected_hash 读的是同一个发布集。
+        request = {
+            "approval_required": True,
+            "final_package_hash": expected_hash,
+            "artifact_ids": sorted(artifacts),
+            "expires_in_seconds": approval_ttl_seconds,
+            "disclosed_limitations": review_disclosures(state),
+            "summary": approval_summary(state),
+        }
         decision = interrupt(request)
         # 非法 resume 值不抛异常：带 error 再挂起一次（原因见 approval_decision_error）。每次恢复
         # 本节点都从头重跑、按序号依次重放此前收到的值：非法值仍落在原序号上被判非法，合法值
