@@ -19,12 +19,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SUITE_DIR = REPO_ROOT / "tests" / "eval" / "multi_agent_p0"
 
 
-def test_suite_load_flow_and_14_cases() -> None:
+def test_suite_load_flow_and_18_cases() -> None:
     suite = load_suite(SUITE_DIR)
     assert suite["flow"] == "multi-agent"
-    assert len(suite["cases"]) == 14
+    assert len(suite["cases"]) == 18
     ids = [c["case_id"] for c in suite["cases"]]
-    assert ids == [f"ma-p0-{i:02d}" for i in range(1, 15)]
+    assert ids == [f"ma-p0-{i:02d}" for i in range(1, 19)]
 
 
 def test_suite_load_rejects_wrong_flow(tmp_path: Path) -> None:
@@ -34,12 +34,12 @@ def test_suite_load_rejects_wrong_flow(tmp_path: Path) -> None:
         load_suite(bad)
 
 
-def test_14_cases_all_green_metrics_thresholds() -> None:
+def test_18_cases_all_green_metrics_thresholds() -> None:
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "report.json"
         report = run_suite(SUITE_DIR, out_path=out, staging_dir=Path(td) / "stg", final_dir=Path(td) / "fin")
-    assert report["total"] == 14
-    assert report["passed"] == 14
+    assert report["total"] == 18
+    assert report["passed"] == 18
     assert report["failed"] == 0
     m = report["metrics"]
     assert m["numeric_source_integrity"] == 1.0
@@ -76,16 +76,15 @@ def test_14_cases_all_green_metrics_thresholds() -> None:
                 "run_started",
                 "approval_requested",
                 "approval_resumed",
-                "release_gate_checked",
                 "run_finished",
             },
         ),
         (
+            # 注入：审批节点被跳过、没有任何人工决定（因此没有 approval_resumed），由发布门拦下
             "ma-p0-09",
             {
                 "run_started",
                 "approval_requested",
-                "approval_resumed",
                 "export_attempt",
                 "release_gate_checked",
                 "run_finished",
@@ -128,6 +127,26 @@ def test_key_p0_cases_use_real_orchestrator_trace(
     assert required_events <= event_names
     assert result["orchestrator_executed"] is True
     assert result["trace_source"] == "multi_agent_orchestrator"
+
+
+@pytest.mark.parametrize("case_id", ["ma-p0-08", "ma-p0-18"])
+def test_drift_and_rejection_end_at_approval_without_an_export_attempt(
+    tmp_path: Path, case_id: str
+) -> None:
+    suite = load_suite(SUITE_DIR)
+    case = next(item for item in suite["cases"] if item["case_id"] == case_id)
+
+    result = run_one_case(
+        case,
+        staging_dir=str(tmp_path / "staging"),
+        final_dir=str(tmp_path / "final"),
+    )
+
+    event_names = [event.get("event") for event in result["trace_events"]]
+    assert "release_gate_checked" not in event_names
+    assert "export_attempt" not in event_names
+    assert event_names[-1] == "run_finished"
+    assert len(result["errors"]) == 1
 
 
 def test_normal_case_reaches_interrupt_release_gate_and_real_export(tmp_path: Path) -> None:
@@ -210,8 +229,8 @@ def test_real_structured_skip_does_not_break_suite_evidence(
         final_dir=tmp_path / "final",
     )
 
-    assert report["total"] == 14
-    assert report["passed"] == 13
+    assert report["total"] == 18
+    assert report["passed"] == 17
     assert report["skipped"] == 1
     assert report["failed"] == 0
     assert report["pass_rate"] == 1.0

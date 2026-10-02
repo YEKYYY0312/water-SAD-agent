@@ -703,6 +703,21 @@ def _parse_multi_agent_project_brief(
     return brief.model_dump(mode="json"), []
 
 
+def _prompt_multi_agent_decision(ui) -> dict[str, Any] | None:
+    """multi-agent 审批提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；None = 挂起。
+
+    两处提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定。此前只有第一个提示做了处理，
+    "拒绝原因"处中断会让异常直接冲出 CLI（EOF 退出码 2，Ctrl-C 原样抛出）。
+    """
+    try:
+        answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
+        if answer in {"y", "yes", "是"}:
+            return {"approved": True}
+        return {"approved": False, "reason": _read_cli_input("拒绝原因: ", ui).strip()}
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
 def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
     """``--flow multi-agent``：真实 P4.5 图，审批前只生成 staging 草图。"""
     import tempfile as _tf
@@ -752,8 +767,25 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
             return 2
         app = build_orchestrator_graph(checkpointer=saver)
         snapshot = app.get_state(config) if args.resume else None
-        if snapshot is not None and snapshot.next:
-            result: dict[str, Any] = {"__interrupt__": [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())], **dict(snapshot.values)}
+        # 判挂起以 interrupts 为准、不能只看 next：审批节点拒收非法 resume 值后会带 error 再
+        # interrupt 一次，会话仍挂起，但 LangGraph 1.2.11 下此时 next 为 ()（见
+        # orchestrator.approval_decision_error）。只看 next 会把挂起的会话当成已结束。
+        pending = (
+            [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())]
+            if snapshot is not None
+            else []
+        )
+        if snapshot is not None and pending:
+            result: dict[str, Any] = {"__interrupt__": pending, **dict(snapshot.values)}
+        elif args.resume:
+            print(
+                json.dumps(
+                    {"ok": False, "error": f"multi-agent 会话 {session_id} 没有待批准的请求，无可恢复的审批"},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 2
         else:
             assert parsed_brief is not None
             staging = _tf.mkdtemp(prefix="ma-cli-staging-")
@@ -770,21 +802,19 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
 
         while result.get("__interrupt__"):
             request = result["__interrupt__"][0].value
+            if request.get("error"):
+                # 图内拒收了上一次提交的 resume 值、会话重新挂起：说清楚，这次给出的决定才算数
+                print(f"上一次提交的审批决定无效，未被采纳：{request['error']}", file=ui)
             print(f"待批准最终包：{request['final_package_hash']}", file=ui)
             disclosed = request.get("disclosed_limitations") or []
             if disclosed:
                 print(f"批准前请确认以下 {len(disclosed)} 项披露（审查器未能判定合规的内容）：", file=ui)
                 for item in disclosed:
                     print(f"  - {item}", file=ui)
-            try:
-                answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            decision = _prompt_multi_agent_decision(ui)
+            if decision is None:
                 print(f"\n审批已挂起，稍后使用 --resume {session_id} 恢复。", file=ui)
                 return 0
-            if answer in {"y", "yes", "是"}:
-                decision: dict[str, Any] = {"approved": True}
-            else:
-                decision = {"approved": False, "reason": _read_cli_input("拒绝原因: ", ui).strip()}
             result = app.invoke(Command(resume=decision), config=config)
 
     payload = {

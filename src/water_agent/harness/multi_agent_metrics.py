@@ -74,6 +74,7 @@ _SAFE_EVENT_KEYS = {
     "rule_id",
     "error_code",
     "approval_present",
+    "approval_decision",
     "approval_exists",
     "approval_valid",
     "approval_not_expired",
