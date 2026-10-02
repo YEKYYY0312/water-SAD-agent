@@ -527,6 +527,7 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
         )
         paused = dict(app.invoke(initial, config=config))
         interrupt_observed = bool(paused.get("__interrupt__"))
+        interrupt_request = paused["__interrupt__"][0].value if interrupt_observed else {}
         resume_observed = False
         result = paused
         if interrupt_observed:
@@ -597,6 +598,29 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                         if expected["error_code"] in (result.get("errors") or [])
                         else None
                     ),
+                )
+            )
+        if "review_issue_rule_ids" in expected:
+            present = {issue.rule_id for issue in (review.issues if review else [])}
+            checks.append(
+                _check(
+                    "review_issue_rule_ids",
+                    sorted(expected["review_issue_rule_ids"]),
+                    sorted(set(expected["review_issue_rule_ids"]) & present),
+                )
+            )
+        if "interrupt_disclosed_contains" in expected:
+            # 披露项必须出现在**审批请求**里（批准人看过才能批准），只进审查包不算
+            disclosed = list(interrupt_request.get("disclosed_limitations") or [])
+            checks.append(
+                _check(
+                    "interrupt_disclosed_contains",
+                    list(expected["interrupt_disclosed_contains"]),
+                    [
+                        fragment
+                        for fragment in expected["interrupt_disclosed_contains"]
+                        if any(fragment in item for item in disclosed)
+                    ],
                 )
             )
         if "routing_unchanged" in expected:

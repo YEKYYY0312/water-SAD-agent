@@ -713,6 +713,7 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
     from water_agent.multi_agent.orchestrator import (
         build_orchestrator_graph,
         default_multi_agent_state,
+        review_disclosures,
     )
 
     session_id = args.resume or new_session_id()
@@ -770,6 +771,11 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         while result.get("__interrupt__"):
             request = result["__interrupt__"][0].value
             print(f"待批准最终包：{request['final_package_hash']}", file=ui)
+            disclosed = request.get("disclosed_limitations") or []
+            if disclosed:
+                print(f"批准前请确认以下 {len(disclosed)} 项披露（审查器未能判定合规的内容）：", file=ui)
+                for item in disclosed:
+                    print(f"  - {item}", file=ui)
             try:
                 answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
             except (EOFError, KeyboardInterrupt):
@@ -789,6 +795,7 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         "missing_inputs": result.get("missing_inputs", []),
         "project_brief": result.get("project_brief"),
         "retrieved_source_ids": result.get("retrieved_source_ids", []),
+        "disclosed_limitations": review_disclosures(result),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
     return 0 if payload["ok"] else 1

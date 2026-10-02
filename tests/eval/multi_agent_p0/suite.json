@@ -1,14 +1,14 @@
 {
   "flow": "multi-agent",
   "schema_version": "p4.5-2026-09-10",
-  "description": "multi_agent_p0 12 用例合成机制层（offline deterministic）",
+  "description": "multi_agent_p0 14 用例合成机制层（offline deterministic）",
   "cases": [
     {
       "case_id": "ma-p0-01",
       "scenario": "standard",
-      "title": "给水正常→schematic DXF→批准（P0 闭环）",
+      "title": "给水正常→schematic DXF→批准（P0 闭环）；P3 给水规则缺口须在审批请求里披露",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
-      "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0},
+      "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0, "interrupt_disclosed_contains": ["给水管段"]},
       "project_brief": {
         "project_id": "proj-ma-p0-01",
         "request": "给水管段设计，DN150 PE 管 10m，流量 10L/s",
@@ -217,6 +217,42 @@
         "spatial_constraints": [{"kind": "material", "value": "PE"}],
         "required_outputs": ["drawing"],
         "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-13",
+      "scenario": "p3_defect",
+      "title": "排水 DN200：P3 最小管径缺陷成为人工问题，停在 waiting，不进批准",
+      "retrieved_source_ids": [],
+      "expected": {"status": "waiting", "review_issue_rule_ids": ["p3_drain.min_diameter"]},
+      "project_brief": {
+        "project_id": "proj-ma-p0-13",
+        "request": "室外排水管段设计，DN200，坡度 0.003，流量 5L/s",
+        "systems": ["drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-drain-1", "formula": "velocity", "inputs": {"flow_lps": 5, "diameter_mm": 200, "slope": 0.003}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN200"]
+      }
+    },
+    {
+      "case_id": "ma-p0-14",
+      "scenario": "standard",
+      "title": "给水 DN50 走 50 L/s：越界提示写进审批请求，批准后才导出",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "succeeded", "interrupt_disclosed_contains": ["25.465 m/s 高于给水常用区间"]},
+      "project_brief": {
+        "project_id": "proj-ma-p0-14",
+        "request": "给水管段设计，DN50，流量 50L/s",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-hi", "formula": "velocity", "inputs": {"flow_lps": 50, "diameter_mm": 50}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN50"]
       }
     }
   ]

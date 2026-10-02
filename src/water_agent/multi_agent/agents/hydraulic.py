@@ -165,7 +165,11 @@ def run_hydraulic_agent(
         payload_hash=payload_hash,
         payload=payload,
         citation_ids=[],
-        assumptions=[],
+        # 越界提示随 envelope 下传（此前恒为空，计算工况里的"流速高于常用区间"到不了
+        # 审查与审批）。按工况标注来源，便于在审批请求里逐条对上。
+        assumptions=[
+            f"{case.calc_case_id}: {note}" for case in pkg.cases for note in case.assumptions
+        ],
         warnings=[],
         status=status,
     )
