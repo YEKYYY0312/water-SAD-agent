@@ -505,7 +505,11 @@ class RunManager:
                         query,
                         run_id=handle.run_id,
                         memory_context=memory_context,
-                        on_token=lambda token: self._on_token(handle, token),
+                        # 回答正文只随 finalize 下发：输出护栏在 finalize 才跑，逐 token 转发等于
+                        # 把被拦截/待脱敏的原文先推给浏览器（review 2026-09-30）。当前生产路径
+                        # 本来也没有真流式（模型整条返回、节点结束才出事件），这里不损失体验；
+                        # 将来接真流式须同时设计"草稿可撤回"语义。
+                        on_token=lambda _token: None,
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
                         cancel_check=lambda: self._is_cancel_requested(handle),
                         **extra,
@@ -664,9 +668,6 @@ class RunManager:
         with handle.condition:
             return handle.cancel_requested
 
-    def _on_token(self, handle: _RunHandle, token: str) -> None:
-        self._append(handle, "token", {"text": _safe_text(token, limit=4000)})
-
     def _on_agent_event(self, handle: _RunHandle, mode: str, payload: Any) -> None:
         if mode == "values" and isinstance(payload, dict):
             self._observe_tool_messages(handle, payload.get("messages"))
@@ -682,18 +683,19 @@ class RunManager:
             )
             return
         if mode == "messages":
+            # 只投影"调用了哪些工具"，不带任何消息正文：模型文本要等 finalize 的输出护栏，
+            # ToolMessage 正文是检索原文/工具原始输出，校验器回流提示是内部实现。
             chunk = payload[0] if isinstance(payload, tuple) and payload else payload
-            text = getattr(chunk, "content", "")
             tool_calls = getattr(chunk, "tool_calls", None) or getattr(chunk, "tool_call_chunks", None)
             safe: dict[str, Any] = {}
-            if isinstance(text, str) and text:
-                safe["text"] = _safe_text(text, limit=4000)
             if tool_calls:
                 names: list[str] = []
                 for item in tool_calls:
                     name = str(item.get("name") or "") if isinstance(item, dict) else str(getattr(item, "name", "") or "")
                     call_id = str(item.get("id") or "") if isinstance(item, dict) else str(getattr(item, "id", "") or "")
-                    if not name:
+                    # 校验器注入的合成调用是图边界，不是工具：发 tool_started 却永远等不到
+                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。
+                    if not name or name == "citation_validator":
                         continue
                     names.append(name)
                     marker = call_id or name

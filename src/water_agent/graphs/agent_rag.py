@@ -15,9 +15,10 @@ END
 
 护栏（skill-agent-loop）：
 - 主停止条件：模型不再调用工具；安全带：``max_tool_turns`` 轮数预算（agent_loop
-  内独立）、``recursion_limit``≤20、引用校验回流上限 2 次；
+  内独立，内层递归上限按预算推出，保证预算先触发）、外层 ``recursion_limit``≤20、
+  引用校验回流上限（见 citation_validator）；
 - 工具输出一律视为不可信输入：校验器只读 ToolMessage 里的结构化数据；
-- 预算/校验超限统一返回结构化错误，绝不挂死或抛裸异常。
+- 预算/校验超限、治理层拒绝统一返回结构化错误（带稳定错误码），绝不挂死或抛裸异常。
 
 模型包装说明：``_BudgetChatModel`` 给任意模型套轮数预算，并为每次 tool-call 响应
 分配新消息 id（``FakeMessagesListChatModel`` 复用同一对象，若 id 相同会被
@@ -46,6 +47,7 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import RunnableBinding
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
@@ -67,7 +69,13 @@ from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
 from water_agent.runtime.governance.binding import local_request_context
 from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.runtime.governance.contracts import (
+    CODE_BUDGET_EXCEEDED,
+    CODE_CAPABILITY_DENIED,
+    CODE_GUARDRAIL_BLOCKED,
+    CODE_INPUT_TOO_LARGE,
+    CODE_RATE_LIMITED,
     CallCategory,
+    GovernanceError,
     RequestContext,
 )
 from water_agent.runtime.governance.pipeline import (
@@ -75,8 +83,32 @@ from water_agent.runtime.governance.pipeline import (
     default_guardrail_pipeline,
 )
 
-# 外层图安全网：create_react_agent 内部也有递归上限，这里统一压到 20
+# 外层图安全网：agent_loop ↔ citation_validator 最多 4 轮 + finalize，远小于 20
 RECURSION_LIMIT = 20
+
+
+def inner_recursion_limit(max_tool_turns: int) -> int:
+    """内层 react 子图的递归上限：必须让工具预算先于它触发。
+
+    每个工具轮占 2 个 superstep（模型 + 工具），第 ``max_tool_turns + 1`` 次模型调用（预算
+    在这里抛 ``ToolBudgetExceeded``）落在第 ``2 * max_tool_turns + 1`` 步。此前内层沿用外层
+    的 20：默认 ``max_tool_turns=10`` 时第 21 步先撞上 ``GraphRecursionError``，预算这条安全带
+    根本触发不到（review 2026-09-30）。
+    """
+    return 2 * max_tool_turns + 3
+
+
+#: 治理层的策略性拒绝（本地限流/预算/能力/护栏）收口为 blocked；其余（上游不可用、超时、
+#: 认证失败、熔断……）是运行失败。两者都带稳定错误码进 errors。
+_POLICY_REFUSAL_CODES = frozenset(
+    {
+        CODE_RATE_LIMITED,
+        CODE_BUDGET_EXCEEDED,
+        CODE_CAPABILITY_DENIED,
+        CODE_GUARDRAIL_BLOCKED,
+        CODE_INPUT_TOO_LARGE,
+    }
+)
 # 校验器注入回流消息时使用的合成 tool_call_id 前缀（每次注入追加唯一后缀，避免
 # OpenAI 兼容 API 对历史重复 tool_call id 的歧义）
 _VALIDATOR_CALL_ID = "citation-validator"
@@ -365,8 +397,12 @@ def make_agent_loop(
     cache_service: AnswerCacheService | None = None,
     model_name: str = "",
     temperature: float = 0.0,
+    recursion_limit: int | None = None,
 ):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
+
+    ``recursion_limit``：内层子图的递归上限（见 :func:`inner_recursion_limit`）；不给则沿用
+    外层 config。超预算、撞上递归上限、治理层拒绝都收口为结构化结果，不以裸异常冒出图。
 
     ``trace``：首次进入时 ``start``，每轮结束把 llm_call 记录刷进去（Step 10 观测）。
 
@@ -424,6 +460,9 @@ def make_agent_loop(
                 "status": STATUS_BLOCKED,
                 "errors": list(state.get("errors", [])) + [block_msg],
                 "answer": "",
+                "messages": _rewrite(
+                    _last_human_message(state.get("messages", [])), BLOCKED_INPUT_PLACEHOLDER
+                ),
             }
 
         # 缓存 lookup（真正 provider 调用之前；agentic 分类不可缓存 → 只会 MISS/INELIGIBLE）
@@ -440,13 +479,27 @@ def make_agent_loop(
             except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
                 pass
 
+        inner_config = config if recursion_limit is None else {**config, "recursion_limit": recursion_limit}
         try:
-            result = react_agent.invoke(state, config=config)
+            result = react_agent.invoke(state, config=inner_config)
             return dict(result)
         except ToolBudgetExceeded as exc:
             return {
                 "status": STATUS_FAILED,
                 "errors": list(state.get("errors", [])) + [str(exc)],
+            }
+        except GraphRecursionError:
+            # 预算应先触发；走到这里说明预算与递归上限配置不一致，仍收口为可见失败
+            return {
+                "status": STATUS_FAILED,
+                "errors": list(state.get("errors", []))
+                + [f"内层循环达到递归上限（{recursion_limit} 步）仍未停止"],
+            }
+        except GovernanceError as exc:
+            status = STATUS_BLOCKED if exc.code in _POLICY_REFUSAL_CODES else STATUS_FAILED
+            return {
+                "status": status,
+                "errors": list(state.get("errors", [])) + [f"{exc.code}：{exc.message}"],
             }
         finally:
             _flush_llm_calls(holder, trace, query)
@@ -461,12 +514,64 @@ def _first_human_text(state: AgenticRAGState) -> str:
     return ""
 
 
-def _last_ai_answer_text(messages: Sequence[BaseMessage]) -> str:
-    """取最近一条带文本的 AIMessage 内容（供引用闭环判断"模型已作答"）。"""
-    for m in reversed(messages):
-        if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
-            return m.content
-    return ""
+def _message_text(message: BaseMessage) -> str:
+    """消息的文本内容：字符串原样返回；内容块列表只取文本块拼接。"""
+    content = message.content
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text") or ""))
+    return "".join(parts)
+
+
+def _final_answer_message(messages: Sequence[BaseMessage]) -> AIMessage | None:
+    """本轮最后一条不带 tool_calls 的 AIMessage（:func:`final_answer_text` 的消息本体）。"""
+    for message in reversed(current_turn_messages(messages)):
+        if isinstance(message, AIMessage) and not message.tool_calls:
+            return message
+    return None
+
+
+def final_answer_text(messages: Sequence[BaseMessage]) -> str:
+    """本轮最终回答：本轮最后一条**不带 tool_calls** 的 AIMessage 的文本，空白即无回答。
+
+    收口判定（校验器两条分支）与 finalize 取答案共用这一个定义：
+    - 只看本轮（``current_turn_messages``）——上一轮的回答不得拿来判定"已作答"，也不得在
+      本轮失败时被当成本轮答案返回；
+    - 带 tool_calls 的 AIMessage 是"要去调工具"，附在上面的前置文本（"我来检索一下"）
+      以及校验器注入的合成调用都不是回答；
+    - 最后那条回复为空就是没有回答，不回头找更早的草稿——那些已被校验器驳回。
+    """
+    message = _final_answer_message(messages)
+    if message is None:
+        return ""
+    text = _message_text(message)
+    return text if text.strip() else ""
+
+
+#: 被输入护栏拦下的问题在会话里只留占位：原文若留在 checkpoint，下一轮会原样发给模型
+#: （追问一句"请继续"即绕过输入护栏，review 2026-09-30 实测）。
+BLOCKED_INPUT_PLACEHOLDER = "[该条输入未通过护栏校验，已拦截]"
+#: 被输出护栏拦截的回答同理：会话里只留占位，不让模型在后续轮次看到它。
+BLOCKED_OUTPUT_PLACEHOLDER = "[该条回答未通过输出护栏，已撤回]"
+
+
+def _rewrite(message: BaseMessage | None, text: str) -> list[BaseMessage]:
+    """同 id 改写一条消息的正文（``add_messages`` 按 id 替换），没有目标就什么都不做。"""
+    if message is None or message.id is None:
+        return []
+    return [message.model_copy(update={"content": text})]
+
+
+def _last_human_message(messages: Sequence[BaseMessage]) -> HumanMessage | None:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return message
+    return None
 
 
 # 明确"未检索到依据"的拒答表述（程序化关键词匹配，LLM 不参与判断）。
@@ -482,6 +587,8 @@ _NO_BASIS_PHRASES = (
     "未找到依据",
     "没有找到依据",
     "无法提供条款依据",
+    # 回流文案本身要求"依据不足时明确说明"，照做的回答必须能被识别
+    "依据不足",
 )
 
 
@@ -495,6 +602,9 @@ def _declares_no_basis(answer: str) -> bool:
 # 刻意保守：只要回答里出现规范号/条款号形态，或"数字 + 工程单位"，就视为规范性结论，
 # 仍须引用——防止模型凭记忆说"流速不大于 2 m/s"绕过铁律 2。
 WARNING_NON_NORMATIVE_NO_CITATION = "no_citation_non_normative"
+#: 诚实拒答：本轮确实检索过、零命中（或回流后仍判定依据不足），回答明确说明无依据且不含
+#: 规范性结论。与非规范性豁免分开计，便于统计"系统说不知道"的比例。
+WARNING_NO_BASIS_REFUSAL = "no_citation_no_basis"
 _NORMATIVE_MARKERS = (
     re.compile(r"(?:GB|CJJ|CECS|JGJ|DBJ?|T/)\s*/?\s*T?\s*\d{3,5}", re.IGNORECASE),
     re.compile(r"(?<![\d.])\d{1,2}\.\d{1,2}\.\d{1,3}(?![\d.])"),
@@ -505,12 +615,30 @@ _NORMATIVE_MARKERS = (
         r"米|毫米|厘米|%|‰|℃|°C|kW|m³|m3|L\b|升|吨|t/d|m³/d|m3/d)",
         re.IGNORECASE,
     ),
+    # 不含数字的定性强制结论（"严禁……必须……"）同样是规范性结论。只收规范用语里的强约束
+    # 词形；"应该""可以"这类日常用语不在内，避免把能力说明误判为规范性回答。
+    re.compile(
+        r"严禁|必须|不得|禁止|应当|不应|不宜|"
+        r"应(?:符合|满足|按|设|采用|根据|大于|小于|不小于|不大于)|宜(?:采用|设|按)"
+    ),
 )
 
 
 def _is_non_normative_answer(answer: str) -> bool:
-    """回答是否不含任何规范性结论形态（规范号、条款号、带工程单位的数值）。"""
+    """回答是否不含任何规范性结论形态（规范号、条款号、带工程单位的数值、定性强制用语）。"""
     return not any(pattern.search(answer) for pattern in _NORMATIVE_MARKERS)
+
+
+def _retrieval_hits_this_turn(messages: Sequence[BaseMessage]) -> list[str]:
+    """本轮 retrieve_clauses 实际返回的 source_id（跨轮累积的检索上下文不算）。"""
+    hits: list[str] = []
+    for message in current_turn_messages(messages):
+        if isinstance(message, ToolMessage) and message.name == "retrieve_clauses":
+            for hit in _payload_of(message).get("hits", []) or []:
+                sid = hit.get("source_id")
+                if sid and sid not in hits:
+                    hits.append(sid)
+    return hits
 
 
 # 正文里写出的条款号（P5-S50 附件问答实测：模型在正文写"GB 50014-2021 第 7.4.3 条"，
@@ -577,12 +705,20 @@ def make_citation_validator(version_registry: Any | None = None):
     ``version_registry``（Step 8）：为每条引用解析版本状态写回 ``CitationClaim.version_status``；
     未知只标记（``warnings``），不回流、不判失败。
 
-    零引用闭环（P1/Step 10 评审强制"引用可追溯"落地）：
+    零引用闭环（P1/Step 10 评审强制"引用可追溯"落地；豁免条件 2026-09-30 修正）：
     - 已检索到非空结果 + 模型已回答 + 无 cite_clauses 声明 → 注入要求声明引用的
       ToolMessage 回流一次（``EMPTY_CITATION_MAX_REFLOWS``）；
     - 回流后再空引用 → 结构化失败（错误文本进 ``errors``，对报告/用户可见）；
-    - 无任何检索结果且模型明确说明"未检索到依据" → 允许无引用收口，不伪造引用；
-    - 空引用回流与无效引用重试（≤``MAX_CITATION_RETRIES`` 次）分开计数互不挤占。
+    - 豁免只看回答是否含规范性结论（规范号、条款号、带单位数值、"严禁/必须"类定性
+      要求），不看措辞："未检索到"不是通行证；
+    - 诚实拒答：本轮确实检索过、零命中（有命中则须已回流一次），明确说明无依据且回答
+      不含规范性结论 → 无引用收口（``WARNING_NO_BASIS_REFUSAL``），不伪造引用；
+    - 本轮未检索且回答不含规范性结论（寒暄、能力说明）→ 无引用收口
+      （``WARNING_NON_NORMATIVE_NO_CITATION``）；
+    - 空引用回流单独计数（``empty_citation_reflows`` ≤ ``EMPTY_CITATION_MAX_REFLOWS``），
+      同时计入 ``retry_count``；无效引用重试看 ``retry_count``（≤ ``MAX_CITATION_RETRIES``），
+      所以先发生的空引用回流会占掉一次无效引用重试。一轮总回流次数
+      ≤ ``MAX_CITATION_RETRIES + EMPTY_CITATION_MAX_REFLOWS``。
     """
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
@@ -599,6 +735,11 @@ def make_citation_validator(version_registry: Any | None = None):
                 check,
             )
             if check.ok:
+                if not final_answer_text(messages):
+                    errors.append(
+                        "模型声明了引用但未给出文本回答；空回答不得收口为成功"
+                    )
+                    return {"status": STATUS_FAILED, "citations": citations, "errors": errors}
                 # 保留历史 errors（例如先前无效引用轮次的 did-you-mean 文本），与旧行为一致
                 return {"status": STATUS_SUCCEEDED, "citations": citations, "errors": errors}
 
@@ -615,16 +756,41 @@ def make_citation_validator(version_registry: Any | None = None):
             return {"status": STATUS_FAILED, "errors": errors}
 
         # ── 零引用路径 ──────────────────────────────────────────────
-        answer_text = _last_ai_answer_text(messages)
+        answer_text = final_answer_text(messages)
         empty_reflows = int(state.get("empty_citation_reflows", 0) or 0)
 
-        if not retrieved_this_turn and answer_text and _declares_no_basis(answer_text):
-            # 本轮无检索且模型明确说明"未检索到依据"：允许无引用收口，不伪造引用
-            return {"status": STATUS_SUCCEEDED, "citations": [], "errors": errors}
+        if not answer_text:
+            errors.append(
+                "模型未产出文本回答且未调用 cite_clauses 声明引用；"
+                "空回答/零引用不得收口为成功"
+            )
+            return {"status": STATUS_FAILED, "errors": errors}
 
-        if not retrieved_this_turn and answer_text and _is_non_normative_answer(answer_text):
-            # 本轮未检索、回答不含规范号/条款号/带单位数值：非规范性回答（能力询问、
-            # 寒暄、操作说明），无引用收口；warning 保证豁免可见、可统计。
+        # 豁免只看回答内容是否含规范性结论，不看措辞：此前"未检索到"是一句魔法短语——
+        # 不检索、写一句"未检索到相关条款"再凭记忆给出限值，也判成功且不带 warning。
+        normative = not _is_non_normative_answer(answer_text)
+        hits_this_turn = _retrieval_hits_this_turn(messages)
+
+        if (
+            retrieved_this_turn
+            and not normative
+            and _declares_no_basis(answer_text)
+            and (not hits_this_turn or empty_reflows >= EMPTY_CITATION_MAX_REFLOWS)
+        ):
+            # 诚实拒答：本轮确实检索过，零命中（有命中时须已回流一次、给过引用机会），
+            # 回答明确说明无依据且不含规范性结论 → 无引用收口，不伪造引用。
+            if WARNING_NO_BASIS_REFUSAL not in warnings:
+                warnings.append(WARNING_NO_BASIS_REFUSAL)
+            return {
+                "status": STATUS_SUCCEEDED,
+                "citations": [],
+                "errors": errors,
+                "warnings": warnings,
+            }
+
+        if not retrieved_this_turn and not normative:
+            # 本轮未检索、回答不含规范性结论：非规范性回答（能力询问、寒暄、操作说明），
+            # 无引用收口；warning 保证豁免可见、可统计。
             if WARNING_NON_NORMATIVE_NO_CITATION not in warnings:
                 warnings.append(WARNING_NON_NORMATIVE_NO_CITATION)
             return {
@@ -633,13 +799,6 @@ def make_citation_validator(version_registry: Any | None = None):
                 "errors": errors,
                 "warnings": warnings,
             }
-
-        if not answer_text:
-            errors.append(
-                "模型未产出文本回答且未调用 cite_clauses 声明引用；"
-                "空回答/零引用不得收口为成功"
-            )
-            return {"status": STATUS_FAILED, "errors": errors}
 
         if empty_reflows < EMPTY_CITATION_MAX_REFLOWS:
             mentioned = _mentioned_source_ids(answer_text, context_ids)
@@ -650,16 +809,23 @@ def make_citation_validator(version_registry: Any | None = None):
                     "（只声明真正支撑结论的那几条），然后给出完整回答；正文里提到但检索结果里"
                     "没有的条款号，请删去或注明\"未检索到原文\"。"
                 )
-            elif retrieved_this_turn and context_ids:
+            elif hits_this_turn:
                 feedback = (
                     "本轮 retrieve_clauses 已返回相关条款，但你的回答没有调用 cite_clauses "
                     "声明引用。请基于检索结果调用 cite_clauses 声明回答依据的条款 id"
                     "（必须取自本次检索结果），随后给出引用后的完整回答。若你认为检索结果"
                     "不足以支撑正式引用，请在回答中明确说明依据不足，不得编造引用。"
                 )
+            elif retrieved_this_turn:
+                # 本轮检索过但零命中：不能沿用"已返回相关条款"的文案（前几轮的命中不算本轮的）
+                feedback = (
+                    "本轮检索没有返回结果，你的回答却给出了规范性结论（规范号、条款号、数值限值"
+                    "或\"严禁/必须\"类要求）且没有依据。若确认无相关依据，请在回答中明确说明"
+                    "未检索到相关内容，不得凭记忆给出规范性结论，也不得编造引用。"
+                )
             else:
                 feedback = (
-                    "你的回答没有调用 cite_clauses 声明引用，且本轮没有可用的检索结果。"
+                    "你的回答没有调用 cite_clauses 声明引用，且本轮没有检索。"
                     "请先调用 retrieve_clauses 检索规范条款；若确认无相关依据，请在回答中"
                     "明确说明未检索到相关内容，不得编造引用。"
                 )
@@ -697,14 +863,39 @@ def make_finalize(
     if request_context is None:
         request_context = local_request_context(thread_id="chat-agentic_loop")
 
+    def _guard_output(answer: str) -> Any:
+        outcome = pipeline.check_output(
+            answer,
+            request_context,
+            citations_verified=True,
+            structured_output_ok=True,
+        )
+        if trace is not None:
+            try:
+                payload = outcome.trace_payload()
+                trace.record_guardrail_event(
+                    stage="output",
+                    action=payload.get("action", ""),
+                    rule_id=payload.get("rule_id", ""),
+                    ruleset_version=payload.get("ruleset_version", ""),
+                    code=payload.get("code"),
+                    hits=payload.get("hits", []),
+                    input_hash=trace.hash_input(outcome.content) if outcome.content else "",
+                )
+            except Exception:  # noqa: BLE001, S110
+                pass
+        return outcome
+
     def finalize(state: AgenticRAGState) -> dict[str, Any]:
-        answer: str = ""
-        for m in reversed(state.get("messages", [])):
-            if isinstance(m, AIMessage) and isinstance(m.content, str):
-                answer = m.content
-                break
+        answer_message = _final_answer_message(state.get("messages", []))
+        answer = final_answer_text(state.get("messages", []))
+        rewrites: list[BaseMessage] = []
         status = state.get("status", STATUS_FAILED)
         errors = list(state.get("errors", []))
+        if status == STATUS_SUCCEEDED and not answer:
+            # 双保险：校验器两条分支都已拦空回答，这里兜住任何绕过校验器到达收口的路径
+            status = STATUS_FAILED
+            errors.append("收口时没有本轮文本回答；空回答不得收口为成功")
 
         # 输入护栏已阻断：直接收口 blocked，不再跑输出护栏。
         if status == STATUS_BLOCKED:
@@ -717,35 +908,20 @@ def make_finalize(
                 )
             return {"answer": "", "status": STATUS_BLOCKED}
 
-        # 输出护栏：仅在引用校验通过（succeeded）且有答案时执行；与引用校验组合。
+        # 输出护栏：succeeded 与引用校验组合；failed 的回答同样要过（见下方分支）。
         if status == STATUS_SUCCEEDED and answer:
-            outcome = pipeline.check_output(
-                answer,
-                request_context,
-                citations_verified=True,
-                structured_output_ok=True,
-            )
-            if trace is not None:
-                try:
-                    payload = outcome.trace_payload()
-                    trace.record_guardrail_event(
-                        stage="output",
-                        action=payload.get("action", ""),
-                        rule_id=payload.get("rule_id", ""),
-                        ruleset_version=payload.get("ruleset_version", ""),
-                        code=payload.get("code"),
-                        hits=payload.get("hits", []),
-                        input_hash=trace.hash_input(outcome.content) if outcome.content else "",
-                    )
-                except Exception:  # noqa: BLE001, S110
-                    pass
+            outcome = _guard_output(answer)
             if not outcome.allowed:
                 errors.append(
                     f"输出未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
                 )
                 status = STATUS_BLOCKED
                 answer = ""
+                rewrites = _rewrite(answer_message, BLOCKED_OUTPUT_PLACEHOLDER)
             else:
+                if outcome.content != answer:
+                    # 脱敏后的文本才是用户看到的回答；会话里保留原文，下一轮就会原样发给模型
+                    rewrites = _rewrite(answer_message, outcome.content)
                 answer = outcome.content
 
             # 缓存写入资格：agentic 分类不可缓存（REASON_CATEGORY），恒 INELIGIBLE。
@@ -784,6 +960,20 @@ def make_finalize(
                             pass
                 except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
                     pass
+        elif status == STATUS_FAILED and answer:
+            # 失败运行的回答照样会返回并显示（带失败状态与原因），此前却完全不过输出护栏：
+            # 引用重试耗尽的回答里带危险指令也原样下发（review 2026-09-30）。这里只查危险
+            # 指令与 PII/凭据——与 Web 历史投影同一口径；引用未通过由 failed 状态本身表达。
+            outcome = _guard_output(answer)
+            if not outcome.allowed:
+                errors.append(
+                    f"输出未通过护栏校验（{outcome.decision.rule_id}）：{outcome.decision.detail}"
+                )
+                answer = ""
+                rewrites = _rewrite(answer_message, BLOCKED_OUTPUT_PLACEHOLDER)
+            elif outcome.content != answer:
+                rewrites = _rewrite(answer_message, outcome.content)
+                answer = outcome.content
 
         if trace is not None and trace.started:
             trace.finish(
@@ -797,6 +987,7 @@ def make_finalize(
             "status": status,
             "errors": errors,
             "warnings": list(state.get("warnings", [])),
+            "messages": rewrites,
         }
 
     return finalize
@@ -870,6 +1061,7 @@ def build_agentic_app(
             cache_service=cache_service,
             model_name=cache_model_name,
             temperature=cache_temperature,
+            recursion_limit=inner_recursion_limit(max_tool_turns),
         ),
     )
     graph.add_node("citation_validator", make_citation_validator(version_registry))
@@ -986,7 +1178,15 @@ async def astream_agentic(
             final_state = payload
         elif mode == "messages" and isinstance(payload, tuple) and payload:
             chunk = payload[0]
-            content = getattr(chunk, "content", "")
-            if isinstance(content, str) and content and on_token is not None:
-                on_token(content)
+            # 只转发模型的文本回复：ToolMessage（检索原始 JSON）、校验器回流提示、带 tool_calls
+            # 的前置文本都不是回答（此前全部当成回答 token 推出去，review 2026-09-30）。
+            if (
+                on_token is not None
+                and isinstance(chunk, AIMessage)
+                and not chunk.tool_calls
+                and not getattr(chunk, "tool_call_chunks", None)
+            ):
+                content = _message_text(chunk)
+                if content:
+                    on_token(content)
     return final_state

@@ -691,6 +691,7 @@ class HarnessRunner:
                 id_prefix=f"{case.id}-t{number}",
             )
             final_state: dict[str, Any] = {}
+            tokens: list[str] = []
 
             def capture(mode: str, payload: Any, _sink: dict[str, Any] = final_state) -> None:
                 if mode == "values" and isinstance(payload, dict):
@@ -707,7 +708,9 @@ class HarnessRunner:
                     retriever=TriviumRetriever(db_path=None, fallback_clauses=self._clauses),
                     mcp_enabled=False,
                 )
-                last = asyncio.run(session.aask(turn.query, run_id=uuid4().hex, on_event=capture))
+                last = asyncio.run(
+                    session.aask(turn.query, run_id=uuid4().hex, on_token=tokens.append, on_event=capture)
+                )
                 trace_id = session.recorder.trace_id or trace_id
             messages = final_state.get("messages", []) or []
             context, _, _ = _extract_validation_signal({"messages": messages})
@@ -728,6 +731,12 @@ class HarnessRunner:
                 warnings=last.get("warnings", []) or [],
                 tool_rejected_citations=rejected_by_tool,
                 script_steps_used=int(model.state["calls"]),
+                model_inputs=[
+                    message.content if isinstance(message.content, str) else str(message.content)
+                    for call in model.state["received"]
+                    for message in call
+                ],
+                streamed="".join(tokens),
             )
             reasons.extend(f"turn {number}: {reason}" for reason in turn_reasons)
         latency_ms = (time.perf_counter() - started) * 1000
