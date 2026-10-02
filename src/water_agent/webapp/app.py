@@ -35,7 +35,7 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
-from water_agent.webapp.body_limit import UploadBodyLimitMiddleware
+from water_agent.webapp.body_limit import UploadBodyLimitMiddleware, UploadPreauthMiddleware
 from water_agent.webapp.drawing_routes import router as drawing_router
 from water_agent.webapp.export_routes import router as export_router
 from water_agent.webapp.memory_routes import router as memory_router
@@ -105,8 +105,11 @@ def create_app(
     # login.html scaffolding, which P5-S47 removed.
 
     # FastAPI parses a multipart body before it solves the route's auth/CSRF
-    # dependencies, so the upload byte ceiling has to bite below FastAPI --
+    # dependencies, so both upload guards have to bite below FastAPI --
     # otherwise an anonymous request is received and spooled in full first.
+    # The last one added is the outermost: the byte ceiling (one header) wraps
+    # the pre-auth check (a session lookup) and counts whatever is read below.
+    app.add_middleware(UploadPreauthMiddleware)
     app.add_middleware(UploadBodyLimitMiddleware)
 
     app.include_router(auth_router)
