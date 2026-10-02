@@ -19,6 +19,12 @@ anonymous request could still make the server take ~10 MB.  The pre-auth check
 replays the upload route's own auth dependencies on the headers alone and
 refuses before the first body byte; the route's dependencies stay the authority.
 
+The same order bites every JSON route: FastAPI reads a JSON body with ``await
+request.body()`` -- whole, into memory -- before the route's dependencies run,
+and nothing capped it: 30 MiB to ``POST /api/sessions`` were read in full and
+only then answered 422.  Every other write now has one request-body ceiling, also
+below FastAPI.
+
 An HTTP status alone cannot tell "refused before reading" from "read everything,
 then refused"; the second one *is* the defect.  So these tests drive the real
 ``create_app()`` application at the ASGI level and count what it pulled from
@@ -301,15 +307,33 @@ def _upload_body(file_bytes: int, filename: str = "huge.txt") -> tuple[int, Iter
     return len(head) + file_bytes + len(_MULTIPART_TAIL), chunks()
 
 
-def _multipart_headers(*, content_length: int | None) -> list[tuple[bytes, bytes]]:
+def _framing(content_length: int | None) -> tuple[bytes, bytes]:
     """``content_length=None`` means chunked transfer: no length is declared."""
 
-    headers = [(b"content-type", f"multipart/form-data; boundary={_BOUNDARY}".encode())]
     if content_length is None:
-        headers.append((b"transfer-encoding", b"chunked"))
-    else:
-        headers.append((b"content-length", str(content_length).encode()))
-    return headers
+        return (b"transfer-encoding", b"chunked")
+    return (b"content-length", str(content_length).encode())
+
+
+def _multipart_headers(*, content_length: int | None) -> list[tuple[bytes, bytes]]:
+    return [
+        (b"content-type", f"multipart/form-data; boundary={_BOUNDARY}".encode()),
+        _framing(content_length),
+    ]
+
+
+def _json_headers(*, content_length: int | None) -> list[tuple[bytes, bytes]]:
+    return [(b"content-type", b"application/json"), _framing(content_length)]
+
+
+def _blocks(size: int) -> Iterator[bytes]:
+    """``size`` bytes of filler, one ``_CHUNK`` per message."""
+
+    full, rest = divmod(size, _CHUNK)
+    for _ in range(full):
+        yield b"x" * _CHUNK
+    if rest:
+        yield b"x" * rest
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +399,10 @@ def test_chunked_body_is_cut_as_soon_as_it_passes_the_ceiling(
 def test_normal_size_uploads_behave_exactly_as_before(
     app: FastAPI, database: Database, upload_root: Path
 ) -> None:
-    from water_agent.webapp.body_limit import UploadBodyLimitMiddleware
+    from water_agent.webapp.body_limit import RequestBodyLimitMiddleware
 
     # The ceiling is in this very app -- otherwise the checks below prove nothing.
-    assert UploadBodyLimitMiddleware in [middleware.cls for middleware in app.user_middleware]
+    assert RequestBodyLimitMiddleware in [middleware.cls for middleware in app.user_middleware]
 
     client = _login(app, database)
     payload = "\n\n".join(f"第 {index} 段：给水管道设计流速说明。" for index in range(1, 40)).encode()
@@ -425,13 +449,19 @@ def test_normal_size_uploads_behave_exactly_as_before(
 
 
 # ---------------------------------------------------------------------------
-# 4. Everything outside the upload prefix is passed through untouched
+# 4. Outside the upload prefix: the request ceiling, not the upload one
 # ---------------------------------------------------------------------------
 
-def test_routes_outside_the_upload_prefix_are_not_capped(app: FastAPI) -> None:
+def test_routes_outside_the_upload_prefix_get_the_request_ceiling_not_the_upload_one(
+    app: FastAPI,
+) -> None:
+    """Before the request ceiling every JSON route here read all 20 MiB first and
+    only then answered 422.  Now there are two ceilings: the upload one for the
+    upload prefix, the request one for every other write -- both bite unread."""
+
     # Only the upload route parses a form body before auth.  Read from the
     # OpenAPI schema, so a new multipart route elsewhere turns this red instead
-    # of quietly living without a ceiling.
+    # of quietly living under the (much smaller) request ceiling.
     schema = app.openapi()
     form_routes = sorted(
         (method.upper(), path)
@@ -443,32 +473,45 @@ def test_routes_outside_the_upload_prefix_are_not_capped(app: FastAPI) -> None:
     assert form_routes == [("POST", "/api/uploads")]
 
     size = 2 * MAX_UPLOAD_BYTES
-    block = b"x" * _CHUNK
+    headers = _json_headers(content_length=size)
 
-    def body() -> Iterator[bytes]:
-        for _ in range(size // _CHUNK):
-            yield block
-
-    headers = [(b"content-type", b"application/json"), (b"content-length", str(size).encode())]
-
-    # Control: aimed at the upload route, the very same request is refused unread.
-    control = _Client(body())
+    # Aimed at the upload route: the upload ceiling.
+    control = _Client(_blocks(size))
     refused = _drive(app, path="/api/uploads", headers=headers, client=control)
-    assert refused.status == 413, (refused.status, refused.body)
+    assert (refused.status, refused.error_code) == (413, "UPLOAD_TOO_LARGE"), refused.body
     assert control.bytes_pulled == 0
 
-    # JSON routes keep reading their own body, however large; the ceiling is
-    # not a global limit.
-    for path in ("/api/sessions", "/api/memories/candidates", "/api/projects"):
-        client = _Client(body())
-        result = _drive(app, path=path, headers=headers, client=client)
-        assert result.status != 413 and result.error_code != "UPLOAD_TOO_LARGE", (path, result.status)
-        assert client.bytes_pulled == size, f"{path}：路由自己的 body 被截断了"
+    # JSON routes and lookalike paths: the request ceiling, equally unread.
+    for path in (
+        "/api/sessions",
+        "/api/memories/candidates",
+        "/api/projects",
+        "/api/uploadsx",
+        f"/api/projects/{uuid4()}/uploads",
+    ):
+        stream = _Client(_blocks(size))
+        result = _drive(app, path=path, headers=headers, client=stream)
+        assert (result.status, result.error_code) == (413, "WEB_REQUEST_TOO_LARGE"), (
+            path,
+            result.status,
+            stream.bytes_pulled,
+        )
+        assert stream.receive_calls == 0, path
 
-    # Lookalikes are not under the prefix.
-    for path in ("/api/uploadsx", f"/api/projects/{uuid4()}/uploads"):
-        result = _drive(app, path=path, headers=headers, client=_Client(body()))
-        assert result.status != 413 and result.error_code != "UPLOAD_TOO_LARGE", (path, result.status)
+    # Between the two ceilings: too large for a JSON route, not for an upload --
+    # the upload route judges that request by its credentials, not its size.
+    from water_agent.webapp.body_limit import REQUEST_BODY_LIMIT_BYTES, UPLOAD_BODY_LIMIT_BYTES
+
+    between = REQUEST_BODY_LIMIT_BYTES + 1
+    assert between < UPLOAD_BODY_LIMIT_BYTES
+    json_route = _drive(
+        app, path="/api/sessions", headers=_json_headers(content_length=between), client=_Client(_blocks(between))
+    )
+    assert json_route.error_code == "WEB_REQUEST_TOO_LARGE"
+    upload_route = _drive(
+        app, path="/api/uploads", headers=_json_headers(content_length=between), client=_Client(_blocks(between))
+    )
+    assert upload_route.error_code == "AUTH_CSRF_INVALID", upload_route.body
 
 
 # ---------------------------------------------------------------------------
@@ -899,11 +942,11 @@ def test_declared_size_is_judged_before_the_session_is_looked_up(
     """Cheapest first: the declared length (free), then the session (a database
     lookup), and only then the body."""
 
-    from water_agent.webapp.body_limit import UploadBodyLimitMiddleware, UploadPreauthMiddleware
+    from water_agent.webapp.body_limit import RequestBodyLimitMiddleware, UploadPreauthMiddleware
 
     # Outermost first: the ceiling wraps the check.
     assert [middleware.cls for middleware in app.user_middleware][:2] == [
-        UploadBodyLimitMiddleware,
+        RequestBodyLimitMiddleware,
         UploadPreauthMiddleware,
     ]
 
@@ -925,6 +968,238 @@ def test_declared_size_is_judged_before_the_session_is_looked_up(
     assert (unknown.status, unknown.error_code) == (401, "AUTH_SESSION_INVALID")
     assert session_lookups == ["no-such-session"]
     assert stream.receive_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# 7. Every other write: one request-body ceiling, also below FastAPI
+# ---------------------------------------------------------------------------
+
+_TOO_LARGE_JSON = {
+    "version": "v1",
+    "ok": False,
+    "error": {"code": "WEB_REQUEST_TOO_LARGE", "message": "Request body is too large"},
+}
+
+
+@pytest.mark.parametrize("declared", [True, False], ids=["content-length", "chunked"])
+def test_oversized_json_is_refused_before_its_body_is_read(app: FastAPI, declared: bool) -> None:
+    """The defect report: 30 MiB to ``POST /api/sessions`` was read in full --
+    into memory, before auth -- and only then answered 422."""
+
+    stream = _Client(_blocks(_HUGE))
+    result = _drive(
+        app,
+        path="/api/sessions",
+        headers=_json_headers(content_length=_HUGE if declared else None),
+        client=stream,
+    )
+
+    assert result.status == 413, (result.status, result.body, stream.bytes_pulled)
+    assert result.payload == _TOO_LARGE_JSON
+    assert result.headers.get("connection") == "close"
+
+    from water_agent.webapp.body_limit import REQUEST_BODY_LIMIT_BYTES
+
+    if declared:
+        assert stream.receive_calls == 0, f"拒绝之前已读了 {stream.bytes_pulled} 字节 body"
+    else:
+        assert stream.body_left_unread, f"整个 body（{stream.bytes_pulled} 字节）读完才拒绝"
+        assert REQUEST_BODY_LIMIT_BYTES < stream.bytes_pulled <= REQUEST_BODY_LIMIT_BYTES + _CHUNK
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/auth/login"),
+        ("PUT", "/api/settings/credentials/deepseek_api_key"),
+        ("PATCH", "/api/memories/00000000-0000-4000-8000-000000000000"),
+        ("DELETE", "/api/memories/00000000-0000-4000-8000-000000000000"),
+        ("POST", "/api/drawings/generate"),
+    ],
+)
+def test_every_write_method_gets_the_request_ceiling(app: FastAPI, method: str, path: str) -> None:
+    """POST, PUT, PATCH and DELETE alike -- signed in or not, body param or not."""
+
+    stream = _Client(_blocks(_HUGE))
+    result = _drive(
+        app, path=path, method=method, headers=_json_headers(content_length=_HUGE), client=stream
+    )
+    assert (result.status, result.error_code) == (413, "WEB_REQUEST_TOO_LARGE"), (
+        result.status,
+        result.body,
+        stream.bytes_pulled,
+    )
+    assert stream.receive_calls == 0
+
+
+def test_a_route_that_reads_its_own_body_is_cut_as_well(app: FastAPI, database: Database) -> None:
+    """``POST /api/drawings/generate`` awaits ``request.body()`` itself, after its
+    auth dependencies.  Before the fix a signed-in chunked 30 MiB body was read in
+    full there and answered 422 ``GEN_INVALID_INPUT``."""
+
+    signed_in = _session_headers(_login(app, database))
+    stream = _Client(_blocks(_HUGE))
+    result = _drive(
+        app,
+        path="/api/drawings/generate",
+        headers=_json_headers(content_length=None) + signed_in,
+        client=stream,
+    )
+    assert (result.status, result.error_code) == (413, "WEB_REQUEST_TOO_LARGE"), (
+        result.status,
+        result.body,
+        stream.bytes_pulled,
+    )
+    assert stream.body_left_unread
+
+
+def test_normal_json_requests_are_unchanged(app: FastAPI, database: Database) -> None:
+    client = _login(app, database)
+    created = client.post("/api/sessions", json={"title": "给水校核"}, headers=_csrf(client))
+    assert created.status_code == 201, created.text
+
+    # The largest legitimate body: a 16 000-character message of astral
+    # characters escaped as surrogate pairs (12 bytes each), plus the maximum of
+    # five attachment ids.  Parsed, validated and handed to the route, which
+    # answers for an unknown thread with its own 404.
+    body = json.dumps(
+        {"message": "\U0001f6b0" * 16_000, "attachments": [str(uuid4()) for _ in range(5)]}
+    ).encode()
+    assert len(body) > 192_000
+    stream = _Client(body[offset : offset + _CHUNK] for offset in range(0, len(body), _CHUNK))
+    result = _drive(
+        app,
+        path=f"/api/sessions/{uuid4()}/messages",
+        headers=_json_headers(content_length=len(body)) + _session_headers(client),
+        client=stream,
+    )
+    assert (result.status, result.error_code) == (404, "WEB_NOT_FOUND"), result.body
+    assert not stream.body_left_unread
+
+    # Positive control: one byte past the ceiling, same route, same caller.
+    from water_agent.webapp.body_limit import REQUEST_BODY_LIMIT_BYTES
+
+    over = REQUEST_BODY_LIMIT_BYTES + 1
+    stream = _Client(_blocks(over))
+    refused = _drive(
+        app,
+        path=f"/api/sessions/{uuid4()}/messages",
+        headers=_json_headers(content_length=over) + _session_headers(client),
+        client=stream,
+    )
+    assert (refused.status, refused.error_code) == (413, "WEB_REQUEST_TOO_LARGE")
+    assert stream.receive_calls == 0
+
+
+def test_reads_are_not_capped(app: FastAPI) -> None:
+    """No read declares a request body, and FastAPI never reads one for a route
+    without body parameters: GET, HEAD and OPTIONS pass through as before."""
+
+    for method, expected in (("GET", 401), ("HEAD", 405), ("OPTIONS", 405)):
+        stream = _Client(_blocks(_HUGE))
+        result = _drive(
+            app, path="/api/sessions", method=method, headers=_json_headers(content_length=_HUGE), client=stream
+        )
+        assert result.status == expected, (method, result.status, result.body)
+        assert stream.receive_calls == 0, method
+
+    # Positive control: the same request as a write is refused for its size.
+    stream = _Client(_blocks(_HUGE))
+    written = _drive(app, path="/api/sessions", headers=_json_headers(content_length=_HUGE), client=stream)
+    assert (written.status, written.error_code) == (413, "WEB_REQUEST_TOO_LARGE"), written.body
+
+    # Read from the OpenAPI schema, so that a read route given a body one day
+    # turns this red instead of quietly reading it without a ceiling.
+    from water_agent.webapp.body_limit import WRITE_METHODS
+
+    schema = app.openapi()
+    reads_with_a_body = sorted(
+        (method.upper(), path)
+        for path, operations in schema["paths"].items()
+        for method, operation in operations.items()
+        if "requestBody" in operation and method.upper() not in WRITE_METHODS
+    )
+    assert reads_with_a_body == []
+
+
+#: Worst-case bytes per character of a JSON string: an astral character a client
+#: escapes as a surrogate pair (``\ud83d\udeb0``) still counts once for
+#: ``max_length``.
+_WORST_BYTES_PER_CHARACTER = 12
+#: Generous sizes for what a legitimate client sends as a scalar.
+_SCALAR_BYTES = {"boolean": 5, "integer": 20, "number": 32, "null": 4}
+_FORMAT_BYTES = {"uuid": 38, "date-time": 66}
+
+
+def _worst_json_bytes(schema: dict[str, Any], definitions: dict[str, Any]) -> int | None:
+    """An upper bound on the JSON encoding of any value ``schema`` admits; ``None`` = unbounded."""
+
+    if "$ref" in schema:
+        return _worst_json_bytes(definitions[schema["$ref"].rsplit("/", 1)[-1]], definitions)
+    if "anyOf" in schema:
+        options = [_worst_json_bytes(option, definitions) for option in schema["anyOf"]]
+        return None if None in options else max(option for option in options if option is not None)
+    if "enum" in schema or "const" in schema:
+        values = schema.get("enum", [schema.get("const")])
+        return max(len(json.dumps(value)) for value in values)
+    kind = schema.get("type")
+    if kind == "string":
+        if schema.get("format") in _FORMAT_BYTES:
+            return _FORMAT_BYTES[schema["format"]]
+        if "maxLength" not in schema:
+            return None
+        return 2 + _WORST_BYTES_PER_CHARACTER * int(schema["maxLength"])
+    if kind == "array":
+        item = _worst_json_bytes(schema["items"], definitions)
+        if item is None or "maxItems" not in schema:
+            return None
+        return 2 + int(schema["maxItems"]) * (item + 1)
+    if kind == "object":
+        total = 2
+        for name, member in schema.get("properties", {}).items():
+            size = _worst_json_bytes(member, definitions)
+            if size is None:
+                return None
+            total += len(json.dumps(name)) + 1 + size + 1
+        return total
+    return _SCALAR_BYTES[str(kind)]
+
+
+def test_request_ceiling_leaves_room_for_the_largest_legitimate_body(app: FastAPI) -> None:
+    """The basis of ``REQUEST_BODY_LIMIT_BYTES``, recomputed from the request models.
+
+    A field that raises a model's worst case past a quarter of the ceiling, or a
+    new body field without a declared bound, turns this red.
+    """
+
+    from water_agent.drawing.generation_models import GenerationRequest
+    from water_agent.webapp.body_limit import REQUEST_BODY_LIMIT_BYTES
+
+    schema = app.openapi()
+    components = schema["components"]["schemas"]
+    worst: dict[str, int | None] = {}
+    for operations in schema["paths"].values():
+        for operation in operations.values():
+            content = operation.get("requestBody", {}).get("content", {})
+            if "application/json" in content:
+                reference = content["application/json"]["schema"]["$ref"]
+                worst[reference.rsplit("/", 1)[-1]] = _worst_json_bytes(
+                    content["application/json"]["schema"], components
+                )
+    # The drawing route reads its body itself, so it is not in the schema.
+    drawing = GenerationRequest.model_json_schema()
+    worst["GenerationRequest"] = _worst_json_bytes(drawing, drawing.get("$defs", {}))
+
+    unbounded = sorted(name for name, size in worst.items() if size is None)
+    # Usernames and passwords: no declared limit, a few hundred bytes in practice
+    # (users.username is varchar(128)); the ceiling is now their bound.
+    assert unbounded == ["_ChangePassBody", "_CreateUserBody", "_LoginBody", "_ResetPasswordBody"]
+    bounded = {name: size for name, size in worst.items() if size is not None}
+    largest = max(bounded, key=lambda name: bounded[name])
+    assert largest == "MessageRequest", bounded
+    assert 4 * bounded[largest] <= REQUEST_BODY_LIMIT_BYTES, bounded
+    # Not a second upload ceiling either.
+    assert REQUEST_BODY_LIMIT_BYTES <= MAX_UPLOAD_BYTES // 8
 
 
 # ---------------------------------------------------------------------------
@@ -973,9 +1248,19 @@ def test_ceiling_is_the_per_file_limit_plus_a_framing_allowance_and_caddy_agrees
     assert int(block.group(1)) * 1024 == UPLOAD_BODY_LIMIT_BYTES
 
 
+#: Each ceiling, by a path it applies to: (path, constructor keyword, 413 code).
+_CEILINGS = [
+    ("/api/uploads", "upload_limit_bytes", "UPLOAD_TOO_LARGE"),
+    ("/api/sessions", "request_limit_bytes", "WEB_REQUEST_TOO_LARGE"),
+]
+
+
+@pytest.mark.parametrize(("path", "keyword", "code"), _CEILINGS, ids=["upload", "request"])
 @pytest.mark.parametrize("declared", [True, False], ids=["content-length", "chunked"])
-def test_the_ceiling_itself_is_allowed_one_byte_more_is_not(declared: bool) -> None:
-    from water_agent.webapp.body_limit import UploadBodyLimitMiddleware
+def test_the_ceiling_itself_is_allowed_one_byte_more_is_not(
+    declared: bool, path: str, keyword: str, code: str
+) -> None:
+    from water_agent.webapp.body_limit import RequestBodyLimitMiddleware
 
     received: list[bytes] = []
 
@@ -990,26 +1275,27 @@ def test_the_ceiling_itself_is_allowed_one_byte_more_is_not(declared: bool) -> N
         await send({"type": "http.response.start", "status": 204, "headers": []})
         await send({"type": "http.response.body", "body": b""})
 
-    limited = UploadBodyLimitMiddleware(downstream, max_body_bytes=10)
+    limited = RequestBodyLimitMiddleware(downstream, **{keyword: 10})
     for size, expected in ((10, 204), (11, 413)):
         received.clear()
-        headers = (
-            [(b"content-length", str(size).encode())]
-            if declared
-            else [(b"transfer-encoding", b"chunked")]
-        )
+        headers = [_framing(size if declared else None)]
         chunks = [b"a" * 4, b"a" * 4, b"a" * (size - 8)]
-        result = _drive(limited, path="/api/uploads", headers=headers, client=_Client(chunks))
+        result = _drive(limited, path=path, headers=headers, client=_Client(chunks))
         assert result.status == expected, (size, result.status)
         assert received == ([b"a" * size] if expected == 204 else [])
+        if expected == 413:
+            assert result.error_code == code
 
 
-def test_no_second_response_once_the_application_has_started_one() -> None:
+@pytest.mark.parametrize(
+    ("path", "keyword"), [ceiling[:2] for ceiling in _CEILINGS], ids=["upload", "request"]
+)
+def test_no_second_response_once_the_application_has_started_one(path: str, keyword: str) -> None:
     """An HTTP exchange has exactly one response.  If the application already
-    started one when the ceiling trips (the upload route never does), nothing
-    more is sent and the abort propagates so the server drops the connection."""
+    started one when the ceiling trips (no route here does), nothing more is
+    sent and the abort propagates so the server drops the connection."""
 
-    from water_agent.webapp.body_limit import UploadBodyLimitMiddleware, _BodyTooLarge
+    from water_agent.webapp.body_limit import RequestBodyLimitMiddleware, _BodyTooLarge
 
     async def answers_early(scope: Any, receive: Any, send: Any) -> None:
         await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -1018,14 +1304,14 @@ def test_no_second_response_once_the_application_has_started_one() -> None:
             pass
         await send({"type": "http.response.body", "body": b""})
 
-    limited = UploadBodyLimitMiddleware(answers_early, max_body_bytes=10)
+    limited = RequestBodyLimitMiddleware(answers_early, **{keyword: 10})
     sent: list[dict[str, Any]] = []
 
     async def send(message: dict[str, Any]) -> None:
         sent.append(message)
 
     client = _Client([b"a" * 8, b"a" * 8, b"a" * 8])
-    scope = _scope("/api/uploads", [(b"transfer-encoding", b"chunked")])
+    scope = _scope(path, [(b"transfer-encoding", b"chunked")])
     with pytest.raises(_BodyTooLarge):
         asyncio.run(limited(scope, client.receive, send))
     assert [message["type"] for message in sent] == ["http.response.start", "http.response.body"]
