@@ -131,11 +131,13 @@ class BudgetSnapshot:
     cost_cap_usd: float | None
     #: 是否已达告警比例。
     warn_triggered: bool = False
+    #: usage 未知的调用按预留额度计入额度的部分（**不是账单**，见 :meth:`BudgetLedger.settle_unknown`）。
+    unconfirmed_tokens: int = 0
 
     @property
     def committed_tokens(self) -> int:
-        """已花 + 已预留（判定是否还能发新请求用它，而不是只看已花）。"""
-        return self.spent_tokens + self.reserved_tokens
+        """已花 + 未确认 + 已预留（判定是否还能发新请求用它，而不是只看已花）。"""
+        return self.spent_tokens + self.unconfirmed_tokens + self.reserved_tokens
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +175,17 @@ class BudgetLedger(ABC):
         """调用失败：释放预留，不记消耗（否则失败调用会永久占额度）。"""
 
     @abstractmethod
+    def settle_unknown(self, key: str, reservation_id: str) -> None:
+        """请求已发出、但用量无从得知：把**预留额度**计入"未确认用量"，不计入已花。
+
+        此前 usage 未知一律按 0 结清：反复提前关闭流式调用（或 provider 不回 usage）就能让
+        每日 token 额度永远不涨——额度是失控保护，必须在拿不到账单时也成立（review
+        2026-09-30）。按预留额度计入不等于估算账单：它只进 ``unconfirmed_tokens``，与
+        ``spent_tokens``（真实 usage）分开记，``UsageRecord`` 照旧是 ``usage_known=False``、
+        token 与成本留空。
+        """
+
+    @abstractmethod
     def snapshot(self, key: str, config: BudgetConfig) -> BudgetSnapshot:
         """当前余量快照。"""
 
@@ -184,6 +197,7 @@ class BudgetLedger(ABC):
 @dataclass
 class _Account:
     spent_tokens: int = 0
+    unconfirmed_tokens: int = 0
     spent_cost_usd: float = 0.0
     reservations: dict[str, int] = field(default_factory=dict)
 
@@ -219,7 +233,9 @@ class InMemoryBudgetLedger(BudgetLedger):
         need = max(0, tokens)
         with self._lock:
             account = self._account(key)
-            projected = account.spent_tokens + account.reserved_tokens + need
+            projected = (
+                account.spent_tokens + account.unconfirmed_tokens + account.reserved_tokens + need
+            )
             cap = config.daily_token_cap
             cost_cap = config.daily_cost_cap_usd
 
@@ -265,13 +281,20 @@ class InMemoryBudgetLedger(BudgetLedger):
         with self._lock:
             self._account(key).reservations.pop(reservation_id, None)
 
+    def settle_unknown(self, key: str, reservation_id: str) -> None:
+        with self._lock:
+            account = self._account(key)
+            reserved = account.reservations.pop(reservation_id, None)
+            account.unconfirmed_tokens += max(0, reserved or 0)
+
     def snapshot(self, key: str, config: BudgetConfig) -> BudgetSnapshot:
         with self._lock:
             account = self._account(key)
             cap = config.daily_token_cap
             warn = False
+            committed = account.spent_tokens + account.unconfirmed_tokens + account.reserved_tokens
             if cap is not None:
-                warn = (account.spent_tokens + account.reserved_tokens) >= cap * config.warn_ratio
+                warn = committed >= cap * config.warn_ratio
             return BudgetSnapshot(
                 spent_tokens=account.spent_tokens,
                 reserved_tokens=account.reserved_tokens,
@@ -279,6 +302,7 @@ class InMemoryBudgetLedger(BudgetLedger):
                 token_cap=cap,
                 cost_cap_usd=config.daily_cost_cap_usd,
                 warn_triggered=warn,
+                unconfirmed_tokens=account.unconfirmed_tokens,
             )
 
     def reset(self) -> None:
