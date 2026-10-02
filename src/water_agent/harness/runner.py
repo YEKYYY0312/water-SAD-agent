@@ -10,14 +10,17 @@ citation_ok 恒真、pass_rate 实际等于检索 recall@k——保留仅供改�
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
 import sys
 import time
 import traceback
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from water_agent.docgen import (
@@ -28,6 +31,7 @@ from water_agent.docgen import (
 )
 from water_agent.docgen.quality import PolishTransport
 from water_agent.domain.models import (
+    AgenticCase,
     CalcCase,
     DocgenCase,
     DocgenQualityCase,
@@ -42,14 +46,20 @@ from water_agent.generation.chat_model import build_chat_model
 from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
-from water_agent.graphs.agent_rag import _extract_validation_signal, build_agentic_app
+from water_agent.graphs.agent_rag import (
+    _extract_validation_signal,
+    _payload_of,
+    build_agentic_app,
+    current_turn_messages,
+)
 from water_agent.graphs.calc import build_calc_graph
 from water_agent.graphs.rag import build_rag_graph
-from water_agent.harness.doubles import BadCitationGenerator
+from water_agent.harness.doubles import BadCitationGenerator, ScriptedChatModel
 from water_agent.harness.llm_judge import LLMJudge
 from water_agent.harness.loader import EvalLoadBundle, EvalLoadError, load_eval_bundle
 from water_agent.harness.retrieval_metrics import aggregate_retrieval_metrics
 from water_agent.harness.scorer import (
+    score_agentic_turn,
     score_calc_case,
     score_docgen_case,
     score_docgen_quality_case,
@@ -432,11 +442,13 @@ class HarnessRunner:
         )
 
     def _run_calc_case(self, case: CalcCase, *, line_no: int | None = None) -> EvalResult:
-        """calc 端到端：走计算子图（真工具 + 确定性解释器），判分仍用 Step 1 run_calc。
+        """calc 端到端：计算子图与 ``run_calc`` 分发器两层都要与用例期望一致。
 
-        子图 compute 内部调 run_calc 使用与评测一致的输入，故数值与直接判分同源；
-        缺参/非法路径可能短路（无 compute 产物），回退 run_calc 取结构化 CalcResult，
-        保证判分确定性与 Step 1 一致。
+        - 子图层：状态、缺参清单与数值全部取自子图产物；缺参/口径外在解析阶段短路时
+          没有 ``calc_result``，这是合法的，由状态判分。此前短路时回退直调 ``run_calc``
+          判分，于是子图路由坏掉、报"成功"却没有任何数值也照样 28/28（review 2026-09-30）；
+        - 分发器层：子图按自己的必需参数表短路缺参，不经过 ``run_calc``，而多 Agent 水力
+          Agent 与 MCP 水力服务直接调它——同一份期望对它再判一次，失败原因带 ``run_calc:``。
         """
         app = build_calc_graph()
         state: dict = {
@@ -456,10 +468,20 @@ class HarnessRunner:
         started = time.perf_counter()
         graph_result = app.invoke(state)
         latency_ms = (time.perf_counter() - started) * 1000
-        calc_result = graph_result.get("calc_result")
-        if calc_result is None:
-            calc_result = run_calc(case.formula, case.input)
-        result = score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+        result = score_calc_case(
+            case,
+            calc_result=graph_result.get("calc_result"),
+            graph_status=str(graph_result.get("status") or ""),
+            graph_missing_inputs=graph_result.get("missing_inputs") or [],
+            latency_ms=latency_ms,
+            line_no=line_no,
+        )
+        dispatcher = score_calc_case(case, calc_result=run_calc(case.formula, case.input))
+        if not dispatcher.passed:
+            result.passed = False
+            result.failure_reason = "; ".join(
+                reason for reason in (result.failure_reason, f"run_calc: {dispatcher.failure_reason}") if reason
+            )
         result.variant = self._effective_variant(case)
         return result
 
@@ -616,7 +638,118 @@ class HarnessRunner:
         scored.variant = "programmatic"
         return scored
 
+    def _agentic_args(self) -> argparse.Namespace:
+        """mock-agentic 用的装配参数：与 Web 默认一致（本地 rerank、同一 top_k），但不连真实模型。
+
+        ``drawing_root=""`` 明确不注册图纸工具（``None`` 会去读 ``DRAWING_ROOT``，工具清单
+        随本机环境漂移）；模型与检索器由调用方注入，MCP 装配关闭。
+        """
+        return argparse.Namespace(
+            db_path=None,
+            dimensions=None,
+            rerank="local",
+            rerank_model=None,
+            rerank_base_url=None,
+            rerank_api_key=None,
+            top_k=5,
+            recall_top_k=20,
+            hybrid_alpha=0.7,
+            model=DEFAULT_MODEL,
+            base_url=DEFAULT_BASE_URL,
+            api_key_env=DEFAULT_API_KEY_ENV,
+            api_key=None,
+            mock_generator=True,
+            session_dir=str(self.trace_dir),
+            trace_dir=str(self.trace_dir),
+            stream=False,
+            drawing_root="",
+        )
+
+    def _run_agentic_case(self, case: AgenticCase, *, line_no: int | None = None) -> EvalResult:
+        """mock-agentic 机制层：生产 ``AgenticSession`` 装配 + 逐步脚本模型 + fixture 语料。
+
+        每轮新建一个 session、共用同一 checkpointer 与 thread（与 Web RunManager 同构），
+        checkpoint 用生产 serde（只放行 CitationClaim）——跨轮 state 残留、回流计数、
+        可追溯检查作用域这类只在真实装配下才暴露的行为在这里能被看见。PR 门禁此前对
+        生产 Web 走的 agentic 图没有任何 harness 级覆盖（review 2026-09-30）。
+        """
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from water_agent.runtime.agentic import AgenticSession
+        from water_agent.session import default_checkpoint_serde
+
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        thread_id = f"{case.id}-{uuid4().hex[:8]}"
+        reasons: list[str] = []
+        last: dict[str, Any] = {}
+        context: list[str] = []
+        trace_id = ""
+        started = time.perf_counter()
+        for number, turn in enumerate(case.turns, start=1):
+            model = ScriptedChatModel(
+                steps=[step.model_dump(mode="json") for step in turn.script],
+                id_prefix=f"{case.id}-t{number}",
+            )
+            final_state: dict[str, Any] = {}
+
+            def capture(mode: str, payload: Any, _sink: dict[str, Any] = final_state) -> None:
+                if mode == "values" and isinstance(payload, dict):
+                    _sink.clear()
+                    _sink.update(payload)
+
+            with ExitStack() as stack:
+                session = AgenticSession(
+                    self._agentic_args(),
+                    stack=stack,
+                    thread_id=thread_id,
+                    checkpointer=saver,
+                    model=model,
+                    retriever=TriviumRetriever(db_path=None, fallback_clauses=self._clauses),
+                    mcp_enabled=False,
+                )
+                last = asyncio.run(session.aask(turn.query, run_id=uuid4().hex, on_event=capture))
+                trace_id = session.recorder.trace_id or trace_id
+            messages = final_state.get("messages", []) or []
+            context, _, _ = _extract_validation_signal({"messages": messages})
+            rejected_by_tool = [
+                str(cid)
+                for message in current_turn_messages(messages)
+                if getattr(message, "name", None) == "cite_clauses"
+                and _payload_of(message).get("registered") is False
+                for cid in _payload_of(message).get("invalid_ids", []) or []
+            ]
+            turn_reasons = score_agentic_turn(
+                turn,
+                actual_status=str(last.get("status") or ""),
+                answer=str(last.get("answer") or ""),
+                citations=[str(item.get("source_id") or "") for item in last.get("citations", [])],
+                context_articles=context,
+                errors=last.get("errors", []) or [],
+                warnings=last.get("warnings", []) or [],
+                tool_rejected_citations=rejected_by_tool,
+                script_steps_used=int(model.state["calls"]),
+            )
+            reasons.extend(f"turn {number}: {reason}" for reason in turn_reasons)
+        latency_ms = (time.perf_counter() - started) * 1000
+        final_turn = case.turns[-1]
+        return EvalResult(
+            case_id=case.id,
+            passed=not reasons,
+            expected_status=case.expected_status,
+            actual_status=str(last.get("status") or ""),
+            expected_articles=[*final_turn.gold_articles_any, *final_turn.gold_articles_all],
+            actual_citations=[str(item.get("source_id") or "") for item in last.get("citations", [])],
+            context_articles=list(dict.fromkeys(context)),
+            failure_reason="; ".join(reasons),
+            latency_ms=round(latency_ms, 3),
+            trace_id=trace_id,
+            line_no=line_no,
+            variant=case.variant,
+        )
+
     def _run_case(self, case, *, line_no: int | None = None):
+        if isinstance(case, AgenticCase):
+            return self._run_agentic_case(case, line_no=line_no)
         if isinstance(case, CalcCase):
             return self._run_calc_case(case, line_no=line_no)
         if isinstance(case, DocgenCase):
@@ -683,6 +816,7 @@ class HarnessRunner:
             trace_id=result.get("trace_id", trace_id),
             retry_count=retry_count,
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = _variant
 
@@ -825,6 +959,7 @@ class HarnessRunner:
             trace_id=recorder.trace_id or "",
             retry_count=int(result.get("retry_count", 0)),
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = "real"
         if not scored.passed and result.get("errors"):
@@ -1142,9 +1277,13 @@ def main(argv: list[str] | None = None) -> int:
         output["skipped_all"] = True
         if report.cases and report.cases[0].failure_reason:
             output["skip_reason"] = report.cases[0].failure_reason
+    # 0 条用例不是"全部通过"：数据集被清空或整份改坏时，failed=0 会被读成绿灯。
+    # ``ok`` 仍只表示 runner 本身跑完；是否可信看退出码（此处为 2，同加载问题）。
+    if report.total == 0:
+        output["error"] = "评测集没有任何可执行用例"
 
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if load_issues:
+    if load_issues or report.total == 0:
         return 2
     return 0 if report.failed == 0 else 1
 

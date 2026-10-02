@@ -369,7 +369,13 @@ class RunCancelled(RuntimeError):
 
 
 class AgenticSession:
-    """One thread, one governed registry and one checkpoint-backed Agentic app."""
+    """One thread, one governed registry and one checkpoint-backed Agentic app.
+
+    ``model`` / ``retriever`` / ``mcp_enabled`` 是评测与测试用的装配注入点：给出时替换
+    按 ``args`` 构建的模型与检索器、关掉 MCP 装配，其余（ToolRegistry、cite 可追溯检查、
+    提示装配、护栏、引用校验回流、checkpoint）仍走同一套生产装配——mock-agentic
+    评测测的就是生产运行时本身，而不是另起一套。
+    """
 
     #: RunManager 只给声明支持的会话传 ``attachment_context``（AgentSessionFactory 是协议）。
     supports_attachment_context = True
@@ -382,6 +388,9 @@ class AgenticSession:
         thread_id: str | None = None,
         request_context: RequestContext | None = None,
         checkpointer: Any | None = None,
+        model: BaseChatModel | None = None,
+        retriever: Retriever | None = None,
+        mcp_enabled: bool = True,
     ) -> None:
         self.args = args
         self.stack = stack
@@ -400,8 +409,10 @@ class AgenticSession:
                 "local model is enabled but lacks complete compatibility evidence; "
                 "run the Step 46 compatibility probe before starting an Agent session"
             )
-        if args.mock_generator:
-            self.model: BaseChatModel = _ScriptedAgenticModel()
+        if model is not None:
+            self.model: BaseChatModel = model
+        elif args.mock_generator:
+            self.model = _ScriptedAgenticModel()
         else:
             try:
                 self.model = build_chat_model(
@@ -418,9 +429,12 @@ class AgenticSession:
                     "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
                 ) from exc
 
-        self.retriever, self.db_path = _build_retriever(
-            args, request_context=self.request_context, gateway=self.gateway
-        )
+        if retriever is not None:
+            self.retriever, self.db_path = retriever, ""
+        else:
+            self.retriever, self.db_path = _build_retriever(
+                args, request_context=self.request_context, gateway=self.gateway
+            )
         reranker = _build_reranker(
             args, request_context=self.request_context, gateway=self.gateway
         )
@@ -431,7 +445,7 @@ class AgenticSession:
         )
 
         base_principal = self.request_context.principal
-        mcp_config = load_mcp_gateway()
+        mcp_config = load_mcp_gateway() if mcp_enabled else None
         mcp_assembly = open_gateway_sessions(mcp_config)
         self.mcp_assembly = mcp_assembly
         stack.callback(mcp_assembly.close)

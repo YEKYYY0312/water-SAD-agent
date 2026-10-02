@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from water_agent.domain.models import (
+    AgenticCase,
     CalcCase,
     DocgenCase,
     DocgenQualityCase,
@@ -18,25 +19,28 @@ from water_agent.domain.models import (
     MaterialCase,
 )
 
+#: 所有支持的用例类型联合（供签名复用，避免六处各写一遍）
+AnyEvalCase = (
+    EvalCase
+    | CalcCase
+    | DocgenCase
+    | MaterialCase
+    | DocgenQualityCase
+    | GovernanceCase
+    | AgenticCase
+)
+
 # type → 模型映射（P2：calc 水力计算 / docgen 文档生成 / material 材料统计 /
-# docgen_quality 质量层 / governance 治理评测（P2.5 Step 15）/ 其余走 RAG EvalCase）
-_EVAL_TYPE_MODELS: dict[
-    str,
-    type[
-        EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase | GovernanceCase
-    ],
-] = {
+# docgen_quality 质量层 / governance 治理评测（P2.5 Step 15）/ agentic 生产装配的
+# mock-agentic 机制层 / 其余走 RAG EvalCase）
+_EVAL_TYPE_MODELS: dict[str, type[AnyEvalCase]] = {
     "calc": CalcCase,
     "docgen": DocgenCase,
     "material": MaterialCase,
     "docgen_quality": DocgenQualityCase,
     "governance": GovernanceCase,
+    "agentic": AgenticCase,
 }
-
-#: 所有支持的用例类型联合（供签名复用，避免六处各写一遍）
-AnyEvalCase = (
-    EvalCase | CalcCase | DocgenCase | MaterialCase | DocgenQualityCase | GovernanceCase
-)
 
 
 class EvalLoadError(ValueError):

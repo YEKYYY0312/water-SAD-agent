@@ -172,3 +172,85 @@ def test_expected_assumptions_check() -> None:
     res2 = score_calc_case(case2, calc_result=calc_result)
     assert not res2.passed
     assert "expected assumption missing: 低于" in res2.failure_reason
+
+
+# ── review 2026-09-30：calc harness 必须测"子图"本身，不能靠回退重算掩盖子图缺陷 ──
+
+
+class _GraphReportingSuccessWithoutResult:
+    """模拟编排缺陷：子图跳过 compute，却把状态报成 succeeded。"""
+
+    def invoke(self, state):
+        return {**state, "status": "succeeded", "calc_result": None, "answer": "按口径表公式 velocity 计算：。"}
+
+
+def test_runner_fails_a_graph_that_claims_success_without_a_result(tmp_path, monkeypatch) -> None:
+    """此前 runner 在子图无 calc_result 时回退直调 run_calc 判分：路由坏掉、子图报
+    "成功"却没有任何数值，calc_p0 仍 28/28（review 变异实测）。"""
+    from water_agent.harness import runner as runner_mod
+
+    mini = tmp_path / "mini.jsonl"
+    _write_mini(mini)
+    monkeypatch.setattr(runner_mod, "build_calc_graph", lambda: _GraphReportingSuccessWithoutResult())
+    runner = HarnessRunner(eval_path=mini, report_dir=tmp_path / "reports", trace_dir=tmp_path / "traces")
+    report, _, _ = runner.run()
+    by_id = {result.case_id: result for result in report.cases}
+    assert by_id["mini-0001"].passed is False
+    assert "without a valid calc_result" in by_id["mini-0001"].failure_reason
+    # 缺参/非法用例期望的状态也不是 succeeded：子图报错状态同样要判负
+    assert by_id["mini-0002"].passed is False
+    assert by_id["mini-0003"].passed is False
+
+
+def test_calc_graph_never_finishes_as_success_without_a_valid_result() -> None:
+    """finish 节点兜底：走到收口却没有有效计算结果（如路由跳过了 compute）→ failed。"""
+    from water_agent.graphs.calc import finish_calc_state
+
+    out = finish_calc_state({"status": "running", "formula": "velocity", "calc_result": None})
+    assert out["status"] == "failed"
+    assert "计算未执行" in out["answer"]
+
+
+def test_score_calc_compares_the_exact_missing_inputs() -> None:
+    """缺参用例要比"缺的是哪个参数"：一律报成缺 diameter_mm 也曾 28/28。"""
+    case = CalcCase.model_validate({**MINI_CASES[1], "expected_missing_inputs": ["flow_lps"]})
+    right = score_calc_case(case, calc_result=None, graph_status="missing_inputs", graph_missing_inputs=["flow_lps"])
+    assert right.passed, right.failure_reason
+    wrong = score_calc_case(case, calc_result=None, graph_status="missing_inputs", graph_missing_inputs=["diameter_mm"])
+    assert not wrong.passed
+    assert "missing_inputs" in wrong.failure_reason and "flow_lps" in wrong.failure_reason
+
+
+def test_calc_p0_missing_input_cases_declare_the_missing_parameter() -> None:
+    """数据集自身：每条 missing_inputs 用例都声明期望缺哪个参数（否则上一条检查形同虚设）。"""
+    from pathlib import Path
+
+    bundle = load_eval_bundle(Path(__file__).resolve().parents[1] / "data" / "eval" / "calc_p0.jsonl")
+    missing_cases = [case for case in bundle.cases if case.expected_status == "missing_inputs"]
+    assert missing_cases
+    assert all(case.expected_missing_inputs for case in missing_cases), [c.id for c in missing_cases]
+
+
+def test_runner_also_checks_the_run_calc_dispatcher(tmp_path, monkeypatch) -> None:
+    """子图在解析阶段就按自己的表短路缺参，不经过 run_calc 分发表；而多 Agent 水力
+    Agent 与 MCP 水力服务直接调 run_calc。分发器把缺参一律报成 diameter_mm 时，
+    calc_p0 也必须变红（review 变异 calc_wrong_missing_param_inplace）。"""
+    import water_agent.tools.hydraulics as hydraulics
+
+    for name, fn in list(hydraulics._CALC_FUNCTIONS.items()):
+        def wrong(inputs, _fn=fn):
+            result = _fn(inputs)
+            if result.missing_inputs:
+                result.missing_inputs = ["diameter_mm"]
+            return result
+
+        monkeypatch.setitem(hydraulics._CALC_FUNCTIONS, name, wrong)
+    mini = tmp_path / "mini.jsonl"
+    mini.write_text(
+        json.dumps({**MINI_CASES[1], "expected_missing_inputs": ["flow_lps"]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    runner = HarnessRunner(eval_path=mini, report_dir=tmp_path / "reports", trace_dir=tmp_path / "traces")
+    report, _, _ = runner.run()
+    assert report.cases[0].passed is False
+    assert "run_calc:" in report.cases[0].failure_reason

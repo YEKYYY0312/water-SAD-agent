@@ -77,6 +77,22 @@ def test_wrong_expectations_fail_with_reasons(tmp_path: Path) -> None:
     assert "管段" in joined and "主管流速" in joined and "立管段" in joined
 
 
+def test_an_expected_sheet_that_was_not_generated_fails(tmp_path: Path) -> None:
+    """判分以用例期望的图纸清单为准：少生成一张图也必须失败。
+
+    此前只遍历实际产出的图纸：去掉节点大样图后 14/14、三项硬指标仍是 1.0
+    （review 2026-09-30 变异 drawing_gen_detail_sheet_dropped）。
+    """
+
+    def mutate(case: dict) -> None:
+        case["expect"]["sheets"]["riser_detail"] = dict(case["expect"]["sheets"]["plan"])
+
+    payload, _ = run_suite(_broken_suite(tmp_path, mutate), report_path=tmp_path / "r.json")
+    case = next(c for c in payload["cases"] if c["case_id"] == "gen-res-01-spec-example")
+    assert case["passed"] is False
+    assert any("riser_detail" in reason for reason in case["failure_reasons"])
+
+
 def test_invalid_case_with_the_wrong_code_fails(tmp_path: Path) -> None:
     def mutate(case: dict) -> None:
         case["request"]["floors"] = 0

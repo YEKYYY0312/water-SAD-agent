@@ -11,10 +11,10 @@
       "input_path": "data/eval/rag_p0.jsonl",
       "variant": "per-case",
       "total": 12,
-      "passed": 11,
-      "failed": 1,
+      "passed": 12,
+      "failed": 0,
       "skipped": 0,
-      "pass_rate": 0.9166666666666666,
+      "pass_rate": 1.0,
       "citation_ok_rate": 0.9166666666666666,
       "avg_latency_ms": 1.55,
       "retrieval_metrics": {
@@ -35,9 +35,24 @@
         "rag-p0-0008",
         "rag-p0-0009",
         "rag-p0-0010",
+        "rag-p0-0011",
         "rag-p0-0012"
       ],
-      "source_report": "rag_p0_20260904T044220Z.json"
+      "source_report": "rag_p0_20260904T044220Z.json",
+      "case_ids": [
+        "rag-p0-0001",
+        "rag-p0-0002",
+        "rag-p0-0003",
+        "rag-p0-0004",
+        "rag-p0-0005",
+        "rag-p0-0006",
+        "rag-p0-0007",
+        "rag-p0-0008",
+        "rag-p0-0009",
+        "rag-p0-0010",
+        "rag-p0-0011",
+        "rag-p0-0012"
+      ]
     },
     "calc_p0": {
       "input_path": "data/eval/calc_p0.jsonl",
@@ -86,7 +101,37 @@
         "calc-0027",
         "calc-0028"
       ],
-      "source_report": "calc_p0_20260904T044221Z.json"
+      "source_report": "calc_p0_20260904T044221Z.json",
+      "case_ids": [
+        "calc-0001",
+        "calc-0002",
+        "calc-0003",
+        "calc-0004",
+        "calc-0005",
+        "calc-0006",
+        "calc-0007",
+        "calc-0008",
+        "calc-0009",
+        "calc-0010",
+        "calc-0011",
+        "calc-0012",
+        "calc-0013",
+        "calc-0014",
+        "calc-0015",
+        "calc-0016",
+        "calc-0017",
+        "calc-0018",
+        "calc-0019",
+        "calc-0020",
+        "calc-0021",
+        "calc-0022",
+        "calc-0023",
+        "calc-0024",
+        "calc-0025",
+        "calc-0026",
+        "calc-0027",
+        "calc-0028"
+      ]
     },
     "docgen_p0": {
       "input_path": "data/eval/docgen_p0.jsonl",
@@ -118,7 +163,20 @@
         "docgen-0010",
         "docgen-0011"
       ],
-      "source_report": "docgen_p0_20260904T044238Z.json"
+      "source_report": "docgen_p0_20260904T044238Z.json",
+      "case_ids": [
+        "docgen-0001",
+        "docgen-0002",
+        "docgen-0003",
+        "docgen-0004",
+        "docgen-0005",
+        "docgen-0006",
+        "docgen-0007",
+        "docgen-0008",
+        "docgen-0009",
+        "docgen-0010",
+        "docgen-0011"
+      ]
     },
     "material_p0": {
       "input_path": "data/eval/material_p0.jsonl",
@@ -149,7 +207,19 @@
         "mat-0009",
         "mat-0010"
       ],
-      "source_report": "material_p0_20260904T044239Z.json"
+      "source_report": "material_p0_20260904T044239Z.json",
+      "case_ids": [
+        "mat-0001",
+        "mat-0002",
+        "mat-0003",
+        "mat-0004",
+        "mat-0005",
+        "mat-0006",
+        "mat-0007",
+        "mat-0008",
+        "mat-0009",
+        "mat-0010"
+      ]
     },
     "governance_p0": {
       "input_path": "data/eval/governance_p0.jsonl",
@@ -202,7 +272,84 @@
         "gov-0031",
         "gov-0032"
       ],
-      "source_report": "governance_p0_20260906T050345Z.json"
+      "source_report": "governance_p0_20260906T050345Z.json",
+      "case_ids": [
+        "gov-0001",
+        "gov-0002",
+        "gov-0003",
+        "gov-0004",
+        "gov-0005",
+        "gov-0006",
+        "gov-0007",
+        "gov-0008",
+        "gov-0009",
+        "gov-0010",
+        "gov-0011",
+        "gov-0012",
+        "gov-0013",
+        "gov-0014",
+        "gov-0015",
+        "gov-0016",
+        "gov-0017",
+        "gov-0018",
+        "gov-0019",
+        "gov-0020",
+        "gov-0021",
+        "gov-0022",
+        "gov-0023",
+        "gov-0024",
+        "gov-0025",
+        "gov-0026",
+        "gov-0027",
+        "gov-0028",
+        "gov-0029",
+        "gov-0030",
+        "gov-0031",
+        "gov-0032"
+      ]
+    },
+    "agentic_p0": {
+      "input_path": "data/eval/agentic_p0.jsonl",
+      "variant": "per-case",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 1.0,
+      "citation_ok_rate": 1.0,
+      "avg_latency_ms": 18.98,
+      "retrieval_metrics": {
+        "queries": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.0,
+        "recall_at_5": 0.0,
+        "mrr": 0.0
+      },
+      "passed_case_ids": [
+        "agentic-p0-0001",
+        "agentic-p0-0002",
+        "agentic-p0-0003",
+        "agentic-p0-0004",
+        "agentic-p0-0005",
+        "agentic-p0-0006",
+        "agentic-p0-0007",
+        "agentic-p0-0008",
+        "agentic-p0-0009",
+        "agentic-p0-0010"
+      ],
+      "case_ids": [
+        "agentic-p0-0001",
+        "agentic-p0-0002",
+        "agentic-p0-0003",
+        "agentic-p0-0004",
+        "agentic-p0-0005",
+        "agentic-p0-0006",
+        "agentic-p0-0007",
+        "agentic-p0-0008",
+        "agentic-p0-0009",
+        "agentic-p0-0010"
+      ],
+      "source_report": "agentic_p0_20260930T092553070142Z.json"
     }
   }
 }
