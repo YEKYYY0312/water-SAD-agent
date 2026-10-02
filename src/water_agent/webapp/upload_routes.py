@@ -18,11 +18,15 @@ Two things this module does own, because they are HTTP concerns:
 
 from __future__ import annotations
 
+import asyncio
+import functools
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from water_agent.documents.errors import (
     CODE_UPLOAD_TOO_LARGE,
@@ -46,6 +50,9 @@ _API_VERSION = "v1"
 #: Read granularity.  Small enough that an oversized body is refused after one
 #: chunk past the limit, large enough not to make a 10 MB upload a syscall storm.
 _READ_CHUNK_BYTES = 256 * 1024
+#: 同时解析的上传上限。解析在线程池里跑（不阻塞事件循环），这里只防一波上传把线程池
+#: 占满（FastAPI 的同步依赖也在同一个线程池里跑，占满即全站变慢）。超出的请求排队等待。
+_INGEST_SLOTS = asyncio.Semaphore(2)
 
 
 def _ok(data: object, *, status_code: int = 200) -> JSONResponse:
@@ -162,17 +169,30 @@ async def create_upload(
 
     try:
         payload = await _read_bounded(file)
-        result = ingest_upload(
-            database=database,
-            tenant_id=_tenant_id(request),
-            owner_user_id=user.user_id,
-            project_id=target_project,
-            filename=file.filename or "",
-            payload=payload,
-            upload_root=_upload_root(request),
-        )
+        # 解析是重活（pypdf/docx、DWG 转换子进程最长 60 s、逐页视觉审阅每页数十秒）：
+        # 放进线程池，事件循环照常服务其他请求；并发上限防止一波上传占满线程池。
+        async with _INGEST_SLOTS:
+            result = await run_in_threadpool(
+                functools.partial(
+                    ingest_upload,
+                    database=database,
+                    tenant_id=_tenant_id(request),
+                    owner_user_id=user.user_id,
+                    project_id=target_project,
+                    filename=file.filename or "",
+                    payload=payload,
+                    upload_root=_upload_root(request),
+                )
+            )
     except UploadError as exc:
         return _upload_error(exc)
+    except SQLAlchemyError:
+        # 入库失败（数据库不可用等）：盘上文件已由 ingest_upload 回收，这里如实报服务状态
+        return _error(
+            "WEB_DATABASE_UNAVAILABLE",
+            "Upload could not be saved; please retry later",
+            status_code=503,
+        )
     except OSError:
         # The uploads volume is not writable (a misconfigured deployment).  Say
         # so as a service condition instead of blaming the file.
