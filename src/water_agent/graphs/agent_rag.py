@@ -129,6 +129,39 @@ class ToolBudgetExceeded(RuntimeError):
     """agent_loop 内模型工具调用轮数超预算。"""
 
 
+#: 模型给出的工具调用参数不是合法 JSON（provider 解析失败，落在 ``invalid_tool_calls``）时，
+#: 改写成一次合法的"错误回填"调用：工具名换成这个保留名，ToolNode 找不到同名工具会返回
+#: 带可用工具清单的错误 observation——模型看得到错误、可以重试，计入工具轮数预算。
+INVALID_TOOL_CALL_NAME = "invalid_tool_call"
+
+
+def _repair_invalid_tool_calls(message: AIMessage) -> AIMessage:
+    """把 ``invalid_tool_calls`` 改写成可被应答的工具调用；没有就原样返回。
+
+    此前两条路径都不处理它：create_react_agent 只看 ``tool_calls``，带畸形调用的回复被当成
+    最终回答（"我来检索一下。"判 succeeded）；同步路径还把它原样存进 thread，下一轮请求里
+    出现一个没有应答的 tool_call id，OpenAI 兼容接口会拒绝整个请求、这条 thread 从此每轮失败
+    （review 2026-09-30）。改写后：模型收到错误 observation 重试一次，thread 里只有合法消息。
+    """
+    invalid = list(message.invalid_tool_calls or [])
+    if not invalid:
+        return message
+    repaired = list(message.tool_calls or [])
+    for index, call in enumerate(invalid):
+        repaired.append(
+            {
+                "name": INVALID_TOOL_CALL_NAME,
+                "args": {
+                    "intended_tool": str(call.get("name") or ""),
+                    "error": str(call.get("error") or "工具调用参数不是合法 JSON")[:300],
+                },
+                "id": str(call.get("id") or f"invalid-{uuid4().hex[:8]}-{index}"),
+                "type": "tool_call",
+            }
+        )
+    return message.model_copy(update={"tool_calls": repaired, "invalid_tool_calls": []})
+
+
 def _to_generation_chunk(message: BaseMessage) -> ChatGenerationChunk:
     """把完整 ``AIMessage`` 转为 ``ChatGenerationChunk``（流式回退路径用）。
 
@@ -237,6 +270,9 @@ class _BudgetChatModel(BaseChatModel):
         self.holder.setdefault("llm_calls", []).append(
             _llm_call_record(message, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
         )
+        if isinstance(message, AIMessage) and message.invalid_tool_calls:
+            message = _repair_invalid_tool_calls(message)
+            result = ChatResult(generations=[ChatGeneration(message=message)])
         if isinstance(message, AIMessage) and message.tool_calls:
             self.holder["turns"] += 1
             if self.holder["turns"] > self.max_tool_turns:
@@ -269,6 +305,10 @@ class _BudgetChatModel(BaseChatModel):
         counted = False
         started = time.perf_counter()
         merged: Any = None
+        # 工具调用分块先攒着、流结束时整理成合法调用一次交出（_settle_streamed_calls）：参数 JSON
+        # 是逐块拼出来的，只有收齐才知道合不合法；畸形调用原样交出会被当成"没有工具调用"的最终
+        # 回答，前置文本"我来检索一下。"就判 succeeded（review 2026-09-30）。文本分块照常即时交出。
+        pending_calls: dict[int, dict[str, str]] = {}
         try:
             for chunk in itertools.chain((first_chunk,), inner):
                 # 流式分块之间同样检查取消：已取消就不再继续收（也不再继续计费）
@@ -276,18 +316,34 @@ class _BudgetChatModel(BaseChatModel):
                 message = getattr(chunk, "message", chunk)
                 if isinstance(message, AIMessageChunk):
                     merged = message if merged is None else merged + message
-                    if message.tool_call_chunks and not counted:
-                        counted = True
-                        self.holder["turns"] += 1
-                        if self.holder["turns"] > self.max_tool_turns:
-                            raise ToolBudgetExceeded(
-                                f"工具调用轮数超过预算（{self.max_tool_turns}）"
-                            )
+                    if message.tool_call_chunks:
+                        if not counted:
+                            counted = True
+                            self.holder["turns"] += 1
+                            if self.holder["turns"] > self.max_tool_turns:
+                                raise ToolBudgetExceeded(
+                                    f"工具调用轮数超过预算（{self.max_tool_turns}）"
+                                )
+                        _accumulate_call_chunks(pending_calls, message.tool_call_chunks)
+                        chunk = ChatGenerationChunk(
+                            message=message.model_copy(
+                                update={"tool_call_chunks": [], "tool_calls": [], "invalid_tool_calls": []}
+                            ),
+                            generation_info=getattr(chunk, "generation_info", None),
+                        )
                 yield chunk
         finally:
             close = getattr(inner, "close", None)
             if callable(close):
                 close()
+        if pending_calls:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content="",
+                    tool_call_chunks=_settle_streamed_calls(pending_calls),
+                    id=getattr(merged, "id", None),
+                )
+            )
         if merged is not None:
             self.holder.setdefault("llm_calls", []).append(
                 _llm_call_record(merged, _model_name_of(self.inner), (time.perf_counter() - started) * 1000)
@@ -306,6 +362,49 @@ class _BudgetChatModel(BaseChatModel):
             for t in tools
         ]
         return RunnableBinding(bound=self, kwargs={"tools": tool_defs, **kwargs})
+
+
+def _accumulate_call_chunks(pending: dict[int, dict[str, str]], chunks: Sequence[Any]) -> None:
+    """按 index 拼接流式工具调用分块（name/args 逐块追加，id 取首个非空值）。"""
+    for position, item in enumerate(chunks):
+        index = item.get("index") if isinstance(item, dict) else getattr(item, "index", None)
+        key = int(index) if isinstance(index, int) else position
+        entry = pending.setdefault(key, {"name": "", "args": "", "id": ""})
+        for field in ("name", "args"):
+            value = item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+            if isinstance(value, str):
+                entry[field] += value
+        call_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+        if isinstance(call_id, str) and call_id and not entry["id"]:
+            entry["id"] = call_id
+
+
+def _settle_streamed_calls(pending: dict[int, dict[str, str]]) -> list[ToolCallChunk]:
+    """收齐的流式工具调用：参数是合法 JSON 对象的原样交出，其余改写成"错误回填"调用。"""
+    settled: list[ToolCallChunk] = []
+    for index in sorted(pending):
+        entry = pending[index]
+        raw = entry["args"].strip() or "{}"
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        call_id = entry["id"] or f"invalid-{uuid4().hex[:8]}-{index}"
+        if entry["name"] and isinstance(parsed, dict):
+            settled.append(ToolCallChunk(name=entry["name"], args=raw, id=call_id, index=index))
+            continue
+        settled.append(
+            ToolCallChunk(
+                name=INVALID_TOOL_CALL_NAME,
+                args=json.dumps(
+                    {"intended_tool": entry["name"], "error": "工具调用参数不是合法 JSON 对象"},
+                    ensure_ascii=False,
+                ),
+                id=call_id,
+                index=index,
+            )
+        )
+    return settled
 
 
 def _payload_of(message: ToolMessage) -> dict[str, Any]:
@@ -580,6 +679,23 @@ def _rewrite(message: BaseMessage | None, text: str) -> list[BaseMessage]:
     if message is None or message.id is None:
         return []
     return [message.model_copy(update={"content": text})]
+
+
+#: 本轮收口状态写在最终回答消息的 ``additional_kwargs`` 里（不发给 provider：OpenAI 兼容接口的
+#: 消息转换只取 tool_calls/function_call/audio 等已知键）。历史投影据此给失败的回答打标——此前
+#: 刷新后每条回答都显示成 succeeded，"未通过校验"的横幅消失（review 2026-09-30）。
+TURN_STATUS_KEY = "water_agent_turn_status"
+
+
+def _stamp_status(message: AIMessage | None, status: str, rewrites: list[BaseMessage]) -> list[BaseMessage]:
+    """把本轮收口状态盖到最终回答消息上（与正文改写合并为同一条同 id 替换）。"""
+    if message is None or message.id is None:
+        return rewrites
+    base = next((m for m in rewrites if m.id == message.id), message)
+    stamped = base.model_copy(
+        update={"additional_kwargs": {**(base.additional_kwargs or {}), TURN_STATUS_KEY: status}}
+    )
+    return [m for m in rewrites if m.id != message.id] + [stamped]
 
 
 def _last_human_message(messages: Sequence[BaseMessage]) -> HumanMessage | None:
@@ -1020,7 +1136,7 @@ def make_finalize(
             "status": status,
             "errors": errors,
             "warnings": list(state.get("warnings", [])) + trace_warnings,
-            "messages": rewrites,
+            "messages": _stamp_status(answer_message, status, rewrites),
         }
 
     return finalize
