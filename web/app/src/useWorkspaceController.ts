@@ -16,6 +16,7 @@ import {
   isTerminalStatus,
   mergeHistory,
   replayUnavailable,
+  withdrawUnsentQuestion,
   type ConversationMessage,
   type WorkspaceRunState,
 } from "./workspaceState";
@@ -334,6 +335,7 @@ export function useWorkspaceController(): WorkspaceController {
     // 只附文件、不写问题也能发：此前发送键要求输入框非空，附上文件后按钮一直是灰的。
     const message = draft.trim() || (attachmentIds.length > 0 ? ATTACHMENT_ONLY_PROMPT : "");
     if (!message) return;
+    const sentAttachments = attachments.filter((item) => item.status === "ready" && item.record);
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
@@ -352,7 +354,15 @@ export function useWorkspaceController(): WorkspaceController {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");
       })
-      .catch((error) => { setStreaming(false); setPageError(apiMessage(error)); });
+      .catch((error) => {
+        setStreaming(false);
+        setPageError(apiMessage(error));
+        // 发送没被受理（例如 409：上一问还在回答）：撤回乐观追加的提问，放回草稿与附件，
+        // 用户不必重打一遍。
+        setMessages((current) => withdrawUnsentQuestion(current, message));
+        setDraft((current) => current || draft);
+        setAttachments((current) => [...sentAttachments, ...current]);
+      });
   };
 
   const cancelRun = () => {

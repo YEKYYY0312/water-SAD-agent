@@ -63,6 +63,15 @@ class RunNotManagedError(RunManagerError):
     """The process has no event log for the requested run."""
 
 
+class ThreadBusyError(RunManagerError):
+    """The thread already has a queued or running run in this process.
+
+    Two runs on one thread write the same checkpoint and the later writer wins:
+    the earlier question and answer silently vanish from the history and from
+    every later turn's context (review 2026-09-30, reproduced).
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RunEvent:
     event_id: int
@@ -326,6 +335,9 @@ class RunManager:
             session_dir=session_dir,
         )
         self._handles: dict[str, _RunHandle] = {}
+        #: thread_id → 该会话当前未收口的 run_id。互斥只在进程内判定：Web 是单实例，
+        #: 数据库里 queued/running 的行在进程崩溃后会残留，按它判定会把会话永久锁死。
+        self._active_by_thread: dict[str, str] = {}
         # 历史读取用的 checkpointer 工厂；测试替换成内存实现（SQLite 上没有 PG saver）。
         self.checkpointer_factory: Callable[[Database], Any] = postgres_checkpointer
         self._lock = RLock()
@@ -353,10 +365,29 @@ class RunManager:
         with self._lock:
             if run_key in self._handles:
                 raise ValueError("run already exists")
+            if self._thread_busy_locked(handle.thread_id):
+                raise ThreadBusyError("thread already has an active run")
             self._handles[run_key] = handle
+            self._active_by_thread[handle.thread_id] = run_key
         self._append(handle, "run_queued", {"status": "queued"})
         self._executor.submit(self._execute, handle, principal, query)
         return {"run_id": run_key, "thread_id": str(thread_id), "status": "queued"}
+
+    def thread_busy(self, thread_id: UUID | str) -> bool:
+        """Whether this thread already has a run that has not finished yet."""
+
+        with self._lock:
+            return self._thread_busy_locked(str(thread_id))
+
+    def _thread_busy_locked(self, thread_id: str) -> bool:
+        run_key = self._active_by_thread.get(thread_id)
+        if run_key is None:
+            return False
+        handle = self._handles.get(run_key)
+        if handle is None or handle.finalized:
+            del self._active_by_thread[thread_id]
+            return False
+        return True
 
     def thread_messages(self, thread_id: UUID | str, user_id: UUID) -> list[dict[str, Any]]:
         """Read a thread's conversation for the browser, re-authorized by the saver."""
@@ -972,6 +1003,9 @@ class RunManager:
             handle.finalizing = False
             handle.finalized = True
             handle.condition.notify_all()
+        with self._lock:
+            if self._active_by_thread.get(handle.thread_id) == handle.run_id:
+                del self._active_by_thread[handle.thread_id]
 
     @staticmethod
     def _finish_trace(handle: _RunHandle, status: str, error: object | None) -> None:
@@ -1192,6 +1226,7 @@ __all__ = [
     "RunManager",
     "RunManagerError",
     "RunNotManagedError",
+    "ThreadBusyError",
     "WebAgenticSessionFactory",
     "parse_last_event_id",
 ]
