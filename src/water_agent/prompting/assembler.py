@@ -35,6 +35,7 @@ from water_agent.memory.recall import (
     MemoryRecallResult,
     render_memory_context,
 )
+from water_agent.prompting.history import window_messages
 from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
 from water_agent.tools.registry import ToolRegistry
 
@@ -59,7 +60,7 @@ SEGMENT_BUDGETS: dict[str, int] = {
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-step49-file-context-2026-09-29"
+PROMPT_TEMPLATE_VERSION = "p5-history-window-2026-10-01"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -148,11 +149,13 @@ class PromptAssembler:
     def __call__(self, state: dict[str, Any] | None = None) -> list[BaseMessage]:
         """``create_react_agent`` 的 ``prompt`` 可调用签名。
 
-        接收 state（含 messages），返回 ``[SystemMessage, ...] + state_messages``。
+        接收 state（含 messages），返回 ``[SystemMessage] + 会话历史窗口``：之前的轮次只保留
+        问题与最终回答、有轮数与字符上限，本轮原样保留（见 ``prompting/history.py``）。
+        checkpoint 不受影响——窗口只是发给模型的视图。
         """
         if state is None:
             state = {}
-        messages = list(state.get("messages", []))
+        messages = window_messages(list(state.get("messages", [])))
         sys_msg = self.assemble_prompt(state)
         return [sys_msg] + messages
 

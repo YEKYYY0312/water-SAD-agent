@@ -8,7 +8,6 @@ kept here so the CLI and Web cannot silently grow different agent runtimes.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import sqlite3
@@ -24,7 +23,13 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
-from water_agent.graphs.agent_rag import PER_TURN_RESET, astream_agentic, build_agentic_app
+from water_agent.graphs.agent_rag import (
+    PER_TURN_RESET,
+    _extract_validation_signal,
+    astream_agentic,
+    build_agentic_app,
+    stream_agentic,
+)
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.wiring import (
     load_mcp_gateway,
@@ -35,6 +40,7 @@ from water_agent.mcp.wiring import (
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.prompting import PromptAssembler
+from water_agent.prompting.history import RUNTIME_CONTEXT_PREFIX
 from water_agent.prompting.runtime_context import RuntimeContextProjection, default_context_builder
 from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -50,6 +56,7 @@ from water_agent.retrieval.trivium import (
     TriviumRetriever,
     resolve_index_path,
 )
+from water_agent.runtime.cancellation import RunCancelled, cancellation_scope
 from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
@@ -297,7 +304,7 @@ class _ScriptedAgenticModel(BaseChatModel):
             if (
                 isinstance(message, HumanMessage)
                 and isinstance(message.content, str)
-                and not message.content.startswith("[运行时上下文]")
+                and not message.content.startswith(RUNTIME_CONTEXT_PREFIX)
             ):
                 return message.content
         return ""
@@ -350,22 +357,45 @@ class _ScriptedAgenticModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
 
 
+def _latest_runtime_context(messages: list[Any]) -> str | None:
+    """会话里最近一次注入的运行时上下文正文（没有则 None）。"""
+    for message in reversed(messages):
+        content = getattr(message, "content", None)
+        if (
+            isinstance(message, HumanMessage)
+            and isinstance(content, str)
+            and content.startswith(RUNTIME_CONTEXT_PREFIX)
+        ):
+            return content[len(RUNTIME_CONTEXT_PREFIX) :].lstrip("\n")
+    return None
+
+
 def _initial_messages_with_runtime_context(
     query: str,
     projection: RuntimeContextProjection,
     *,
     session_refs: list[str] | None = None,
+    history: list[Any] | None = None,
 ) -> list[HumanMessage]:
+    """本轮的输入消息：问题本身，外加"变化才注入"的运行时上下文。
+
+    ``history`` 是这条 thread 已有的消息：上下文与会话里最近一次注入的相同就不再注入。
+    此前只靠 ``projection`` 的进程内哈希判断"变没变"，而 Web 每个 run 新建 session、
+    projection 也随之新建——每一轮都重新注入一遍，6 轮对话 prompt 里就有 6 份相同的前言
+    （review 2026-09-30）。
+    """
     context = default_context_builder(session_refs=session_refs)
-    context_text = projection.project(context)
+    rendered = projection.render(context)
+    if history is not None and _latest_runtime_context(history) == rendered:
+        # 会话里已有同样的前言：记下哈希，让同一 session 的下一轮也走"未变化"分支
+        projection.project(context)
+        context_text = None
+    else:
+        context_text = projection.project(context)
     messages: list[HumanMessage] = [HumanMessage(content=query)]
     if context_text:
-        messages.insert(0, HumanMessage(content=f"[运行时上下文]\n{context_text}"))
+        messages.insert(0, HumanMessage(content=f"{RUNTIME_CONTEXT_PREFIX}\n{context_text}"))
     return messages
-
-
-class RunCancelled(RuntimeError):
-    """Raised by cooperative Agentic streaming when a Web run is cancelled."""
 
 
 class AgenticSession:
@@ -377,8 +407,9 @@ class AgenticSession:
     评测测的就是生产运行时本身，而不是另起一套。
     """
 
-    #: RunManager 只给声明支持的会话传 ``attachment_context``（AgentSessionFactory 是协议）。
+    #: RunManager 只给声明支持的会话传 ``attachment_context`` / ``on_draft``（AgentSessionFactory 是协议）。
     supports_attachment_context = True
+    supports_draft_stream = True
 
     def __init__(
         self,
@@ -464,9 +495,13 @@ class AgenticSession:
 
         registry = ToolRegistry(principal=principal, trace=self.recorder)
 
-        # 启用引用可追溯性检查（Step 8，2026-09-16）
+        # 引用可追溯性检查（Step 8，2026-09-16）。可用条款号取自本 thread 的会话消息（与引用
+        # 校验器同源）：Web 每个 run 新建 session，只靠进程内闭包时第二问引用第一问检索到的
+        # 条款会被当场拒绝（review 2026-09-30）。
         from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
+        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check(
+            context_source=self._thread_retrieved_source_ids
+        )
 
         registry.register(build_retrieve_clauses_tool(tool_retriever, context_updater=context_updater))
         registry.register(cite_tool_spec)
@@ -493,6 +528,15 @@ class AgenticSession:
             cache_service=_build_cache_service(args) if not args.mock_generator else None,
         )
 
+    def _thread_retrieved_source_ids(self) -> set[str]:
+        """本 thread 历来 ``retrieve_clauses`` 返回过的 source_id（读 checkpoint，不读进程内态）。
+
+        读不到（checkpoint 不可用、首轮尚无记录）就返回空集合：cite 工具此时只用本 session
+        内累积的检索结果判定，不会放宽——空集合不是"全部放行"，见 cite 工具的并集语义。
+        """
+        context_ids, _, _ = _extract_validation_signal({"messages": self._thread_messages()})
+        return set(context_ids)
+
     def start_trace(self, run_id: str, query: str) -> None:
         if not self.recorder.started:
             self.recorder.start(run_id=run_id, trace_id=uuid4().hex, query=query)
@@ -507,8 +551,14 @@ class AgenticSession:
         attachment_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
+        on_draft: Callable[[str, dict[str, Any]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        """异步作答（Web 与流式路径）。
+
+        ``on_token`` 收本轮已过输出护栏的草稿文本；``on_draft`` 收草稿事件（delta/retract/
+        closed），草稿可撤回，最终回答以返回值的 ``answer`` 为准（见 ``agent_rag.DraftPump``）。
+        """
         effective_run_id = run_id or uuid4().hex
         self.start_trace(effective_run_id, query)
 
@@ -524,31 +574,37 @@ class AgenticSession:
             if on_event is not None:
                 on_event(mode, payload)
 
-        initial_messages = _initial_messages_with_runtime_context(
-            query, self.projection, session_refs=[self.thread_id]
-        )
-        result = await astream_agentic(
-            self.app,
-            query,
-            self.config,
-            on_token=checked_token,
-            on_event=checked_event,
-            messages=initial_messages,
-            memory_context=memory_context,
-            upload_context=upload_context,
-            attachment_context=attachment_context,
-        )
+        initial_messages = self._initial_messages(query)
+        # 取消检查经 ContextVar 下传到模型调用与工具执行（runtime/cancellation.py）：此前只在
+        # 事件回调里检查，内层工具循环取消后照样把剩下的模型/工具调用跑完。
+        with cancellation_scope(cancel_check):
+            result = await astream_agentic(
+                self.app,
+                query,
+                self.config,
+                on_token=checked_token if on_token is not None else None,
+                on_event=checked_event,
+                on_draft=on_draft,
+                messages=initial_messages,
+                memory_context=memory_context,
+                upload_context=upload_context,
+                attachment_context=attachment_context,
+                request_context=self.request_context,
+            )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
         return self._payload(result, query=query, streamed=on_token is not None)
 
     def ask(self, query: str) -> dict[str, Any]:
-        streamed = bool(getattr(self.args, "stream", False)) and not self.args.mock_generator
+        """同步作答（CLI）。``--stream`` 时逐句打印已过护栏的草稿。
+
+        CLI 的会话 checkpointer 是同步 ``SqliteSaver``：LangGraph 拒绝经由它的 async 方法驱动
+        图，所以流式也走同步 ``stream_agentic``（此前走 ``aask``，``--mode agentic --stream``
+        接真实模型必然 ``NotImplementedError``）。被撤回的草稿在终端里如实标出，最终回答以
+        payload 的 ``answer`` 为准。
+        """
+        streamed = bool(getattr(self.args, "stream", False))
         if not streamed:
-            # The CLI keeps the synchronous graph invocation it has always used:
-            # the session checkpointer is a sync SqliteSaver, which LangGraph
-            # refuses to drive through its async methods.  Only the streaming
-            # and Web paths need ``aask``.
             # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，
             # 不清空就会读到 checkpoint 里上一轮残留的值（见 astream_agentic 的说明）。
             state = self.app.invoke(
@@ -563,15 +619,39 @@ class AgenticSession:
                 config=self.config,
             )
             return self._payload(state, query=query, streamed=False)
-        payload = asyncio.run(
-            self.aask(query, on_token=lambda token: print(token, end="", flush=True))
+
+        def on_draft(kind: str, payload: dict[str, Any]) -> None:
+            if kind == "draft_delta":
+                print(payload.get("text", ""), end="", flush=True)
+            elif kind == "draft_retract":
+                print("\n[以上草稿已撤回]", flush=True)
+
+        state = stream_agentic(
+            self.app,
+            query,
+            self.config,
+            on_draft=on_draft,
+            messages=self._initial_messages(query),
+            request_context=self.request_context,
         )
         print(flush=True)
-        return payload
+        return self._payload(state, query=query, streamed=True)
+
+    def _thread_messages(self) -> list[Any]:
+        """本 thread 已持久化的消息；读不到（首轮、checkpoint 不可用）就当作空会话。"""
+        try:
+            snapshot = self.app.get_state(self.config)
+        except Exception:  # noqa: BLE001 — 读不到历史只影响"变化才注入"的判断，不影响作答
+            return []
+        values = getattr(snapshot, "values", None) or {}
+        return list(values.get("messages", []) or [])
 
     def _initial_messages(self, query: str) -> list[Any]:
         return _initial_messages_with_runtime_context(
-            query, self.projection, session_refs=[self.thread_id]
+            query,
+            self.projection,
+            session_refs=[self.thread_id],
+            history=self._thread_messages(),
         )
 
     def _payload(self, state: dict[str, Any], *, query: str, streamed: bool) -> dict[str, Any]:

@@ -164,26 +164,34 @@ def project_conversation(
 
     guard = pipeline if pipeline is not None else default_guardrail_pipeline()
     context = local_request_context(thread_id=f"history-{thread_id}")
-    turns: list[tuple[str, str | None]] = []
+    from water_agent.graphs.agent_rag import TURN_STATUS_KEY
+
+    turns: list[tuple[str, str | None, str | None]] = []
     for message in messages:
         if isinstance(message, HumanMessage):
             text = message.content if isinstance(message.content, str) else ""
             if not text or text.startswith(_RUNTIME_CONTEXT_PREFIX):
                 continue
-            turns.append((text, None))
+            turns.append((text, None, None))
         elif isinstance(message, AIMessage) and turns and not message.tool_calls:
             if isinstance(message.content, str) and message.content.strip():
-                turns[-1] = (turns[-1][0], message.content)
+                stamped = (message.additional_kwargs or {}).get(TURN_STATUS_KEY)
+                turns[-1] = (turns[-1][0], message.content, stamped if isinstance(stamped, str) else None)
     projected: list[dict[str, Any]] = []
-    for question, answer in turns[-MAX_HISTORY_TURNS:]:
+    for question, answer, status in turns[-MAX_HISTORY_TURNS:]:
         projected.append({"role": "user", "text": question})
         if answer is None:
             continue
         outcome = guard.check_output(answer, context)
-        if outcome.allowed:
-            projected.append({"role": "agent", "text": outcome.content, "withheld": False})
-        else:
-            projected.append({"role": "agent", "text": "", "withheld": True})
+        entry: dict[str, Any] = (
+            {"role": "agent", "text": outcome.content, "withheld": False}
+            if outcome.allowed
+            else {"role": "agent", "text": "", "withheld": True}
+        )
+        # 收口状态随答案持久化（agent_rag._stamp_status）；没有标记的是旧会话，不猜
+        if status is not None:
+            entry["status"] = status
+        projected.append(entry)
     return projected
 
 
@@ -500,15 +508,17 @@ class RunManager:
                 if attachment_context is not None:
                     extra["attachment_context"] = attachment_context
 
+                # 草稿：模型正在写的回答，逐句过输出护栏后才下发（agent_rag.DraftPump），可被撤回；
+                # 最终回答仍只以 finalize 的 answer 为准。只给声明支持的会话传（协议兼容，
+                # 同 attachment_context）。
+                if getattr(session, "supports_draft_stream", False):
+                    extra["on_draft"] = lambda kind, payload: self._on_draft(handle, kind, payload)
                 result = asyncio.run(
                     session.aask(
                         query,
                         run_id=handle.run_id,
                         memory_context=memory_context,
-                        # 回答正文只随 finalize 下发：输出护栏在 finalize 才跑，逐 token 转发等于
-                        # 把被拦截/待脱敏的原文先推给浏览器（review 2026-09-30）。当前生产路径
-                        # 本来也没有真流式（模型整条返回、节点结束才出事件），这里不损失体验；
-                        # 将来接真流式须同时设计"草稿可撤回"语义。
+                        # 不再有逐 token 事件：未过护栏的模型原文绝不进 SSE（review 2026-09-30）。
                         on_token=lambda _token: None,
                         on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
                         cancel_check=lambda: self._is_cancel_requested(handle),
@@ -664,6 +674,23 @@ class RunManager:
         )
         return result if result.hits else None
 
+    #: 草稿 SSE 事件只透传这三个形态，payload 字段逐个白名单（不透传任何未知键）。
+    _DRAFT_EVENTS = frozenset({"draft_delta", "draft_retract", "draft_closed"})
+
+    def _on_draft(self, handle: _RunHandle, kind: str, payload: dict[str, Any]) -> None:
+        if kind not in self._DRAFT_EVENTS:
+            return
+        safe: dict[str, Any] = {}
+        if kind == "draft_delta":
+            text = payload.get("text")
+            if not isinstance(text, str) or not text:
+                return
+            safe = {"text": _safe_text(text), "offset": int(payload.get("offset") or 0)}
+        elif kind == "draft_retract":
+            reason = payload.get("reason")
+            safe = {"reason": reason if reason in {"revised", "guardrail", "run_ended"} else "revised"}
+        self._append(handle, kind, safe)
+
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
         with handle.condition:
             return handle.cancel_requested
@@ -694,8 +721,12 @@ class RunManager:
                     name = str(item.get("name") or "") if isinstance(item, dict) else str(getattr(item, "name", "") or "")
                     call_id = str(item.get("id") or "") if isinstance(item, dict) else str(getattr(item, "id", "") or "")
                     # 校验器注入的合成调用是图边界，不是工具：发 tool_started 却永远等不到
-                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。
+                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。未注册的名字
+                    # （畸形调用改写成的 invalid_tool_call 等）同理——观察器只为已注册工具出卡片。
                     if not name or name == "citation_validator":
+                        continue
+                    registry = getattr(handle.session, "registry", None)
+                    if registry is not None and registry.get(name) is None:
                         continue
                     names.append(name)
                     marker = call_id or name

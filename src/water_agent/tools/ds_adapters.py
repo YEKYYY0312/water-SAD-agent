@@ -20,6 +20,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from pydantic import ConfigDict
 
+from water_agent.runtime.cancellation import raise_if_cancelled
 from water_agent.tools.registry import ToolRegistry
 
 
@@ -44,6 +45,8 @@ class _RegistryBackedTool(StructuredTool):
     ) -> Any:
         if self.registry is None:
             raise RuntimeError("工具未绑定 registry")
+        # 已取消的运行不再执行新的工具调用（RunCancelled 由 ToolNode 原样上抛，不转成 observation）
+        raise_if_cancelled()
         return self.registry.invoke(self.tool_name, **kwargs)
 
 
