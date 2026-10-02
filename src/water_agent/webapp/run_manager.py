@@ -164,26 +164,34 @@ def project_conversation(
 
     guard = pipeline if pipeline is not None else default_guardrail_pipeline()
     context = local_request_context(thread_id=f"history-{thread_id}")
-    turns: list[tuple[str, str | None]] = []
+    from water_agent.graphs.agent_rag import TURN_STATUS_KEY
+
+    turns: list[tuple[str, str | None, str | None]] = []
     for message in messages:
         if isinstance(message, HumanMessage):
             text = message.content if isinstance(message.content, str) else ""
             if not text or text.startswith(_RUNTIME_CONTEXT_PREFIX):
                 continue
-            turns.append((text, None))
+            turns.append((text, None, None))
         elif isinstance(message, AIMessage) and turns and not message.tool_calls:
             if isinstance(message.content, str) and message.content.strip():
-                turns[-1] = (turns[-1][0], message.content)
+                stamped = (message.additional_kwargs or {}).get(TURN_STATUS_KEY)
+                turns[-1] = (turns[-1][0], message.content, stamped if isinstance(stamped, str) else None)
     projected: list[dict[str, Any]] = []
-    for question, answer in turns[-MAX_HISTORY_TURNS:]:
+    for question, answer, status in turns[-MAX_HISTORY_TURNS:]:
         projected.append({"role": "user", "text": question})
         if answer is None:
             continue
         outcome = guard.check_output(answer, context)
-        if outcome.allowed:
-            projected.append({"role": "agent", "text": outcome.content, "withheld": False})
-        else:
-            projected.append({"role": "agent", "text": "", "withheld": True})
+        entry: dict[str, Any] = (
+            {"role": "agent", "text": outcome.content, "withheld": False}
+            if outcome.allowed
+            else {"role": "agent", "text": "", "withheld": True}
+        )
+        # 收口状态随答案持久化（agent_rag._stamp_status）；没有标记的是旧会话，不猜
+        if status is not None:
+            entry["status"] = status
+        projected.append(entry)
     return projected
 
 
@@ -713,8 +721,12 @@ class RunManager:
                     name = str(item.get("name") or "") if isinstance(item, dict) else str(getattr(item, "name", "") or "")
                     call_id = str(item.get("id") or "") if isinstance(item, dict) else str(getattr(item, "id", "") or "")
                     # 校验器注入的合成调用是图边界，不是工具：发 tool_started 却永远等不到
-                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。
+                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。未注册的名字
+                    # （畸形调用改写成的 invalid_tool_call 等）同理——观察器只为已注册工具出卡片。
                     if not name or name == "citation_validator":
+                        continue
+                    registry = getattr(handle.session, "registry", None)
+                    if registry is not None and registry.get(name) is None:
                         continue
                     names.append(name)
                     marker = call_id or name

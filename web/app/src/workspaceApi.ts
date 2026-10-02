@@ -130,7 +130,7 @@ async function decodeEnvelope<T>(response: Response): Promise<T> {
 }
 
 /** 历史对话的一条（后端只投影用户问题与每轮最终回答，被输出护栏拦下的回答 withheld）。 */
-export type HistoryMessage = { role: "user" | "agent"; text: string; withheld?: boolean };
+export type HistoryMessage = { role: "user" | "agent"; text: string; withheld?: boolean; status?: string };
 
 export class WorkspaceApi {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
