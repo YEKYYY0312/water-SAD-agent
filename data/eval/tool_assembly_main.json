@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S0 首次采集：main 27c925a 上未改动的装配代码",
+    "last_write_reason": "P7-S1：确认门执行期强制——confirmation_handler_ready=true 配置期拒绝，TOOL_POLICY_VERSION 递进",
     "python": "3.12.14"
   },
   "profiles": {
@@ -1522,193 +1522,19 @@
     "session_mcp_ready_flag": {
       "description": "confirmation_handler_ready=true：现状是直接暴露并放行（F7，S1 修复）",
       "lifecycle": {
-        "app": {
-          "app_kwargs": [
-            "cache_service",
-            "checkpointer",
-            "model",
-            "prompt",
-            "request_context",
-            "tools",
-            "trace"
-          ],
-          "cache_service": null,
-          "chat_model_principal": null,
-          "checkpointer": "InMemorySaver",
-          "max_tool_turns": null,
-          "probes": {
-            "cite": {
-              "code": null,
-              "invalid_ids": [
-                "GB00000-0000 9.9.9"
-              ],
-              "registered": false
-            },
-            "mcp_echo": {
-              "mcp_snapready_echo_query": {
-                "code": null,
-                "error": false,
-                "keys": [
-                  "content_text",
-                  "ok",
-                  "server_id",
-                  "structured_content",
-                  "tool",
-                  "unsupported_blocks"
-                ]
-              }
-            },
-            "retrieve": {
-              "error": false,
-              "ids": [
-                "FIX 1.1.1",
-                "FIX 2.1.1",
-                "FIX 2.2.1"
-              ]
-            },
-            "retriever_chain": [
-              "RerankingRetriever",
-              "TriviumRetriever"
-            ]
-          },
-          "tools_bound_to_prompt_registry": true
+        "app": null,
+        "captures": 0,
+        "exception": {
+          "code": "MCP_CONFIG_INVALID",
+          "type": "MCPError"
         },
-        "captures": 1,
-        "exception": null,
-        "mcp": [
-          {
-            "exposed": [
-              "mcp_snapready_echo_query",
-              "mcp_snapready_lookup_project"
-            ],
-            "manifest_hash_nonempty": true,
-            "skipped_servers": [],
-            "skipped_tools": [
-              [
-                "snapready",
-                "dangerous_write",
-                "MCP_NOT_IN_ALLOWLIST"
-              ],
-              [
-                "snapready",
-                "nested_schema_tool",
-                "MCP_UNSUPPORTED_SCHEMA"
-              ],
-              [
-                "snapready",
-                "unlisted_tool",
-                "MCP_NOT_IN_ALLOWLIST"
-              ]
-            ]
-          }
-        ],
+        "mcp": [],
         "mcp_clients_alive_after_scope": 0,
-        "stack": [
-          "callback:MCPGatewayAssembly.close"
-        ],
+        "stack": [],
         "trace_record_calls": []
       },
       "side": "session",
-      "surface": {
-        "model_tool_order": [
-          "calc_velocity",
-          "cite_clauses",
-          "material_stats",
-          "mcp_snapready_echo_query",
-          "mcp_snapready_lookup_project",
-          "retrieve_clauses"
-        ],
-        "principal": {
-          "auth_domain": "local",
-          "capabilities": [
-            "calculate",
-            "cite_clauses",
-            "embedding",
-            "export_to_allowed_dir",
-            "llm_inference",
-            "material_stats",
-            "mcp_invoke",
-            "read_drawing",
-            "rerank",
-            "retrieve_clauses"
-          ],
-          "kind": "local_cli"
-        },
-        "registration_order": [
-          "retrieve_clauses",
-          "cite_clauses",
-          "calc_velocity",
-          "material_stats",
-          "mcp_snapready_echo_query",
-          "mcp_snapready_lookup_project"
-        ],
-        "registry_principal": {
-          "auth_domain": "local",
-          "capabilities": [
-            "calculate",
-            "cite_clauses",
-            "embedding",
-            "export_to_allowed_dir",
-            "llm_inference",
-            "material_stats",
-            "mcp_invoke",
-            "read_drawing",
-            "rerank",
-            "retrieve_clauses"
-          ],
-          "kind": "local_cli"
-        },
-        "schema_chars_total": 4770,
-        "system_prompt": {
-          "chars": 1470,
-          "sha256": "16019d287d18d6f1"
-        },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
-        "tools": {
-          "calc_velocity": {
-            "execute": "_execute",
-            "has_guard": false,
-            "schema_chars": 953,
-            "schema_sha256": "0309541c963ee650",
-            "timeout_seconds": 30.0
-          },
-          "cite_clauses": {
-            "execute": "build_cite_clauses_tool_with_context_check.<locals>.execute_with_check",
-            "has_guard": false,
-            "schema_chars": 576,
-            "schema_sha256": "56d52ff8c038205a",
-            "timeout_seconds": 30.0
-          },
-          "material_stats": {
-            "execute": "_execute",
-            "has_guard": false,
-            "schema_chars": 1412,
-            "schema_sha256": "0ca7ba1bd69ed8db",
-            "timeout_seconds": 30.0
-          },
-          "mcp_snapready_echo_query": {
-            "execute": "_make_execute.<locals>.execute",
-            "has_guard": false,
-            "schema_chars": 592,
-            "schema_sha256": "3a94bedc8e606521",
-            "timeout_seconds": 35.0
-          },
-          "mcp_snapready_lookup_project": {
-            "execute": "_make_execute.<locals>.execute",
-            "has_guard": false,
-            "schema_chars": 635,
-            "schema_sha256": "7c728ce8bc0c56ef",
-            "timeout_seconds": 35.0
-          },
-          "retrieve_clauses": {
-            "execute": "_make_execute.<locals>.execute",
-            "has_guard": false,
-            "schema_chars": 590,
-            "schema_sha256": "49d243f6cf6d66d3",
-            "timeout_seconds": 30.0
-          }
-        }
-      }
+      "surface": null
     },
     "session_mcp_register_fault": {
       "description": "MCP 工具注册抛错：会话路径不降级、直接抛出",
@@ -2106,6 +1932,6 @@
   "versions": {
     "MCP_CONFIG_VERSION": "p4-step23-2026-09-08",
     "PROMPT_TEMPLATE_VERSION": "p5-history-window-2026-10-01",
-    "TOOL_POLICY_VERSION": "p3-step20-2026-09-07"
+    "TOOL_POLICY_VERSION": "p7-step1-2026-10-03"
   }
 }

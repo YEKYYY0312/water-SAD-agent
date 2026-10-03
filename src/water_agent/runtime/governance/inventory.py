@@ -225,7 +225,9 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: P3 Step 18：新增 `Capability.READ_DRAWING` 与 `ToolPolicy.allowed_read_dirs`，
 #: capability 映射面已变，故递进版本号。
 #: P3 Step 20：新增 `read_drawing` 工具，可用工具集已变，再次递进。
-TOOL_POLICY_VERSION = "p3-step20-2026-09-07"
+#: P7 S1：`confirmation_handler_ready=true` 配置期拒绝 + 需确认的 MCP 工具执行期拒绝，
+#: 可用工具集已变（这类 server 不再能被暴露），递进。
+TOOL_POLICY_VERSION = "p7-step1-2026-10-03"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
@@ -308,8 +310,9 @@ class McpToolBinding(BaseModel):
     remote_tool: str = Field(min_length=1)
     capability: Capability
     #: server 配置是否显式声明了该工具的写/危险操作需人工确认。
-    #: 桥接层据此把工具标记为 ``requires_human_confirmation``；未确认前调用
-    #: 一律被护栏拒绝（P4 验收"危险操作需人工确认"的登记面）。
+    #: 为 ``True`` 的绑定，``GuardrailPipeline.validate_tool_call`` 一律以
+    #: ``tool.confirmation_required`` 拒绝调用（P7-S1）——确认门（P7-S7）接线之前
+    #: 不存在"确认后放行"的路径，这是装配期拒绝之外的第二道防线。
     requires_human_confirmation: bool = False
 
 
@@ -343,6 +346,11 @@ def register_mcp_tool_binding(binding: McpToolBinding) -> None:
 def mcp_tool_bindings() -> frozenset[McpToolBinding]:
     """当前全部 MCP 绑定（只读视图，供测试与 governance_coverage 消费）。"""
     return frozenset(_MCP_RUNTIME_BINDINGS.values())
+
+
+def mcp_tool_binding(tool_name: str) -> McpToolBinding | None:
+    """按工具名查运行时 MCP 绑定；不是 MCP 工具（或未登记）返回 ``None``。"""
+    return _MCP_RUNTIME_BINDINGS.get(tool_name)
 
 
 def clear_mcp_tool_bindings() -> None:
@@ -478,6 +486,7 @@ __all__ = [
     "capability_for_tool",
     "clear_mcp_tool_bindings",
     "governance_coverage",
+    "mcp_tool_binding",
     "mcp_tool_bindings",
     "register_mcp_tool_binding",
     "registered_call_site_modules",
