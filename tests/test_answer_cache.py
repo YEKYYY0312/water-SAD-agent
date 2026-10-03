@@ -923,6 +923,10 @@ class TestContextBudgetReview:
         headroom 仅 130。**上限刻意保持 4500 不上调** —— 为了塞进新工具而抬高预算
         护栏，等于把这条断言变成事后追认。Step 21 若再加工具很可能撞破，
         届时必须实施按意图最小暴露，而不是再改这个数（规格 §9 第 5 条）。
+
+        2026-10-02（P7-S0）重测：5 工具 4497（`read_drawing` 956），余量只剩 3——
+        cite/retrieve 的描述在 Step 20 之后增长过，当时没有重测。现行数字由
+        `tests/test_p7_known_figures.py` 读装配快照基线锁定，文档不再手抄。
         """
         from water_agent.prompting.assembler import _estimate_tokens
 

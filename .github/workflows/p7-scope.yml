@@ -1,0 +1,24 @@
+name: p7-scope
+
+# P7 改动范围守卫（docs/design/16-p7-plugin-mcp.md §6.4）。PR 分支名形如 YEK/p7-s<n>-… 时，
+# 用 merge-base 上该步执行 Prompt 的范围块核对这个 PR 的全部改动；其他分支与 S0 直接跳过。
+# 计算 merge-base 需要完整历史：浅克隆时脚本以 exit 2 失败，不会假通过。
+on:
+  pull_request:
+
+jobs:
+  step-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # 脚本只用标准库，不需要安装项目依赖
+      - name: Check the step scope
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: python scripts/check_step_scope.py --auto --base "origin/${{ github.base_ref }}"
