@@ -57,7 +57,7 @@
 | F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | S4 |
 | F5 | 工具指引 800 字预算已截掉 `read_drawing`（"省略 1 行"）；两个 MCP 工具时截掉 2 行、schema 4724 字符，且 `tests/test_answer_cache.py` 的预算只装配本地工具 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | S4 |
 | F6 | MCP 工具已暴露，缓存服务的 `mcp_server_manifest` 仍恒为 `""`（`_build_cache_service` 不传） | `tests/test_p7_known_figures.py::test_mcp_manifest_never_reaches_the_cache_service` | S3 |
-| F7 | `requires_human_confirmation` 只在装配期检查，执行期不查；`confirmation_handler_ready=true` 时这类工具直接暴露并可调用。`inventory.py` 的注释声称会拒绝，实际没有 | `tests/test_p7_known_figures.py::test_confirmation_flag_is_not_enforced_at_call_time` | **S1** |
+| F7 | ~~`requires_human_confirmation` 只在装配期检查，执行期不查；`confirmation_handler_ready=true` 时这类工具直接暴露并可调用~~ **S1 已修**：确认门（S7）接线前 `confirmation_handler_ready=true` 在加载期即 `MCP_CONFIG_INVALID`；运行时绑定要求确认的工具执行期一律 `tool.confirmation_required` 拒绝 | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | S1 已交付 |
 | F8 | 每个 Web run 都重新 spawn 全部 MCP 子进程 | 无测试（`run_manager.py` 每个 run 新建会话） | S5 |
 | F9 | `env_file` 相对路径按 cwd 解析；文件缺失时在 `connect()` 内抛错，被 `open_bridge` 转成该台 server 跳过——配置错误被静默降级 | 无测试 | S3 |
 | F10 | 入仓 `data/mcp_servers.json` 的 `allow: ["read_dwg"]` 在上游 server 里不存在；`tests/test_mcp_wiring.py` 的相关用例已过期 | 无测试（依赖本机 autocad-mcp） | S3 |
@@ -174,7 +174,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | 步 | 对应 | 内容 | 执行 Prompt | 状态 |
 |---|---|---|---|---|
 | S0 | — | 规格 + 任务书 + 防漂移 harness（H0–H5）+ 装配快照基线 | 范围块在任务书附录 | delivered |
-| S1 | F7 | 确认门执行期强制 | `docs/execution-prompts/P7-S1-confirmation-gate.md` | planned |
+| S1 | F7 | 确认门执行期强制 | `docs/execution-prompts/P7-S1-confirmation-gate.md` | delivered |
 | S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | planned |
 | S3 | Step B | 配置分层、每台 server 一个插件实例、`disabled`、受信 entry point；修 F6/F9/F10/F13；预算测试计入 MCP 工具 | 开工前另写 | planned |
 | S4 | Step C | 按意图最小暴露 / 工具分组；修 F4/F5（先建 `tool_exposure_p0`） | 开工前另写 | planned |
@@ -315,7 +315,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S0-A12 | F4：本地工具 schema 4497、余量 3 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | delivered |
 | P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | delivered |
 | P7-S0-A14 | F6：manifest 不进缓存服务 | `tests/test_p7_known_figures.py::test_mcp_manifest_never_reaches_the_cache_service` | delivered |
-| P7-S0-A15 | F7：确认门执行期不检查（现状） | `tests/test_p7_known_figures.py::test_confirmation_flag_is_not_enforced_at_call_time` | delivered |
+| P7-S0-A15 | F7：确认门执行期不检查（S0 时的现状；S1 修复后由 P7-S1-A03 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A16 | F13：runner 的 MCP trace 事件从未落盘（现状） | `tests/test_p7_known_figures.py::test_runner_mcp_trace_events_never_land` | delivered |
 | P7-S0-A17 | F2：runner 路径与会话路径的可观察差异（现状） | `tests/test_p7_known_figures.py::test_runner_path_differs_from_session_path` | delivered |
 | P7-S0-A18 | 本规格的追溯关系成立（delivered 行的测试存在、未 skip、docstring 含 ID；测试里的 ID 都有定义） | `tests/test_p7_traceability.py::test_spec_traceability_holds` | delivered |
@@ -339,9 +339,9 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 | ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S1-A01 | 确认门接线（S7）之前，配置里 `confirmation_handler_ready=true` 在加载期即被拒绝（`MCP_CONFIG_INVALID`，说明原因与解锁条件） | `tests/test_mcp_wiring.py::test_ready_flag_rejected_until_confirmation_gate_exists` | planned |
-| P7-S1-A02 | 执行期纵深防御：运行时绑定 `requires_human_confirmation=True` 的工具调用被护栏拒绝（规则 id `tool.confirmation_required`），绕过配置加载直接构造配置也拦得住 | `tests/test_tool_policy.py::test_confirmation_required_tool_blocked_at_call_time` | planned |
-| P7-S1-A03 | 快照有意变更：`session_mcp_ready_flag` 由"暴露并放行"变为配置错误，其余 profile 不变；`TOOL_POLICY_VERSION` 递进；事实 F7 更新 | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | planned |
+| P7-S1-A01 | 确认门接线（S7）之前，配置里 `confirmation_handler_ready=true` 在加载期即被拒绝（`MCP_CONFIG_INVALID`，说明原因与解锁条件） | `tests/test_mcp_wiring.py::test_ready_flag_rejected_until_confirmation_gate_exists` | delivered |
+| P7-S1-A02 | 执行期纵深防御：运行时绑定 `requires_human_confirmation=True` 的工具调用被护栏拒绝（规则 id `tool.confirmation_required`），绕过配置加载直接构造配置也拦得住 | `tests/test_tool_policy.py::TestConfirmationGate::test_confirmation_required_tool_blocked_at_call_time` | delivered |
+| P7-S1-A03 | 快照有意变更：`session_mcp_ready_flag` 由"暴露并放行"变为配置错误，其余 profile 不变；`TOOL_POLICY_VERSION` 递进；事实 F7 更新 | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | delivered |
 
 ### S2：插件契约与单入口（Step A）
 
@@ -361,6 +361,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 ### 未覆盖项（显式声明）
 
+- **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S2-A11**：真实质量层需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内。没有 Key 时记为
   blocked，**不得**声称真实质量未回退。
 - **F8 / F9 / F10**：留到对应步骤（S5 / S3）写测试；现在没有锁定测试。

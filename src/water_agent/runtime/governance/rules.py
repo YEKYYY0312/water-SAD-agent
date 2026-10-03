@@ -25,7 +25,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 #: 规则集版本。**改动任何规则都必须改它**（进 trace 与 PolicyDecision，便于回溯裁定依据）。
-RULESET_VERSION = "p2.5-step14-2026-09-06"
+#: P7-S1：工具面新增 ``tool.confirmation_required``（需人工确认的 MCP 工具执行期一律拒绝）。
+RULESET_VERSION = "p7-s1-2026-10-03"
 
 # ---------------------------------------------------------------------------
 # 输入上限（规格 §6：输入规范化与字节/token 上限）
