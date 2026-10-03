@@ -19,6 +19,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# 导入位置（P7-S0 H0）：worktree 里 _venv 的 editable install 指向主检出，不设 PYTHONPATH
+# 时 pytest 与各 harness 子进程导入的都是主检出的代码——门禁照样全绿，验证的却是别的代码。
+# 这里钉到本检出的 src/，并在下面核对实际导入位置。
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 # 虚拟环境：显式 VENV > 本机约定的 _venv > uv sync 默认产出的 .venv。
 # 此前硬编码 _venv，而 GitHub runner 上 `uv sync` 建的是 .venv，p5-ci 的
 # python-gate 因此必然 "No such file or directory"（review 09-28）。找不到就响亮
@@ -34,6 +38,15 @@ else
     exit 2
 fi
 PY="$VENV/bin/python"
+IMPORTED_FROM="$("$PY" -c 'import pathlib, water_agent; print(pathlib.Path(water_agent.__file__).resolve().parent)')" || {
+    echo "!! 无法用 $PY 导入 water_agent" >&2
+    exit 2
+}
+if [ "$IMPORTED_FROM" != "$(cd "$ROOT/src/water_agent" && pwd -P)" ]; then
+    echo "!! water_agent 导入自 $IMPORTED_FROM，不是本检出的 $ROOT/src/water_agent" >&2
+    exit 2
+fi
+echo "water_agent 导入自：$IMPORTED_FROM"
 FAILED=0
 
 step() { echo "==> $1"; }
