@@ -37,6 +37,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 
 #: 配置版本。**改任何字段语义都要改它**（与治理配置同纪律）。
+#: P7-S1 收窄了 ``confirmation_handler_ready`` 的取值（确认门接线前只接受 false），
+#: 但**不递进**：``version`` 只是写进配置文件的元数据、加载时不比对，旧配置照常有效；
+#: 递进只会让入仓配置与它的回归测试跟着改一遍，而不带来任何校验。
 MCP_CONFIG_VERSION = "p4-step23-2026-09-08"
 
 #: 配置文件位置覆盖环境变量。
@@ -166,8 +169,26 @@ class MCPGatewayConfig(BaseModel):
     version: str = Field(default=MCP_CONFIG_VERSION, min_length=1)
     #: 危险操作人工确认门是否已接线。``False`` 时任何
     #: ``human_confirmation=true`` 的 server 的工具都不暴露。
+    #: 确认门（P7-S7）接线之前只接受 ``False``，见 :meth:`_confirmation_gate_not_wired`。
     confirmation_handler_ready: bool = False
     servers: tuple[MCPServerConfig, ...] = Field(default=())
+
+    @field_validator("confirmation_handler_ready")
+    @classmethod
+    def _confirmation_gate_not_wired(cls, value: bool) -> bool:
+        """P7-S1（F7）：确认门还没有实现，``True`` 是一个没人能兑现的声明。
+
+        此前把它改成 ``True``，``human_confirmation=true`` 的 server 就会直接暴露、工具可被
+        调用，却没有任何人被问过。文件加载与直接构造走同一个校验；``load_gateway_config``
+        把它包成 ``MCP_CONFIG_INVALID``。
+        """
+        if value:
+            raise ValueError(
+                "confirmation_handler_ready=true 暂不可用：危险操作人工确认门（P7-S7）尚未接线，"
+                "打开它会让 human_confirmation=true 的 server 未经任何确认就暴露工具。"
+                "确认门接线前请保持 false（这类 server 会整台不暴露，MCP_CONFIRMATION_UNAVAILABLE）"
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_server_ids_unique(self) -> MCPGatewayConfig:

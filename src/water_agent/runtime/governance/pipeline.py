@@ -39,7 +39,7 @@ from water_agent.runtime.governance.contracts import (
     SourceTag,
     is_instruction_bearing,
 )
-from water_agent.runtime.governance.inventory import capability_for_tool
+from water_agent.runtime.governance.inventory import capability_for_tool, mcp_tool_binding
 from water_agent.runtime.governance.rules import (
     MAX_CONTENT_BYTES,
     MAX_USER_INPUT_BYTES,
@@ -350,8 +350,9 @@ class GuardrailPipeline:
     ) -> GuardrailOutcome:
         """``ToolRegistry.invoke`` 执行前的强制校验。
 
-        顺序：capability 登记 → 主体授权 → 参数大小 → 路径/域名 allowlist
-        → 参数注入标记。**未登记的工具 fail closed**（`capability_for_tool` 抛 KeyError）。
+        顺序：capability 登记 → 主体授权 → 人工确认标记（MCP 绑定）→ 危险能力
+        → 参数大小 → 路径/域名 allowlist → 参数注入标记。
+        **未登记的工具 fail closed**（`capability_for_tool` 抛 KeyError）。
         """
         try:
             capability = capability_for_tool(tool_name)
@@ -370,6 +371,15 @@ class GuardrailPipeline:
             return GuardrailOutcome(
                 _block("tool.capability_denied", CODE_GUARDRAIL_BLOCKED,
                        f"主体未被授予能力 {capability.value!r}"),
+                "",
+            )
+        # P7-S1（F7）：要求人工确认的 MCP 工具在确认门（P7-S7）接线前没有放行路径。
+        # 装配期本来就不暴露它们；这里兜住"配置校验被绕过、工具仍被注册"的情况。
+        binding = mcp_tool_binding(tool_name)
+        if binding is not None and binding.requires_human_confirmation:
+            return GuardrailOutcome(
+                _block("tool.confirmation_required", CODE_GUARDRAIL_BLOCKED,
+                       f"工具 {tool_name!r} 需要人工确认，确认门尚未接线，调用一律拒绝"),
                 "",
             )
         if capability in {Capability.WRITE_FILE, Capability.NETWORK_FETCH,

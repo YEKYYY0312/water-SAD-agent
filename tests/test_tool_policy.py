@@ -349,6 +349,55 @@ class TestInjectedArguments:
         assert outcome.decision.rule_id == "tool.injected_args"
 
 
+class TestConfirmationGate:
+    def test_confirmation_required_tool_blocked_at_call_time(
+        self, pipeline: GuardrailPipeline
+    ) -> None:
+        """P7-S1-A02 运行时绑定要求人工确认的 MCP 工具，在执行期一律被拒绝（纵深防御）。
+
+        即使配置校验被绕过、工具已经注册进 ToolRegistry，主体也持有 MCP_INVOKE，
+        确认门接线（S7）之前调用仍然被拦下；不需要确认的同类绑定照常放行（反证）。
+        """
+        from water_agent.runtime.governance.inventory import (
+            McpToolBinding,
+            clear_mcp_tool_bindings,
+            register_mcp_tool_binding,
+        )
+
+        principal = Principal.local(
+            "confirmation-gate-test",
+            capabilities=DEFAULT_LOCAL_CAPABILITIES | {Capability.MCP_INVOKE},
+        )
+        clear_mcp_tool_bindings()
+        try:
+            register_mcp_tool_binding(
+                McpToolBinding(
+                    tool_name="mcp_gatetest_write",
+                    server_id="gatetest",
+                    remote_tool="write",
+                    capability=Capability.MCP_INVOKE,
+                    requires_human_confirmation=True,
+                )
+            )
+            register_mcp_tool_binding(
+                McpToolBinding(
+                    tool_name="mcp_gatetest_read",
+                    server_id="gatetest",
+                    remote_tool="read",
+                    capability=Capability.MCP_INVOKE,
+                )
+            )
+            blocked = pipeline.validate_tool_call("mcp_gatetest_write", {"query": "x"}, principal)
+            assert not blocked.allowed
+            assert blocked.decision.rule_id == "tool.confirmation_required"
+            assert blocked.decision.code == CODE_GUARDRAIL_BLOCKED
+
+            allowed = pipeline.validate_tool_call("mcp_gatetest_read", {"query": "x"}, principal)
+            assert allowed.allowed, allowed.decision.detail
+        finally:
+            clear_mcp_tool_bindings()
+
+
 # ---------------------------------------------------------------------------
 # 6. 不可绕过与版本化
 # ---------------------------------------------------------------------------
