@@ -498,3 +498,30 @@ class TestManifestCacheInvalidation:
         """功能关闭（空 servers）→ 空 hash（与"从未启用"同键）"""
         cfg_empty = MCPGatewayConfig(version="p4-step23", servers=())
         assert compute_manifest_hash(cfg_empty) == ""
+
+
+def test_ready_flag_rejected_until_confirmation_gate_exists(tmp_path: Path) -> None:
+    """P7-S1-A01 确认门（S7）接线之前，confirmation_handler_ready=true 在加载期即被拒绝。
+
+    此前这个开关只影响装配：改成 true 后，要求人工确认的 server 会直接暴露、工具可被调用
+    （F7），却没有任何地方真正问过人。
+    """
+    config_path = tmp_path / "mcp_servers.json"
+    config_path.write_text(
+        json.dumps({"confirmation_handler_ready": True, "servers": []}), encoding="utf-8"
+    )
+    with pytest.raises(MCPError) as exc:
+        load_gateway_config(config_path)
+    assert exc.value.code == "MCP_CONFIG_INVALID"
+    assert "confirmation_handler_ready" in str(exc.value)
+
+    # 绕过文件加载、直接构造配置对象，同样被拒绝
+    with pytest.raises(ValueError, match="confirmation_handler_ready"):
+        MCPGatewayConfig(confirmation_handler_ready=True)
+
+    # false 照常加载（默认值，现有配置不受影响）
+    config_path.write_text(
+        json.dumps({"confirmation_handler_ready": False, "servers": []}), encoding="utf-8"
+    )
+    loaded = load_gateway_config(config_path)
+    assert loaded is not None and loaded.confirmation_handler_ready is False

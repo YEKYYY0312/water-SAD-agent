@@ -4,9 +4,9 @@
 余量 3。这里的断言全部读入仓的装配快照基线（基线与代码的一致性由
 ``tests/test_tool_assembly_snapshot.py`` 保证），所以数字一旦变化，这里与文档必须同步改。
 
-其中 F5/F6/F7/F13 与 runner 差异是**已知缺陷的现状**，不是期望行为。后续步骤有意修复
+其中 F5/F6/F13 与 runner 差异是**已知缺陷的现状**，不是期望行为。后续步骤有意修复
 它们时，在同一个 commit 里同步改这里、规格事实表与快照基线（各步执行 Prompt 的范围块
-允许改本文件）。
+允许改本文件）。F7 已在 P7-S1 修复，对应测试改为断言修复后的事实。
 """
 from __future__ import annotations
 
@@ -63,14 +63,18 @@ def test_mcp_manifest_never_reaches_the_cache_service(profiles: dict[str, Any]) 
     assert web["lifecycle"]["app"]["cache_service"]["mcp_server_manifest"] == ""
 
 
-def test_confirmation_flag_is_not_enforced_at_call_time(profiles: dict[str, Any]) -> None:
-    """P7-S0-A15 F7：confirmation_handler_ready=true 时，要求人工确认的工具直接暴露并可调用。"""
+def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
+    """P7-S1-A03 F7 已修：confirmation_handler_ready=true 在加载期即被拒绝，装配不再发生。
+
+    S0 时这个 profile 的现状是"要求人工确认的工具直接暴露并可调用"；现在会话在加载配置时
+    就以 MCP_CONFIG_INVALID 失败，不 spawn 任何 server、不授权、不构图。
+    """
 
     ready = profiles["session_mcp_ready_flag"]
-    assert ready["lifecycle"]["mcp"][0]["exposed"]
-    assert "mcp_invoke" in _caps(ready["surface"]["registry_principal"])
-    echo = ready["lifecycle"]["app"]["probes"]["mcp_echo"]["mcp_snapready_echo_query"]
-    assert echo["error"] is False
+    assert ready["surface"] is None
+    assert ready["lifecycle"]["captures"] == 0
+    assert ready["lifecycle"]["exception"] == {"type": "MCPError", "code": "MCP_CONFIG_INVALID"}
+    assert ready["lifecycle"]["mcp"] == []
 
     skipped = profiles["session_mcp_confirm_skip"]
     assert skipped["lifecycle"]["mcp"][0]["skipped_servers"] == [
