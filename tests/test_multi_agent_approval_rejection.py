@@ -334,7 +334,7 @@ def test_cli_interruption_at_rejection_reason_suspends_without_submitting(
     code = _cli(monkeypatch, tmp_path, ["n", interruption], _CLI_QUERY)
 
     captured = capsys.readouterr()
-    assert code == 0
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     assert f"--resume {_CLI_SESSION}" in captured.err
     app, conn = _cli_app(tmp_path)
     try:
@@ -363,7 +363,7 @@ def test_cli_resume_finds_a_session_resuspended_by_an_invalid_value(
     code = _cli(monkeypatch, tmp_path, ["y"], "--resume", _CLI_SESSION)
 
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     assert "上一次提交的审批决定无效" in captured.err
     payload = json.loads(captured.out)
     assert payload["status"] == "succeeded"
@@ -379,7 +379,7 @@ def test_cli_resume_of_a_session_without_pending_approval_reports_instead_of_cra
     code = _cli(monkeypatch, tmp_path, [], "--resume", _CLI_SESSION)
 
     captured = capsys.readouterr()
-    assert code == 2
+    assert code == 2, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     assert "没有待批准" in captured.err
 
 
