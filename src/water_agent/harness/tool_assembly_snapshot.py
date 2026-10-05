@@ -72,6 +72,7 @@ FAKE_MCP_ALLOW = ("echo_query", "lookup_project", "nested_schema_tool")
 PINNED_ENV_KEYS = (
     "DRAWING_ROOT",
     "WATER_AGENT_MCP_CONFIG",
+    "WATER_AGENT_MCP_OVERLAY",
     "WEB_MOCK_GENERATOR",
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_API_KEY_FILE",
@@ -454,7 +455,9 @@ def _inspect_app_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[st
         if cache is None
         else {
             "type": type(cache).__name__,
-            "mcp_server_manifest": getattr(cache, "_mcp_server_manifest", None),
+            # 只记是否非空：manifest 摘要含解释器路径与临时文件路径，原样入基线会让快照
+            # 在不同机器上不一致（与 _mcp_view 的 manifest_hash_nonempty 同做法）
+            "mcp_server_manifest_nonempty": bool(getattr(cache, "_mcp_server_manifest", "")),
         },
         "tools_bound_to_prompt_registry": all(
             getattr(tool, "registry", None) is registry for tool in tools
