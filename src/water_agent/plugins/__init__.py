@@ -26,7 +26,7 @@ from water_agent.plugins.builtin import (
     MaterialsPlugin,
     builtin_plugins,
 )
-from water_agent.plugins.mcp_gateway import McpContribution, McpGatewayPlugin
+from water_agent.plugins.mcp_gateway import McpContribution, McpGatewayPlugin, McpServerOutcome
 
 __all__ = [
     "BUILTIN_PLUGIN_ORDER",
@@ -39,6 +39,7 @@ __all__ = [
     "MaterialsPlugin",
     "McpContribution",
     "McpGatewayPlugin",
+    "McpServerOutcome",
     "PluginContribution",
     "ToolAssembly",
     "ToolPlugin",
