@@ -31,14 +31,17 @@ from water_agent.graphs.agent_rag import (
     stream_agentic,
 )
 from water_agent.ingestion.version_registry import get_version_registry
-from water_agent.mcp.wiring import (
-    load_mcp_gateway,
-    open_gateway_sessions,
-    principal_with_mcp,
-    register_mcp_tools,
-)
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.plugins import (
+    AssemblyContext,
+    DrawingContribution,
+    McpContribution,
+    McpGatewayPlugin,
+    assemble_tools,
+    builtin_plugins,
+)
 from water_agent.prompting import PromptAssembler
 from water_agent.prompting.history import RUNTIME_CONTEXT_PREFIX
 from water_agent.prompting.runtime_context import RuntimeContextProjection, default_context_builder
@@ -62,14 +65,8 @@ from water_agent.runtime.governance.binding import (
     local_request_context,
 )
 from water_agent.runtime.governance.cache_service import AnswerCacheService
-from water_agent.runtime.governance.contracts import Principal, RequestContext
+from water_agent.runtime.governance.contracts import RequestContext
 from water_agent.session import default_checkpoint_serde, session_db_path
-from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
-from water_agent.tools.material_stats import material_stats_spec
-from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 # This module is one level deeper than water_agent/cli.py, so the repository
 # root is parents[3] here, not parents[2].
@@ -474,45 +471,31 @@ class AgenticSession:
             else self.retriever
         )
 
-        base_principal = self.request_context.principal
-        mcp_config = load_mcp_gateway() if mcp_enabled else None
-        mcp_assembly = open_gateway_sessions(mcp_config)
-        self.mcp_assembly = mcp_assembly
-        stack.callback(mcp_assembly.close)
-        capabilities = (
-            principal_with_mcp(base_principal.capabilities)
-            if mcp_assembly.exposed_tool_names
-            else base_principal.capabilities
-        )
-        principal = Principal(
-            kind=base_principal.kind,
-            subject=base_principal.subject,
-            capabilities=capabilities,
-            auth_domain=base_principal.auth_domain,
-        )
-        self.request_context = self.request_context.model_copy(update={"principal": principal})
-
-        registry = ToolRegistry(principal=principal, trace=self.recorder)
-
-        # 引用可追溯性检查（Step 8，2026-09-16）。可用条款号取自本 thread 的会话消息（与引用
+        # 工具装配单入口（P7-S2，docs/design/16-p7-plugin-mcp.md §3）。坏的 MCP 配置在这里、
+        # 任何子进程被拉起之前就抛出 MCP_CONFIG_INVALID；MCP 插件打开装配后立即把关闭登记到
+        # stack（先于下面的 checkpointer 打开，后于它关闭）。
+        # 引用可追溯性检查（Step 8，2026-09-16）的可用条款号取自本 thread 的会话消息（与引用
         # 校验器同源）：Web 每个 run 新建 session，只靠进程内闭包时第二问引用第一问检索到的
         # 条款会被当场拒绝（review 2026-09-30）。
-        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check(
-            context_source=self._thread_retrieved_source_ids
+        mcp_config = load_mcp_gateway() if mcp_enabled else None
+        assembly = assemble_tools(
+            AssemblyContext(
+                retriever=tool_retriever,
+                cite_context_source=self._thread_retrieved_source_ids,
+                drawing_root=getattr(args, "drawing_root", None),
+            ),
+            base_principal=self.request_context.principal,
+            trace=self.recorder,
+            plugins=builtin_plugins(mcp=McpGatewayPlugin.owning(mcp_config, stack=stack)),
         )
-
-        registry.register(build_retrieve_clauses_tool(tool_retriever, context_updater=context_updater))
-        registry.register(cite_tool_spec)
-        registry.register(calc_velocity_spec)
-        registry.register(material_stats_spec)
-        drawing_tool, self.drawing_root_status = maybe_build_read_drawing_tool(
-            getattr(args, "drawing_root", None)
+        self.request_context = self.request_context.model_copy(
+            update={"principal": assembly.principal}
         )
-        if drawing_tool is not None:
-            registry.register(drawing_tool)
-        self.mcp_tool_names = register_mcp_tools(mcp_assembly, registry)
-        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+        self.mcp_assembly = assembly.contribution(McpContribution).assembly
+        self.drawing_root_status = assembly.contribution(DrawingContribution).resolution
+        self.mcp_tool_names = assembly.registered("mcp_gateway")
+        registry = assembly.registry
+        tools = assembly.tools
         self.registry = registry
         self.projection = RuntimeContextProjection()
         self.config = {"configurable": {"thread_id": self.thread_id}}
