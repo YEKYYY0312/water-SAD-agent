@@ -239,7 +239,11 @@ def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=N
     return None
 
 
-def _build_cache_service(args: argparse.Namespace) -> AnswerCacheService:
+def _build_cache_service(
+    args: argparse.Namespace, *, mcp_server_manifest: str = ""
+) -> AnswerCacheService:
+    """``mcp_server_manifest`` 进缓存键（P7-S3，F6）：MCP server 清单 / 白名单 / 命令任一变化，
+    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
     return AnswerCacheService(
         embedding_model="qwen3.7-text-embedding",
@@ -248,6 +252,7 @@ def _build_cache_service(args: argparse.Namespace) -> AnswerCacheService:
         recall_top_k=getattr(args, "recall_top_k", 20),
         reranker=reranker,
         version_registry=get_version_registry(),
+        mcp_server_manifest=mcp_server_manifest,
     )
 
 
@@ -507,7 +512,13 @@ class AgenticSession:
             prompt=PromptAssembler(tool_registry=registry),
             trace=self.recorder,
             request_context=self.request_context,
-            cache_service=_build_cache_service(args) if not args.mock_generator else None,
+            cache_service=(
+                _build_cache_service(
+                    args, mcp_server_manifest=self.mcp_assembly.manifest_hash
+                )
+                if not args.mock_generator
+                else None
+            ),
         )
 
     def _thread_retrieved_source_ids(self) -> set[str]:
@@ -520,8 +531,18 @@ class AgenticSession:
         return set(context_ids)
 
     def start_trace(self, run_id: str, query: str) -> None:
-        if not self.recorder.started:
-            self.recorder.start(run_id=run_id, trace_id=uuid4().hex, query=query)
+        """开启本次 run 的 trace，并在开启的那一次补记 MCP 装配摘要（P7-S3，F13 的后续）。
+
+        装配发生在会话构造时、trace 还没开始；此前 runner 在那时写事件，recorder 尚未
+        start，事件全被吞掉。这里在 trace 真正开始后再写，没有任何 MCP 活动时不写。
+        """
+        if self.recorder.started:
+            return
+        self.recorder.start(run_id=run_id, trace_id=uuid4().hex, query=query)
+        if self.mcp_assembly.has_activity:
+            self.recorder.record(
+                node="mcp", event="mcp_assembly", data=self.mcp_assembly.trace_summary()
+            )
 
     async def aask(
         self,
@@ -585,6 +606,8 @@ class AgenticSession:
         接真实模型必然 ``NotImplementedError``）。被撤回的草稿在终端里如实标出，最终回答以
         payload 的 ``answer`` 为准。
         """
+        # 先开 trace（与 aask 对齐）：此前同步路径由图的首个节点开启 trace，装配摘要无处可写
+        self.start_trace(uuid4().hex, query)
         streamed = bool(getattr(self.args, "stream", False))
         if not streamed:
             # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，

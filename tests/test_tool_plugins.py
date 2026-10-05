@@ -178,11 +178,15 @@ def test_mcp_borrowing_never_closes(ctx: AssemblyContext) -> None:
 
         sessions = (
             SimpleNamespace(
+                config=SimpleNamespace(server_id="borrowed"),
                 result=SimpleNamespace(
-                    tools=(calc_velocity_spec.model_copy(update={"name": "mcp_borrowed_echo"}),)
-                )
+                    tools=(calc_velocity_spec.model_copy(update={"name": "mcp_borrowed_echo"}),),
+                    exposed_names=("mcp_borrowed_echo",),
+                    skipped=(),
+                ),
             ),
         )
+        skipped_servers = ()
 
         def close(self) -> None:
             closed.append(True)
@@ -509,3 +513,35 @@ def test_runner_cite_uses_thread_context(tmp_path: Path, monkeypatch: pytest.Mon
     assert len(sources) == 1 and sources[0] is not None, "runner 没有给 clauses 插件接 thread 来源"
     assert seen["before_writes"] == set()
     assert seen["after_write"] == {"GB50015-2019 3.1.1"}
+
+
+def test_mcp_contribution_reports_each_server(ctx: AssemblyContext) -> None:
+    """P7-S3-A09 MCP 插件的贡献可逐台读出每台 server 的结果：暴露的工具、跳过、停用。"""
+
+    config = MCPGatewayConfig(
+        servers=(
+            MCPServerConfig(
+                server_id="eachok",
+                command=sys.executable,
+                args=(str(FAKE_SERVER), "--mode", "ok"),
+                allow=("echo_query",),
+            ),
+            MCPServerConfig(server_id="eachoff", command="/bin/echo", disabled=True),
+            MCPServerConfig(
+                server_id="eachgate",
+                command="/bin/echo",
+                allow=("anything",),
+                human_confirmation=True,
+            ),
+        )
+    )
+    with ExitStack() as stack:
+        contribution = McpGatewayPlugin.owning(config, stack=stack).contribute(ctx)
+        servers = {item.server_id: item for item in contribution.servers}
+    assert set(servers) == {"eachok", "eachoff", "eachgate"}
+    assert servers["eachok"].status == "active"
+    assert servers["eachok"].exposed == ("mcp_eachok_echo_query",)
+    assert servers["eachoff"].status == "disabled"
+    assert servers["eachoff"].exposed == ()
+    assert servers["eachgate"].status == "skipped"
+    assert servers["eachgate"].codes == ("MCP_CONFIRMATION_UNAVAILABLE",)

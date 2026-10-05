@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S2：runner real-agentic 路径收编进 assemble_tools 并统一成会话语义（规格 §3.5 第 1–7 条）",
+    "last_write_reason": "P7-S3 Step 4：manifest 进缓存服务（F6）；runner 先开 trace 再写装配摘要（F13 后续）",
     "python": "3.12.14"
   },
   "profiles": {
@@ -74,7 +74,13 @@
         ],
         "mcp_clients_alive_after_scope": 0,
         "stack": [],
-        "trace_record_calls": []
+        "trace_record_calls": [
+          {
+            "event": "run_start",
+            "landed": true,
+            "node": "graph"
+          }
+        ]
       },
       "side": "runner",
       "surface": {
@@ -284,7 +290,18 @@
         ],
         "mcp_clients_alive_after_scope": 0,
         "stack": [],
-        "trace_record_calls": []
+        "trace_record_calls": [
+          {
+            "event": "run_start",
+            "landed": true,
+            "node": "graph"
+          },
+          {
+            "event": "mcp_assembly",
+            "landed": true,
+            "node": "mcp"
+          }
+        ]
       },
       "side": "runner",
       "surface": {
@@ -497,7 +514,13 @@
         ],
         "mcp_clients_alive_after_scope": 0,
         "stack": [],
-        "trace_record_calls": []
+        "trace_record_calls": [
+          {
+            "event": "run_start",
+            "landed": true,
+            "node": "graph"
+          }
+        ]
       },
       "side": "runner",
       "surface": {
@@ -1579,7 +1602,7 @@
             "trace"
           ],
           "cache_service": {
-            "mcp_server_manifest": "",
+            "mcp_server_manifest_nonempty": true,
             "type": "AnswerCacheService"
           },
           "chat_model_principal": {
@@ -1776,7 +1799,7 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p4-step23-2026-09-08",
+    "MCP_CONFIG_VERSION": "p7-s3-2026-10-05",
     "PROMPT_TEMPLATE_VERSION": "p5-history-window-2026-10-01",
     "TOOL_POLICY_VERSION": "p7-step1-2026-10-03"
   }
