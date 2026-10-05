@@ -55,13 +55,16 @@ def test_tool_guide_already_truncates_tools(profiles: dict[str, Any]) -> None:
     assert mcp["schema_chars_total"] == 4724
 
 
-def test_mcp_manifest_never_reaches_the_cache_service(profiles: dict[str, Any]) -> None:
-    """P7-S0-A14 F6：Web 装配暴露了 MCP 工具，缓存服务的 mcp_server_manifest 仍是空串。"""
+def test_mcp_manifest_reaches_the_cache_service(profiles: dict[str, Any]) -> None:
+    """P7-S3-A07 F6 已修：Web 装配暴露了 MCP 工具时，缓存服务的 mcp_server_manifest 非空。
+
+    S0 时它恒为空串（``_build_cache_service`` 不传），MCP server 清单变了旧回答缓存照样命中。
+    """
 
     web = profiles["session_web_member"]
     assert web["lifecycle"]["mcp"][0]["exposed"]
     assert web["lifecycle"]["mcp"][0]["manifest_hash_nonempty"] is True
-    assert web["lifecycle"]["app"]["cache_service"]["mcp_server_manifest"] == ""
+    assert web["lifecycle"]["app"]["cache_service"]["mcp_server_manifest_nonempty"] is True
 
 
 def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
@@ -85,14 +88,18 @@ def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
 
 
 def test_no_assembly_trace_calls_that_never_land(profiles: dict[str, Any]) -> None:
-    """P7-S2-A12 F13 已收尾：装配期不再有"尝试写入却从未落盘"的 trace 调用。
+    """P7-S2-A12 / P7-S3-A11 F13 已收尾：装配期的每一次 trace 调用都真正落盘。
 
     S0 时 runner 在 recorder 尚未 start 时写 ``mcp_assembly`` / ``mcp_assembly_error``，
-    异常被吞，事件一条都没落盘；S2 删除了这两次调用（真正落盘的装配摘要留给 S3）。
+    异常被吞，事件一条都没落盘；S2 删除了这两次调用；S3 改为先开 trace 再写装配摘要。
+    有 MCP 活动的 runner profile 必须真的写了 ``mcp_assembly``。
     """
 
     for name, profile in profiles.items():
-        assert profile["lifecycle"]["trace_record_calls"] == [], name
+        for call in profile["lifecycle"]["trace_record_calls"]:
+            assert call["landed"], (name, call)
+    runner_fake = profiles["runner_mcp_fake"]["lifecycle"]["trace_record_calls"]
+    assert {"node": "mcp", "event": "mcp_assembly", "landed": True} in runner_fake
 
 
 def test_runner_path_matches_session_semantics(profiles: dict[str, Any]) -> None:
