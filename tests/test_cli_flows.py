@@ -275,3 +275,36 @@ class TestMultiAgentCli:
             if entity.dxftype() == "TEXT"
         ]
         assert any("DN200 steel water_supply" in label for label in labels)
+
+    def test_segment_id_whose_hex_reads_as_an_overflowing_number_still_reaches_release(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """CLI 偶发失败的确定性复现：project_id 含 uuid4 session_id，管段 ID 的 hex 偶尔形如 21634e590093。
+
+        此前审查把材料统计"来源：seg-21634e590093(25m)"里的编号尾巴读成溢出数值，每轮都报同一条
+        doc_numeric_preservation，三轮后 MULTI_RETRY_EXHAUSTED，到不了审批（exit 1、stderr 为空）。
+        """
+        monkeypatch.setattr("water_agent.cli.new_session_id", lambda: "000000000000400080000000000000a8")
+        _feed(monkeypatch, ["y"])
+        code = main(
+            [
+                "--flow",
+                "multi-agent",
+                "--json",
+                "--session-dir",
+                str(tmp_path / "sessions"),
+                "给水系统，Q=12 L/s，DN200，L=25m，材质=steel，起点=n10，终点=n11，输出=图纸，求流速",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        diagnostics = f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
+        payload = json.loads(captured.out)
+        segments = (payload.get("approval_summary") or {}).get("segments") or []
+        # 前提：这个 session 确实派生出会溢出的管段 ID；派生规则一改这里先红，换一个 session 即可
+        assert [segment["segment_id"] for segment in segments] == ["seg-21634e590093"], diagnostics
+        assert code == 0, diagnostics
+        assert payload["status"] == "succeeded", diagnostics
