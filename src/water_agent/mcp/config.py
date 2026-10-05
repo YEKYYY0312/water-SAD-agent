@@ -36,14 +36,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 
-#: 配置版本。**改任何字段语义都要改它**（与治理配置同纪律）。
-#: P7-S1 收窄了 ``confirmation_handler_ready`` 的取值（确认门接线前只接受 false），
-#: 但**不递进**：``version`` 只是写进配置文件的元数据、加载时不比对，旧配置照常有效；
-#: 递进只会让入仓配置与它的回归测试跟着改一遍，而不带来任何校验。
-MCP_CONFIG_VERSION = "p4-step23-2026-09-08"
+#: 配置版本。**改任何字段语义都要改它**（与治理配置同纪律）。``version`` 是写进配置文件的
+#: 元数据、加载时不比对，旧配置照常有效。
+#: P7-S1 收窄了 ``confirmation_handler_ready`` 的取值，当时未递进（没有新增字段）。
+#: P7-S3 新增 ``disabled`` / ``cwd`` 字段、收紧 ``command``、``env_file`` 改按配置文件所在
+#: 目录解析，递进。
+MCP_CONFIG_VERSION = "p7-s3-2026-10-05"
 
 #: 配置文件位置覆盖环境变量。
 ENV_MCP_CONFIG = "WATER_AGENT_MCP_CONFIG"
+
+#: 部署覆盖层文件位置（P7-S3，不入库）。未设 = 没有覆盖层；设了但文件不存在 = 配置错误。
+ENV_MCP_OVERLAY = "WATER_AGENT_MCP_OVERLAY"
+
+#: 覆盖层顶层只允许这两个键。``confirmation_handler_ready`` 只能写在仓库默认层：
+#: 覆盖层能改它，S1 的确认门限制就能从部署侧绕开。
+_OVERLAY_TOP_LEVEL_KEYS = frozenset({"version", "servers"})
 
 #: 默认配置文件名（相对仓库根，由调用方传入 base）。
 DEFAULT_CONFIG_FILENAME = "data/mcp_servers.json"
@@ -90,6 +98,13 @@ class MCPServerConfig(BaseModel):
     startup_timeout_seconds: float = Field(default=10.0, gt=0)
     call_timeout_seconds: float = Field(default=30.0, gt=0)
     max_response_bytes: int = Field(default=65536, gt=0)
+    #: 停用（P7-S3）：不 spawn、不暴露任何工具、不进 manifest。通常写在部署覆盖层里，
+    #: 只需 ``{"server_id": ..., "disabled": true}``。
+    disabled: bool = False
+    #: 子进程工作目录（P7-S3）。必须是绝对路径；加载期再校验它存在。不配置时每次连接
+    #: 新建一个空临时目录——子进程不继承 agent 的工作目录，模型借工具参数里的相对路径
+    #: 读不到 agent 自己的文件（F15）。
+    cwd: str | None = None
 
     @field_validator("server_id")
     @classmethod
@@ -115,6 +130,21 @@ class MCPServerConfig(BaseModel):
             raise ValueError("command 不得含 NUL 或换行")
         if value.strip() != value:
             raise ValueError(f"command {value!r} 不得含首尾空白")
+        # P7-S3：子进程工作目录不再是 agent 的工作目录，含 "/" 的相对路径的含义会悄悄改变；
+        # 只接受绝对路径或不含 "/" 的裸命令名（按 PATH 查找）。
+        if "/" in value and not Path(value).is_absolute():
+            raise ValueError(
+                f"command {value!r} 必须是绝对路径或不含 '/' 的命令名（按 PATH 查找）"
+            )
+        return value
+
+    @field_validator("cwd")
+    @classmethod
+    def _validate_cwd(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if "\x00" in value or not Path(value).is_absolute():
+            raise ValueError(f"cwd {value!r} 必须是绝对路径")
         return value
 
     @field_validator("allow")
@@ -228,17 +258,151 @@ def load_gateway_config(path: str | Path | None = None) -> MCPGatewayConfig | No
         raw_text = resolved.read_text(encoding="utf-8")
     except OSError as exc:
         raise MCPError(MCP_CONFIG_INVALID, f"无法读取 {resolved}：{exc}") from exc
+    payload = _read_json_object(resolved, raw_text)
     try:
-        payload = json.loads(raw_text)
+        config = MCPGatewayConfig.model_validate(_resolve_env_files(payload, resolved.parent))
+    except ValueError as exc:
+        raise MCPError(MCP_CONFIG_INVALID, f"{resolved} 校验失败：{exc}") from exc
+    _check_paths_exist(config, resolved)
+    return config
+
+
+def merge_overlay(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """把部署覆盖层合并进仓库默认层（纯函数，输入输出都是 dict）。
+
+    - 覆盖层顶层只允许 ``version`` / ``servers``；
+    - 按 ``server_id`` 合并：默认层没有的 id 是新增 server，有的 id 逐字段覆盖；
+    - 字段值**整体替换**，不做深合并：``allow`` 写了就完全以覆盖层为准，``env`` / ``args``
+      同理——覆盖层不能把白名单"合并"成比两层都更宽的集合。
+
+    返回的 dict 还要经 ``MCPGatewayConfig.model_validate`` 才算合法配置。
+    """
+    unknown = set(overlay) - _OVERLAY_TOP_LEVEL_KEYS
+    if unknown:
+        raise ValueError(
+            f"覆盖层只能写 {sorted(_OVERLAY_TOP_LEVEL_KEYS)}，不能写 {sorted(unknown)}"
+            "（confirmation_handler_ready 只能写在仓库默认层）"
+        )
+    overlay_servers = overlay.get("servers", [])
+    if not isinstance(overlay_servers, list):
+        raise TypeError("覆盖层的 servers 必须是列表")
+    merged_servers: list[Any] = [
+        dict(server) if isinstance(server, dict) else server
+        for server in base.get("servers", []) or []
+    ]
+    index = {
+        server.get("server_id"): position
+        for position, server in enumerate(merged_servers)
+        if isinstance(server, dict)
+    }
+    for patch in overlay_servers:
+        if not isinstance(patch, dict) or not isinstance(patch.get("server_id"), str):
+            raise TypeError("覆盖层的每台 server 都必须是对象且写 server_id")
+        position = index.get(patch["server_id"])
+        if position is None:
+            index[patch["server_id"]] = len(merged_servers)
+            merged_servers.append(dict(patch))
+        else:
+            merged_servers[position] = {**merged_servers[position], **patch}
+    merged = {key: value for key, value in base.items() if key != "servers"}
+    if "version" in overlay:
+        merged["version"] = overlay["version"]
+    merged["servers"] = merged_servers
+    return merged
+
+
+def load_layered_gateway_config() -> MCPGatewayConfig | None:
+    """仓库默认层 + 部署覆盖层（P7-S3）。
+
+    | 默认层 | 覆盖层 | 结果 |
+    |---|---|---|
+    | 有 | 未设 | 只用默认层（与 :func:`load_gateway_config` 相同） |
+    | 缺失 | 有 | 默认层按空骨架处理 |
+    | 缺失 | 未设 | ``None``（功能关闭） |
+
+    ``WATER_AGENT_MCP_OVERLAY`` 设了但文件不存在、覆盖层不是合法 JSON、合并结果校验不过，
+    一律 ``MCP_CONFIG_INVALID``。两层里的相对 ``env_file`` 各按自己所在目录解析。
+    """
+    base_path = default_config_path()
+    overlay_raw = os.environ.get(ENV_MCP_OVERLAY, "").strip()
+    if not overlay_raw:
+        return load_gateway_config()
+    overlay_path = Path(overlay_raw).expanduser()
+    if not overlay_path.is_file():
+        raise MCPError(MCP_CONFIG_INVALID, f"{ENV_MCP_OVERLAY} 指向的覆盖层文件不存在：{overlay_path}")
+    try:
+        overlay_text = overlay_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise MCPError(MCP_CONFIG_INVALID, f"无法读取覆盖层 {overlay_path}：{exc}") from exc
+    overlay = _read_json_object(overlay_path, overlay_text)
+    if not isinstance(overlay, dict):
+        raise MCPError(MCP_CONFIG_INVALID, f"覆盖层 {overlay_path} 顶层必须是对象")
+
+    if base_path.exists():
+        try:
+            base_text = base_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise MCPError(MCP_CONFIG_INVALID, f"无法读取 {base_path}：{exc}") from exc
+        base = _read_json_object(base_path, base_text)
+        if not isinstance(base, dict):
+            raise MCPError(MCP_CONFIG_INVALID, f"{base_path} 顶层必须是对象")
+        base = _resolve_env_files(base, base_path.parent)
+    else:
+        base = {}
+    try:
+        merged = merge_overlay(base, _resolve_env_files(overlay, overlay_path.parent))
+        config = MCPGatewayConfig.model_validate(merged)
+    except (TypeError, ValueError) as exc:
+        raise MCPError(MCP_CONFIG_INVALID, f"覆盖层 {overlay_path} 合并后校验失败：{exc}") from exc
+    _check_paths_exist(config, overlay_path)
+    return config
+
+
+def _read_json_object(path: Path, raw_text: str) -> Any:
+    try:
+        return json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise MCPError(
             MCP_CONFIG_INVALID,
-            f"{resolved} 不是合法 JSON（行 {exc.lineno} 列 {exc.colno}）：{exc.msg}",
+            f"{path} 不是合法 JSON（行 {exc.lineno} 列 {exc.colno}）：{exc.msg}",
         ) from exc
-    try:
-        return MCPGatewayConfig.model_validate(payload)
-    except ValueError as exc:
-        raise MCPError(MCP_CONFIG_INVALID, f"{resolved} 校验失败：{exc}") from exc
+
+
+def _resolve_env_files(payload: Any, base_dir: Path) -> Any:
+    """把各 server 的相对 ``env_file`` 改写成按 ``base_dir`` 解析的绝对路径（F9）。
+
+    相对路径的基准是**定义它的那份配置文件所在目录**；改写成绝对路径后写进模型，之后在哪个
+    工作目录连接都读同一个文件。形状不对的输入原样返回，交给模型校验报错。
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("servers"), list):
+        return payload
+    servers = []
+    for server in payload["servers"]:
+        env_file = server.get("env_file") if isinstance(server, dict) else None
+        if isinstance(env_file, str) and env_file:
+            path = Path(env_file).expanduser()
+            if not path.is_absolute():
+                server = {**server, "env_file": str((base_dir / path).resolve())}
+        servers.append(server)
+    return {**payload, "servers": servers}
+
+
+def _check_paths_exist(config: MCPGatewayConfig, source: Path) -> None:
+    """加载期就确认 ``env_file`` 与 ``cwd`` 存在（F9）：缺失是配置错误，不能拖到连接时被当成
+    "这台 server 跳过"。停用的 server 不查——停用就是为了让一台暂时不可用的 server 不影响其余。"""
+    for server in config.servers:
+        if server.disabled:
+            continue
+        if server.env_file is not None and not Path(server.env_file).expanduser().is_file():
+            raise MCPError(
+                MCP_CONFIG_INVALID,
+                f"{source}：server {server.server_id!r} 的 env_file 不存在：{server.env_file}",
+            )
+        if server.cwd is not None and not Path(server.cwd).is_dir():
+            raise MCPError(
+                MCP_CONFIG_INVALID,
+                f"{source}：server {server.server_id!r} 的 cwd 不是存在的目录：{server.cwd}",
+            )
 
 
 def _parse_env_file(text: str) -> dict[str, str]:
@@ -296,6 +460,7 @@ __all__ = [
     "DEFAULT_CONFIG_FILENAME",
     "DEFAULT_ENV_PASSTHROUGH",
     "ENV_MCP_CONFIG",
+    "ENV_MCP_OVERLAY",
     "MCP_CONFIG_VERSION",
     "MCPGatewayConfig",
     "MCPServerConfig",
@@ -303,4 +468,6 @@ __all__ = [
     "child_env",
     "default_config_path",
     "load_gateway_config",
+    "load_layered_gateway_config",
+    "merge_overlay",
 ]

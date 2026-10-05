@@ -3,7 +3,8 @@ P4 Step 25: CLI/harness 接线 + 危险操作确认门（离线，可重复）�
 
 覆盖任务书 §7 验收 4-6 与 review 要求的全部治理面：
 - data/mcp_servers.json 驱动 -> MCPStdioClient.connect -> tools/list -> bridge -> inventory -> ToolRegistry.invoke 护栏；
-- autocad_mcp(ezdxf) 真实子进程 8 工具、save_as_dwg 的 {ok, payload:{format:DWG, version:ACAD2018}}；
+- 入仓默认层是空骨架，autocad 配置在示例文件里（P7-S3）；autocad-mcp 自身的 save_as_dwg
+  {ok, payload:{format:DWG, version:ACAD2018}} 仍按本机是否安装决定是否运行；
 - revit_python 因 human_confirmation=true + confirmation_handler_ready=false 整台 MCP_CONFIRMATION_UNAVAILABLE 跳过；
 - 投毒描述 / 不支持 schema 工具不在清单；
 - 未注册工具 capability_for_tool fail closed；
@@ -19,7 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig, load_gateway_config
+from water_agent.mcp.config import (
+    MCP_CONFIG_VERSION,
+    MCPGatewayConfig,
+    MCPServerConfig,
+    load_gateway_config,
+)
 from water_agent.mcp.errors import MCP_CONFIRMATION_UNAVAILABLE, MCPError
 from water_agent.mcp.wiring import compute_manifest_hash, open_gateway_sessions, register_mcp_tools
 
@@ -39,12 +45,29 @@ def _reset_bindings():
 
 
 class TestConfigWiring:
-    def test_default_config_loads(self) -> None:
+    def test_default_config_is_empty_skeleton(self) -> None:
+        """P7-S3-A10 入仓默认层是空骨架：真实 server 写进部署覆盖层，不入库。
+
+        此前这里写死了个人机器上的 autocad-mcp 路径，其他任何机器上都起不来（F10 / F16）。
+        """
         cfg = load_gateway_config(str(DEFAULT_CONFIG))
         assert cfg is not None
-        assert cfg.version == "p4-step23-2026-09-08"
-        assert cfg.servers
-        assert any(server.server_id == "autocad_mcp" for server in cfg.servers)
+        assert cfg.version == MCP_CONFIG_VERSION
+        assert cfg.servers == ()
+        assert cfg.confirmation_handler_ready is False
+
+    def test_example_config_validates(self) -> None:
+        """P7-S3-A10 示例文件只过模型层校验（占位路径在任何机器上都不存在），且不进镜像。"""
+        example = REPO_ROOT / "data" / "mcp_servers.example.json"
+        payload = json.loads(example.read_text(encoding="utf-8"))
+        config = MCPGatewayConfig.model_validate(payload)
+        assert [server.server_id for server in config.servers] == ["autocad_mcp"]
+        server = config.servers[0]
+        assert server.cwd is not None and server.cwd.startswith("/path/to/")
+        assert server.allow == ("read_dwg",)
+        assert "/Users/" not in example.read_text(encoding="utf-8"), "示例文件不得含真实机器路径"
+        dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        assert "data/mcp_servers.example.json" in dockerignore
 
     def test_command_list_normalized(self, tmp_path: Path) -> None:
         payload = {
@@ -133,29 +156,6 @@ class TestConfirmationGate:
         assert all("revit" not in name for name in asm.exposed_tool_names)
         asm.close()
 
-    def test_autocad_exposes_eight_tools(self) -> None:
-        cfg = load_gateway_config(str(DEFAULT_CONFIG))
-        assert cfg is not None
-        asm = open_gateway_sessions(cfg)
-        auto_sessions = [s for s in asm.sessions if s.config.server_id == "autocad_mcp"]
-        if not auto_sessions:
-            assert any(s.code == "MCP_CONNECT_FAILED" for s in asm.skipped_servers)
-            asm.close()
-            pytest.skip("autocad_mcp not runnable in this env")
-        sess = auto_sessions[0]
-        assert len(sess.result.tools) == 8
-        assert set(sess.result.exposed_names) == {
-            "mcp_autocad_mcp_drawing",
-            "mcp_autocad_mcp_entity",
-            "mcp_autocad_mcp_layer",
-            "mcp_autocad_mcp_block",
-            "mcp_autocad_mcp_annotation",
-            "mcp_autocad_mcp_pid",
-            "mcp_autocad_mcp_view",
-            "mcp_autocad_mcp_system",
-        }
-        asm.close()
-
     def test_confirmation_gate_blocks_all_tools_when_not_ready(self) -> None:
         cfg = MCPGatewayConfig(
             version="p4-step23-2026-09-08",
@@ -181,33 +181,6 @@ class TestConfirmationGate:
 
 
 class TestBridgeAndGuardrail:
-    def test_autocad_call_and_registry_invoke(self) -> None:
-        from water_agent.runtime.governance.contracts import Capability, Principal
-        from water_agent.tools.registry import ToolRegistry
-
-        cfg = load_gateway_config(str(DEFAULT_CONFIG))
-        assert cfg is not None
-        asm = open_gateway_sessions(cfg)
-        auto = [s for s in asm.sessions if s.config.server_id == "autocad_mcp"]
-        if not auto:
-            asm.close()
-            pytest.skip("autocad_mcp not runnable")
-        registry = ToolRegistry(
-            principal=Principal.local(
-                "p4-test-mcp", capabilities=frozenset({Capability.MCP_INVOKE})
-            ),
-        )
-        register_mcp_tools(asm, registry)
-        payload = registry.invoke(
-            "mcp_autocad_mcp_drawing", operation="create", data={"name": "wiring-test"}
-        )
-        assert payload.get("ok") is True or "payload" in str(payload)
-        payload2 = registry.invoke(
-            "mcp_autocad_mcp_entity", operation="create_line", x1=0, y1=0, x2=10, y2=10
-        )
-        assert payload2.get("ok") is True
-        asm.close()
-
     def test_autocad_save_as_dwg_mocked_odafc(self, tmp_path: Path) -> None:
         """Save_as_dwg with mocked odafc -> {format:DWG, version:ACAD2018} (ezdxf backend direct)."""
         import subprocess
