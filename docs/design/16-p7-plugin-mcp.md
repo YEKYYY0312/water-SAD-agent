@@ -52,7 +52,7 @@
 | # | 事实 | 锁定 | 处理 |
 |---|---|---|---|
 | F1 | 生产面向模型的装配只有 `AgenticSession.__init__`（`runtime/agentic.py`）；调用方：CLI 单次、CLI 交互、Web `build_agentic_session`、harness mock-agentic | 快照 `session_*` profile | S2 收编 |
-| F2 | `HarnessRunner._run_real_agentic_case`（`harness/runner.py`）手工重建注册表，与会话路径有 8 处差异（§3.5） | `tests/test_p7_known_figures.py::test_runner_path_differs_from_session_path` | S2 统一 |
+| F2 | ~~`HarnessRunner._run_real_agentic_case` 手工重建注册表，与会话路径有 8 处差异~~ **S2 已统一**：两条路径都经 `assemble_tools`，§3.5 第 1–7 条按会话语义执行，第 8 条刻意保留 | `tests/test_p7_known_figures.py::test_runner_path_matches_session_semantics` | S2 已交付 |
 | F3 | 注册顺序决定提示词工具指引的顺序与截断；发给模型的工具按 `list_all_names()` 字母序 | 快照 `surface.registration_order` / `model_tool_order` | 不变量 |
 | F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | S4 |
 | F5 | 工具指引 800 字预算已截掉 `read_drawing`（"省略 1 行"）；两个 MCP 工具时截掉 2 行、schema 4724 字符，且 `tests/test_answer_cache.py` 的预算只装配本地工具 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | S4 |
@@ -61,9 +61,9 @@
 | F8 | 每个 Web run 都重新 spawn 全部 MCP 子进程 | 无测试（`run_manager.py` 每个 run 新建会话） | S5 |
 | F9 | `env_file` 相对路径按 cwd 解析；文件缺失时在 `connect()` 内抛错，被 `open_bridge` 转成该台 server 跳过——配置错误被静默降级 | 无测试 | S3 |
 | F10 | 入仓 `data/mcp_servers.json` 的 `allow: ["read_dwg"]` 在上游 server 里不存在；`tests/test_mcp_wiring.py` 的相关用例已过期 | 无测试（依赖本机 autocad-mcp） | S3 |
-| F11 | 两条测试按源码文本断言装配位置：`tests/test_read_drawing_tool.py`（`maybe_build_read_drawing_tool` 字面量）、`tests/test_web_runs.py`（`build_agentic_session` 字面量） | 测试本身 | S2 前者改为 AST 断言 |
+| F11 | 两条测试按源码文本断言装配位置：`tests/test_read_drawing_tool.py`（**S2 已改为 AST 判定真实调用**）、`tests/test_web_runs.py`（`build_agentic_session` 字面量，Web 不在 P7 范围内，保留） | `tests/test_read_drawing_tool.py::TestWiring::test_cli_registers_tool_only_when_root_available` | S2 前者已交付 |
 | F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}` | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
-| F13 | runner 的 `mcp_assembly` / `mcp_assembly_error` trace 事件尝试写入但**从未落盘**（recorder 尚未 start，异常被吞） | `tests/test_p7_known_figures.py::test_runner_mcp_trace_events_never_land` | S2 删除，S3 补真正落盘的装配摘要 |
+| F13 | ~~runner 的 `mcp_assembly` / `mcp_assembly_error` trace 事件尝试写入但从未落盘~~ **S2 已删除**这两次调用；真正落盘的装配摘要事件留给 S3 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | S2 已删除，S3 补 |
 | F14 | worktree 里不设 `PYTHONPATH=src` 时，pytest 与 harness 导入的是**主检出**的代码（editable install）；`ci_gate.sh` 此前不设 PYTHONPATH | `tests/test_import_guard.py::test_conftest_rejects_a_foreign_water_agent` | S0 H0 已修 |
 
 ---
@@ -159,13 +159,13 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 
 | # | 不变量 | 强制位置 | 状态 |
 |---|---|---|---|
-| P7-I01 | src 里构造面向模型的 `ToolRegistry(` 只在 `plugins/assembly.py`；内部注册表白名单写死并附理由（`mcp/memory_adapter.py`、`runtime/governance/scenarios.py`、`harness/memory_eval.py`、探针 `harness/local_model_compat.py`），白名单条目不再对应真实代码同样判失败；用 AST 判定 | `tests/test_plugin_invariants.py` | planned |
-| P7-I02 | `tool_spec_to_base_tool(` 只在 `plugins/assembly.py` 与上述探针里调用 | `tests/test_plugin_invariants.py` | planned |
-| P7-I03 | `runtime/agentic.py` 与 `harness/runner.py` 都调用 `assemble_tools` | `tests/test_plugin_invariants.py` | planned |
-| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway")` | `tests/test_plugin_invariants.py` | planned |
-| P7-I05 | `plugins/` 里不出现 `ToolSpec(` 调用；`ToolSpec` 定义留在 `tools/`（F12 的扫描前提） | `tests/test_plugin_invariants.py` | planned |
-| P7-I06 | 插件能追加给主体的能力只限 `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | `plugins/assembly.py` + `tests/test_tool_plugins.py` | planned |
-| P7-I07 | 只有 `runtime/agentic.py` 与 `harness/runner.py` 调用 `build_agentic_app`（装配快照捕获点的前提） | `tests/test_plugin_invariants.py` | planned |
+| P7-I01 | src 里构造面向模型的 `ToolRegistry(` 只在 `plugins/assembly.py`；内部注册表白名单写死并附理由（`mcp/memory_adapter.py`、`runtime/governance/scenarios.py`、`harness/memory_eval.py`、探针 `harness/local_model_compat.py`），白名单条目不再对应真实代码同样判失败；用 AST 判定 | `tests/test_plugin_invariants.py` | delivered |
+| P7-I02 | `tool_spec_to_base_tool(` 只在 `plugins/assembly.py` 与上述探针里调用 | `tests/test_plugin_invariants.py` | delivered |
+| P7-I03 | `runtime/agentic.py` 与 `harness/runner.py` 都调用 `assemble_tools` | `tests/test_plugin_invariants.py` | delivered |
+| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway")` | `tests/test_plugin_invariants.py` | delivered |
+| P7-I05 | `plugins/` 里不出现 `ToolSpec(` 调用；`ToolSpec` 定义留在 `tools/`（F12 的扫描前提） | `tests/test_plugin_invariants.py` | delivered |
+| P7-I06 | 插件能追加给主体的能力只限 `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | `plugins/assembly.py` + `tests/test_tool_plugins.py` | delivered |
+| P7-I07 | 只有 `runtime/agentic.py` 与 `harness/runner.py` 调用 `build_agentic_app`（装配快照捕获点的前提） | `tests/test_plugin_invariants.py` | delivered |
 
 ---
 
@@ -175,7 +175,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 |---|---|---|---|---|
 | S0 | — | 规格 + 任务书 + 防漂移 harness（H0–H5）+ 装配快照基线 | 范围块在任务书附录 | delivered |
 | S1 | F7 | 确认门执行期强制 | `docs/execution-prompts/P7-S1-confirmation-gate.md` | delivered |
-| S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | planned |
+| S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | delivered |
 | S3 | Step B | 配置分层、每台 server 一个插件实例、`disabled`、受信 entry point；修 F6/F9/F10/F13；预算测试计入 MCP 工具 | 开工前另写 | planned |
 | S4 | Step C | 按意图最小暴露 / 工具分组；修 F4/F5（先建 `tool_exposure_p0`） | 开工前另写 | planned |
 | S5 | Step D | MCP 连接层：长驻进程（修 F8）+ Streamable HTTP | 开工前另写 | planned |
@@ -316,8 +316,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | delivered |
 | P7-S0-A14 | F6：manifest 不进缓存服务 | `tests/test_p7_known_figures.py::test_mcp_manifest_never_reaches_the_cache_service` | delivered |
 | P7-S0-A15 | F7：确认门执行期不检查（S0 时的现状；S1 修复后由 P7-S1-A03 取代，见未覆盖项） | 无 | untested |
-| P7-S0-A16 | F13：runner 的 MCP trace 事件从未落盘（现状） | `tests/test_p7_known_figures.py::test_runner_mcp_trace_events_never_land` | delivered |
-| P7-S0-A17 | F2：runner 路径与会话路径的可观察差异（现状） | `tests/test_p7_known_figures.py::test_runner_path_differs_from_session_path` | delivered |
+| P7-S0-A16 | F13：runner 的 MCP trace 事件从未落盘（S0 时的现状；S2 删除后由 P7-S2-A12 取代，见未覆盖项） | 无 | untested |
+| P7-S0-A17 | F2：runner 路径与会话路径的可观察差异（S0 时的现状；S2 统一后由 P7-S2-A07 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A18 | 本规格的追溯关系成立（delivered 行的测试存在、未 skip、docstring 含 ID；测试里的 ID 都有定义） | `tests/test_p7_traceability.py::test_spec_traceability_holds` | delivered |
 | P7-S0-A19 | 追溯检查能识别：测试缺失、docstring 未声明 ID、测试被 skip、`gate:` 项不存在 | `tests/test_p7_traceability.py::test_delivered_rows_must_point_at_live_tests` | delivered |
 | P7-S0-A20 | 追溯检查能识别：测试里引用了规格未定义的 ID | `tests/test_p7_traceability.py::test_unknown_ids_in_tests_are_reported` | delivered |
@@ -347,21 +347,23 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 | ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S2-A01 | `clauses` 插件耦合 retrieve 与 cite，并透传 `context_source` | `tests/test_tool_plugins.py::test_clauses_plugin_couples_retrieve_and_cite`<br>`tests/test_tool_plugins.py::test_clauses_plugin_forwards_context_source` | planned |
-| P7-S2-A02 | `drawing` 插件原样透传 `drawing_root`（`""` 与 `None` 不互换） | `tests/test_tool_plugins.py::test_drawing_plugin_passes_root_verbatim` | planned |
-| P7-S2-A03 | MCP 插件 `owning` 打开后立即登记关闭、只能用一次；`borrowing` 从不打开或关闭 | `tests/test_tool_plugins.py::test_mcp_owning_closes_on_stack_exit`<br>`tests/test_tool_plugins.py::test_mcp_owning_is_single_use`<br>`tests/test_tool_plugins.py::test_mcp_borrowing_never_closes` | planned |
-| P7-S2-A04 | 授权只在贡献了工具时发生、保持 kind / auth_domain、白名单外拒绝 | `tests/test_tool_plugins.py::test_grant_only_with_contributed_tools`<br>`tests/test_tool_plugins.py::test_grant_preserves_kind_and_auth_domain`<br>`tests/test_tool_plugins.py::test_grants_outside_whitelist_rejected` | planned |
-| P7-S2-A05 | 插件异常原样上抛；插件 id 重复拒绝；发给模型的工具按字母序且绑定同一注册表 | `tests/test_tool_plugins.py::test_plugin_exception_propagates`<br>`tests/test_tool_plugins.py::test_duplicate_plugin_ids_rejected`<br>`tests/test_tool_plugins.py::test_tools_sorted_and_bound_to_registry` | planned |
-| P7-S2-A06 | 会话路径零行为变化：会话侧 profile 与全部 surface 与基线一致 | `tests/test_plugin_invariants.py::test_session_assembly_matches_baseline` | planned |
-| P7-S2-A07 | runner 统一成会话语义（§3.5 第 1–7 条） | `tests/test_tool_plugins.py::test_runner_mcp_opened_and_closed_per_case`<br>`tests/test_tool_plugins.py::test_runner_mcp_register_fault_fails_loudly`<br>`tests/test_tool_plugins.py::test_runner_chat_model_sees_granted_principal`<br>`tests/test_tool_plugins.py::test_runner_cite_uses_thread_context` | planned |
-| P7-S2-A08 | 不变量 P7-I01…I07 | `tests/test_plugin_invariants.py::test_invariants_hold` | planned |
-| P7-S2-A09 | F11：装配位置断言改为 AST 判定 | `tests/test_read_drawing_tool.py::TestWiring::test_cli_registers_tool_only_when_root_available` | planned |
-| P7-S2-A10 | 机制层门禁不回退（agentic_p0 21/21） | `gate:agentic_p0` | planned |
+| P7-S2-A01 | `clauses` 插件耦合 retrieve 与 cite，并透传 `context_source` | `tests/test_tool_plugins.py::test_clauses_plugin_couples_retrieve_and_cite`<br>`tests/test_tool_plugins.py::test_clauses_plugin_forwards_context_source` | delivered |
+| P7-S2-A02 | `drawing` 插件原样透传 `drawing_root`（`""` 与 `None` 不互换） | `tests/test_tool_plugins.py::test_drawing_plugin_passes_root_verbatim` | delivered |
+| P7-S2-A03 | MCP 插件 `owning` 打开后立即登记关闭、只能用一次；`borrowing` 从不打开或关闭 | `tests/test_tool_plugins.py::test_mcp_owning_closes_on_stack_exit`<br>`tests/test_tool_plugins.py::test_mcp_owning_is_single_use`<br>`tests/test_tool_plugins.py::test_mcp_borrowing_never_closes` | delivered |
+| P7-S2-A04 | 授权只在贡献了工具时发生、保持 kind / auth_domain、白名单外拒绝 | `tests/test_tool_plugins.py::test_grant_only_with_contributed_tools`<br>`tests/test_tool_plugins.py::test_grant_preserves_kind_and_auth_domain`<br>`tests/test_tool_plugins.py::test_grants_outside_whitelist_rejected` | delivered |
+| P7-S2-A05 | 插件异常原样上抛；插件 id 重复拒绝；发给模型的工具按字母序且绑定同一注册表 | `tests/test_tool_plugins.py::test_plugin_exception_propagates`<br>`tests/test_tool_plugins.py::test_duplicate_plugin_ids_rejected`<br>`tests/test_tool_plugins.py::test_tools_sorted_and_bound_to_registry` | delivered |
+| P7-S2-A06 | 会话路径零行为变化：会话侧 profile 与全部 surface 与基线一致 | `tests/test_plugin_invariants.py::test_session_assembly_matches_baseline` | delivered |
+| P7-S2-A07 | runner 统一成会话语义（§3.5 第 1–7 条） | `tests/test_tool_plugins.py::test_runner_mcp_opened_and_closed_per_case`<br>`tests/test_tool_plugins.py::test_runner_mcp_register_fault_fails_loudly`<br>`tests/test_tool_plugins.py::test_runner_chat_model_sees_granted_principal`<br>`tests/test_tool_plugins.py::test_runner_cite_uses_thread_context`<br>`tests/test_p7_known_figures.py::test_runner_path_matches_session_semantics` | delivered |
+| P7-S2-A08 | 不变量 P7-I01…I07 | `tests/test_plugin_invariants.py::test_invariants_hold` | delivered |
+| P7-S2-A09 | F11：装配位置断言改为 AST 判定 | `tests/test_read_drawing_tool.py::TestWiring::test_cli_registers_tool_only_when_root_available` | delivered |
+| P7-S2-A10 | 机制层门禁不回退（agentic_p0 21/21） | `gate:agentic_p0` | delivered |
+| P7-S2-A12 | F13：装配期不再有尝试写入却从未落盘的 trace 调用 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | delivered |
 | P7-S2-A11 | 真实质量不回退：有 Key 时重跑 `rag_p1 --variant real --judge`，与 55/58、49/58 对比 | 无 | untested |
 
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
+- **P7-S0-A16 / P7-S0-A17**：它们锁的是 S0 时 runner 路径的缺陷现状（trace 调用从未落盘、与会话路径有 8 处差异）。S2 统一后这些现状已不存在，原测试改写为断言统一后的事实，分别由 **P7-S2-A12** 与 **P7-S2-A07** 承担；两行保留为历史记录，不再有对应测试。
 - **P7-S2-A11**：真实质量层需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内。没有 Key 时记为
   blocked，**不得**声称真实质量未回退。
 - **F8 / F9 / F10**：留到对应步骤（S5 / S3）写测试；现在没有锁定测试。
