@@ -145,7 +145,7 @@ F1–F14 的事实表在 `docs/design/16-p7-plugin-mcp.md` §2，每条数字都
 
 | 步 | 对应 | 内容 | 关键门槛 |
 |---|---|---|---|
-| S3 | Step B | 配置分层、每台 server 一个插件实例、`disabled`、受信 entry point；修 F6 / F9 / F10；补真正落盘的装配摘要 trace 事件（F13 的后续）；预算测试计入 MCP 工具 | 配置 version 升级；`TOOL_POLICY_VERSION` 递进 |
+| S3 | Step B | 配置分层（仓库默认层 + 部署覆盖层）、`disabled`、子进程工作目录隔离、每台 server 结果可观察；修 F6 / F9 / F10 / F15 / F16；补真正落盘的装配摘要 trace 事件（F13 的后续）。执行 Prompt：`docs/execution-prompts/P7-S3-layered-mcp-config.md` | `MCP_CONFIG_VERSION` 递进；模型可见面不变（`TOOL_POLICY_VERSION` 不递进） |
 | S4 | Step C | 按意图最小暴露 / 工具分组；修 F4 / F5 | 先建 `tool_exposure_p0`；`PROMPT_TEMPLATE_VERSION` 递进；快照有意重写 |
 | S5 | Step D | MCP 连接层：长驻进程（修 F8）+ Streamable HTTP | 跨租户状态与并发；出站清单 7→8；能力模型拍板 |
 | S6 | Step E1 | Web 扩展面板 | admin + CSRF；不能写 `command` / `args` |
@@ -217,6 +217,8 @@ F1–F14 的事实表在 `docs/design/16-p7-plugin-mcp.md` §2，每条数字都
 | 执行 Prompt | 入库 `docs/execution-prompts/`，中性工程措辞 | 范围守卫要从 main 读取范围块，执行 Prompt 必须入库 |
 | runner 是否接回答缓存 | 不接（规格 §3.5 第 8 条） | 评测不得命中回答缓存；它属于 app 构造，不属于工具装配 |
 | `docs/P5_TASK_BRIEFING.md` 里"P7：批量处理性能优化" | 标注编号已改用，原设想待重新编号 | 避免同号两义 |
+| （2026-10-05）入仓 `data/mcp_servers.json` | 改为空骨架，真实 server 写进部署覆盖层；autocad 配置挪到示例文件 | 入仓配置写死了个人机器路径，任何其他机器上都起不来 |
+| （2026-10-05）entry point 发现 | 推迟，不在 S3 | 没有任何外部插件包可验证；进程内插件不受护栏约束，等出现真实需求再做 |
 
 ---
 
