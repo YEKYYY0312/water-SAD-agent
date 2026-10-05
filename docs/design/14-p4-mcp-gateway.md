@@ -79,7 +79,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 - **不接受 JSON-RPC 批量（数组）消息**：MCP stdio 不用批处理，接受只会扩大
   攻击面（一次注入多条消息），解码层直接判协议错误。
 
-### 2.3 稳定错误码（`mcp/errors.py`，13 个）
+### 2.3 稳定错误码（`mcp/errors.py`，14 个；P7-S3 新增 `MCP_SERVER_DISABLED`）
 
 | 错误码 | 触发条件 |
 |---|---|
@@ -96,6 +96,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 | `MCP_CONFIRMATION_UNAVAILABLE` | server 配置需人工确认但确认门未接线 → 不暴露 |
 | `MCP_NAME_COLLISION` | 桥接后的本地工具名与既有登记冲突 |
 | `MCP_NOT_IN_ALLOWLIST` | 工具不在 server 配置的 `allow` 白名单内（None=全拒） |
+| `MCP_SERVER_DISABLED` | server 在配置中停用（`disabled=true`，P7-S3）：不 spawn、不暴露 |
 
 **错误语义分层**：远端业务失败（`isError=true`）是**结果**不是异常 ——
 `client.call_tool` 返回 `{"ok": False, "code": MCP_TOOL_REMOTE_ERROR, ...}`；
@@ -106,23 +107,33 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 
 ## 3. 配置契约（`mcp/config.py`）
 
-- 配置文件路径：`WATER_AGENT_MCP_CONFIG` 环境变量 → 默认 `data/mcp_servers.json`。
+- 配置文件路径：`WATER_AGENT_MCP_CONFIG` 环境变量 → 默认 `data/mcp_servers.json`（仓库默认层）。
+- **部署覆盖层（P7-S3）**：`WATER_AGENT_MCP_OVERLAY` 指向的文件，不入库。按 `server_id`
+  合并：默认层没有的 id 是新增 server，有的 id 逐字段覆盖；`allow` / `args` / `env` **整体替换、
+  不合并**。覆盖层顶层只能写 `version` / `servers`，写 `confirmation_handler_ready` 即
+  `MCP_CONFIG_INVALID`；覆盖层路径给了但文件不存在同样报错。只有覆盖层时默认层按空骨架处理。
+  合并规则见 `docs/design/16-p7-plugin-mcp.md` 与 `docs/execution-prompts/P7-S3-layered-mcp-config.md`。
 - **文件不存在 = 功能关闭**（特性开关，不是错误）；**文件存在但坏 = `MCP_CONFIG_INVALID`**
   （响亮失败，防止"写错了却静默跳过全部 server"）；**显式指定路径但文件不存在**
   也是错误（显式给路径却找不到，与"没配"是两件事）。
-- 仓库根提供 `data/mcp_servers.json` 骨架（空 servers + `confirmation_handler_ready: false`），
-  作为接入模板。
+- 仓库根提供 `data/mcp_servers.json` 骨架（空 servers + `confirmation_handler_ready: false`）。
+  真实 server 写进部署覆盖层；`data/mcp_servers.example.json` 是写覆盖层的参考（占位路径，
+  不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
-  - `version`（`p4-step23-2026-09-08`）；
+  - `version`（`p7-s3-2026-10-05`；加载时不比对）；
   - `confirmation_handler_ready`：危险操作确认门是否接线（本步恒 `False`）；
   - `servers: tuple[MCPServerConfig, ...]`，`server_id` 唯一。
 - `MCPServerConfig`（`extra="forbid"`）：
   - `server_id`：`^[a-z][a-z0-9_]{1,31}$`，命名空间前缀来源；
   - `command` + `args`：**list 形式** spawn（无 shell、无字符串插值）；
   - `transport`：本步只支持 `stdio`；
-  - `env`（内联 dict）+ `env_file`（key=value 文件，相对路径按配置目录解析，
-    内联覆盖文件）：**显式给值**的环境注入。子进程默认只透传 `PATH`/`HOME`，
-    其余本机变量（含 API Key）一律不进 server 进程；
+  - `command`：绝对路径，或不含 `/` 的裸命令名（按 `PATH` 查找）；含 `/` 的相对路径拒绝（P7-S3）；
+  - `env`（内联 dict）+ `env_file`（key=value 文件，相对路径按**定义它的那一层配置文件所在目录**
+    解析，文件缺失在加载期即 `MCP_CONFIG_INVALID`，内联覆盖文件）：**显式给值**的环境注入。
+    子进程默认只透传 `PATH`/`HOME`，其余本机变量（含 API Key）一律不进 server 进程；
+  - `cwd`（P7-S3）：子进程工作目录，必须是绝对路径、加载期校验存在。**不配置时每次连接新建
+    空临时目录**，连接关闭即删除——子进程不继承 agent 的工作目录（F15）。这不是沙箱；
+  - `disabled`（P7-S3）：`true` 时不 spawn、不暴露、记 `MCP_SERVER_DISABLED`、不进 manifest；
   - `allow`：工具白名单，**`None` = 全拒（fail closed）**，列名与 tools/list
     **精确匹配**；
   - `human_confirmation`：`true` 且确认门未接线时整台 server 的工具不暴露；
