@@ -4,9 +4,10 @@
 余量 3。这里的断言全部读入仓的装配快照基线（基线与代码的一致性由
 ``tests/test_tool_assembly_snapshot.py`` 保证），所以数字一旦变化，这里与文档必须同步改。
 
-其中 F5/F6/F13 与 runner 差异是**已知缺陷的现状**，不是期望行为。后续步骤有意修复
-它们时，在同一个 commit 里同步改这里、规格事实表与快照基线（各步执行 Prompt 的范围块
-允许改本文件）。F7 已在 P7-S1 修复，对应测试改为断言修复后的事实。
+其中 F5/F6 是**已知缺陷的现状**，不是期望行为。后续步骤有意修复它们时，在同一个
+commit 里同步改这里、规格事实表与快照基线（各步执行 Prompt 的范围块允许改本文件）。
+F7 已在 P7-S1 修复，F2（runner 与会话路径的差异）与 F13（从未落盘的 trace 调用）已在
+P7-S2 收尾，对应测试改为断言修复后的事实。
 """
 from __future__ import annotations
 
@@ -83,42 +84,41 @@ def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
     assert "mcp_invoke" not in _caps(skipped["surface"]["principal"])
 
 
-def test_runner_mcp_trace_events_never_land(profiles: dict[str, Any]) -> None:
-    """P7-S0-A16 F13：runner 的 mcp_assembly / mcp_assembly_error 事件尝试写入，但从未落盘。"""
+def test_no_assembly_trace_calls_that_never_land(profiles: dict[str, Any]) -> None:
+    """P7-S2-A12 F13 已收尾：装配期不再有"尝试写入却从未落盘"的 trace 调用。
 
-    calls = profiles["runner_mcp_register_fault"]["lifecycle"]["trace_record_calls"]
-    assert [(call["event"], call["landed"]) for call in calls] == [
-        ("mcp_assembly", False),
-        ("mcp_assembly_error", False),
-    ]
-    assert all(
-        not call["landed"]
-        for profile in profiles.values()
-        for call in profile["lifecycle"]["trace_record_calls"]
-    )
+    S0 时 runner 在 recorder 尚未 start 时写 ``mcp_assembly`` / ``mcp_assembly_error``，
+    异常被吞，事件一条都没落盘；S2 删除了这两次调用（真正落盘的装配摘要留给 S3）。
+    """
+
+    for name, profile in profiles.items():
+        assert profile["lifecycle"]["trace_record_calls"] == [], name
 
 
-def test_runner_path_differs_from_session_path(profiles: dict[str, Any]) -> None:
-    """P7-S0-A17 F2：runner real-agentic 路径与会话路径的可观察差异（S2 统一前的现状）。"""
+def test_runner_path_matches_session_semantics(profiles: dict[str, Any]) -> None:
+    """P7-S2-A07 F2 已统一：runner real-agentic 路径与会话路径同语义（规格 §3.5 第 1–7 条）。"""
 
-    # 模块级缓存：用例结束后 MCP 子进程仍存活；会话路径随 ExitStack 关闭
-    assert profiles["runner_mcp_fake"]["lifecycle"]["mcp_clients_alive_after_scope"] == 1
-    assert profiles["session_mcp_fake"]["lifecycle"]["mcp_clients_alive_after_scope"] == 0
-    # 注册故障：runner 降级为纯本地工具且不授权；会话路径直接抛错
-    fault = profiles["runner_mcp_register_fault"]
-    assert fault["lifecycle"]["exception"] is None
-    assert fault["surface"]["registration_order"] == [
-        "retrieve_clauses", "cite_clauses", "calc_velocity", "material_stats"
-    ]
-    assert "mcp_invoke" not in _caps(fault["surface"]["principal"])
-    assert profiles["session_mcp_register_fault"]["lifecycle"]["exception"] == {
-        "type": "ValueError", "code": None
-    }
-    # chat model 拿到的是授权前的主体，交给图的是授权后的主体
+    # 第 3 条：MCP 每条用例现开现关，作用域结束后不留子进程（与会话路径相同）
+    for name in ("runner_mcp_fake", "session_mcp_fake"):
+        assert profiles[name]["lifecycle"]["mcp_clients_alive_after_scope"] == 0, name
+    # 第 4 条：注册故障响亮失败，两条路径同一种异常，不再降级为纯本地工具
+    for name in ("runner_mcp_register_fault", "session_mcp_register_fault"):
+        lifecycle = profiles[name]["lifecycle"]
+        assert lifecycle["exception"] == {"type": "ValueError", "code": None}, name
+        assert profiles[name]["surface"] is None, name
+        assert lifecycle["mcp_clients_alive_after_scope"] == 0, name
+    # 第 6 条：chat model 拿到的是授权后的主体，与交给图的主体一致
     runner_fake = profiles["runner_mcp_fake"]
     assert "mcp_invoke" in _caps(runner_fake["surface"]["principal"])
-    assert "mcp_invoke" not in _caps(runner_fake["lifecycle"]["app"]["chat_model_principal"])
-    # 会话路径不传 max_tool_turns、接缓存服务（真实模型时）；runner 传 10、不接缓存
+    assert _caps(runner_fake["lifecycle"]["app"]["chat_model_principal"]) == _caps(
+        runner_fake["surface"]["principal"]
+    )
+    # 两条路径的模型可见面一致（同一份 fake MCP 配置，只是 server id 不同）
+    session_fake = profiles["session_mcp_fake"]["surface"]
+    assert [n.replace("snaprfake", "X") for n in runner_fake["surface"]["registration_order"]] == [
+        n.replace("snapfake", "X") for n in session_fake["registration_order"]
+    ]
+    # 第 8 条（刻意保留）：runner 显式传 max_tool_turns、不接回答缓存
     assert profiles["runner_no_mcp"]["lifecycle"]["app"]["max_tool_turns"] == 10
     assert profiles["runner_no_mcp"]["lifecycle"]["app"]["cache_service"] is None
     assert profiles["session_web_member"]["lifecycle"]["app"]["cache_service"] is not None

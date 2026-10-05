@@ -523,20 +523,35 @@ class TestConditionalRegistration:
 
 class TestWiring:
     def test_cli_registers_tool_only_when_root_available(self) -> None:
-        """CLI 与 runner 共用同一条装配策略，不各写一份判断（必然漂移）。
+        """P7-S2-A09 会话与 runner 共用同一条图纸工具注册策略，不各写一份判断（必然漂移）。
 
-        Step 42 把 CLI 的 AgenticSession 装配（含 read_drawing 条件注册）搬到了
-        ``runtime/agentic.py``，由 CLI 与 Web 共用；因此这里断言的是那个共享装配
-        模块本身，而不是已经不再做这件事的 ``cli.py``。
+        P7-S2 起两条装配路径都经 ``assemble_tools``，图纸工具由 ``drawing`` 插件按
+        ``maybe_build_read_drawing_tool`` 条件注册。这里用 AST 判定**真实调用**，不再按
+        源码里有没有那个字符串判断（注释或 docstring 提到它也会被旧断言误算成"接上了"）。
         """
-        cli_src = (
-            Path(__file__).resolve().parents[1] / "src/water_agent/runtime/agentic.py"
-        ).read_text(encoding="utf-8")
-        runner_src = (
-            Path(__file__).resolve().parents[1] / "src/water_agent/harness/runner.py"
-        ).read_text(encoding="utf-8")
-        for src in (cli_src, runner_src):
-            assert "maybe_build_read_drawing_tool" in src
+        import ast
+
+        src_root = Path(__file__).resolve().parents[1] / "src" / "water_agent"
+
+        def called_names(relative: str) -> set[str]:
+            tree = ast.parse((src_root / relative).read_text(encoding="utf-8"))
+            names: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    if isinstance(func, ast.Name):
+                        names.add(func.id)
+                    elif isinstance(func, ast.Attribute):
+                        names.add(func.attr)
+            return names
+
+        assert "maybe_build_read_drawing_tool" in called_names("plugins/builtin.py")
+        for module in ("runtime/agentic.py", "harness/runner.py"):
+            calls = called_names(module)
+            assert "assemble_tools" in calls, module
+            assert "maybe_build_read_drawing_tool" not in calls, (
+                f"{module} 绕过 drawing 插件自己注册图纸工具"
+            )
 
     def test_layer_constants_match_synth(self, drawings: Path, registry: ToolRegistry) -> None:
         """合成图纸的图层命名与系统过滤口径一致（防 synth 与 reader 各改一半）。"""
