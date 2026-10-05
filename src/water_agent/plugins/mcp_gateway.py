@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from typing import Literal
 
 from water_agent.mcp.config import MCPGatewayConfig
+from water_agent.mcp.errors import MCP_SERVER_DISABLED
 from water_agent.mcp.wiring import MCPGatewayAssembly, open_gateway_sessions
 from water_agent.plugins.base import AssemblyContext, PluginContribution
 from water_agent.runtime.governance.contracts import Capability
@@ -24,10 +26,53 @@ _EMPTY_ASSEMBLY = MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_h
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class McpServerOutcome:
+    """一台 MCP server 在本次装配里的结果（P7-S3）。
+
+    ``status``：``active`` 暴露了至少一个工具；``disabled`` 配置停用；``skipped`` 被跳过
+    （连接失败、确认门、全部工具被拒等，原因见 ``codes``）。
+    """
+
+    server_id: str
+    status: Literal["active", "disabled", "skipped"]
+    exposed: tuple[str, ...] = ()
+    codes: tuple[str, ...] = ()
+
+
+def _server_outcomes(assembly: MCPGatewayAssembly) -> tuple[McpServerOutcome, ...]:
+    outcomes: list[McpServerOutcome] = [
+        McpServerOutcome(
+            server_id=session.config.server_id,
+            status="active",
+            exposed=session.result.exposed_names,
+            codes=tuple(skip.code for skip in session.result.skipped),
+        )
+        for session in assembly.sessions
+    ]
+    skipped: dict[str, list[str]] = {}
+    for skip in assembly.skipped_servers:
+        skipped.setdefault(skip.server_id, []).append(skip.code)
+    for server_id, codes in skipped.items():
+        outcomes.append(
+            McpServerOutcome(
+                server_id=server_id,
+                status="disabled" if codes == [MCP_SERVER_DISABLED] else "skipped",
+                codes=tuple(codes),
+            )
+        )
+    return tuple(outcomes)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class McpContribution(PluginContribution):
-    """MCP 插件的贡献，带回装配产物（暴露 / 跳过记录、manifest hash，供调用方观测）。"""
+    """MCP 插件的贡献，带回装配产物（暴露 / 跳过记录、manifest hash，供调用方观测）。
+
+    ``servers`` 按 server 逐台给出结果（P7-S3）：MCP 网关在装配里仍是一个插件
+    （``plugin_id="mcp_gateway"``），但每台 server 的结果单独可读。
+    """
 
     assembly: MCPGatewayAssembly
+    servers: tuple[McpServerOutcome, ...] = ()
 
 
 class McpGatewayPlugin:
@@ -73,7 +118,8 @@ class McpGatewayPlugin:
             tools=tools,
             grants=frozenset({Capability.MCP_INVOKE}) if tools else frozenset(),
             assembly=assembly,
+            servers=_server_outcomes(assembly),
         )
 
 
-__all__ = ["McpContribution", "McpGatewayPlugin"]
+__all__ = ["McpContribution", "McpGatewayPlugin", "McpServerOutcome"]
