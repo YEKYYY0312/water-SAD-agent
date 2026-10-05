@@ -154,7 +154,7 @@ def test_cli_lists_disclosures_before_asking_for_approval(
         ]
     )
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     assert "低于给水常用区间" in captured.err, captured.err
     assert "给水管段" in captured.err
     payload = json.loads(captured.out)

@@ -196,7 +196,7 @@ class TestMultiAgentCli:
         )
 
         captured = capsys.readouterr()
-        assert code == 1
+        assert code == 1, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
         payload = json.loads(captured.out)
         assert payload["status"] == "missing_inputs"
         assert payload["waiting"] is True
@@ -238,7 +238,7 @@ class TestMultiAgentCli:
         )
 
         captured = capsys.readouterr()
-        assert code == 0, captured.err
+        assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
         payload = json.loads(captured.out)
         assert payload["status"] == "succeeded"
         assert payload["waiting"] is False

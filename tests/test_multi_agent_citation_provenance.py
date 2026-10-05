@@ -141,7 +141,7 @@ def test_cli_zero_citation_disclosure_is_visible_before_the_prompt(
     monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
     code = cli.main(["--flow", "multi-agent", "--json", "--session-dir", str(tmp_path / "sessions"), _CLI_QUERY])
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     before_prompt = captured.err[: captured.err.index(_PROMPT)]
     assert "设计依据零引用" in before_prompt
 
