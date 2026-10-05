@@ -149,14 +149,17 @@ def numeric_preservation_problems(
             )
         for match in _BARE_NUMBER_RE.finditer("".join(bare_body)):
             raw = match.group(1)
+            # 逐字白名单先于有限性判定：底座里逐字出现过的 token 不是凭空数值。编号的 hex 尾巴
+            # 可能恰好读成溢出的科学计数法（seg-21634e590093 → inf），同类的有限尾巴（全数字 hex）
+            # 本来就靠这条放行；底座里没有的溢出字面量照旧判非有限。
+            if raw in allowed_strings:
+                continue
             try:
                 number = float(raw)
             except ValueError:  # pragma: no cover — 正则已保证可解析
                 continue
             if not math.isfinite(number):
                 problems.append(f"正文出现非有限数值：{raw}")
-                continue
-            if raw in allowed_strings:
                 continue
             if any(_within_tolerance(number, gold) for gold in allowed_values):
                 continue

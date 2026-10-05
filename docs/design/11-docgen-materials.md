@@ -227,7 +227,8 @@ approval（HITL，严格 bool）── 通过 → finalize（同一数据源正�
 对 polish 后的 `RenderedDoc` 复检：
 1. **结构合规**：`check_structure`（canonical 章节仍在，无新增/删除必需章节）；
 2. **数值保真**：解析正文中出现的数字/`key = value` 行，与 `calc_values` 双阈值比对
-   （≤1e-6 相对）；数字不可凭空多出/改值；
+   （≤1e-6 相对）；数字不可凭空多出/改值；底座正文里逐字出现过的 token 先按白名单放行、
+   再判有限性——编号的 hex 尾巴（`seg-21634e590093`）会被读成溢出的科学计数法（2026-10-05）；
 3. **引用保真**：`validate_citation_policy`（正文「规范号+条款号」⊆ `citation_ids`）；
 4. **无编造条款**：与 3 同一校验器（引用策略即编造检测）；
 5. **数值完整性**：`calc_values` 全有限；`calc_result` 有输入但无数值也无备注 → 报错
