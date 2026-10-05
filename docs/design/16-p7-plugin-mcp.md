@@ -65,6 +65,8 @@
 | F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}` | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
 | F13 | ~~runner 的 `mcp_assembly` / `mcp_assembly_error` trace 事件尝试写入但从未落盘~~ **S2 已删除**这两次调用；真正落盘的装配摘要事件留给 S3 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | S2 已删除，S3 补 |
 | F14 | worktree 里不设 `PYTHONPATH=src` 时，pytest 与 harness 导入的是**主检出**的代码（editable install）；`ci_gate.sh` 此前不设 PYTHONPATH | `tests/test_import_guard.py::test_conftest_rejects_a_foreign_water_agent` | S0 H0 已修 |
+| F15 | MCP 子进程继承 agent 的工作目录；护栏刻意不管相对路径（实测 `secrets/deepseek_api_key`、`data/versions.json` 作为 MCP 工具参数都是 `tool.allowed`），于是模型能借 MCP 工具的相对路径参数读 agent 自己的文件（绝对路径、`~`、`../` 已被护栏拦下） | 无测试（2026-10-05 实测） | S3 |
+| F16 | 配置没法指定 MCP server 的工作目录：入仓的 autocad-mcp 以 `-m autocad_mcp` 启动、需在它自己的仓库目录下运行，于是启动即崩（`No module named autocad_mcp`），任何机器上都暴露 0 个工具；`cwd` 指到它的仓库后 `tools/list` 正常返回 `read_dwg` | 无测试（2026-10-05 实测） | S3 |
 
 ---
 
@@ -176,7 +178,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S0 | — | 规格 + 任务书 + 防漂移 harness（H0–H5）+ 装配快照基线 | 范围块在任务书附录 | delivered |
 | S1 | F7 | 确认门执行期强制 | `docs/execution-prompts/P7-S1-confirmation-gate.md` | delivered |
 | S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | delivered |
-| S3 | Step B | 配置分层、每台 server 一个插件实例、`disabled`、受信 entry point；修 F6/F9/F10/F13；预算测试计入 MCP 工具 | 开工前另写 | planned |
+| S3 | Step B | 配置分层（仓库默认层 + 部署覆盖层）、每台 server 结果可观察、`disabled`、子进程工作目录隔离；修 F6/F9/F10/F13/F15/F16；**entry point 发现推迟**（见下） | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | planned |
 | S4 | Step C | 按意图最小暴露 / 工具分组；修 F4/F5（先建 `tool_exposure_p0`） | 开工前另写 | planned |
 | S5 | Step D | MCP 连接层：长驻进程（修 F8）+ Streamable HTTP | 开工前另写 | planned |
 | S6 | Step E1 | Web 扩展面板（只改启停 / allow / 凭据引用；导入 `mcpServers` 只生成禁用的待审提案） | 开工前另写 | planned |
@@ -184,8 +186,11 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
-- **S3**：每层的 `allow` 整体替换、不合并；entry point 只收白名单，外部插件只能贡献经 MCP 桥接的
-  工具（本地工具会被 `capability_for_tool` 拒绝）；预算测试基于装配快照 profile 计入 MCP 工具。
+- **S3**：每层的 `allow` 整体替换、不合并；覆盖层不得写 `confirmation_handler_ready`（S1 的限制不能从
+  覆盖层绕开）；F15 修在进程边界（子进程工作目录），不放宽也不收紧护栏。修订与理由见 S3 执行 Prompt §0。
+- **推迟项：entry point 发现**（原计划 S3，2026-10-05 评审决定推迟）。没有任何外部插件包，做了只能对着
+  假包测；进程内插件不受护栏约束，要等出现第一个真实插件包再做。届时的约束不变：只收白名单、外部插件
+  只能贡献经 MCP 桥接的工具（本地工具会被 `capability_for_tool` 拒绝）。
 - **S4**：本地工具 schema 只剩 3 字符余量（F4），`< 4500` 断言不得上调；先有工具选择准确率的
   评测证据，再改暴露策略；`PROMPT_TEMPLATE_VERSION` 递进，快照**有意**重写。
 - **S5**：长驻 stdio 进程被所有 Web 用户共享——跨租户状态、并发访问（客户端 `max_workers=4`）、
@@ -360,13 +365,32 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S2-A12 | F13：装配期不再有尝试写入却从未落盘的 trace 调用 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | delivered |
 | P7-S2-A11 | 真实质量不回退：有 Key 时重跑 `rag_p1 --variant real --judge`，与 55/58、49/58 对比 | 无 | untested |
 
+### S3：配置分层、按实例启停与工作目录隔离（Step B）
+
+| ID | 验收 | 验证 | 状态 |
+|---|---|---|---|
+| P7-S3-A01 | `MCPServerConfig` 新增 `disabled`、`cwd`；`cwd` 必须是绝对路径；`command` 只能是绝对路径或裸命令名 | `tests/test_mcp_layered_config.py::test_server_config_validates_cwd_and_command` | planned |
+| P7-S3-A02 | F9：`env_file` 相对路径按定义它的那一层配置文件所在目录解析；`env_file` / `cwd` 不存在在加载期即 `MCP_CONFIG_INVALID` | `tests/test_mcp_layered_config.py::test_env_file_and_cwd_resolved_and_checked_at_load` | planned |
+| P7-S3-A03 | 覆盖层合并：新增 server、逐字段覆盖、`allow` / `args` / `env` 整体替换；只有覆盖层时默认层按空骨架处理 | `tests/test_mcp_layered_config.py::test_overlay_merges_by_server_id` | planned |
+| P7-S3-A04 | 覆盖层不得写 `confirmation_handler_ready` 或未知键；覆盖层路径给了但不存在 → `MCP_CONFIG_INVALID` | `tests/test_mcp_layered_config.py::test_overlay_cannot_widen_the_gate` | planned |
+| P7-S3-A05 | `disabled` 的 server 不 spawn、不暴露、记 `MCP_SERVER_DISABLED`、不进 manifest（全部停用时为 `""`） | `tests/test_mcp_layered_config.py::test_disabled_server_is_skipped_and_excluded_from_manifest` | planned |
+| P7-S3-A06 | F15 / F16：未配 `cwd` 时子进程工作目录是新建的空临时目录（相对路径读不到 agent 的文件，连接关闭后目录被删）；配了就用它 | `tests/test_mcp_layered_config.py::test_child_runs_in_isolated_or_configured_cwd` | planned |
+| P7-S3-A07 | F6：会话装配暴露了 MCP 工具时，缓存服务的 `mcp_server_manifest` 非空 | `tests/test_p7_known_figures.py::test_mcp_manifest_reaches_the_cache_service` | planned |
+| P7-S3-A08 | F13 后续：会话与 runner 的 trace 里确有 `mcp_assembly` 事件，内容不含 detail 文本；没有 MCP 配置时不写 | `tests/test_mcp_layered_config.py::test_assembly_summary_lands_in_trace` | planned |
+| P7-S3-A09 | `McpContribution` 可逐台读出每台 server 的结果（暴露 / 跳过 / 停用） | `tests/test_tool_plugins.py::test_mcp_contribution_reports_each_server` | planned |
+| P7-S3-A10 | F10：入仓默认层是空骨架；示例文件通过模型层校验且被 `.dockerignore` 排除 | `tests/test_mcp_wiring.py::TestConfigWiring::test_default_config_is_empty_skeleton`<br>`tests/test_mcp_wiring.py::TestConfigWiring::test_example_config_validates` | planned |
+| P7-S3-A11 | 装配期的每一次 trace 调用都已真正落盘（F13 的最终形态，与 P7-S2-A12 同一测试） | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | planned |
+| P7-S3-A12 | 模型可见面不变：全部 profile 的 surface 与基线一致（范围守卫 `frozen_json` 在 PR 上核对） | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline` | planned |
+| P7-S3-A13 | 手动验收：本机覆盖层接上真实 autocad-mcp 后能看到 `mcp_autocad_mcp_read_dwg`（只证明能连上，不是 CAD 验收） | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S0-A16 / P7-S0-A17**：它们锁的是 S0 时 runner 路径的缺陷现状（trace 调用从未落盘、与会话路径有 8 处差异）。S2 统一后这些现状已不存在，原测试改写为断言统一后的事实，分别由 **P7-S2-A12** 与 **P7-S2-A07** 承担；两行保留为历史记录，不再有对应测试。
 - **P7-S2-A11**：真实质量层需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内。没有 Key 时记为
   blocked，**不得**声称真实质量未回退。
-- **F8 / F9 / F10**：留到对应步骤（S5 / S3）写测试；现在没有锁定测试。
+- **P7-S3-A13**：依赖本机装了 autocad-mcp，CI 上没有；没做时在决策记录里写明。即使做了也只证明能连上，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
+- **F8**：留到 S5 写测试。**F9 / F10 / F15 / F16** 由 S3 的 A02 / A10 / A06 锁定（S3 交付后生效）。
 - **H2 的局限**：追溯检查证明测试存在且声明了覆盖，不证明断言正确（§6.3）。
 
 ---
