@@ -32,9 +32,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from water_agent.mcp.bridge import MCPServerSession, open_bridge
-from water_agent.mcp.config import MCPGatewayConfig, load_gateway_config
+from water_agent.mcp.config import (
+    MCPGatewayConfig,
+    load_gateway_config,
+    load_layered_gateway_config,
+)
 from water_agent.mcp.errors import (
     MCP_CONFIRMATION_UNAVAILABLE,
+    MCP_SERVER_DISABLED,
 )
 from water_agent.tools.registry import ToolRegistry
 
@@ -88,6 +93,32 @@ class MCPGatewayAssembly:
             "mcp_manifest_hash": self.manifest_hash,
         }
 
+    @property
+    def has_activity(self) -> bool:
+        """有暴露的工具或跳过 / 停用记录。没有任何 server 配置时为 False。"""
+        return bool(self.sessions or self.skipped_servers)
+
+    def trace_summary(self) -> dict[str, object]:
+        """写进 trace 的装配摘要（P7-S3）：只有 server id、暴露的工具名与跳过的错误码。
+
+        **不含 detail 文本**：跳过原因里可能有第三方 server 的 stderr 尾部与本机路径，trace 是
+        设计为可落盘、可复制的诊断材料。manifest 也只记是否非空（摘要值含解释器路径）。
+        """
+        return {
+            "mcp_servers": [
+                {
+                    "server_id": session.config.server_id,
+                    "exposed": list(session.result.exposed_names),
+                    "skipped": [[skip.remote_tool, skip.code] for skip in session.result.skipped],
+                }
+                for session in self.sessions
+            ],
+            "mcp_skipped_servers": [
+                [skip.server_id, skip.code] for skip in self.skipped_servers
+            ],
+            "mcp_manifest_nonempty": bool(self.manifest_hash),
+        }
+
     def close(self) -> None:
         for session in self.sessions:
             session.close()
@@ -101,22 +132,40 @@ def _config_digest(payload: object) -> str:
 def compute_manifest_hash(config: MCPGatewayConfig) -> str:
     """server manifest 摘要（缓存失效因子 ``mcp_server_manifest`` 的值）。
 
-    覆盖全部**已校验** server（含确认门跳过的）：清单、命令、白名单、超时、
-    env 显式值与确认位任一变化 → 键变化。空 servers 返回空串（功能关闭态
-    与"从未启用"同键，不无谓失效）。
+    覆盖全部**未停用的**已校验 server（含确认门跳过的）：清单、命令、工作目录、白名单、
+    超时、env 显式值与确认位任一变化 → 键变化。停用的 server 不计入（P7-S3）：停用一台
+    server 让缓存键回到没有它的状态。没有任何启用的 server 时返回空串（功能关闭态与
+    "从未启用"同键，不无谓失效）。
     """
-    if not config.servers:
+    enabled = [server for server in config.servers if not server.disabled]
+    if not enabled:
         return ""
-    return _config_digest(config.model_dump(mode="json"))
+    payload = config.model_dump(mode="json")
+    payload["servers"] = [server.model_dump(mode="json") for server in enabled]
+    return _config_digest(payload)
 
 
 def load_mcp_gateway(path: str | Path | None = None) -> MCPGatewayConfig | None:
-    """加载网关配置（``load_gateway_config`` 的直通别名，语义见 config 模块）。
+    """加载网关配置。会话、runner 与 Web 能力端点共用这一个入口。
 
-    - 文件缺失（且未显式给路径）→ ``None``：功能关闭，不是错误；
-    - 文件存在但坏/显式路径缺失 → ``MCP_CONFIG_INVALID`` 上抛（响亮失败）。
+    - 不给 ``path``：仓库默认层 + 部署覆盖层（``WATER_AGENT_MCP_OVERLAY``），见
+      ``config.load_layered_gateway_config``（P7-S3）；
+    - 给了 ``path``：只读这一份文件（单层，测试与示例校验用）；
+    - 文件缺失（且未显式给路径、也没有覆盖层）→ ``None``：功能关闭，不是错误；
+    - 文件存在但坏 / 显式路径缺失 / 覆盖层坏 → ``MCP_CONFIG_INVALID`` 上抛（响亮失败）。
     """
+    if path is None:
+        return load_layered_gateway_config()
     return load_gateway_config(path)
+
+
+def _disabled_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
+    """``disabled=true`` 的 server 不 spawn、不暴露（P7-S3）。先于确认门判定。"""
+    return [
+        SkippedServer(server.server_id, MCP_SERVER_DISABLED, "server 配置 disabled=true")
+        for server in config.servers
+        if server.disabled
+    ]
 
 
 def _confirmation_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
@@ -131,7 +180,7 @@ def _confirmation_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
             "危险操作人工确认门未接线，整台 server 的工具不暴露（interrupt/HITL 为后续 Step）",
         )
         for server in config.servers
-        if server.human_confirmation
+        if server.human_confirmation and not server.disabled
     ]
 
 
@@ -154,9 +203,10 @@ def open_gateway_sessions(
     if config is None:
         return MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_hash="")
 
-    blocked = {s.server_id for s in _confirmation_skips(config)}
+    pre_skips = [*_disabled_skips(config), *_confirmation_skips(config)]
+    blocked = {s.server_id for s in pre_skips}
     sessions: list[MCPServerSession] = []
-    skipped: list[SkippedServer] = list(_confirmation_skips(config))
+    skipped: list[SkippedServer] = list(pre_skips)
     for server in config.servers:
         if server.server_id in blocked:
             continue
