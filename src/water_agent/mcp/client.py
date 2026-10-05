@@ -20,7 +20,9 @@ from __future__ import annotations
 import io
 import queue
 import selectors
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -120,6 +122,8 @@ class MCPStdioClient:
         self._next_id = 0
         self._write_lock = threading.Lock()
         self._notifications: list[dict[str, Any]] = []
+        #: 本连接自己建的临时工作目录（配置没给 ``cwd`` 时）；连接关闭时删除。
+        self._scratch_dir: str | None = None
 
     # ------------------------------------------------------------------ 连接
 
@@ -132,6 +136,25 @@ class MCPStdioClient:
         """收到的 server 通知（可观测；本网关不响应它们）。"""
         return tuple(RpcMessage(m) for m in self._notifications)
 
+    def _working_directory(self) -> str:
+        """子进程工作目录（P7-S3，F15/F16）。
+
+        配置给了 ``cwd`` 就用它；没给就为本连接新建一个空临时目录，**不继承 agent 自己的工作
+        目录**——模型能借 MCP 工具参数里的相对路径读文件，而护栏刻意不管相对路径。这不是沙箱：
+        server 进程照样能读进程用户能读的一切，隔离靠容器；这里只关掉"相对路径解析到 agent
+        仓库"这一条缝。
+        """
+        if self.config.cwd is not None:
+            return self.config.cwd
+        if self._scratch_dir is None:
+            self._scratch_dir = tempfile.mkdtemp(prefix="wa-mcp-")
+        return self._scratch_dir
+
+    def _remove_scratch_dir(self) -> None:
+        scratch, self._scratch_dir = self._scratch_dir, None
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)
+
     def _spawn(self) -> StdioProcess:
         command = [self.config.command, *self.config.args]
         try:
@@ -141,9 +164,11 @@ class MCPStdioClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=child_env(self.config),
+                cwd=self._working_directory(),
                 text=False,
             )
         except (OSError, MCPError) as exc:
+            self._remove_scratch_dir()
             if isinstance(exc, MCPError):
                 raise
             raise MCPError(
@@ -449,6 +474,7 @@ class MCPStdioClient:
         self._proc = None
         self._connected = False
         if handle is None:
+            self._remove_scratch_dir()
             return
         proc = handle.proc
         if proc.poll() is None:
@@ -466,6 +492,7 @@ class MCPStdioClient:
                     stream.close()
             except OSError:
                 pass
+        self._remove_scratch_dir()
 
     def close(self) -> None:
         """终止子进程并释放资源。幂等。"""

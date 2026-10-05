@@ -1,0 +1,20 @@
+{
+  "version": "p7-s3-2026-10-05",
+  "servers": [
+    {
+      "server_id": "autocad_mcp",
+      "command": "/path/to/autocad-mcp/.venv/bin/python",
+      "args": ["-m", "autocad_mcp"],
+      "cwd": "/path/to/autocad-mcp",
+      "transport": "stdio",
+      "env": {
+        "AUTOCAD_MCP_BACKEND": "ezdxf"
+      },
+      "allow": ["read_dwg"],
+      "human_confirmation": false,
+      "startup_timeout_seconds": 10.0,
+      "call_timeout_seconds": 30.0,
+      "max_response_bytes": 262144
+    }
+  ]
+}
