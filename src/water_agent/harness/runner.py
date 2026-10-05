@@ -72,6 +72,7 @@ from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.plugins import (
     AssemblyContext,
+    McpContribution,
     McpGatewayPlugin,
     assemble_tools,
     builtin_plugins,
@@ -862,6 +863,12 @@ class HarnessRunner:
                 self._real_chat_model.request_context = request_context
             if hasattr(self._real_chat_model, "gateway"):
                 self._real_chat_model.gateway = gateway
+            # 先开 trace 再写装配摘要（P7-S3，F13 的后续）：此前 trace 由图的首个节点开启，
+            # 装配期写的事件在 recorder 尚未 start 时全被吞掉。
+            recorder.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=case.query)
+            mcp_assembly = assembly.contribution(McpContribution).assembly
+            if mcp_assembly.has_activity:
+                recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.trace_summary())
             # 延迟口径与改造前一致：从构图开始计时，不含工具装配与 MCP 子进程启动
             started = time.perf_counter()
             app = build_agentic_app(
