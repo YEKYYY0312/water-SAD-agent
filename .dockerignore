@@ -86,4 +86,5 @@ data/sessions/
 data/quality/
 data/drawings/
 data/mcp_servers.json
+data/mcp_servers.example.json
 **/.DS_Store
