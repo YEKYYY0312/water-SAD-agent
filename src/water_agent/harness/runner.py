@@ -68,7 +68,14 @@ from water_agent.harness.scorer import (
     score_material_case,
 )
 from water_agent.materials import aggregate_materials
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.plugins import (
+    AssemblyContext,
+    McpGatewayPlugin,
+    assemble_tools,
+    builtin_plugins,
+)
 from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -79,13 +86,7 @@ from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
 )
-from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
-from water_agent.tools.material_stats import material_stats_spec
-from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVAL_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
@@ -104,62 +105,6 @@ DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
 # 退出码语义（与 SKIP 明确区分）：
 #   0 全部通过或全部 SKIP；1 有用例失败；2 评测集加载问题；3 有 Key 但真实组件构建失败
 EXIT_REAL_COMPONENTS_FAILED = 3
-
-# P4 Step 25 性能优化：模块级 MCP 装配缓存，避免评测时每条用例重复 I/O
-_MCP_ASSEMBLY_CACHE: tuple[object, str, float] | None = None  # (assembly, config_path, config_mtime)
-
-
-def _get_or_create_mcp_assembly() -> object | None:
-    """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。
-
-    文件不存在 = 功能关闭（返回 None）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
-    缓存键 = (实际读取的配置路径, mtime)，与 load_mcp_gateway() 的数据源一致。
-    """
-    global _MCP_ASSEMBLY_CACHE
-
-    # 确定实际配置路径（与 load_mcp_gateway 逻辑一致：环境变量 → 默认路径）
-    from water_agent.mcp.config import default_config_path
-    config_path = default_config_path()
-
-    if not config_path.exists():
-        return None
-
-    try:
-        current_mtime = config_path.stat().st_mtime
-    except OSError:
-        return None
-
-    # 缓存命中且配置未变化（路径与 mtime 同时匹配）
-    if _MCP_ASSEMBLY_CACHE is not None:
-        cached_assembly, cached_path, cached_mtime = _MCP_ASSEMBLY_CACHE
-        if cached_path == str(config_path) and cached_mtime == current_mtime:
-            return cached_assembly
-        # 配置已变化：关闭旧装配的子进程，避免资源泄漏
-        try:
-            cached_assembly.close()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001, S110
-            pass  # 关闭失败不阻塞重建，但已尽力清理
-
-    # 缓存未命中或配置已变化，重新装配
-    # 配置错误（MCP_CONFIG_INVALID / MCPError）必须上抛，不得静默降级为 None
-    from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
-    mcp_cfg = load_mcp_gateway()
-    mcp_assembly = open_gateway_sessions(mcp_cfg)
-    _MCP_ASSEMBLY_CACHE = (mcp_assembly, str(config_path), current_mtime)
-    return mcp_assembly
-
-
-def _cleanup_mcp_assembly_cache() -> None:
-    """清理模块级 MCP 装配缓存，关闭全部子进程（评测结束时调用）。"""
-    global _MCP_ASSEMBLY_CACHE
-    if _MCP_ASSEMBLY_CACHE is not None:
-        cached_assembly, _, _ = _MCP_ASSEMBLY_CACHE
-        try:
-            cached_assembly.close()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001, S110
-            pass
-        _MCP_ASSEMBLY_CACHE = None
-
 
 class RealComponentsError(RuntimeError):
     """有 Key 但真实组件（索引/embedding/模型/judge）构建失败——是失败，不是 SKIP。"""
@@ -874,86 +819,64 @@ class HarnessRunner:
         request_context = local_request_context(
             thread_id=case_thread_id, request_id=f"req-{case_thread_id[:12]}"
         )
-        # 让缓存的真实 chat model 用本条用例的主体（GovernedChatModel 经 _BudgetChatModel
-        # 持有内层引用，这里直接置位其 request_context 即可逐用例生效）。
         gateway = default_gateway_with_sink(recorder.record_provider_event)
-        if hasattr(self._real_chat_model, "request_context"):
-            self._real_chat_model.request_context = request_context
-        if hasattr(self._real_chat_model, "gateway"):
-            self._real_chat_model.gateway = gateway
-        # 先创建带本地工具的基础 registry（异常恢复路径保留本地工具）
-        base_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
+        thread_config = {"configurable": {"thread_id": case_thread_id}}
+        app_holder: dict[str, Any] = {}
 
-        # 启用引用可追溯性检查（Step 8，2026-09-16）
-        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
-
-        base_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater))
-        base_registry.register(cite_tool_spec)
-        base_registry.register(calc_velocity_spec)
-        base_registry.register(material_stats_spec)
-        drawing_tool, _ = maybe_build_read_drawing_tool()
-        if drawing_tool is not None:
-            base_registry.register(drawing_tool)
-
-        registry = base_registry  # 默认使用基础 registry
-        # P4 Step 25：MCP 网关装配（装配期单入口，manifest hash 进 trace；单台故障不拖垮其余）。
-        # 性能优化：使用模块级缓存避免每条用例重复 I/O
-        mcp_assembly = _get_or_create_mcp_assembly()
-        try:
-            from water_agent.mcp.wiring import register_mcp_tools
-            from water_agent.runtime.governance.contracts import Capability as _Cap
-            if mcp_assembly is not None:
-                try:
-                    recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.summary())  # type: ignore[arg-type]
-                except Exception:  # noqa: BLE001, S110
-                    pass
-                if mcp_assembly.sessions:  # type: ignore[attr-defined]
-                    # 先尝试注册 MCP 工具，只有成功注册后才发放能力（时序漏洞修复）
-                    temp_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-                    tool_count = register_mcp_tools(mcp_assembly, temp_registry)
-                    if tool_count:
-                        # 只有成功注册工具后才更新主体能力
-                        caps2 = frozenset(request_context.principal.capabilities) | {_Cap.MCP_INVOKE}
-                        request_context = request_context.model_copy(update={"principal": request_context.principal.model_copy(update={"capabilities": caps2})})
-                        # 主体能力更新后重建 registry（护栏按新主体校验），再把所有工具注进去
-                        new_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-
-                        # 启用引用可追溯性检查（Step 8，2026-09-16）
-                        cite_tool_spec2, context_updater2 = build_cite_clauses_tool_with_context_check()
-
-                        new_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater2))
-                        new_registry.register(cite_tool_spec2)
-                        new_registry.register(calc_velocity_spec)
-                        new_registry.register(material_stats_spec)
-                        drawing_tool2, _ = maybe_build_read_drawing_tool()
-                        if drawing_tool2 is not None:
-                            new_registry.register(drawing_tool2)
-                        register_mcp_tools(mcp_assembly, new_registry)
-                        # 只有全部成功后才切换到新 registry（异常恢复时保留 base_registry）
-                        registry = new_registry
-        except Exception as exc:  # noqa: BLE001
-            # 异常时 registry 仍是 base_registry（带本地工具）
+        def thread_retrieved_source_ids() -> set[str]:
+            """本用例 thread 至今检索到的 source_id（读 checkpoint，与会话路径同语义）；
+            图还没构造、或 checkpoint 读不到时为空集合——空集合不是"全部放行"。"""
+            app = app_holder.get("app")
+            if app is None:
+                return set()
             try:
-                recorder.record(node="mcp", event="mcp_assembly_error", data={"error": str(exc)[:400]})
-            except Exception:  # noqa: BLE001, S110
-                pass
-        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+                values = getattr(app.get_state(thread_config), "values", None) or {}
+            except Exception:  # noqa: BLE001 — 读不到历史只影响可追溯集合，不影响作答
+                return set()
+            context_ids, _, _ = _extract_validation_signal(
+                {"messages": list(values.get("messages", []) or [])}
+            )
+            return set(context_ids)
 
-        started = time.perf_counter()
-        with MemorySaver() as saver:
+        # 工具装配单入口（P7-S2，规格 §3.5）：与会话路径同语义——MCP 每条用例现开现关
+        # （与 Web 每个 run 同构）、坏配置或注册冲突响亮失败（由 run_bundle 按用例隔离）、
+        # 图纸根读 DRAWING_ROOT、cite 可追溯集合读本用例 thread。评测仍不接回答缓存。
+        with ExitStack() as stack, MemorySaver() as saver:
+            mcp_config = load_mcp_gateway()
+            assembly = assemble_tools(
+                AssemblyContext(
+                    retriever=retriever,
+                    cite_context_source=thread_retrieved_source_ids,
+                    drawing_root=None,
+                ),
+                base_principal=request_context.principal,
+                trace=recorder,
+                plugins=builtin_plugins(mcp=McpGatewayPlugin.owning(mcp_config, stack=stack)),
+            )
+            request_context = request_context.model_copy(
+                update={"principal": assembly.principal}
+            )
+            # 让缓存的真实 chat model 用本条用例**授权后**的主体（GovernedChatModel 经
+            # _BudgetChatModel 持有内层引用，这里直接置位其 request_context 即可逐用例生效）。
+            if hasattr(self._real_chat_model, "request_context"):
+                self._real_chat_model.request_context = request_context
+            if hasattr(self._real_chat_model, "gateway"):
+                self._real_chat_model.gateway = gateway
+            # 延迟口径与改造前一致：从构图开始计时，不含工具装配与 MCP 子进程启动
+            started = time.perf_counter()
             app = build_agentic_app(
                 model=self._real_chat_model,
-                tools=tools,
+                tools=assembly.tools,
                 checkpointer=saver,
-                prompt=PromptAssembler(tool_registry=registry),
+                prompt=PromptAssembler(tool_registry=assembly.registry),
                 max_tool_turns=self.max_tool_turns,
                 trace=recorder,
                 request_context=request_context,
             )
+            app_holder["app"] = app
             result = app.invoke(
                 {"messages": [HumanMessage(content=case.query)], "query": case.query},
-                config={"configurable": {"thread_id": case_thread_id}},
+                config=thread_config,
             )
         latency_ms = (time.perf_counter() - started) * 1000
 
@@ -1257,9 +1180,6 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, EvalLoadError, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
-    finally:
-        # P4 Step 25：评测结束时清理 MCP 装配缓存，关闭全部子进程
-        _cleanup_mcp_assembly_cache()
 
     output = {
         "ok": True,

@@ -1,0 +1,58 @@
+"""插件契约（P7-S2，规格 §3.1）。"""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal, Protocol
+
+from water_agent.retrieval.base import Retriever
+from water_agent.runtime.governance.contracts import Capability
+from water_agent.tools.base import ToolSpec
+
+#: 插件能追加给主体的能力（规格 P7-I06）。插件不是权限主体：除了"这台 MCP server 的工具
+#: 确实暴露了、所以主体需要 ``MCP_INVOKE`` 才能调用"，插件不得替主体申请任何能力。
+GRANTABLE_CAPABILITIES: frozenset[Capability] = frozenset({Capability.MCP_INVOKE})
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AssemblyContext:
+    """一次装配的输入，由调用方（会话 / runner）准备。
+
+    ``drawing_root`` **原样透传**：``""`` 表示不注册图纸工具，``None`` 表示读
+    ``DRAWING_ROOT`` 环境变量——两者语义不同，插件不得互相转换。
+    """
+
+    retriever: Retriever
+    cite_context_source: Callable[[], set[str] | None] | None = None
+    drawing_root: str | Path | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PluginContribution:
+    """一个插件对本次装配的贡献。
+
+    ``status="skipped"`` 表示能力不可用（例如没有配置图纸目录）；跳过的插件不得贡献工具。
+    """
+
+    plugin_id: str
+    tools: tuple[ToolSpec, ...] = ()
+    status: Literal["active", "skipped"] = "active"
+    detail: str = ""
+    grants: frozenset[Capability] = frozenset()
+
+    def __post_init__(self) -> None:
+        if self.status == "skipped" and self.tools:
+            raise ValueError(f"插件 {self.plugin_id!r} 标为 skipped 却贡献了工具")
+
+
+class ToolPlugin(Protocol):
+    """插件协议：一个稳定 id + 一次装配的贡献。异常一律原样上抛，不得自行吞掉。"""
+
+    @property
+    def plugin_id(self) -> str: ...
+
+    def contribute(self, ctx: AssemblyContext) -> PluginContribution: ...
+
+
+__all__ = ["GRANTABLE_CAPABILITIES", "AssemblyContext", "PluginContribution", "ToolPlugin"]
