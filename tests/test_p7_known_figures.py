@@ -152,3 +152,50 @@ def test_runner_path_matches_session_semantics(profiles: dict[str, Any]) -> None
     assert profiles["runner_no_mcp"]["lifecycle"]["app"]["max_tool_turns"] == 10
     assert profiles["runner_no_mcp"]["lifecycle"]["app"]["cache_service"] is None
     assert profiles["session_web_member"]["lifecycle"]["app"]["cache_service"] is not None
+
+
+def test_shared_mcp_servers_survive_across_runs(tmp_path) -> None:
+    """P7-S5-A09 F8 已修（对声明 ``lifecycle: shared`` 的 server）：Web 连接池里跨 run 复用同一个
+    进程；缺省 ``per_run`` 的 server 仍每个 run 重开（S0 时的现状，刻意保留为缺省）。
+
+    直接断言池的行为，不读快照：快照的捕获点在 ``build_agentic_app``，看不到跨 run 的进程身份。
+    """
+
+    import sys
+    from pathlib import Path
+
+    from water_agent.mcp.config import MCP_CONFIG_VERSION, MCPGatewayConfig
+    from water_agent.mcp.pool import McpConnectionPool
+
+    fake = Path(__file__).resolve().parent / "fixtures" / "fake_mcp_server.py"
+
+    def server(server_id: str, lifecycle: str) -> dict[str, Any]:
+        return {
+            "server_id": server_id,
+            "command": sys.executable,
+            "args": [str(fake), "--mode", "stateful"],
+            "allow": ["whoami"],
+            "lifecycle": lifecycle,
+        }
+
+    config = MCPGatewayConfig.model_validate(
+        {"version": MCP_CONFIG_VERSION, "servers": [server("f8shared", "shared"), server("f8run", "per_run")]}
+    )
+
+    def pids(lease: Any) -> dict[str, int]:
+        return {
+            session.config.server_id: session.client.call_tool("whoami", {})["structured_content"]["pid"]
+            for session in lease.assembly.sessions
+        }
+
+    pool = McpConnectionPool()
+    try:
+        runs = []
+        for _ in range(2):
+            lease = pool.lease(config)
+            runs.append(pids(lease))
+            lease.release()
+        assert runs[0]["f8shared"] == runs[1]["f8shared"]
+        assert runs[0]["f8run"] != runs[1]["f8run"]
+    finally:
+        pool.close()
