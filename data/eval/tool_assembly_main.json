@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S3 Step 4：manifest 进缓存服务（F6）；runner 先开 trace 再写装配摘要（F13 后续）",
+    "last_write_reason": "P7-S4 Step 3：build_agentic_app 新增 exposure 关键字参数（会话与 runner 都传 ToolAssembly.exposure，规格 P7-I08）；只有 lifecycle/app/app_kwargs 变化，surface 不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -14,6 +14,7 @@
         "app": {
           "app_kwargs": [
             "checkpointer",
+            "exposure",
             "max_tool_turns",
             "model",
             "prompt",
@@ -196,6 +197,7 @@
         "app": {
           "app_kwargs": [
             "checkpointer",
+            "exposure",
             "max_tool_turns",
             "model",
             "prompt",
@@ -454,6 +456,7 @@
         "app": {
           "app_kwargs": [
             "checkpointer",
+            "exposure",
             "max_tool_turns",
             "model",
             "prompt",
@@ -611,6 +614,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -750,6 +754,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -897,6 +902,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -1061,6 +1067,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -1204,6 +1211,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -1457,6 +1465,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",
@@ -1595,6 +1604,7 @@
           "app_kwargs": [
             "cache_service",
             "checkpointer",
+            "exposure",
             "model",
             "prompt",
             "request_context",

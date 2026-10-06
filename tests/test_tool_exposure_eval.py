@@ -59,12 +59,12 @@ def test_script_must_be_consumed_exactly(cases, tmp_path: Path) -> None:
 def test_full_strategy_reproduces_f4_f5(cases, tmp_path: Path) -> None:
     """P7-S4-A01：全量暴露下 F4（schema 超 4500）与 F5（指引截掉读图 / MCP 工具）可复现。"""
 
-    drawing = tx.run_case(_case(cases, "drawing", drawing=True, mcp=False), tmp_path, strategy=None)
+    drawing = tx.run_case(_case(cases, "drawing", drawing=True, mcp=False), tmp_path, strategy="full")
     assert "read_drawing" in drawing.turns[0].exposed
     assert "read_drawing" in drawing.turns[0].not_in_guide
     assert drawing.turns[0].guide_truncated
 
-    pressure = tx.run_case(_case(cases, "budget", drawing=True, mcp=True), tmp_path, strategy=None)
+    pressure = tx.run_case(_case(cases, "budget", drawing=True, mcp=True), tmp_path, strategy="full")
     assert pressure.turns[0].schema_chars_max > tx.SCHEMA_BUDGET
 
 

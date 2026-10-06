@@ -65,7 +65,9 @@ from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.plugins.exposure import ToolExposurePolicy, bound_tool_definition
 from water_agent.prompting.assembler import ROLE_AND_PRINCIPLES
+from water_agent.prompting.history import _is_preamble
 from water_agent.runtime.cancellation import raise_if_cancelled
 from water_agent.runtime.governance.binding import local_request_context
 from water_agent.runtime.governance.cache_service import AnswerCacheService
@@ -213,6 +215,9 @@ class AgenticRAGState(TypedDict):
     upload_context: NotRequired[Any]
     #: P5-S49 Web 文件上下文（能力说明 + 清单 + 点名附件）；只作为 RETRIEVED_FILE 数据段渲染。
     attachment_context: NotRequired[Any]
+    #: P7-S4 本轮的工具暴露决定（``ExposureDecision.to_state()``）：agent_loop 每轮算一次，引用校验
+    #: 回流再进 agent_loop 时复用；PromptAssembler 据此渲染工具指引。逐轮重置。
+    tool_exposure: NotRequired[dict[str, Any] | None]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -261,9 +266,23 @@ class _BudgetChatModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "budget-chat-model"
 
+    def _exposed_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """只把本轮开放的工具发给模型（P7-S4）。``holder["exposed"]`` 为 ``None`` 时不过滤
+        （没有暴露策略或 ``full`` 策略）；ToolNode 仍持有全部工具。"""
+
+        exposed = self.holder.get("exposed")
+        tools = kwargs.get("tools")
+        if exposed is None or not tools:
+            return kwargs
+        return {
+            **kwargs,
+            "tools": [tool for tool in tools if tool.get("function", {}).get("name") in exposed],
+        }
+
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         # 取消在每次模型调用之前生效：此前取消后内层循环照样跑完剩下的模型调用（继续计费）
         raise_if_cancelled()
+        kwargs = self._exposed_kwargs(kwargs)
         started = time.perf_counter()
         result = self.inner._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
         message = result.generations[0].message
@@ -293,6 +312,7 @@ class _BudgetChatModel(BaseChatModel):
         预算超限、取消或任何异常中断时显式关闭上游生成器：受治理模型据此关闭连接、结清预算预留。
         """
         raise_if_cancelled()
+        kwargs = self._exposed_kwargs(kwargs)
         try:
             inner = self.inner._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
             first_chunk = next(inner)
@@ -350,17 +370,8 @@ class _BudgetChatModel(BaseChatModel):
             )
 
     def bind_tools(self, tools, **kwargs):
-        tool_defs = [
-            {
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description or "",
-                    "parameters": t.args_schema.model_json_schema() if t.args_schema else {},
-                },
-            }
-            for t in tools
-        ]
+        # 与暴露策略的预算判定同一个口径（plugins/exposure.py::bound_tool_definition）
+        tool_defs = [bound_tool_definition(t) for t in tools]
         return RunnableBinding(bound=self, kwargs={"tools": tool_defs, **kwargs})
 
 
@@ -515,6 +526,31 @@ def _flush_llm_calls(holder: dict, trace: JsonTraceRecorder | None, query: str) 
         )
 
 
+def previous_turn_tools(messages: Sequence[Any]) -> list[str]:
+    """上一轮（本轮问题之前的那一轮）实际产生过 ``ToolMessage`` 的工具名（P7-S4 sticky）。
+
+    轮次切分与 ``prompting/history.py`` 同一口径：运行时上下文前言不算问题，其余 human 消息
+    各起一轮。只回看一轮。
+    """
+    turns: list[list[Any]] = []
+    for message in messages:
+        if _is_preamble(message):
+            continue
+        if isinstance(message, HumanMessage):
+            turns.append([])
+        elif turns:
+            turns[-1].append(message)
+    if len(turns) < 2:
+        return []
+    return list(
+        dict.fromkeys(
+            str(message.name)
+            for message in turns[-2]
+            if isinstance(message, ToolMessage) and message.name
+        )
+    )
+
+
 def make_agent_loop(
     react_agent,
     holder: dict,
@@ -526,8 +562,13 @@ def make_agent_loop(
     model_name: str = "",
     temperature: float = 0.0,
     recursion_limit: int | None = None,
+    exposure: ToolExposurePolicy | None = None,
 ):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
+
+    ``exposure``（P7-S4）：输入护栏放行后、调用模型前决定本轮开放哪些工具（每轮一次，存进
+    state 的 ``tool_exposure``，回流复用），并记一条 ``tool_exposure`` trace 事件；模型调用了
+    本轮未开放的工具时照常执行，另记 ``unexposed_call`` 事件。
 
     ``recursion_limit``：内层子图的递归上限（见 :func:`inner_recursion_limit`）；不给则沿用
     外层 config。超预算、撞上递归上限、治理层拒绝都收口为结构化结果，不以裸异常冒出图。
@@ -573,6 +614,53 @@ def make_agent_loop(
         except Exception:  # noqa: BLE001, S110
             pass
 
+    def _record(event: str, data: dict[str, Any]) -> None:
+        if trace is None:
+            return
+        try:
+            # query 显式传空串：暴露决定只含工具名与原因，不写用户原文
+            trace.record(node="agent", event=event, query="", data=data)
+        except Exception:  # noqa: BLE001, S110 — 观测失败不影响作答
+            pass
+
+    def _decide_exposure(state: AgenticRAGState, query: str) -> dict[str, Any] | None:
+        """本轮的暴露决定；已有就复用（回流），没有暴露策略时为 ``None``（不过滤）。"""
+        if exposure is None:
+            holder["exposed"] = None
+            return None
+        existing = state.get("tool_exposure")
+        if isinstance(existing, dict):
+            decision_state = existing
+        else:
+            decision = exposure.decide(
+                query, previous_turn_tools=previous_turn_tools(state.get("messages", []))
+            )
+            decision_state = decision.to_state()
+            _record("tool_exposure", decision_state)
+        holder["exposed"] = (
+            set(decision_state["exposed"]) if decision_state.get("strategy") == "intent" else None
+        )
+        return decision_state
+
+    def _record_unexposed_calls(
+        state: AgenticRAGState, result: dict[str, Any], decision_state: dict[str, Any]
+    ) -> None:
+        """本次 invoke 新产生的、调用了本轮未开放工具的调用各记一条（回流不重复记）。"""
+        if decision_state.get("strategy") != "intent":
+            return
+        exposed = set(decision_state.get("exposed", []))
+        before = {id(message) for message in state.get("messages", [])}
+        before_ids = {message.id for message in state.get("messages", []) if message.id}
+        for message in result.get("messages", []) or []:
+            if id(message) in before or (message.id and message.id in before_ids):
+                continue
+            if not isinstance(message, AIMessage):
+                continue
+            for call in message.tool_calls or []:
+                name = str(call.get("name") or "")
+                if name and name != INVALID_TOOL_CALL_NAME and name not in exposed:
+                    _record("unexposed_call", {"tool_name": name, "unexposed_call": True})
+
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
         query = state.get("query", "") or _first_human_text(state)
@@ -607,10 +695,17 @@ def make_agent_loop(
             except Exception:  # noqa: BLE001, S110 — 缓存失败不影响主流程
                 pass
 
+        decision_state = _decide_exposure(state, query)
+        inner_state: Any = (
+            state if decision_state is None else {**state, "tool_exposure": decision_state}
+        )
         inner_config = config if recursion_limit is None else {**config, "recursion_limit": recursion_limit}
         try:
-            result = react_agent.invoke(state, config=inner_config)
-            return dict(result)
+            result = dict(react_agent.invoke(inner_state, config=inner_config))
+            if decision_state is not None:
+                result["tool_exposure"] = decision_state
+                _record_unexposed_calls(state, result, decision_state)
+            return result
         except ToolBudgetExceeded as exc:
             return {
                 "status": STATUS_FAILED,
@@ -1168,6 +1263,7 @@ def build_agentic_app(
     request_context: RequestContext | None = None,
     pipeline: GuardrailPipeline | None = None,
     cache_service: AnswerCacheService | None = None,
+    exposure: ToolExposurePolicy | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -1182,7 +1278,9 @@ def build_agentic_app(
     - ``trace``：可选 JsonTraceRecorder（Step 10 观测）：agent_loop 首次进入 ``start``，
       每次模型响应记一条 ``llm_call``（token/cost/延迟/摘要），finalize ``finish`` 落盘；
     - ``request_context`` / ``pipeline`` / ``cache_service``：P2.5 治理接线（review 修复），
-      缺省回落进程级默认实例（仍经治理层，不绕过）。
+      缺省回落进程级默认实例（仍经治理层，不绕过）；
+    - ``exposure``：P7-S4 按意图暴露策略（``ToolAssembly.exposure``）。``None`` 即全量暴露；
+      生产路径（会话、runner）必须传（规格 P7-I08）。``tools`` 仍是全部已注册工具（ToolNode）。
     """
     if checkpointer is None:
         raise ValueError("agentic 循环必须配置 checkpointer（thread_id 会话隔离）")
@@ -1228,6 +1326,7 @@ def build_agentic_app(
             model_name=cache_model_name,
             temperature=cache_temperature,
             recursion_limit=inner_recursion_limit(max_tool_turns),
+            exposure=exposure,
         ),
     )
     graph.add_node("citation_validator", make_citation_validator(version_registry))
@@ -1282,6 +1381,7 @@ PER_TURN_RESET: dict[str, Any] = {
     "warnings": [],
     "retry_count": 0,
     "empty_citation_reflows": 0,
+    "tool_exposure": None,
 }
 
 

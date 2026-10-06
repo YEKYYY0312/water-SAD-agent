@@ -398,7 +398,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S4-A05 | 接线：模型每次调用只收到本轮开放的工具（流式与非流式）、ToolNode 仍持全部工具、指引按本轮决定渲染、回流复用同一决定、每轮一条 `tool_exposure` trace 事件且不含 query 原文 | `tests/test_tool_exposure.py::test_model_receives_only_exposed_tools`<br>`tests/test_tool_exposure.py::test_reflow_reuses_the_turn_decision` | planned |
 | P7-S4-A06 | 未开放的工具被调用时照常经 `ToolRegistry.invoke` 执行，trace 标记 `unexposed_call` | `tests/test_tool_exposure.py::test_unexposed_call_executes_and_is_marked` | planned |
 | P7-S4-A07 | 回滚开关 `WATER_AGENT_TOOL_EXPOSURE`：`full` 与 S3 行为逐字一致，非法值装配期抛错 | `tests/test_tool_exposure.py::test_full_strategy_matches_s3_behavior`<br>`tests/test_tool_exposure.py::test_invalid_strategy_fails_loudly` | planned |
-| P7-S4-A08 | 不变量 P7-I08：两处生产 `build_agentic_app` 调用都传 `exposure=` | `tests/test_plugin_invariants.py::test_invariants_hold` | planned |
+| P7-S4-A08 | 两处生产 `build_agentic_app` 调用都传 `exposure=`（AST 判定；未登记为 §4 不变量，原因见 `p7-step-4-decision.md` §0.2） | `tests/test_plugin_invariants.py::test_production_app_receives_exposure_policy` | planned |
 | P7-S4-A09 | `tool_exposure_p0` 硬指标在 intent 策略下全部达标，并入 `ci_gate.sh` 与入仓基线对比 | `gate:tool_exposure_p0` | planned |
 | P7-S4-A10 | 快照有意重写：两个版本号递进，只有声明允许的片段变化（范围块 `frozen_json` 在 PR 上核对） | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline` | planned |
 | P7-S4-A11 | F5：每条快照探针的开放工具都出现在指引里、指引未截断、schema ≤ 4500；回退格式（`full`）仍截断 | `tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | planned |
