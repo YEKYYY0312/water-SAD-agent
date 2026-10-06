@@ -227,7 +227,9 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: P3 Step 20：新增 `read_drawing` 工具，可用工具集已变，再次递进。
 #: P7 S1：`confirmation_handler_ready=true` 配置期拒绝 + 需确认的 MCP 工具执行期拒绝，
 #: 可用工具集已变（这类 server 不再能被暴露），递进。
-TOOL_POLICY_VERSION = "p7-step1-2026-10-03"
+#: P7 S4：按意图最小暴露——每轮发给模型的工具集随问题变化（注册集与 capability 映射不变），
+#: 递进。
+TOOL_POLICY_VERSION = "p7-step4-2026-10-06"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:

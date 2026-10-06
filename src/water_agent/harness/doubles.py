@@ -40,15 +40,18 @@ class ScriptedChatModel(BaseChatModel):
 
     每次调用返回脚本的下一步——带 ``tool_calls`` 的 AIMessage 或纯文本回答；超出脚本
     即抛 :class:`ScriptExhausted`，绝不循环复用（``FakeMessagesListChatModel`` 会从头
-    再来，多转的那一圈就被掩盖了）。``state`` 记录调用次数与每次实际收到的消息，
-    供"脚本恰好用完""某内容不得进入模型输入"一类断言使用。
+    再来，多转的那一圈就被掩盖了）。``state`` 记录调用次数、每次实际收到的消息与每次
+    绑定的工具定义（``tools`` 参数原样），供"脚本恰好用完""某内容不得进入模型输入"
+    "模型这一次看到了哪些工具"一类断言使用。
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     steps: list[dict[str, Any]]
     id_prefix: str = "script"
-    state: dict[str, Any] = Field(default_factory=lambda: {"calls": 0, "received": []})
+    state: dict[str, Any] = Field(
+        default_factory=lambda: {"calls": 0, "received": [], "tools": []}
+    )
 
     @property
     def _llm_type(self) -> str:
@@ -58,6 +61,7 @@ class ScriptedChatModel(BaseChatModel):
         index = self.state["calls"]
         self.state["calls"] = index + 1
         self.state["received"].append(list(messages))
+        self.state.setdefault("tools", []).append(list(kwargs.get("tools") or []))
         if index >= len(self.steps):
             raise ScriptExhausted(
                 f"脚本只有 {len(self.steps)} 步，模型被第 {index + 1} 次调用（循环比预期多转了一圈）"

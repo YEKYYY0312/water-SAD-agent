@@ -509,9 +509,10 @@ class AgenticSession:
             model=self.model,
             tools=tools,
             checkpointer=saver,
-            prompt=PromptAssembler(tool_registry=registry),
+            prompt=PromptAssembler(tool_registry=registry, exposure=assembly.exposure),
             trace=self.recorder,
             request_context=self.request_context,
+            exposure=assembly.exposure,
             cache_service=(
                 _build_cache_service(
                     args, mcp_server_manifest=self.mcp_assembly.manifest_hash
