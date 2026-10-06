@@ -120,7 +120,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   真实 server 写进部署覆盖层；`data/mcp_servers.example.json` 是写覆盖层的参考（占位路径，
   不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
-  - `version`（`p7-s3-2026-10-05`；加载时不比对）；
+  - `version`（`p7-s5-2026-10-06`；加载时不比对）；
   - `confirmation_handler_ready`：危险操作确认门是否接线（本步恒 `False`）；
   - `servers: tuple[MCPServerConfig, ...]`，`server_id` 唯一。
 - `MCPServerConfig`（`extra="forbid"`）：
@@ -134,6 +134,11 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   - `cwd`（P7-S3）：子进程工作目录，必须是绝对路径、加载期校验存在。**不配置时每次连接新建
     空临时目录**，连接关闭即删除——子进程不继承 agent 的工作目录（F15）。这不是沙箱；
   - `disabled`（P7-S3）：`true` 时不 spawn、不暴露、记 `MCP_SERVER_DISABLED`、不进 manifest；
+  - `lifecycle`（P7-S5）：`per_run`（缺省，每个 run 现开现关）或 `shared`（Web 进程内连接池长驻、
+    所有用户的 run 复用同一进程）。**声明 `shared` 即声明这台 server 不持有按用户区分的状态**
+    （例如"当前打开的文档"）——共享的是进程，进程里的状态对所有用户可见，agent 无法替运维验证。
+    复用的是进程不是授权：每次调用仍经 `ToolRegistry.invoke`。同一连接上的请求串行；单台 server
+    的配置或子进程 env 变化后，下一个 run 换新进程。CLI 与评测 runner 不看这个字段；
   - `allow`：工具白名单，**`None` = 全拒（fail closed）**，列名与 tools/list
     **精确匹配**；
   - `human_confirmation`：`true` 且确认门未接线时整台 server 的工具不暴露；
