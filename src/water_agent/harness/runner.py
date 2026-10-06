@@ -875,10 +875,11 @@ class HarnessRunner:
                 model=self._real_chat_model,
                 tools=assembly.tools,
                 checkpointer=saver,
-                prompt=PromptAssembler(tool_registry=assembly.registry),
+                prompt=PromptAssembler(tool_registry=assembly.registry, exposure=assembly.exposure),
                 max_tool_turns=self.max_tool_turns,
                 trace=recorder,
                 request_context=request_context,
+                exposure=assembly.exposure,
             )
             app_holder["app"] = app
             result = app.invoke(
