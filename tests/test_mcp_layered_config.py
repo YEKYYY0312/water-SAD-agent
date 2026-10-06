@@ -429,7 +429,9 @@ def test_assembly_summary_lands_in_trace(tmp_path: Path, monkeypatch: pytest.Mon
          "skipped": [["lookup_project", "MCP_NOT_IN_ALLOWLIST"],
                      ["dangerous_write", "MCP_NOT_IN_ALLOWLIST"],
                      ["nested_schema_tool", "MCP_NOT_IN_ALLOWLIST"],
-                     ["unlisted_tool", "MCP_NOT_IN_ALLOWLIST"]]}
+                     ["unlisted_tool", "MCP_NOT_IN_ALLOWLIST"]],
+         # P7-S5：会话路径（CLI / runner）始终现开现关
+         "connection": "per_run"}
     ]
     assert data["mcp_manifest_nonempty"] is True
     assert "detail" not in json.dumps(data, ensure_ascii=False)
