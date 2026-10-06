@@ -93,3 +93,57 @@ def test_waiting_for_a_busy_server_counts_against_the_deadline() -> None:
         holder.join(timeout=10)
     finally:
         client.close()
+
+
+def test_lifecycle_field_defaults_to_per_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P7-S5-A02：``lifecycle`` 缺省 ``per_run``（与此前行为一致）；覆盖层可以把它改成 ``shared``；
+    非法取值在加载期 ``MCP_CONFIG_INVALID``。"""
+
+    import json
+
+    from water_agent.mcp.config import (
+        ENV_MCP_CONFIG,
+        ENV_MCP_OVERLAY,
+        MCP_CONFIG_VERSION,
+        load_layered_gateway_config,
+    )
+    from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
+
+    assert MCP_CONFIG_VERSION == "p7-s5-2026-10-06"
+    assert _server("poollife").lifecycle == "per_run"
+
+    base = tmp_path / "base.json"
+    base.write_text(
+        json.dumps(
+            {
+                "version": MCP_CONFIG_VERSION,
+                "servers": [
+                    {
+                        "server_id": "poollife",
+                        "command": sys.executable,
+                        "args": [str(FAKE_SERVER), "--mode", "stateful"],
+                        "allow": list(STATEFUL_ALLOW),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    overlay = tmp_path / "overlay.json"
+    overlay.write_text(
+        json.dumps({"servers": [{"server_id": "poollife", "lifecycle": "shared"}]}), encoding="utf-8"
+    )
+    monkeypatch.setenv(ENV_MCP_CONFIG, str(base))
+    monkeypatch.delenv(ENV_MCP_OVERLAY, raising=False)
+    plain = load_layered_gateway_config()
+    assert plain is not None and plain.servers[0].lifecycle == "per_run"
+    monkeypatch.setenv(ENV_MCP_OVERLAY, str(overlay))
+    shared = load_layered_gateway_config()
+    assert shared is not None and shared.servers[0].lifecycle == "shared"
+
+    overlay.write_text(
+        json.dumps({"servers": [{"server_id": "poollife", "lifecycle": "forever"}]}), encoding="utf-8"
+    )
+    with pytest.raises(MCPError) as exc:
+        load_layered_gateway_config()
+    assert exc.value.code == MCP_CONFIG_INVALID
