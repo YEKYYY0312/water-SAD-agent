@@ -322,7 +322,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S0-A10 | 反证：工具指引预算改动被识别 | `tests/test_tool_assembly_snapshot.py::test_negative_control_guide_budget_detected` | delivered |
 | P7-S0-A11 | 写入守卫与 CLI：surface 变而版本号未递进拒绝写入；任何变化须带原因；差异以 JSON pointer 报告；`--check` 退出码 | `tests/test_tool_assembly_snapshot.py::test_write_guard_refuses_surface_change_without_version_bump`<br>`tests/test_tool_assembly_snapshot.py::test_write_guard_requires_reason_for_any_change`<br>`tests/test_tool_assembly_snapshot.py::test_diff_reports_json_pointers_and_ignores_info`<br>`tests/test_tool_assembly_snapshot.py::test_cli_check_exit_codes` | delivered |
 | P7-S0-A12 | F4：本地工具 schema 4497、余量 3 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | delivered |
-| P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | delivered |
+| P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算（S0 时的现状；S4 修复后由 P7-S4-A11 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A14 | F6：manifest 不进缓存服务（S0 时的现状；S3 修复后由 P7-S3-A07 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A15 | F7：确认门执行期不检查（S0 时的现状；S1 修复后由 P7-S1-A03 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A16 | F13：runner 的 MCP trace 事件从未落盘（S0 时的现状；S2 删除后由 P7-S2-A12 取代，见未覆盖项） | 无 | untested |
@@ -411,6 +411,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A16 / P7-S0-A17**：它们锁的是 S0 时 runner 路径的缺陷现状（trace 调用从未落盘、与会话路径有 8 处差异）。S2 统一后这些现状已不存在，原测试改写为断言统一后的事实，分别由 **P7-S2-A12** 与 **P7-S2-A07** 承担；两行保留为历史记录，不再有对应测试。
 - **P7-S2-A11**：真实质量层需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内。没有 Key 时记为
   blocked，**不得**声称真实质量未回退。
+- **P7-S0-A13**：它锁的是 S0 时的缺陷现状（工具指引截掉读图 / MCP 工具）。S4 修复后由 **P7-S4-A11** 承担（同一测试同时锁住 `full` 回滚开关下的回退格式仍截断）；本行保留为历史记录，不再有对应测试。
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。

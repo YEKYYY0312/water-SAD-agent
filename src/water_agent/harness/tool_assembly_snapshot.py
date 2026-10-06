@@ -416,6 +416,34 @@ def _probes(registry: Any) -> dict[str, Any]:
     return out
 
 
+#: 暴露探针（P7-S4）：对每个 profile 的暴露策略各决定一次，记下开放了什么、为什么、丢了什么。
+#: 四条问题分别对应规范问答 / 计算 / 材料统计 / 读图 + 材料统计（最紧的预算组合）。
+EXPOSURE_PROBES: tuple[tuple[str, str], ...] = (
+    ("clause_qa", "给水管道的设计秒流量如何确定"),
+    ("calc", "DN150 给水管、流量 20 L/s 时流速多少"),
+    ("materials", "帮我统计材料：S1 DN100 PPR 50 米"),
+    ("drawing_materials", "根据图纸 P-01 统计管材用量"),
+)
+
+
+def _exposure_view(policy: Any) -> dict[str, Any] | None:
+    if policy is None:
+        return None
+    probes: dict[str, Any] = {}
+    for label, query in EXPOSURE_PROBES:
+        decision = policy.decide(query)
+        view = decision.to_state()
+        if decision.strategy == "intent":
+            guide = policy.render_guide(decision.exposed)
+            view["guide"] = {"chars": len(guide), "sha256": _sha16(guide)}
+        probes[label] = view
+    return {
+        "strategy": policy.strategy,
+        "groups": [[group.group_id, group.rule.mode, list(group.tools)] for group in policy.groups],
+        "probes": probes,
+    }
+
+
 def _inspect_app_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     prompt = kwargs["prompt"]
     registry = getattr(prompt, "_tool_registry", None)
@@ -446,6 +474,7 @@ def _inspect_app_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[st
         "system_prompt": {"chars": len(normalized), "sha256": _sha16(normalized)},
         "principal": _principal_view(kwargs["request_context"].principal),
         "registry_principal": _principal_view(registry._resolve_principal()),
+        "exposure": _exposure_view(kwargs.get("exposure")),
     }
     cache = kwargs.get("cache_service")
     lifecycle = {
