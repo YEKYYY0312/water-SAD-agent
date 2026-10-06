@@ -20,6 +20,7 @@ from water_agent.mcp.config import MCPGatewayConfig
 from water_agent.mcp.errors import MCP_SERVER_DISABLED
 from water_agent.mcp.wiring import MCPGatewayAssembly, open_gateway_sessions
 from water_agent.plugins.base import AssemblyContext, PluginContribution
+from water_agent.plugins.exposure import AMBIENT, ToolGroup
 from water_agent.runtime.governance.contracts import Capability
 
 _EMPTY_ASSEMBLY = MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_hash="")
@@ -73,6 +74,16 @@ class McpContribution(PluginContribution):
 
     assembly: MCPGatewayAssembly
     servers: tuple[McpServerOutcome, ...] = ()
+
+    def exposure_groups(self) -> tuple[ToolGroup, ...]:
+        """每台暴露了工具的 server 一组（``mcp:<server_id>``，ambient）：预算不够时整台让位，
+        不会出现同一台 server 只开放一半工具（P7-S4）。"""
+
+        return tuple(
+            ToolGroup(f"mcp:{server.server_id}", server.exposed, AMBIENT)
+            for server in self.servers
+            if server.status == "active" and server.exposed
+        )
 
 
 class McpGatewayPlugin:

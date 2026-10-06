@@ -4,10 +4,11 @@
 余量 3。这里的断言全部读入仓的装配快照基线（基线与代码的一致性由
 ``tests/test_tool_assembly_snapshot.py`` 保证），所以数字一旦变化，这里与文档必须同步改。
 
-其中 F5/F6 是**已知缺陷的现状**，不是期望行为。后续步骤有意修复它们时，在同一个
-commit 里同步改这里、规格事实表与快照基线（各步执行 Prompt 的范围块允许改本文件）。
-F7 已在 P7-S1 修复，F2（runner 与会话路径的差异）与 F13（从未落盘的 trace 调用）已在
-P7-S2 收尾，对应测试改为断言修复后的事实。
+F5/F6 曾是**已知缺陷的现状**。后续步骤有意修复时，在同一个 commit 里同步改这里、规格事实表
+与快照基线（各步执行 Prompt 的范围块允许改本文件）。F7 已在 P7-S1 修复，F2（runner 与会话路径
+的差异）与 F13（从未落盘的 trace 调用）已在 P7-S2 收尾，F6 在 P7-S3、F5 在 P7-S4 修复，对应测试
+改为断言修复后的事实。F4 的全量数字（4497 / 余量 3）S4 之后仍然成立：S4 约束的是每轮实际发出
+的 schema，不是注册集。
 """
 from __future__ import annotations
 
@@ -38,20 +39,42 @@ def test_local_tool_schema_headroom_is_three_characters(profiles: dict[str, Any]
     assert 4500 - surface["schema_chars_total"] == 3
 
 
-def test_tool_guide_already_truncates_tools(profiles: dict[str, Any]) -> None:
-    """P7-S0-A13 F5：工具指引 800 字预算已截掉 read_drawing；两个 MCP 工具时截掉 2 行。
+def test_exposed_tools_always_fit_the_tool_guide(profiles: dict[str, Any]) -> None:
+    """P7-S4-A11 F5 已修（intent 策略）：每条暴露探针开放的工具都写进了指引、指引未截断、
+    发出的 schema ≤ 4500；预算不够时 MCP 整组让位并如实记进 dropped。
 
-    MCP 工具排在本地工具之后注册，所以总是先被截掉；它们的 schema 也不计入
-    ``tests/test_answer_cache.py`` 的 4500 预算（那里只装配本地工具）。
+    S0 时的现状（``full`` 回滚开关下仍然如此）：现行格式的指引 800 字预算截掉 read_drawing，
+    两个 MCP 工具时截掉 2 行、schema 4724 字符。回退格式的 ``surface/tool_guide`` 保留原样，
+    这里同时锁住它仍截断——证明回滚开关回到的确实是 S3 的行为。
     """
 
+    checked = 0
+    for name, profile in profiles.items():
+        surface = profile["surface"]
+        if surface is None:
+            continue
+        exposure = surface["exposure"]
+        assert exposure["strategy"] == "intent", name
+        for label, probe in exposure["probes"].items():
+            assert probe["schema_chars"] <= 4500, (name, label)
+            assert probe["guide"]["chars"] <= 800, (name, label)
+            assert {"retrieve_clauses", "cite_clauses", "calc_velocity"} <= set(probe["exposed"])
+            checked += 1
+    assert checked == 40  # 10 个装配成功的 profile × 4 条探针
+
     drawing = profiles["session_drawing_arg"]["surface"]
-    assert drawing["tool_guide"].endswith(_TRUNCATED.format(n=1))
-    assert "read_drawing" not in drawing["tool_guide"]
+    both = drawing["exposure"]["probes"]["drawing_materials"]
+    assert {"material_stats", "read_drawing"} <= set(both["exposed"])
+    assert both["dropped"] == [] and both["schema_chars"] == 4497
 
     mcp = profiles["session_mcp_fake"]["surface"]
+    assert mcp["exposure"]["probes"]["materials"]["dropped"] == [["mcp:snapfake", "schema_budget"]]
+    assert "mcp_snapfake_echo_query" in mcp["exposure"]["probes"]["clause_qa"]["exposed"]
+
+    # 回退格式（full 回滚开关 / 没有暴露决定时）仍是 S0 的现状
+    assert drawing["tool_guide"].endswith(_TRUNCATED.format(n=1))
+    assert "read_drawing" not in drawing["tool_guide"]
     assert mcp["tool_guide"].endswith(_TRUNCATED.format(n=2))
-    assert not any(line.startswith("- mcp_") for line in mcp["tool_guide"].splitlines())
     assert mcp["schema_chars_total"] == 4724
 
 

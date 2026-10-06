@@ -1,0 +1,1431 @@
+{
+  "suite": "tool_exposure_p0",
+  "generated_by": "water_agent.harness.tool_exposure_eval",
+  "report_format": 1,
+  "strategy": "intent",
+  "dataset": "data/eval/tool_exposure_p0.jsonl",
+  "dataset_sha256": "eefa67f171aebfb3bd1e5558057f538aa319f3fc31f015fb845fa381d0d3e3f1",
+  "total": 36,
+  "passed": 36,
+  "metrics": {
+    "needed_tool_exposed_rate": 1.0,
+    "needed_tool_in_guide_rate": 1.0,
+    "forbidden_tool_exposed_count": 0,
+    "schema_budget_violation_count": 0,
+    "guide_truncated_count": 0,
+    "unexposed_call_executed_rate": 1.0,
+    "harness_error_count": 0,
+    "exposed_tool_count_mean": 3.825,
+    "exposed_tool_count_max": 5,
+    "exposed_schema_chars_mean": 3001.05,
+    "exposed_schema_chars_max": 4497,
+    "overexposure_rate": 0.125
+  },
+  "hard_targets": {
+    "needed_tool_exposed_rate": 1.0,
+    "needed_tool_in_guide_rate": 1.0,
+    "forbidden_tool_exposed_count": 0,
+    "schema_budget_violation_count": 0,
+    "guide_truncated_count": 0,
+    "unexposed_call_executed_rate": 1.0,
+    "harness_error_count": 0
+  },
+  "hard_violations": [],
+  "ok": true,
+  "cases": [
+    {
+      "id": "tx-p0-0001",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0002",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0003",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0004",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0005",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 277,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0006",
+      "category": "clause_qa",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project"
+          ],
+          "schema_chars_first": 3302,
+          "schema_chars_max": 3302,
+          "guide_chars": 467,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": true,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0007",
+      "category": "calc",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 3,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0008",
+      "category": "calc",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 3,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0009",
+      "category": "calc",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 3,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0010",
+      "category": "calc",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 277,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 3,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0011",
+      "category": "calc",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 3,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0012",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0013",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0014",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0015",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0016",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0017",
+      "category": "materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0018",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0019",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0020",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0021",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0022",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0023",
+      "category": "drawing",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0024",
+      "category": "drawing_materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats",
+            "read_drawing"
+          ],
+          "schema_chars_first": 4497,
+          "schema_chars_max": 4497,
+          "guide_chars": 360,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0025",
+      "category": "drawing_materials",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats",
+            "read_drawing"
+          ],
+          "schema_chars_first": 4497,
+          "schema_chars_max": 4497,
+          "guide_chars": 360,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0026",
+      "category": "mcp",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project"
+          ],
+          "schema_chars_first": 3302,
+          "schema_chars_max": 3302,
+          "guide_chars": 454,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": true,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0027",
+      "category": "mcp",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project"
+          ],
+          "schema_chars_first": 3302,
+          "schema_chars_max": 3302,
+          "guide_chars": 454,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": true,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0028",
+      "category": "mcp",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "mcp_txfake_echo_query",
+            "mcp_txfake_lookup_project"
+          ],
+          "schema_chars_first": 3302,
+          "schema_chars_max": 3302,
+          "guide_chars": 454,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": true,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0029",
+      "category": "budget",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats",
+            "read_drawing"
+          ],
+          "schema_chars_first": 4497,
+          "schema_chars_max": 4497,
+          "guide_chars": 430,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 5,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0030",
+      "category": "budget",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats",
+            "read_drawing"
+          ],
+          "schema_chars_first": 4497,
+          "schema_chars_max": 4497,
+          "guide_chars": 430,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0031",
+      "category": "multi_turn",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        },
+        {
+          "turn": 2,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0032",
+      "category": "multi_turn",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        },
+        {
+          "turn": 2,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "read_drawing",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "read_drawing"
+          ],
+          "schema_chars_first": 3083,
+          "schema_chars_max": 3083,
+          "guide_chars": 338,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0033",
+      "category": "multi_turn",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 1,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        },
+        {
+          "turn": 2,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "material_stats",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity",
+            "material_stats"
+          ],
+          "schema_chars_first": 3539,
+          "schema_chars_max": 3539,
+          "guide_chars": 286,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 0,
+          "overexposed": true,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        },
+        {
+          "turn": 3,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 2,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0034",
+      "category": "chitchat",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 277,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 0,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0035",
+      "category": "chitchat",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 264,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 0,
+          "overexposed": false,
+          "unexposed_expected": null,
+          "unexposed_ok": null,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "tx-p0-0036",
+      "category": "unexposed_call",
+      "passed": true,
+      "error": null,
+      "turns": [
+        {
+          "turn": 1,
+          "exposed": [
+            "calc_velocity",
+            "cite_clauses",
+            "retrieve_clauses"
+          ],
+          "guide_tools": [
+            "retrieve_clauses",
+            "cite_clauses",
+            "calc_velocity"
+          ],
+          "schema_chars_first": 2125,
+          "schema_chars_max": 2125,
+          "guide_chars": 277,
+          "guide_truncated": false,
+          "missing": [],
+          "not_in_guide": [],
+          "forbidden": [],
+          "needed": 0,
+          "overexposed": false,
+          "unexposed_expected": "read_drawing",
+          "unexposed_ok": true,
+          "status": "succeeded",
+          "failures": []
+        }
+      ]
+    }
+  ]
+}
