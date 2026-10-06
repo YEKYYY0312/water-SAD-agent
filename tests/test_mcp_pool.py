@@ -147,3 +147,220 @@ def test_lifecycle_field_defaults_to_per_run(tmp_path: Path, monkeypatch: pytest
     with pytest.raises(MCPError) as exc:
         load_layered_gateway_config()
     assert exc.value.code == MCP_CONFIG_INVALID
+
+
+# ---------------------------------------------------------------------------
+# 连接池
+# ---------------------------------------------------------------------------
+
+
+def _gateway(*servers: dict[str, Any]) -> Any:
+    from water_agent.mcp.config import MCP_CONFIG_VERSION, MCPGatewayConfig
+
+    return MCPGatewayConfig.model_validate({"version": MCP_CONFIG_VERSION, "servers": list(servers)})
+
+
+def _entry(server_id: str, *, lifecycle: str = "shared", **overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "server_id": server_id,
+        "command": sys.executable,
+        "args": [str(FAKE_SERVER), "--mode", "stateful"],
+        "allow": list(STATEFUL_ALLOW),
+        "call_timeout_seconds": 3.0,
+        "lifecycle": lifecycle,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _session(lease: Any, server_id: str) -> Any:
+    for session in lease.assembly.sessions:
+        if session.config.server_id == server_id:
+            return session
+    raise LookupError(server_id)
+
+
+def _call(lease: Any, server_id: str, tool: str, **args: Any) -> dict[str, Any]:
+    result = _session(lease, server_id).client.call_tool(tool, args)
+    assert result["ok"], result
+    return result["structured_content"]
+
+
+def _pid(lease: Any, server_id: str) -> int:
+    return int(_call(lease, server_id, "whoami")["pid"])
+
+
+def _gone(pid: int) -> bool:
+    import os
+    import time
+
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+@pytest.fixture
+def pool() -> Any:
+    from water_agent.mcp.pool import McpConnectionPool
+
+    instance = McpConnectionPool()
+    yield instance
+    instance.close()
+
+
+def test_shared_server_is_reused_and_per_run_is_not(pool: Any) -> None:
+    """P7-S5-A03：shared 的 server 连续两次租约是同一个进程；per_run 的每次都是新进程、释放即关闭。"""
+
+    config = _gateway(_entry("poolshare"), _entry("poolrun", lifecycle="per_run"))
+    first = pool.lease(config)
+    shared_pid, run_pid = _pid(first, "poolshare"), _pid(first, "poolrun")
+    assert first.assembly.connections == {"poolshare": "shared_new", "poolrun": "per_run"}
+    first.release()
+    assert _gone(run_pid)
+
+    second = pool.lease(config)
+    assert _pid(second, "poolshare") == shared_pid
+    assert _pid(second, "poolrun") != run_pid
+    assert second.assembly.connections == {"poolshare": "shared_reused", "poolrun": "per_run"}
+    second.release()
+    second.release()  # 幂等
+    assert pool.snapshot()["active"]["poolshare"] == {"refs": 0, "alive": True}
+
+
+def test_shared_server_state_is_visible_across_leases(pool: Any) -> None:
+    """P7-S5-A03：共享即共享状态——两个租约（两个用户的 run）先后 bump，计数是连续的。
+    这正是"声明 shared 即声明 server 不持有按用户区分的状态"这条警告的依据。"""
+
+    config = _gateway(_entry("poolstate"))
+    alice, bob = pool.lease(config), pool.lease(config)
+    assert _call(alice, "poolstate", "bump")["counter"] == 1
+    assert _call(bob, "poolstate", "bump")["counter"] == 2
+    alice.release()
+    bob.release()
+
+
+def test_fingerprint_change_retires_the_old_process(pool: Any) -> None:
+    """P7-S5-A04：配置（allow）或子进程 env 变了 → 下一次租约开新进程；旧进程在最后一个借用它的
+    租约释放前仍可用、释放后关闭。删掉或停用的 server 同样退役。"""
+
+    old = pool.lease(_gateway(_entry("poolfp")))
+    old_pid = _pid(old, "poolfp")
+
+    narrowed = pool.lease(_gateway(_entry("poolfp", allow=["whoami", "slow_echo"])))
+    new_pid = _pid(narrowed, "poolfp")
+    assert new_pid != old_pid
+    assert _pid(old, "poolfp") == old_pid  # 旧租约在释放前照常可用
+    old.release()
+    assert _gone(old_pid)
+
+    rotated = pool.lease(_gateway(_entry("poolfp", allow=["whoami", "slow_echo"], env={"TOKEN": "v2"})))
+    rotated_pid = _pid(rotated, "poolfp")
+    assert rotated_pid != new_pid
+    narrowed.release()
+    assert _gone(new_pid)
+    rotated.release()
+
+    disabled = pool.lease(_gateway(_entry("poolfp", disabled=True)))
+    assert disabled.assembly.sessions == ()
+    assert _gone(rotated_pid)
+    disabled.release()
+    assert "poolfp" not in pool.snapshot()["active"]
+
+
+def test_dead_shared_process_is_reopened(pool: Any) -> None:
+    """P7-S5-A05：共享进程死了，下一次租约重开；还拿着死连接的调用快速失败（结构化错误，不空等）。"""
+
+    import os
+    import signal
+    import time
+
+    from water_agent.mcp.errors import MCP_CONNECT_FAILED, MCPError
+
+    config = _gateway(_entry("pooldead"))
+    held = pool.lease(config)
+    pid = _pid(held, "pooldead")
+    os.kill(pid, signal.SIGKILL)
+    client = _session(held, "pooldead").client
+    for _ in range(50):  # 被杀的子进程在 poll() 回收前是僵尸，os.kill(pid, 0) 仍会成功
+        if not client.alive:
+            break
+        time.sleep(0.05)
+    assert client.alive is False
+
+    started = time.monotonic()
+    with pytest.raises(MCPError) as exc:
+        for _ in range(2):  # 第一次取走 EOF 哨兵，第二次靠 reader_done 立即失败
+            _session(held, "pooldead").client.call_tool("whoami", {})
+    assert exc.value.code == MCP_CONNECT_FAILED
+    assert time.monotonic() - started < 2.0
+
+    fresh = pool.lease(config)
+    assert fresh.assembly.connections == {"pooldead": "shared_new"}
+    assert _pid(fresh, "pooldead") != pid
+    held.release()
+    fresh.release()
+
+
+def test_pool_close_leaves_no_processes() -> None:
+    """P7-S5-A06：池关闭后不留活进程；仍有未释放的租约照样终止并报告数量；关闭后不能再借用。"""
+
+    from water_agent.mcp.pool import McpConnectionPool
+
+    pool = McpConnectionPool()
+    config = _gateway(_entry("poolclose"))
+    released, outstanding = pool.lease(config), pool.lease(config)
+    pid = _pid(outstanding, "poolclose")
+    released.release()
+    result = pool.close()
+    assert result == {"closed_servers": 1, "outstanding_leases": 1}
+    assert _gone(pid)
+    with pytest.raises(RuntimeError, match="已关闭"):
+        pool.lease(config)
+    outstanding.release()  # 关闭后释放仍幂等、不抛
+
+
+def test_concurrent_first_lease_spawns_once(pool: Any) -> None:
+    """P7-S5-A06：多个 run 同时首次借用同一台 shared server，只启动一个进程。"""
+
+    config = _gateway(_entry("poolrace"))
+    leases: list[Any] = []
+    lock = threading.Lock()
+
+    def take() -> None:
+        lease = pool.lease(config)
+        with lock:
+            leases.append(lease)
+
+    threads = [threading.Thread(target=take) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert len(leases) == 4
+    assert len({_pid(lease, "poolrace") for lease in leases}) == 1
+    kinds = sorted(lease.assembly.connections["poolrace"] for lease in leases)
+    assert kinds == ["shared_new", "shared_reused", "shared_reused", "shared_reused"]
+    for lease in leases:
+        lease.release()
+
+
+def test_trace_summary_reports_connection_kind(pool: Any) -> None:
+    """P7-S5-A08：trace 摘要每台 server 带 connection，且不含指纹、env 或命令行。"""
+
+    import json
+
+    config = _gateway(_entry("pooltrace", env={"SECRET_TOKEN": "do-not-log"}))
+    first = pool.lease(config)
+    second = pool.lease(config)
+    summary = second.assembly.trace_summary()
+    assert [item["connection"] for item in summary["mcp_servers"]] == ["shared_reused"]
+    assert first.assembly.trace_summary()["mcp_servers"][0]["connection"] == "shared_new"
+    rendered = json.dumps(summary, ensure_ascii=False)
+    for leaked in ("do-not-log", "SECRET_TOKEN", "fingerprint", str(FAKE_SERVER)):
+        assert leaked not in rendered
+    first.release()
+    second.release()

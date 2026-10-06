@@ -70,6 +70,9 @@ class MCPGatewayAssembly:
     skipped_servers: tuple[SkippedServer, ...]
     manifest_hash: str = ""
     raw_config: MCPGatewayConfig | None = None
+    #: 每台已连接 server 的连接方式（P7-S5）：``per_run``（本次现开）、``shared_new``（连接池新开）、
+    #: ``shared_reused``（连接池复用）。没有记录的按 ``per_run``。只进 trace 摘要，不进 manifest。
+    connections: dict[str, str] | None = None
 
     @property
     def exposed_tool_names(self) -> tuple[str, ...]:
@@ -110,6 +113,9 @@ class MCPGatewayAssembly:
                     "server_id": session.config.server_id,
                     "exposed": list(session.result.exposed_names),
                     "skipped": [[skip.remote_tool, skip.code] for skip in session.result.skipped],
+                    "connection": (self.connections or {}).get(
+                        session.config.server_id, "per_run"
+                    ),
                 }
                 for session in self.sessions
             ],
@@ -184,6 +190,23 @@ def _confirmation_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
     ]
 
 
+def pre_connection_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
+    """不连接就能判定的跳过：停用，以及确认门未接线时要求人工确认的 server（停用先于确认门）。"""
+    return [*_disabled_skips(config), *_confirmation_skips(config)]
+
+
+def session_failed(session: MCPServerSession) -> bool:
+    """连接失败或没有任何工具被暴露（这时 ``open_bridge`` 已收掉进程）。"""
+    return session.client is None and not session.result.tools
+
+
+def session_skips(session: MCPServerSession) -> list[SkippedServer]:
+    return [
+        SkippedServer(session.result.server_id, skip.code, skip.detail)
+        for skip in session.result.skipped
+    ]
+
+
 def open_gateway_sessions(
     config: MCPGatewayConfig | None,
     *,
@@ -203,7 +226,7 @@ def open_gateway_sessions(
     if config is None:
         return MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_hash="")
 
-    pre_skips = [*_disabled_skips(config), *_confirmation_skips(config)]
+    pre_skips = pre_connection_skips(config)
     blocked = {s.server_id for s in pre_skips}
     sessions: list[MCPServerSession] = []
     skipped: list[SkippedServer] = list(pre_skips)
@@ -211,17 +234,10 @@ def open_gateway_sessions(
         if server.server_id in blocked:
             continue
         session = open_bridge(server, config)
-        if session.client is None and not session.result.tools:
+        if session_failed(session):
             # 连接失败 / 全部工具被拒：记录原因后与"没有这台 server"同态。
             # 连接已由 open_bridge 收掉（不留活进程）。
-            skipped.extend(
-                SkippedServer(
-                    session.result.server_id,
-                    skip.code,
-                    skip.detail,
-                )
-                for skip in session.result.skipped
-            )
+            skipped.extend(session_skips(session))
             continue
         sessions.append(session)
     return MCPGatewayAssembly(
@@ -273,6 +289,9 @@ __all__ = [
     "compute_manifest_hash",
     "load_mcp_gateway",
     "open_gateway_sessions",
+    "pre_connection_skips",
     "principal_with_mcp",
     "register_mcp_tools",
+    "session_failed",
+    "session_skips",
 ]
