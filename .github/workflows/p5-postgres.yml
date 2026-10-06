@@ -6,7 +6,7 @@ on:
 
 jobs:
   storage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18.2-bookworm@sha256:120230d04218c2acb30d7bb427798bd6c5beb0ef225883132aad653ccad44bce
@@ -20,8 +20,8 @@ jobs:
           --health-cmd "pg_isready -U water_agent -d water_agent_test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install locked dependencies
