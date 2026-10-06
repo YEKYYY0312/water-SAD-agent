@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+from water_agent.plugins.exposure import AMBIENT, ExposureRule, ToolGroup
 from water_agent.retrieval.base import Retriever
 from water_agent.runtime.governance.contracts import Capability
 from water_agent.tools.base import ToolSpec
@@ -33,6 +34,9 @@ class PluginContribution:
     """一个插件对本次装配的贡献。
 
     ``status="skipped"`` 表示能力不可用（例如没有配置图纸目录）；跳过的插件不得贡献工具。
+
+    ``exposure`` 决定这组工具何时发给模型（P7-S4）；不声明就是 ``ambient``：不看意图，预算
+    不够时最先让位。
     """
 
     plugin_id: str
@@ -40,10 +44,18 @@ class PluginContribution:
     status: Literal["active", "skipped"] = "active"
     detail: str = ""
     grants: frozenset[Capability] = frozenset()
+    exposure: ExposureRule = AMBIENT
 
     def __post_init__(self) -> None:
         if self.status == "skipped" and self.tools:
             raise ValueError(f"插件 {self.plugin_id!r} 标为 skipped 却贡献了工具")
+
+    def exposure_groups(self) -> tuple[ToolGroup, ...]:
+        """这份贡献在暴露策略里的分组：缺省整份贡献一组，组 id 即 ``plugin_id``。"""
+
+        if not self.tools:
+            return ()
+        return (ToolGroup(self.plugin_id, tuple(spec.name for spec in self.tools), self.exposure),)
 
 
 class ToolPlugin(Protocol):

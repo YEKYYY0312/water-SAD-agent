@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
@@ -17,6 +18,13 @@ from water_agent.plugins.base import (
     PluginContribution,
     ToolPlugin,
 )
+from water_agent.plugins.exposure import (
+    ExposureStrategy,
+    ToolExposurePolicy,
+    bound_tool_definition,
+    resolve_exposure_strategy,
+)
+from water_agent.prompting.assembler import SEGMENT_BUDGETS
 from water_agent.runtime.governance.contracts import Principal
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.registry import ToolRegistry
@@ -27,12 +35,14 @@ _C = TypeVar("_C", bound=PluginContribution)
 @dataclass(frozen=True, slots=True)
 class ToolAssembly:
     """一次装配的产物。``tools`` 按 ``registry.list_all_names()``（字母序），全部委托给
-    ``registry``；``PromptAssembler`` 也必须持有这同一个 ``registry``。"""
+    ``registry``；``PromptAssembler`` 也必须持有这同一个 ``registry``。``exposure`` 是本次装配的
+    按意图暴露策略（P7-S4），生产路径必须把它交给 ``build_agentic_app``（规格 P7-I08）。"""
 
     registry: ToolRegistry
     tools: list[StructuredTool]
     principal: Principal
     contributions: tuple[PluginContribution, ...]
+    exposure: ToolExposurePolicy
 
     def contribution(self, kind: type[_C]) -> _C:
         """取某一类插件的贡献（例如 ``DrawingContribution``、``McpContribution``）。"""
@@ -71,9 +81,18 @@ def assemble_tools(
     base_principal: Principal,
     trace: Any | None,
     plugins: Sequence[ToolPlugin],
+    exposure_strategy: ExposureStrategy | None = None,
 ) -> ToolAssembly:
-    """按 ``plugins`` 的顺序装配工具。插件异常原样上抛（坏配置、注册冲突都必须响亮失败）。"""
+    """按 ``plugins`` 的顺序装配工具。插件异常原样上抛（坏配置、注册冲突都必须响亮失败）。
 
+    ``exposure_strategy`` 缺省读 ``WATER_AGENT_TOOL_EXPOSURE``（非法值在这里抛 ``ValueError``）。
+    """
+
+    strategy = (
+        exposure_strategy
+        if exposure_strategy is not None
+        else resolve_exposure_strategy(os.environ)
+    )
     seen: set[str] = set()
     contributions: list[PluginContribution] = []
     for plugin in plugins:
@@ -102,11 +121,19 @@ def assemble_tools(
         for spec in item.tools:
             registry.register(spec)
     tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+    exposure = ToolExposurePolicy(
+        strategy=strategy,
+        groups=[group for item in contributions for group in item.exposure_groups()],
+        definitions={tool.name: bound_tool_definition(tool) for tool in tools},
+        order=[spec.name for item in contributions for spec in item.tools],
+        guide_budget=SEGMENT_BUDGETS["tool_guide"],
+    )
     return ToolAssembly(
         registry=registry,
         tools=tools,
         principal=principal,
         contributions=tuple(contributions),
+        exposure=exposure,
     )
 
 

@@ -122,6 +122,23 @@ def test_invariants_hold(invariant: str) -> None:
         raise AssertionError(invariant)
 
 
+def test_production_app_receives_exposure_policy() -> None:
+    """P7-S4-A08 两处生产构图都把本次装配的暴露策略交给图（AST 判定真实调用）。
+
+    少传一处不会报错，只会静默退回全量暴露——所以要结构性地锁住。
+    """
+
+    for rel in sorted(AGENTIC_APP_CALLERS):
+        calls = [
+            node
+            for node in ast.walk(_module(rel))
+            if isinstance(node, ast.Call) and _call_name(node) == "build_agentic_app"
+        ]
+        assert calls, rel
+        for call in calls:
+            assert "exposure" in {kw.arg for kw in call.keywords}, f"{rel} 构图时没传 exposure="
+
+
 def _assigned_literal_grantable() -> set[str]:
     """``GRANTABLE_CAPABILITIES = frozenset({Capability.X, ...})`` 里出现的能力名。"""
 
