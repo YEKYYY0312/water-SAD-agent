@@ -30,7 +30,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -41,7 +41,8 @@ from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 #: P7-S1 收窄了 ``confirmation_handler_ready`` 的取值，当时未递进（没有新增字段）。
 #: P7-S3 新增 ``disabled`` / ``cwd`` 字段、收紧 ``command``、``env_file`` 改按配置文件所在
 #: 目录解析，递进。
-MCP_CONFIG_VERSION = "p7-s3-2026-10-05"
+#: P7-S5 新增 ``lifecycle``（``per_run`` / ``shared``），递进。
+MCP_CONFIG_VERSION = "p7-s5-2026-10-06"
 
 #: 配置文件位置覆盖环境变量。
 ENV_MCP_CONFIG = "WATER_AGENT_MCP_CONFIG"
@@ -105,6 +106,11 @@ class MCPServerConfig(BaseModel):
     #: 新建一个空临时目录——子进程不继承 agent 的工作目录，模型借工具参数里的相对路径
     #: 读不到 agent 自己的文件（F15）。
     cwd: str | None = None
+    #: 连接生命周期（P7-S5）。``per_run``（缺省）：每个 run 现开现关，与此前一致。``shared``：
+    #: Web 进程内长驻、被所有用户的 run 复用——**声明 shared 即声明这台 server 不持有按用户
+    #: 区分的状态**（例如"当前打开的文档"），agent 无法替运维验证这一点。CLI 与评测 runner
+    #: 不看这个字段，始终现开现关。
+    lifecycle: Literal["per_run", "shared"] = "per_run"
 
     @field_validator("server_id")
     @classmethod
