@@ -92,7 +92,7 @@ def test_missing_must_expose_is_a_load_problem(tmp_path: Path) -> None:
 def test_unmeasured_rates_are_not_a_pass() -> None:
     """P7-S4-A01：分母为 0 的速率记 None，且 None 判不达标（未测量不是通过）。"""
 
-    metrics = tx.aggregate([], [])
+    metrics = tx.aggregate([])
     assert metrics["needed_tool_exposed_rate"] is None
     assert metrics["unexposed_call_executed_rate"] is None
     violations = tx.hard_violations(metrics)
@@ -118,3 +118,93 @@ def test_dataset_covers_every_category(cases) -> None:
     } <= categories
     assert 30 <= len(cases) <= 40
     assert any(turn.expect_unexposed_call for case in cases.values() for turn in case.turns)
+
+
+# ---------------------------------------------------------------------------
+# 门禁对比（scripts/compare_tool_exposure_p0.py）
+# ---------------------------------------------------------------------------
+
+COMPARE = Path(__file__).resolve().parents[1] / "scripts" / "compare_tool_exposure_p0.py"
+BASELINE = Path(__file__).resolve().parents[1] / "data" / "eval" / "tool_exposure_p0_main.json"
+
+
+def _compare(tmp_path: Path, head: dict, base: dict | None) -> tuple[int, dict]:
+    import os
+    import subprocess
+    import sys
+
+    head_path = tmp_path / "head.json"
+    head_path.write_text(json.dumps(head, ensure_ascii=False), encoding="utf-8")
+    argv = [sys.executable, str(COMPARE), "--head", str(head_path)]
+    if base is not None:
+        base_path = tmp_path / "base.json"
+        base_path.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+        argv += ["--base", str(base_path)]
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    done = subprocess.run(argv, capture_output=True, text=True, check=False, env=env)
+    return done.returncode, json.loads(done.stdout or done.stderr)
+
+
+@pytest.fixture(scope="module")
+def baseline() -> dict:
+    return json.loads(BASELINE.read_text(encoding="utf-8"))
+
+
+def test_baseline_is_a_passing_intent_report(baseline: dict) -> None:
+    """P7-S4-A09：入仓基线是 intent 策略、全部硬指标达标、数据集摘要与当前数据集一致的 harness 报告。"""
+
+    import hashlib
+
+    assert baseline["generated_by"] == tx.GENERATED_BY
+    assert baseline["strategy"] == "intent"
+    assert baseline["ok"] is True and baseline["hard_violations"] == []
+    assert baseline["passed"] == baseline["total"] == 36
+    assert baseline["dataset_sha256"] == hashlib.sha256(DATASET.read_bytes()).hexdigest()
+    assert tx.metrics_from_case_dicts(baseline["cases"]) == baseline["metrics"]
+
+
+def test_compare_accepts_identical_reports(tmp_path: Path, baseline: dict) -> None:
+    """P7-S4-A09：与基线相同的报告通过对比。"""
+
+    code, result = _compare(tmp_path, baseline, baseline)
+    assert code == 0, result
+    assert result["violations"] == []
+
+
+def test_compare_rejects_tampered_and_regressed_reports(tmp_path: Path, baseline: dict) -> None:
+    """P7-S4-A09：手改指标、full 策略、用例消失、PASS_TO_PASS 回退、数据集变化都判失败。"""
+
+    import copy
+
+    tampered = copy.deepcopy(baseline)
+    tampered["metrics"]["overexposure_rate"] = 0.0
+    code, result = _compare(tmp_path, tampered, baseline)
+    assert code == 1 and any("疑似手改" in item for item in result["violations"])
+
+    full = copy.deepcopy(baseline)
+    full["strategy"] = "full"
+    code, result = _compare(tmp_path, full, baseline)
+    assert code == 1 and any("只认 intent" in item for item in result["violations"])
+
+    dropped = copy.deepcopy(baseline)
+    dropped["cases"] = dropped["cases"][1:]
+    dropped["total"] = len(dropped["cases"])
+    dropped["passed"] = sum(1 for case in dropped["cases"] if case["passed"])
+    dropped["metrics"] = tx.metrics_from_case_dicts(dropped["cases"])
+    code, result = _compare(tmp_path, dropped, baseline)
+    assert code == 1 and any("消失" in item for item in result["violations"])
+
+    regressed = copy.deepcopy(baseline)
+    regressed["cases"][0]["passed"] = False
+    regressed["cases"][0]["turns"][0]["forbidden"] = ["material_stats"]
+    regressed["passed"] -= 1
+    regressed["metrics"] = tx.metrics_from_case_dicts(regressed["cases"])
+    code, result = _compare(tmp_path, regressed, baseline)
+    assert code == 1
+    assert any("PASS_TO_PASS" in item for item in result["violations"])
+    assert any("forbidden_tool_exposed_count" in item for item in result["violations"])
+
+    moved = copy.deepcopy(baseline)
+    moved["dataset_sha256"] = "0" * 64
+    code, result = _compare(tmp_path, moved, baseline)
+    assert code == 1 and any("数据集与基线不同" in item for item in result["violations"])
