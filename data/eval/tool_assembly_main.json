@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S4 Step 5：按意图最小暴露的有意变更——surface 新增 exposure（每个 profile 的分组与 4 条探针问题的决定）；TOOL_POLICY_VERSION / PROMPT_TEMPLATE_VERSION 递进；其余 surface 片段不变（frozen_json 核对）",
+    "last_write_reason": "P7-S5 Step 2：MCPServerConfig 新增 lifecycle（per_run / shared），MCP_CONFIG_VERSION 递进；surface 不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -3435,7 +3435,7 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p7-s3-2026-10-05",
+    "MCP_CONFIG_VERSION": "p7-s5-2026-10-06",
     "PROMPT_TEMPLATE_VERSION": "p7-s4-intent-tool-guide-2026-10-06",
     "TOOL_POLICY_VERSION": "p7-step4-2026-10-06"
   }
