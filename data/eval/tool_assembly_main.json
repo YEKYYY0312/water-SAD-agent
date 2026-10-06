@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S4 Step 3：build_agentic_app 新增 exposure 关键字参数（会话与 runner 都传 ToolAssembly.exposure，规格 P7-I08）；只有 lifecycle/app/app_kwargs 变化，surface 不变",
+    "last_write_reason": "P7-S4 Step 5：按意图最小暴露的有意变更——surface 新增 exposure（每个 profile 的分组与 4 条探针问题的决定）；TOOL_POLICY_VERSION / PROMPT_TEMPLATE_VERSION 递进；其余 surface 片段不变（frozen_json 核对）",
     "python": "3.12.14"
   },
   "profiles": {
@@ -85,6 +85,169 @@
       },
       "side": "runner",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "drawing",
+              "intent",
+              [
+                "read_drawing"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats",
+                "read_drawing"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "52479bab6e2bc572"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ],
+                [
+                  "drawing",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 4497,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 321,
+                "sha256": "1b9f0cbc9d3431e0"
+              },
+              "guide_chars": 321,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "read_drawing"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -307,6 +470,189 @@
       },
       "side": "runner",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "mcp:snaprfake",
+              "ambient",
+              [
+                "mcp_snaprfake_echo_query",
+                "mcp_snaprfake_lookup_project"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snaprfake_echo_query",
+                "mcp_snaprfake_lookup_project"
+              ],
+              "guide": {
+                "chars": 466,
+                "sha256": "fae4b3df487f050e"
+              },
+              "guide_chars": 466,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snaprfake",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3314,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snaprfake_echo_query",
+                "mcp_snaprfake_lookup_project"
+              ],
+              "guide": {
+                "chars": 466,
+                "sha256": "fae4b3df487f050e"
+              },
+              "guide_chars": 466,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snaprfake",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3314,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [
+                [
+                  "mcp:snaprfake",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 362,
+                "sha256": "8e451e015da5f1ed"
+              },
+              "guide_chars": 362,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snaprfake_echo_query",
+                "mcp_snaprfake_lookup_project"
+              ]
+            },
+            "materials": {
+              "dropped": [
+                [
+                  "mcp:snaprfake",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 362,
+                "sha256": "8e451e015da5f1ed"
+              },
+              "guide_chars": 362,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snaprfake_echo_query",
+                "mcp_snaprfake_lookup_project"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -527,6 +873,153 @@
       },
       "side": "runner",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -667,6 +1160,153 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -806,6 +1446,169 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "drawing",
+              "intent",
+              [
+                "read_drawing"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats",
+                "read_drawing"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "52479bab6e2bc572"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ],
+                [
+                  "drawing",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 4497,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 321,
+                "sha256": "1b9f0cbc9d3431e0"
+              },
+              "guide_chars": 321,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "read_drawing"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -954,6 +1757,169 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "drawing",
+              "intent",
+              [
+                "read_drawing"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 277,
+                "sha256": "716dd910479178d7"
+              },
+              "guide_chars": 277,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "read_drawing"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats",
+                "read_drawing"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "52479bab6e2bc572"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ],
+                [
+                  "drawing",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 4497,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 321,
+                "sha256": "1b9f0cbc9d3431e0"
+              },
+              "guide_chars": 321,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "read_drawing"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -1124,6 +2090,153 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -1296,6 +2409,189 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "mcp:snapfake",
+              "ambient",
+              [
+                "mcp_snapfake_echo_query",
+                "mcp_snapfake_lookup_project"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snapfake_echo_query",
+                "mcp_snapfake_lookup_project"
+              ],
+              "guide": {
+                "chars": 462,
+                "sha256": "feb97af881acafd5"
+              },
+              "guide_chars": 462,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snapfake",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3310,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snapfake_echo_query",
+                "mcp_snapfake_lookup_project"
+              ],
+              "guide": {
+                "chars": 462,
+                "sha256": "feb97af881acafd5"
+              },
+              "guide_chars": 462,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snapfake",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3310,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [
+                [
+                  "mcp:snapfake",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "61daf79cb7625e9d"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snapfake_echo_query",
+                "mcp_snapfake_lookup_project"
+              ]
+            },
+            "materials": {
+              "dropped": [
+                [
+                  "mcp:snapfake",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "61daf79cb7625e9d"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snapfake_echo_query",
+                "mcp_snapfake_lookup_project"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -1517,6 +2813,153 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 264,
+                "sha256": "47f4fa4b02e420b5"
+              },
+              "guide_chars": 264,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 286,
+                "sha256": "d85445dd54f5551d"
+              },
+              "guide_chars": 286,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": []
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -1707,6 +3150,189 @@
       },
       "side": "session",
       "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "mcp:snapweb",
+              "ambient",
+              [
+                "mcp_snapweb_echo_query",
+                "mcp_snapweb_lookup_project"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snapweb_echo_query",
+                "mcp_snapweb_lookup_project"
+              ],
+              "guide": {
+                "chars": 458,
+                "sha256": "d89669a2212c4450"
+              },
+              "guide_chars": 458,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snapweb",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3306,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snapweb_echo_query",
+                "mcp_snapweb_lookup_project"
+              ],
+              "guide": {
+                "chars": 458,
+                "sha256": "d89669a2212c4450"
+              },
+              "guide_chars": 458,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snapweb",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3306,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [
+                [
+                  "mcp:snapweb",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 358,
+                "sha256": "12167dd27b58df8b"
+              },
+              "guide_chars": 358,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snapweb_echo_query",
+                "mcp_snapweb_lookup_project"
+              ]
+            },
+            "materials": {
+              "dropped": [
+                [
+                  "mcp:snapweb",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 358,
+                "sha256": "12167dd27b58df8b"
+              },
+              "guide_chars": 358,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snapweb_echo_query",
+                "mcp_snapweb_lookup_project"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
         "model_tool_order": [
           "calc_velocity",
           "cite_clauses",
@@ -1810,7 +3436,7 @@
   },
   "versions": {
     "MCP_CONFIG_VERSION": "p7-s3-2026-10-05",
-    "PROMPT_TEMPLATE_VERSION": "p5-history-window-2026-10-01",
-    "TOOL_POLICY_VERSION": "p7-step1-2026-10-03"
+    "PROMPT_TEMPLATE_VERSION": "p7-s4-intent-tool-guide-2026-10-06",
+    "TOOL_POLICY_VERSION": "p7-step4-2026-10-06"
   }
 }
