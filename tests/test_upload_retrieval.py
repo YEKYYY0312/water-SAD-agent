@@ -373,7 +373,8 @@ def test_prompt_template_version_was_bumped_for_the_new_segment() -> None:
     """
 
     # P5-S49 又新增了 file_context 段，版本随之前进；只要求不回退到加段之前的值。
-    assert PROMPT_TEMPLATE_VERSION == "p5-history-window-2026-10-01"
+    # P7-S4 工具指引按本轮开放的工具渲染，版本再次前进。
+    assert PROMPT_TEMPLATE_VERSION == "p7-s4-intent-tool-guide-2026-10-06"
     assert "step41" not in PROMPT_TEMPLATE_VERSION
     assert "step48" not in PROMPT_TEMPLATE_VERSION
 

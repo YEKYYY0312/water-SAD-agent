@@ -60,7 +60,8 @@ SEGMENT_BUDGETS: dict[str, int] = {
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-history-window-2026-10-01"
+#: P7-S4：工具指引改为按本轮开放的工具渲染（工具名 + 描述首句 + "本轮未开放"行）。
+PROMPT_TEMPLATE_VERSION = "p7-s4-intent-tool-guide-2026-10-06"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
