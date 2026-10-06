@@ -54,7 +54,7 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
-    """P7-S0-A03 / P7-S3-A12 当前代码的装配快照与入仓基线逐字段一致。"""
+    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 当前代码的装配快照与入仓基线逐字段一致。"""
 
     lines = snap.diff_snapshots(baseline, head)
     assert not lines, (
