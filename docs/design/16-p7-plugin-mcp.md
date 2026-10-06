@@ -54,8 +54,8 @@
 | F1 | 生产面向模型的装配只有 `AgenticSession.__init__`（`runtime/agentic.py`）；调用方：CLI 单次、CLI 交互、Web `build_agentic_session`、harness mock-agentic | 快照 `session_*` profile | S2 收编 |
 | F2 | ~~`HarnessRunner._run_real_agentic_case` 手工重建注册表，与会话路径有 8 处差异~~ **S2 已统一**：两条路径都经 `assemble_tools`，§3.5 第 1–7 条按会话语义执行，第 8 条刻意保留 | `tests/test_p7_known_figures.py::test_runner_path_matches_session_semantics` | S2 已交付 |
 | F3 | 注册顺序决定提示词工具指引的顺序与截断；发给模型的工具按 `list_all_names()` 字母序 | 快照 `surface.registration_order` / `model_tool_order` | 不变量 |
-| F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | S4 |
-| F5 | 工具指引 800 字预算已截掉 `read_drawing`（"省略 1 行"）；两个 MCP 工具时截掉 2 行、schema 4724 字符，且 `tests/test_answer_cache.py` 的预算只装配本地工具 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | S4 |
+| F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期。**S4 之后**：注册集的数字不变（S4 不增减工具），但每轮实际发出的 schema 由暴露策略约束在 4500 以内（core 2125；最紧的"读图 + 材料"组合正好 4497，MCP 整组让位） | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters`<br>`tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | S4 已约束发送面 |
+| F5 | ~~工具指引 800 字预算已截掉 `read_drawing`（"省略 1 行"）；两个 MCP 工具时截掉 2 行、schema 4724 字符~~ **S4 已修（intent 策略）**：指引只列本轮开放的工具（工具名 + 描述首句）并附"本轮未开放"行，两项预算整组裁决，`tool_exposure_p0` 36/36 无截断。`full` 回滚开关下仍是原样截断 | `tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | S4 已交付 |
 | F6 | ~~MCP 工具已暴露，缓存服务的 `mcp_server_manifest` 仍恒为 `""`~~ **S3 已修**：`AgenticSession` 构造缓存服务时传入 `mcp_assembly.manifest_hash` | `tests/test_p7_known_figures.py::test_mcp_manifest_reaches_the_cache_service` | S3 已交付 |
 | F7 | ~~`requires_human_confirmation` 只在装配期检查，执行期不查；`confirmation_handler_ready=true` 时这类工具直接暴露并可调用~~ **S1 已修**：确认门（S7）接线前 `confirmation_handler_ready=true` 在加载期即 `MCP_CONFIG_INVALID`；运行时绑定要求确认的工具执行期一律 `tool.confirmation_required` 拒绝 | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | S1 已交付 |
 | F8 | 每个 Web run 都重新 spawn 全部 MCP 子进程 | 无测试（`run_manager.py` 每个 run 新建会话） | S5 |
@@ -155,6 +155,37 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | 7 | 主体用 `model_copy` 更新（不校验） | 用构造器（带校验） |
 | 8 | 不接缓存服务、显式传 `max_tool_turns` | **保留**：评测不得命中回答缓存；这两项属于 app 构造，不属于工具装配 |
 
+### 3.6 按意图最小暴露（S4）
+
+实现：`src/water_agent/plugins/exposure.py`；决策记录 `docs/design/p7-step-4-decision.md`。
+
+- **每轮决定一次**：外层图 `agent_loop` 在输入护栏放行之后、调用模型之前调用
+  `ToolExposurePolicy.decide(query, previous_turn_tools=…)`，结果（`ExposureDecision.to_state()`）存进
+  state 的 `tool_exposure`；引用校验回流再进 `agent_loop` 时复用，`PER_TURN_RESET` 逐轮归零。
+- **分组**来自插件贡献（`PluginContribution.exposure` / `exposure_groups()`）：
+
+  | 组 | 规则 | 说明 |
+  |---|---|---|
+  | `clauses`、`hydraulics` | core | 每轮必开、永不丢弃（铁律①②） |
+  | `materials`、`drawing` | intent | 关键词 / 正则命中才开（`plugins/builtin.py` 的 `MATERIALS_EXPOSURE` / `DRAWING_EXPOSURE`） |
+  | `mcp:<server_id>` | ambient | 每台暴露了工具的 server 一组，不看意图，预算不够最先让位 |
+  | 未声明规则的插件 | ambient | 缺省值 |
+
+- **入选顺序** core → 本轮命中的 intent → 上一轮实际调用过工具的组（sticky，只回看一轮，轮次切分与
+  `prompting/history.py` 同口径）→ ambient；按这个顺序逐组入选，放不下的整组跳过并记进 `dropped`。
+- **两项预算**：发出的 schema ≤ `EXPOSED_SCHEMA_BUDGET = 4500`（与 `tests/test_answer_cache.py` 同数、
+  同序列化口径——`bound_tool_definition` 由 `_BudgetChatModel.bind_tools` 与预算判定共用）；按意图格式
+  渲染的指引 ≤ `SEGMENT_BUDGETS["tool_guide"]`（800）。core 自身超任一预算 → 装配期 `ValueError`。
+- **模型侧**：`_BudgetChatModel` 在 `_generate` 与 `_stream` 前把 `tools` 过滤到本轮开放的子集；ToolNode
+  仍持全部已注册工具。
+- **提示侧**：`PromptAssembler(exposure=…)` 在 state 有 intent 决定时按决定渲染指引；`full` 策略、没有决定
+  或没有策略时走现行格式（逐字不变）。
+- **暴露不是授权**：未开放的工具被调用时照常经 `ToolRegistry.invoke` 执行（护栏与主体授权不变），trace 另记
+  `unexposed_call`；每轮另记一条 `tool_exposure`。两类事件都显式 `query=""`，不写用户原文。
+- **回滚开关** `WATER_AGENT_TOOL_EXPOSURE=intent|full`（缺省 `intent`，其他值装配期 `ValueError`）；`full`
+  下模型收到的工具与指引与 S3 逐字相同（`tool_exposure_p0` 逐轮比对 0 差异）。
+- **结构约束**：两处生产 `build_agentic_app` 调用都传 `exposure=`（`tests/test_plugin_invariants.py::test_production_app_receives_exposure_policy`）。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -179,7 +210,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S1 | F7 | 确认门执行期强制 | `docs/execution-prompts/P7-S1-confirmation-gate.md` | delivered |
 | S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | delivered |
 | S3 | Step B | 配置分层（仓库默认层 + 部署覆盖层）、每台 server 结果可观察、`disabled`、子进程工作目录隔离；修 F6/F9/F10/F13/F15/F16；**entry point 发现推迟**（见下） | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | delivered |
-| S4 | Step C | 按意图最小暴露 / 工具分组（每轮确定性决定，core = 检索 + 引用 + 流速计算）；修 F4/F5（先建 `tool_exposure_p0`）；回滚开关 `WATER_AGENT_TOOL_EXPOSURE=full` | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | planned |
+| S4 | Step C | 按意图最小暴露 / 工具分组（每轮确定性决定，core = 检索 + 引用 + 流速计算）；修 F4/F5（先建 `tool_exposure_p0`）；回滚开关 `WATER_AGENT_TOOL_EXPOSURE=full` | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | delivered |
 | S5 | Step D | MCP 连接层：长驻进程（修 F8）+ Streamable HTTP | 开工前另写 | planned |
 | S6 | Step E1 | Web 扩展面板（只改启停 / allow / 凭据引用；导入 `mcpServers` 只生成禁用的待审提案） | 开工前另写 | planned |
 | S7 | Step E2 | HITL 确认门：外层图 interrupt、waiting 态、批准/拒绝 API、审计 | 开工前另写 | planned |
@@ -322,7 +353,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S0-A10 | 反证：工具指引预算改动被识别 | `tests/test_tool_assembly_snapshot.py::test_negative_control_guide_budget_detected` | delivered |
 | P7-S0-A11 | 写入守卫与 CLI：surface 变而版本号未递进拒绝写入；任何变化须带原因；差异以 JSON pointer 报告；`--check` 退出码 | `tests/test_tool_assembly_snapshot.py::test_write_guard_refuses_surface_change_without_version_bump`<br>`tests/test_tool_assembly_snapshot.py::test_write_guard_requires_reason_for_any_change`<br>`tests/test_tool_assembly_snapshot.py::test_diff_reports_json_pointers_and_ignores_info`<br>`tests/test_tool_assembly_snapshot.py::test_cli_check_exit_codes` | delivered |
 | P7-S0-A12 | F4：本地工具 schema 4497、余量 3 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters` | delivered |
-| P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算 | `tests/test_p7_known_figures.py::test_tool_guide_already_truncates_tools` | delivered |
+| P7-S0-A13 | F5：工具指引已截断；MCP 工具不计入现有预算（S0 时的现状；S4 修复后由 P7-S4-A11 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A14 | F6：manifest 不进缓存服务（S0 时的现状；S3 修复后由 P7-S3-A07 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A15 | F7：确认门执行期不检查（S0 时的现状；S1 修复后由 P7-S1-A03 取代，见未覆盖项） | 无 | untested |
 | P7-S0-A16 | F13：runner 的 MCP trace 事件从未落盘（S0 时的现状；S2 删除后由 P7-S2-A12 取代，见未覆盖项） | 无 | untested |
@@ -391,18 +422,18 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 | ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S4-A01 | 评测集先行：`tool_exposure_p0` 经生产会话 + 记录型脚本模型运行，在未改动的暴露代码上跑出"改之前"的报告（F4/F5 现状可复现）；数据集此后冻结 | `tests/test_tool_exposure_eval.py::test_harness_records_what_the_model_saw`<br>`tests/test_tool_exposure_eval.py::test_full_strategy_reproduces_f4_f5` | planned |
-| P7-S4-A02 | 暴露契约：组来自插件贡献（core / intent / ambient），MCP 每台 server 一组；决定是确定性纯函数，不 import 模型 / HTTP / random / time | `tests/test_tool_exposure.py::test_groups_come_from_contributions`<br>`tests/test_tool_exposure.py::test_decision_is_deterministic_and_pure` | planned |
-| P7-S4-A03 | 优先级与两项预算：schema ≤ 4500、按意图指引 ≤ 800 且不截断；逆序整组丢弃、core 永不丢弃、core 自身超预算装配期抛错 | `tests/test_tool_exposure.py::test_budget_drops_whole_groups_in_reverse_priority`<br>`tests/test_tool_exposure.py::test_core_over_budget_fails_at_assembly` | planned |
-| P7-S4-A04 | sticky：上一轮实际调用过工具的组本轮保留，只回看一轮 | `tests/test_tool_exposure.py::test_previous_turn_tools_stay_exposed_for_one_turn` | planned |
-| P7-S4-A05 | 接线：模型每次调用只收到本轮开放的工具（流式与非流式）、ToolNode 仍持全部工具、指引按本轮决定渲染、回流复用同一决定、每轮一条 `tool_exposure` trace 事件且不含 query 原文 | `tests/test_tool_exposure.py::test_model_receives_only_exposed_tools`<br>`tests/test_tool_exposure.py::test_reflow_reuses_the_turn_decision` | planned |
-| P7-S4-A06 | 未开放的工具被调用时照常经 `ToolRegistry.invoke` 执行，trace 标记 `unexposed_call` | `tests/test_tool_exposure.py::test_unexposed_call_executes_and_is_marked` | planned |
-| P7-S4-A07 | 回滚开关 `WATER_AGENT_TOOL_EXPOSURE`：`full` 与 S3 行为逐字一致，非法值装配期抛错 | `tests/test_tool_exposure.py::test_full_strategy_matches_s3_behavior`<br>`tests/test_tool_exposure.py::test_invalid_strategy_fails_loudly` | planned |
-| P7-S4-A08 | 不变量 P7-I08：两处生产 `build_agentic_app` 调用都传 `exposure=` | `tests/test_plugin_invariants.py::test_invariants_hold` | planned |
-| P7-S4-A09 | `tool_exposure_p0` 硬指标在 intent 策略下全部达标，并入 `ci_gate.sh` 与入仓基线对比 | `gate:tool_exposure_p0` | planned |
-| P7-S4-A10 | 快照有意重写：两个版本号递进，只有声明允许的片段变化（范围块 `frozen_json` 在 PR 上核对） | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline` | planned |
-| P7-S4-A11 | F5：每条快照探针的开放工具都出现在指引里、指引未截断、schema ≤ 4500；回退格式（`full`）仍截断 | `tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | planned |
-| P7-S4-A12 | 机制层门禁不回退（agentic_p0 21/21） | `gate:agentic_p0` | planned |
+| P7-S4-A01 | 评测集先行：`tool_exposure_p0` 经生产会话 + 记录型脚本模型运行，在未改动的暴露代码上跑出"改之前"的报告（F4/F5 现状可复现）；数据集此后冻结 | `tests/test_tool_exposure_eval.py::test_harness_records_what_the_model_saw`<br>`tests/test_tool_exposure_eval.py::test_script_must_be_consumed_exactly`<br>`tests/test_tool_exposure_eval.py::test_full_strategy_reproduces_f4_f5`<br>`tests/test_tool_exposure_eval.py::test_missing_must_expose_is_a_load_problem`<br>`tests/test_tool_exposure_eval.py::test_unmeasured_rates_are_not_a_pass`<br>`tests/test_tool_exposure_eval.py::test_dataset_covers_every_category` | delivered |
+| P7-S4-A02 | 暴露契约：组来自插件贡献（core / intent / ambient），MCP 每台 server 一组；决定是确定性纯函数，不 import 模型 / HTTP / random / time | `tests/test_tool_exposure.py::test_groups_come_from_contributions`<br>`tests/test_tool_exposure.py::test_decision_is_deterministic_and_pure`<br>`tests/test_tool_exposure.py::test_intent_groups_open_only_on_matching_questions`<br>`tests/test_tool_exposure.py::test_rules_are_validated_at_construction` | delivered |
+| P7-S4-A03 | 优先级与两项预算：schema ≤ 4500、按意图指引 ≤ 800 且不截断；按优先级逐组入选、放不下的整组跳过（偏离见决策记录 §0.2）、core 永不丢弃、core 自身超预算装配期抛错 | `tests/test_tool_exposure.py::test_budget_drops_whole_groups_in_reverse_priority`<br>`tests/test_tool_exposure.py::test_core_over_budget_fails_at_assembly` | delivered |
+| P7-S4-A04 | sticky：上一轮实际调用过工具的组本轮保留，只回看一轮 | `tests/test_tool_exposure.py::test_previous_turn_tools_stay_exposed_for_one_turn`<br>`tests/test_tool_exposure.py::test_previous_turn_tools_reads_only_the_last_turn` | delivered |
+| P7-S4-A05 | 接线：模型每次调用只收到本轮开放的工具（流式与非流式）、ToolNode 仍持全部工具、指引按本轮决定渲染、回流复用同一决定、每轮一条 `tool_exposure` trace 事件且不含 query 原文 | `tests/test_tool_exposure.py::test_model_receives_only_exposed_tools`<br>`tests/test_tool_exposure.py::test_reflow_reuses_the_turn_decision` | delivered |
+| P7-S4-A06 | 未开放的工具被调用时照常经 `ToolRegistry.invoke` 执行，trace 标记 `unexposed_call` | `tests/test_tool_exposure.py::test_unexposed_call_executes_and_is_marked` | delivered |
+| P7-S4-A07 | 回滚开关 `WATER_AGENT_TOOL_EXPOSURE`：`full` 与 S3 行为逐字一致，非法值装配期抛错 | `tests/test_tool_exposure.py::test_full_strategy_matches_s3_behavior`<br>`tests/test_tool_exposure.py::test_invalid_strategy_fails_loudly` | delivered |
+| P7-S4-A08 | 两处生产 `build_agentic_app` 调用都传 `exposure=`（AST 判定；未登记为 §4 不变量，原因见 `p7-step-4-decision.md` §0.2） | `tests/test_plugin_invariants.py::test_production_app_receives_exposure_policy` | delivered |
+| P7-S4-A09 | `tool_exposure_p0` 硬指标在 intent 策略下全部达标，并入 `ci_gate.sh` 与入仓基线对比 | `gate:tool_exposure_p0`<br>`tests/test_tool_exposure_eval.py::test_baseline_is_a_passing_intent_report`<br>`tests/test_tool_exposure_eval.py::test_compare_accepts_identical_reports`<br>`tests/test_tool_exposure_eval.py::test_compare_rejects_tampered_and_regressed_reports` | delivered |
+| P7-S4-A10 | 快照有意重写：两个版本号递进，只有声明允许的片段变化（范围块 `frozen_json` 在 PR 上核对） | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline` | delivered |
+| P7-S4-A11 | F5：每条快照探针的开放工具都出现在指引里、指引未截断、schema ≤ 4500；回退格式（`full`）仍截断 | `tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | delivered |
+| P7-S4-A12 | 机制层门禁不回退（agentic_p0 21/21） | `gate:agentic_p0` | delivered |
 | P7-S4-A13 | 真实模型的工具选择准确率：有 Key 时用真实模型重跑 `tool_exposure_p0` 的问题并人工核对所选工具 | 无 | untested |
 
 ### 未覆盖项（显式声明）
@@ -411,6 +442,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A16 / P7-S0-A17**：它们锁的是 S0 时 runner 路径的缺陷现状（trace 调用从未落盘、与会话路径有 8 处差异）。S2 统一后这些现状已不存在，原测试改写为断言统一后的事实，分别由 **P7-S2-A12** 与 **P7-S2-A07** 承担；两行保留为历史记录，不再有对应测试。
 - **P7-S2-A11**：真实质量层需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内。没有 Key 时记为
   blocked，**不得**声称真实质量未回退。
+- **P7-S0-A13**：它锁的是 S0 时的缺陷现状（工具指引截掉读图 / MCP 工具）。S4 修复后由 **P7-S4-A11** 承担（同一测试同时锁住 `full` 回滚开关下的回退格式仍截断）；本行保留为历史记录，不再有对应测试。
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
@@ -474,6 +506,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | S2 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | S3 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | S4 执行 Prompt（含范围块） |
+| `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
+| `src/water_agent/harness/tool_exposure_eval.py` + `data/eval/tool_exposure_p0.jsonl` | S4 评测集与 harness（入仓基线 `data/eval/tool_exposure_p0_main.json`） |
 | `src/water_agent/harness/tool_assembly_snapshot.py` | H1 装配快照 |
 | `data/eval/tool_assembly_main.json` | H1 基线 |
 | `src/water_agent/harness/spec_trace.py` | H2 追溯检查 |
