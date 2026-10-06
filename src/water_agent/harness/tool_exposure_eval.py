@@ -219,6 +219,7 @@ class TurnResult:
     not_in_guide: list[str] = field(default_factory=list)
     forbidden: list[str] = field(default_factory=list)
     needed: int = 0
+    overexposed: bool = False
     unexposed_expected: str | None = None
     unexposed_ok: bool | None = None
     status: str = ""
@@ -236,6 +237,8 @@ class TurnResult:
             "missing": self.missing,
             "not_in_guide": self.not_in_guide,
             "forbidden": self.forbidden,
+            "needed": self.needed,
+            "overexposed": self.overexposed,
             "unexposed_expected": self.unexposed_expected,
             "unexposed_ok": self.unexposed_ok,
             "status": self.status,
@@ -297,6 +300,7 @@ def score_turn(
     result.missing = sorted(set(turn.must_expose) - set(exposed))
     result.not_in_guide = sorted(set(turn.must_expose) - set(listed))
     result.forbidden = sorted(set(turn.must_not_expose) & set(exposed))
+    result.overexposed = bool(set(exposed) - set(turn.must_expose) - CORE_TOOLS)
     if result.missing:
         result.failures.append(f"需要的工具未开放：{result.missing}")
     if result.not_in_guide:
@@ -470,32 +474,32 @@ def _mean(values: Sequence[int]) -> float | None:
     return None if not values else round(sum(values) / len(values), 3)
 
 
-def aggregate(results: Sequence[CaseResult], cases: Sequence[ExposureCase]) -> dict[str, Any]:
-    by_id = {case.id: case for case in cases}
+def metrics_from_case_dicts(cases: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """从报告里的用例明细算出全部指标。harness 写报告与比较器核对"报告没被手改"共用这一个函数。"""
+
     needed = exposed_needed = in_guide = 0
     forbidden = budget = truncated = 0
     unexposed_total = unexposed_ok = 0
     over = observed_turns = 0
     counts: list[int] = []
     chars: list[int] = []
-    for result in results:
-        case = by_id[result.case_id]
-        for turn_result, turn in zip(result.turns, case.turns, strict=False):
-            needed += turn_result.needed
-            exposed_needed += turn_result.needed - len(turn_result.missing)
-            in_guide += turn_result.needed - len(turn_result.not_in_guide)
-            forbidden += len(turn_result.forbidden)
-            budget += int(turn_result.schema_chars_max > SCHEMA_BUDGET)
-            truncated += int(turn_result.guide_truncated)
-            if turn_result.unexposed_expected:
+    for case in cases:
+        for turn in case.get("turns", []) or []:
+            want = int(turn.get("needed", 0))
+            needed += want
+            exposed_needed += want - len(turn.get("missing", []))
+            in_guide += want - len(turn.get("not_in_guide", []))
+            forbidden += len(turn.get("forbidden", []))
+            budget += int(int(turn.get("schema_chars_max", 0)) > SCHEMA_BUDGET)
+            truncated += int(bool(turn.get("guide_truncated")))
+            if turn.get("unexposed_expected"):
                 unexposed_total += 1
-                unexposed_ok += int(bool(turn_result.unexposed_ok))
-            if turn_result.exposed:
+                unexposed_ok += int(bool(turn.get("unexposed_ok")))
+            if turn.get("exposed"):
                 observed_turns += 1
-                counts.append(len(turn_result.exposed))
-                chars.append(turn_result.schema_chars_first)
-                extra = set(turn_result.exposed) - set(turn.must_expose) - CORE_TOOLS
-                over += int(bool(extra))
+                counts.append(len(turn["exposed"]))
+                chars.append(int(turn.get("schema_chars_first", 0)))
+                over += int(bool(turn.get("overexposed")))
     return {
         "needed_tool_exposed_rate": _rate(exposed_needed, needed),
         "needed_tool_in_guide_rate": _rate(in_guide, needed),
@@ -503,7 +507,7 @@ def aggregate(results: Sequence[CaseResult], cases: Sequence[ExposureCase]) -> d
         "schema_budget_violation_count": budget,
         "guide_truncated_count": truncated,
         "unexposed_call_executed_rate": _rate(unexposed_ok, unexposed_total),
-        "harness_error_count": sum(1 for result in results if result.error is not None),
+        "harness_error_count": sum(1 for case in cases if case.get("error") is not None),
         # 观测指标（不设硬门槛，进基线对比）
         "exposed_tool_count_mean": _mean(counts),
         "exposed_tool_count_max": max(counts) if counts else None,
@@ -511,6 +515,10 @@ def aggregate(results: Sequence[CaseResult], cases: Sequence[ExposureCase]) -> d
         "exposed_schema_chars_max": max(chars) if chars else None,
         "overexposure_rate": _rate(over, observed_turns),
     }
+
+
+def aggregate(results: Sequence[CaseResult]) -> dict[str, Any]:
+    return metrics_from_case_dicts([result.as_dict() for result in results])
 
 
 def hard_violations(metrics: dict[str, Any]) -> list[str]:
@@ -523,12 +531,11 @@ def hard_violations(metrics: dict[str, Any]) -> list[str]:
 
 def build_report(
     results: Sequence[CaseResult],
-    cases: Sequence[ExposureCase],
     *,
     dataset: Path,
     strategy: str,
 ) -> dict[str, Any]:
-    metrics = aggregate(results, cases)
+    metrics = aggregate(results)
     violations = hard_violations(metrics)
     try:
         dataset_label = dataset.resolve().relative_to(REPO_ROOT).as_posix()
@@ -572,7 +579,7 @@ def run(dataset: Path, *, strategy: str | None = None) -> tuple[dict[str, Any] |
                 os.environ.pop("WATER_AGENT_TOOL_EXPOSURE", None)
             else:
                 os.environ["WATER_AGENT_TOOL_EXPOSURE"] = saved
-    return build_report(results, cases, dataset=dataset, strategy=effective), []
+    return build_report(results, dataset=dataset, strategy=effective), []
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -627,6 +634,7 @@ __all__ = [
     "hard_violations",
     "load_cases",
     "main",
+    "metrics_from_case_dicts",
     "run",
     "run_case",
     "score_turn",
