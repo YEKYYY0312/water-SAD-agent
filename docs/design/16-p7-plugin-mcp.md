@@ -211,9 +211,10 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S2 | Step A | 插件契约 + `assemble_tools()` 单入口 + runner 统一 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | delivered |
 | S3 | Step B | 配置分层（仓库默认层 + 部署覆盖层）、每台 server 结果可观察、`disabled`、子进程工作目录隔离；修 F6/F9/F10/F13/F15/F16；**entry point 发现推迟**（见下） | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | delivered |
 | S4 | Step C | 按意图最小暴露 / 工具分组（每轮确定性决定，core = 检索 + 引用 + 流速计算）；修 F4/F5（先建 `tool_exposure_p0`）；回滚开关 `WATER_AGENT_TOOL_EXPOSURE=full` | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | delivered |
-| S5 | Step D | MCP 连接层：长驻进程（修 F8）+ Streamable HTTP | 开工前另写 | planned |
+| S5 | Step D（一） | MCP 长驻连接（stdio）：`lifecycle: shared` 的 server 跨 run 复用进程（修 F8，缺省 `per_run` 不变）、客户端请求串行化（修并发取错响应）、按单台 server 指纹重载 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | planned |
 | S6 | Step E1 | Web 扩展面板（只改启停 / allow / 凭据引用；导入 `mcpServers` 只生成禁用的待审提案） | 开工前另写 | planned |
 | S7 | Step E2 | HITL 确认门：外层图 interrupt、waiting 态、批准/拒绝 API、审计 | 开工前另写 | planned |
+| S8 | Step D（二） | Streamable HTTP 传输：`NETWORK_FETCH` 能力决策 + 出站清单 7 → 8（2026-10-06 从 S5 拆出） | 开工前另写 | planned |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -229,8 +230,13 @@ S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
   授权边界）；MCP 每台 server 一组、预算不够时最先让位，本步不加 per-server 关键词配置；全量本地工具
   的 `< 4500` 断言原样保留，F4 的修复面是"每轮实际发出的 schema 受策略约束"。
 - **S5**：长驻 stdio 进程被所有 Web 用户共享——跨租户状态、并发访问（客户端 `max_workers=4`）、
-  重载语义都要先定；HTTP 需要 `NETWORK_FETCH` 级别的能力决策（它在危险集里）与出站清单登记
-  （7 → 8）。
+  重载语义都要先定。2026-10-06 写执行 Prompt 时定下（理由见 Prompt §0）：共享须运维按 server 显式声明
+  `lifecycle: shared`，缺省 `per_run`；同一客户端上的请求串行（读码发现 `_request` 并发时会把别人的响应
+  当通知丢掉，今天同一 run 内并行调用同一台 server 就可能触发）；按单台 server 指纹（配置 + 子进程 env
+  摘要）重载，旧进程在最后一个租约释放后关闭；只有 Web 用连接池，CLI 与 runner 不变。
+- **S8**（从 S5 拆出，2026-10-06）：Streamable HTTP 需要 `NETWORK_FETCH` 级别的能力决策（它在危险集里，
+  `Principal` 构造期即拒）与出站清单登记（7 → 8），单独评审。不叫"S5b"：范围守卫按 `YEK/p7-s<n>-`
+  映射执行 Prompt。
 - **S6**：导入 `mcpServers` 会带来 `command` / `args`，面板不能写它们，只能生成"已禁用的待审提案"，
   由运维离线应用。
 - **S7**：内层 react agent 是 `checkpointer=False`（`graphs/agent_rag.py`），工具执行中的 interrupt
@@ -436,6 +442,21 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S4-A12 | 机制层门禁不回退（agentic_p0 21/21） | `gate:agentic_p0` | delivered |
 | P7-S4-A13 | 真实模型的工具选择准确率：有 Key 时用真实模型重跑 `tool_exposure_p0` 的问题并人工核对所选工具 | 无 | untested |
 
+### S5：MCP 长驻连接（stdio）
+
+| ID | 验收 | 验证 | 状态 |
+|---|---|---|---|
+| P7-S5-A01 | 客户端并发安全：同一客户端上并发调用各拿到自己的响应（修复前其中一个超时）；等锁计入 deadline；`alive` 属性 | `tests/test_mcp_pool.py::test_concurrent_calls_on_one_client_get_their_own_responses` | planned |
+| P7-S5-A02 | `lifecycle: per_run \| shared`（缺省 `per_run`），覆盖层可写；`MCP_CONFIG_VERSION` 递进 | `tests/test_mcp_pool.py::test_lifecycle_field_defaults_to_per_run` | planned |
+| P7-S5-A03 | 复用：shared 的 server 连续两次租约同一进程；per_run 的每次新进程；共享状态如实可见（计数连续） | `tests/test_mcp_pool.py::test_shared_server_is_reused_and_per_run_is_not`<br>`tests/test_mcp_pool.py::test_shared_server_state_is_visible_across_leases` | planned |
+| P7-S5-A04 | 重载：单台 server 指纹（配置 + 子进程 env 摘要）变化 → 下一次租约新进程；旧进程在最后一个租约释放后关闭；删除 / 停用同样退役 | `tests/test_mcp_pool.py::test_fingerprint_change_retires_the_old_process` | planned |
+| P7-S5-A05 | 健康：死掉的共享进程在下一次租约时重开；调用中途崩溃返回结构化错误、不抛出 run | `tests/test_mcp_pool.py::test_dead_shared_process_is_reopened` | planned |
+| P7-S5-A06 | 生命周期：`release` 幂等；池关闭后不留活进程，未释放租约数量被报告；并发首次租约只 spawn 一个进程 | `tests/test_mcp_pool.py::test_pool_close_leaves_no_processes`<br>`tests/test_mcp_pool.py::test_concurrent_first_lease_spawns_once` | planned |
+| P7-S5-A07 | 接线：Web 会话工厂用池租约，连续两个 run 复用同一进程；应用关闭先排空 run 再关池；会话构造抛错时租约被释放；CLI / runner 不变 | `tests/test_web_mcp_pool.py::test_web_runs_reuse_shared_server` | planned |
+| P7-S5-A08 | trace 摘要每台 server 带 `connection: per_run / shared_new / shared_reused`，不含指纹或 env | `tests/test_mcp_pool.py::test_trace_summary_reports_connection_kind` | planned |
+| P7-S5-A09 | F8：shared 的 server 跨 run 不再重开；快照只有 `/versions/MCP_CONFIG_VERSION` 变化 | `tests/test_p7_known_figures.py::test_shared_mcp_servers_survive_across_runs` | planned |
+| P7-S5-A10 | 手动验收：本机 autocad-mcp 设为 shared，两次 Web run 的 trace 依次为 `shared_new`、`shared_reused`（只证明连接复用，不是 CAD 验收） | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
@@ -446,6 +467,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
+- **P7-S5-A10**：依赖本机装了 autocad-mcp 与 Web 栈，CI 上没有；做了也只证明连接复用，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
 - **P7-S3-A13**：依赖本机装了 autocad-mcp，CI 上没有。2026-10-05 本机已做：覆盖层指向 autocad-mcp 仓库后暴露 `mcp_autocad_mcp_read_dwg`。这只证明能连上，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
 - **F8**：留到 S5 写测试。F9 / F10 / F15 / F16 已由 S3 的 A02 / A10 / A06 锁定。
 - **H2 的局限**：追溯检查证明测试存在且声明了覆盖，不证明断言正确（§6.3）。
@@ -506,6 +528,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S2-tool-plugin-assembly.md` | S2 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | S3 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | S4 执行 Prompt（含范围块） |
+| `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | S5 执行 Prompt（含范围块） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/harness/tool_exposure_eval.py` + `data/eval/tool_exposure_p0.jsonl` | S4 评测集与 harness（入仓基线 `data/eval/tool_exposure_p0_main.json`） |
 | `src/water_agent/harness/tool_assembly_snapshot.py` | H1 装配快照 |
