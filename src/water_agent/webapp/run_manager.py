@@ -19,6 +19,8 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.graphs.agent_rag import current_turn_messages
+from water_agent.mcp.pool import McpConnectionPool
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import MemoryStoreUnavailableError
 from water_agent.memory.providers import MemoryProvider
@@ -220,8 +222,12 @@ class WebAgenticSessionFactory:
         session_dir: str | os.PathLike[str] = "data/sessions",
         mock_generator: bool | None = None,
         agent_args: argparse.Namespace | None = None,
+        mcp_pool: McpConnectionPool | None = None,
     ) -> None:
         self.database = database
+        #: P7-S5：进程内 MCP 连接池。``lifecycle: shared`` 的 server 跨 run 复用进程，其余每个 run
+        #: 现开现关。由 ``RunManager.close()`` 在排空 run 之后关闭。
+        self.mcp_pool = mcp_pool if mcp_pool is not None else McpConnectionPool()
         self.sessions = sessions
         # None ⇒ 交给 resolve_trace_dir 读 WATER_AGENT_TRACE_DIR；容器里 /app/data 只读，
         # 写死 "data/traces" 会让 recorder.finish() 必然 OSError（见 json_trace 模块文档）
@@ -280,13 +286,22 @@ class WebAgenticSessionFactory:
             request_id=f"req-{run_id[:12]}",
             thread_id=thread_id,
         )
+        # 坏配置在借用之前就 MCP_CONFIG_INVALID（任何子进程启动之前）；借到立即登记释放，
+        # 之后会话构造的任何一步抛错都不会漏掉租约。
+        lease = self.mcp_pool.lease(load_mcp_gateway())
+        stack.callback(lease.release)
         return build_agentic_session(
             self._args(),
             stack=stack,
             thread_id=thread_id,
             request_context=request_context,
             checkpointer=scoped_saver,
+            mcp_lease=lease,
         )
+
+    def close(self) -> dict[str, Any]:
+        """关闭 MCP 连接池（``RunManager.close()`` 排空 run 之后调用）。"""
+        return self.mcp_pool.close()
 
 
 class RunManager:
@@ -1210,11 +1225,15 @@ class RunManager:
                 break
             time.sleep(0.05)
         unfinalized = [handle.run_id for handle in handles if not handle.finalized]
+        # 排空之后再关 MCP 连接池（P7-S5）：先关池会让还在收尾的 run 的 MCP 调用失败
+        close_factory = getattr(getattr(self, "session_factory", None), "close", None)
+        mcp_pool = close_factory() if callable(close_factory) else None
         return {
             "runs": len(handles),
             "finalized": len(handles) - len(unfinalized),
             "unfinalized_run_ids": unfinalized,
             "graceful": not unfinalized,
+            "mcp_pool": mcp_pool,
         }
 
 
