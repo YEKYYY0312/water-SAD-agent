@@ -3,17 +3,22 @@ name: p5-ci
 # P5 pull-request CI: the Python gate, the frontend gate, and the memory_p0
 # harness against a real PostgreSQL service. Keep every job independent so a
 # frontend failure never hides a Python regression.
+#
+# runner 标签钉在 ubuntu-24.04，不跟 ubuntu-latest：后者自 2026-10-19 起分批迁到
+# Ubuntu 26.04（actions/runner-images#14748），迁移期内同一 workflow 前后两次运行可能
+# 落在不同镜像上，红灯就分不清是代码回归还是镜像变化。p5-compose.yml 可以手动选
+# ubuntu-26.04 试跑；跟进新镜像时这几个 workflow 一起改。
 on:
   push:
   pull_request:
 
 jobs:
   python-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -29,17 +34,17 @@ jobs:
         run: bash scripts/ci_gate.sh
       - name: Upload the P5 report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: p5-report
           path: data/eval/reports/
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -54,7 +59,7 @@ jobs:
         run: npm --prefix web/app run build
 
   memory-p0:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
       postgres:
@@ -71,8 +76,8 @@ jobs:
           --health-cmd "pg_isready -U water_agent -d water_agent_test"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install locked dependencies
