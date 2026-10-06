@@ -240,3 +240,149 @@ def test_invalid_strategy_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
         _assemble(strategy=None)
     monkeypatch.setenv(EXPOSURE_ENV, "full")
     assert _assemble(strategy=None).exposure.strategy == "full"
+
+
+# ---------------------------------------------------------------------------
+# 接线（生产 AgenticSession + 脚本模型）
+# ---------------------------------------------------------------------------
+
+
+def _run_session(
+    tmp_path: Path,
+    turns: list[tuple[str, list[dict]]],
+    *,
+    drawing: Path | None = None,
+    stream: bool = True,
+) -> list[tuple[object, dict]]:
+    """逐轮跑生产会话（每轮新建 session、共用 checkpointer 与 thread，与 Web 同构）。"""
+
+    import asyncio
+    from contextlib import ExitStack
+    from uuid import uuid4
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from water_agent.harness.doubles import ScriptedChatModel
+    from water_agent.retrieval.loader import load_clauses_jsonl
+    from water_agent.retrieval.trivium import TriviumRetriever
+    from water_agent.runtime.agentic import AgenticSession
+    from water_agent.session import default_checkpoint_serde
+
+    saver = InMemorySaver(serde=default_checkpoint_serde())
+    clauses = load_clauses_jsonl(tx.FIXTURE_CLAUSES)
+    out: list[tuple[object, dict]] = []
+    for number, (query, script) in enumerate(turns, start=1):
+        model = ScriptedChatModel(steps=script, id_prefix=f"t{number}")
+        with ExitStack() as stack:
+            session = AgenticSession(
+                tx._session_args(tmp_path, str(drawing) if drawing else ""),
+                stack=stack,
+                thread_id="exposure-wiring",
+                checkpointer=saver,
+                model=model,
+                retriever=TriviumRetriever(db_path=None, fallback_clauses=clauses),
+                mcp_enabled=False,
+            )
+            if stream:
+                asyncio.run(session.aask(query, run_id=uuid4().hex, on_token=lambda _t: None))
+            else:
+                session.ask(query)
+            out.append((model, session.recorder.snapshot() or {}))
+    return out
+
+
+def _bound(model: object) -> list[set[str]]:
+    """每次调用绑定的工具名（集合：发给模型的顺序是字母序，见事实 F3）。"""
+    return [set(tx.tool_names(tools)) for tools in model.state["tools"]]  # type: ignore[attr-defined]
+
+
+def _events(trace: dict, event: str) -> list[dict]:
+    return [item for item in trace.get("events", []) if item.get("event_type") == event]
+
+
+@pytest.mark.parametrize("stream", [True, False])
+def test_model_receives_only_exposed_tools(tmp_path: Path, drawing_root: Path, stream: bool) -> None:
+    """P7-S4-A05：模型只收到本轮开放的工具（流式与同步两条路径），指引按本轮决定渲染，
+    每轮一条 tool_exposure trace 事件且不含 query 原文；第二轮按新问题重新决定。"""
+
+    ok = [{"content": "收到。"}]
+    runs = _run_session(
+        tmp_path,
+        [("给水管道的设计秒流量如何确定", ok), ("根据图纸 P-01 统计管材用量", ok)],
+        drawing=drawing_root,
+        stream=stream,
+    )
+    (first_model, first_trace), (second_model, second_trace) = runs
+    assert _bound(first_model) == [set(CORE_TOOLS)]
+    guide = tx.guide_segment(first_model.state["received"][0])  # type: ignore[attr-defined]
+    assert tx.guide_tools(guide) == list(CORE_TOOLS)
+    assert "本轮未开放：material_stats、read_drawing" in guide
+    events = _events(first_trace, "tool_exposure")
+    assert len(events) == 1
+    assert events[0]["query"] == ""
+    assert events[0]["data"]["exposed"] == list(CORE_TOOLS)
+
+    assert _bound(second_model) == [{*CORE_TOOLS, "material_stats", "read_drawing"}]
+    assert len(_events(second_trace, "tool_exposure")) == 1
+
+
+def test_reflow_reuses_the_turn_decision(tmp_path: Path, drawing_root: Path) -> None:
+    """P7-S4-A05：引用校验回流再进 agent_loop 时复用本轮决定（不重复决定、不重复记事件）。"""
+
+    normative = {"content": "给水管道流速不应大于 2 m/s。"}
+    (model, trace), = _run_session(
+        tmp_path, [("给水管道的设计秒流量如何确定", [normative, normative])], drawing=drawing_root
+    )
+    assert model.state["calls"] == 2  # type: ignore[attr-defined]  # 零引用回流一次
+    assert _bound(model) == [set(CORE_TOOLS), set(CORE_TOOLS)]
+    assert len(_events(trace, "tool_exposure")) == 1
+
+
+def test_unexposed_call_executes_and_is_marked(tmp_path: Path, drawing_root: Path) -> None:
+    """P7-S4-A06：模型调用本轮未开放的工具时照常经 ToolRegistry.invoke 执行（护栏与授权不变），
+    trace 另记 unexposed_call；开放的工具调用不记。"""
+
+    script = [
+        {"tool_calls": [{"name": "read_drawing", "args": {"drawing_id": "P-01"}}]},
+        {"tool_calls": [{"name": "calc_velocity", "args": {"diameter_mm": 100, "flow_lps": 5}}]},
+        {"content": "收到。"},
+    ]
+    (model, trace), = _run_session(tmp_path, [("你好", script)], drawing=drawing_root)
+    assert "read_drawing" not in _bound(model)[0]
+    executed = [
+        item["data"]["tool_name"]
+        for item in _events(trace, "tool")
+        if item.get("data", {}).get("executed") is True
+    ]
+    assert {"read_drawing", "calc_velocity"} <= set(executed)
+    marked = [item["data"] for item in _events(trace, "unexposed_call")]
+    assert marked == [{"tool_name": "read_drawing", "unexposed_call": True}]
+    assert all(item["query"] == "" for item in _events(trace, "unexposed_call"))
+
+
+def test_previous_turn_tools_reads_only_the_last_turn() -> None:
+    """P7-S4-A04：sticky 只回看上一轮，运行时上下文前言不算一轮。"""
+
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from water_agent.graphs.agent_rag import previous_turn_tools
+    from water_agent.prompting.history import RUNTIME_CONTEXT_PREFIX
+
+    def call(name: str, cid: str) -> list:
+        return [
+            AIMessage(content="", tool_calls=[{"name": name, "args": {}, "id": cid}]),
+            ToolMessage(content="{}", name=name, tool_call_id=cid),
+        ]
+
+    messages = [
+        HumanMessage(content=f"{RUNTIME_CONTEXT_PREFIX}\n前言"),
+        HumanMessage(content="第一问"),
+        *call("material_stats", "a"),
+        AIMessage(content="答一"),
+        HumanMessage(content="第二问"),
+        AIMessage(content="答二"),
+        HumanMessage(content="第三问"),
+    ]
+    assert previous_turn_tools(messages) == []
+    assert previous_turn_tools(messages[:6]) == ["material_stats"]
+    assert previous_turn_tools(messages[:2]) == []

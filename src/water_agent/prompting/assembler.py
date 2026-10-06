@@ -142,9 +142,13 @@ class PromptAssembler:
         *,
         version_registry: Any | None = None,
         tool_registry: ToolRegistry | None = None,
+        exposure: Any | None = None,
     ):
         self._version_registry = version_registry if version_registry is not None else get_version_registry()
         self._tool_registry = tool_registry
+        #: P7-S4 按意图暴露策略（``plugins.exposure.ToolExposurePolicy``，鸭子类型避免反向依赖）：
+        #: state 里有本轮 intent 决定时，工具指引按决定渲染；否则走现行格式（逐字不变）。
+        self._exposure = exposure
 
     def __call__(self, state: dict[str, Any] | None = None) -> list[BaseMessage]:
         """``create_react_agent`` 的 ``prompt`` 可调用签名。
@@ -166,7 +170,7 @@ class PromptAssembler:
             _check_static_budget("role_and_principles", ROLE_AND_PRINCIPLES),
             _truncate_to_budget(self._build_version_snapshot(), SEGMENT_BUDGETS["version_snapshot"]),
             _check_static_budget("formula_specs", FORMULA_SPECS),
-            _truncate_to_budget(self._build_tool_guide(), SEGMENT_BUDGETS["tool_guide"]),
+            _truncate_to_budget(self._build_tool_guide(state), SEGMENT_BUDGETS["tool_guide"]),
             _truncate_to_budget(
                 self._build_memory_context(state), SEGMENT_BUDGETS["memory_context"]
             ),
@@ -189,8 +193,20 @@ class PromptAssembler:
             return ""
         return "【规范版本状态（注册表快照）】\n" + "\n".join(lines)
 
-    def _build_tool_guide(self) -> str:
-        """构建工具使用指南段（随注册表动态生成）；无注册表时返回空串。"""
+    def _build_tool_guide(self, state: dict[str, Any] | None = None) -> str:
+        """构建工具使用指南段（随注册表动态生成）；无注册表时返回空串。
+
+        P7-S4：state 的 ``tool_exposure`` 是本轮 intent 决定时，只列本轮开放的工具（工具名 +
+        描述首句）并附一行"本轮未开放"；与暴露策略的预算判定共用同一个渲染函数。``full``
+        策略、没有决定或没有策略时走下面的现行格式。
+        """
+        decision = (state or {}).get("tool_exposure")
+        if (
+            self._exposure is not None
+            and isinstance(decision, dict)
+            and decision.get("strategy") == "intent"
+        ):
+            return str(self._exposure.render_guide(decision.get("exposed", [])))
         if self._tool_registry is None:
             return ""
         lines = []
