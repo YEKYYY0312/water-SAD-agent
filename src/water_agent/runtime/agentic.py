@@ -31,6 +31,7 @@ from water_agent.graphs.agent_rag import (
     stream_agentic,
 )
 from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.mcp.pool import McpLease
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -406,6 +407,9 @@ class AgenticSession:
     按 ``args`` 构建的模型与检索器、关掉 MCP 装配，其余（ToolRegistry、cite 可追溯检查、
     提示装配、护栏、引用校验回流、checkpoint）仍走同一套生产装配——mock-agentic
     评测测的就是生产运行时本身，而不是另起一套。
+
+    ``mcp_lease``（P7-S5）：Web 从进程内连接池借来的 MCP 连接。给了就借用它的装配（不打开、
+    不关闭进程），并把 ``release`` 登记到 ``stack``；不给就照旧按配置现开现关（CLI）。
     """
 
     #: RunManager 只给声明支持的会话传 ``attachment_context`` / ``on_draft``（AgentSessionFactory 是协议）。
@@ -423,6 +427,7 @@ class AgenticSession:
         model: BaseChatModel | None = None,
         retriever: Retriever | None = None,
         mcp_enabled: bool = True,
+        mcp_lease: McpLease | None = None,
     ) -> None:
         self.args = args
         self.stack = stack
@@ -482,7 +487,16 @@ class AgenticSession:
         # 引用可追溯性检查（Step 8，2026-09-16）的可用条款号取自本 thread 的会话消息（与引用
         # 校验器同源）：Web 每个 run 新建 session，只靠进程内闭包时第二问引用第一问检索到的
         # 条款会被当场拒绝（review 2026-09-30）。
-        mcp_config = load_mcp_gateway() if mcp_enabled else None
+        if mcp_lease is not None:
+            if not mcp_enabled:
+                raise ValueError("mcp_enabled=False 与 mcp_lease 不能同时给出")
+            # 幂等：调用方（Web 会话工厂）通常已在借到时登记过一次
+            stack.callback(mcp_lease.release)
+            mcp_plugin = McpGatewayPlugin.borrowing(mcp_lease.assembly)
+        else:
+            mcp_plugin = McpGatewayPlugin.owning(
+                load_mcp_gateway() if mcp_enabled else None, stack=stack
+            )
         assembly = assemble_tools(
             AssemblyContext(
                 retriever=tool_retriever,
@@ -491,7 +505,7 @@ class AgenticSession:
             ),
             base_principal=self.request_context.principal,
             trace=self.recorder,
-            plugins=builtin_plugins(mcp=McpGatewayPlugin.owning(mcp_config, stack=stack)),
+            plugins=builtin_plugins(mcp=mcp_plugin),
         )
         self.request_context = self.request_context.model_copy(
             update={"principal": assembly.principal}
@@ -701,6 +715,7 @@ def build_agentic_session(
     thread_id: str | None = None,
     request_context: RequestContext | None = None,
     checkpointer: Any | None = None,
+    mcp_lease: McpLease | None = None,
 ) -> AgenticSession:
     """Single assembly function used by CLI and Web adapters."""
 
@@ -710,6 +725,7 @@ def build_agentic_session(
         thread_id=thread_id,
         request_context=request_context,
         checkpointer=checkpointer,
+        mcp_lease=mcp_lease,
     )
 
 
