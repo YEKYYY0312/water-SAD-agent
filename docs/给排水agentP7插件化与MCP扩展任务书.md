@@ -149,7 +149,7 @@ F1–F14 的事实表在 `docs/design/16-p7-plugin-mcp.md` §2，每条数字都
 | S4 | Step C | 按意图最小暴露 / 工具分组；修 F4 / F5 | 先建 `tool_exposure_p0`；`PROMPT_TEMPLATE_VERSION` 递进；快照有意重写 |
 | S5 | Step D（一） | MCP 长驻连接（stdio，修 F8）。执行 Prompt：`docs/execution-prompts/P7-S5-shared-mcp-connections.md` | 共享须按 server 显式声明 `lifecycle: shared`（缺省 `per_run`）；客户端请求串行；按单台 server 指纹重载；出站清单不变 |
 | S6 | Step E1 | Web 扩展面板 | admin + CSRF；不能写 `command` / `args` |
-| S7 | Step E2 | HITL 确认门（外层图 interrupt、waiting 态、批准 / 拒绝 API、审计） | 内层 react agent 无 checkpointer，确认门必须在外层图 |
+| S7 | Step E2 | HITL 确认门（外层图 interrupt、waiting 态、批准 / 拒绝 API、审计、前端卡片）。执行 Prompt：`docs/execution-prompts/P7-S7-hitl-confirmation.md` | 内层 react agent 无 checkpointer，确认门必须在外层图；一次性执行凭证；只有 Web 入口接线 |
 | S8 | Step D（二） | Streamable HTTP 传输（2026-10-06 从 S5 拆出） | `NETWORK_FETCH` 能力决策；出站清单 7→8 |
 
 ---
