@@ -563,3 +563,44 @@ def test_only_the_web_entry_point_enables_confirmation(
     assert "入口" in str(exc.value)
     with pytest.raises(ValueError, match="confirmation_handler_ready"):
         MCPGatewayConfig(confirmation_handler_ready=True)
+
+
+def test_resume_restores_turn_contexts_or_warns(gate_workdir: Path) -> None:
+    """P7-S7-A03：本轮的召回结果经 checkpoint 读回是 dict（生产 serde 只放行 CitationClaim），恢复后
+    原样交给提示装配会 TypeError。同进程恢复时调用方交回原对象，照常收口、无 warning；进程重启后
+    取不回，照常收口并记 ``turn_recall_context_unavailable``（降级可见），不写回状态。"""
+
+    from water_agent.graphs.agent_rag import WARNING_TURN_CONTEXT_UNAVAILABLE
+    from water_agent.memory.recall import MemoryRecallResult
+
+    recall = MemoryRecallResult(
+        query="q", hits=(), candidate_count=0, omitted_count=0, used_characters=0,
+        character_budget=100, item_limit=5, provider_name="fts", fallback_used=False,
+    )
+    steps = [{"tool_calls": [_bump("ctx")]}, {"content": "已处理。"}]
+
+    # 同进程：同一个 session 挂起再恢复，交回同一份召回结果
+    with ExitStack() as stack:
+        session, _ = _open_session(stack, gate_workdir, steps)
+        first = asyncio.run(session.aask("加一", run_id=uuid4().hex, memory_context=recall))
+        assert isinstance(session.app.get_state(session.config).values["memory_context"], dict)
+        final = asyncio.run(
+            session.aresume(_decide(first["confirmation"], True), memory_context=recall)
+        )
+        assert final["status"] == "succeeded", final
+        assert WARNING_TURN_CONTEXT_UNAVAILABLE not in final["warnings"]
+
+    # "重启"：新 session、同一个 checkpoint，没有召回结果可交回
+    saver = InMemorySaver(serde=default_checkpoint_serde())
+    thread_id = uuid4().hex
+    with ExitStack() as stack:
+        before, _ = _open_session(stack, gate_workdir, steps[:1], saver=saver, thread_id=thread_id)
+        first = asyncio.run(before.aask("加一", run_id=uuid4().hex, memory_context=recall))
+    with ExitStack() as stack:
+        after, _ = _open_session(stack, gate_workdir, steps[1:], saver=saver, thread_id=thread_id)
+        final = asyncio.run(after.aresume(_decide(first["confirmation"], True)))
+        assert final["status"] == "succeeded", final
+        assert WARNING_TURN_CONTEXT_UNAVAILABLE in final["warnings"]
+        snapshot = after.recorder.snapshot()
+        assert snapshot is not None
+        assert "turn_context_unavailable" in [e["event_type"] for e in snapshot["events"]]
