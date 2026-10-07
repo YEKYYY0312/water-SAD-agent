@@ -16,10 +16,13 @@ import {
   isTerminalStatus,
   mergeHistory,
   replayUnavailable,
+  runStateFromPendingConfirmation,
   withdrawUnsentQuestion,
   type ConversationMessage,
   type WorkspaceRunState,
 } from "./workspaceState";
+import type { ConfirmationSubmitState } from "./ConfirmationCard.tsx";
+import { ConfirmationApi, confirmationErrorMessage, isWaitingConfirmation } from "./confirmationApi.ts";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
@@ -97,12 +100,16 @@ export type WorkspaceController = {
   deleteUpload: (uploadId: string) => void;
   exportState: ExportState;
   downloadExport: (format: ExportFormat) => void;
+  /** 人工确认（P7-S7）：提交进度与批准 / 拒绝。 */
+  confirmationState: ConfirmationSubmitState;
+  decideConfirmation: (approved: boolean, reason: string) => void;
 };
 
 export function useWorkspaceController(): WorkspaceController {
   const api = useRef(new WorkspaceApi()).current;
   const uploadApi = useRef(new UploadApi()).current;
   const exportApi = useRef(new ExportApi()).current;
+  const confirmationApi = useRef(new ConfirmationApi()).current;
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
@@ -122,12 +129,16 @@ export function useWorkspaceController(): WorkspaceController {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<ExportState>(null);
+  const [confirmationState, setConfirmationState] = useState<ConfirmationSubmitState>(null);
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
   const runStatus = useRef("idle");
   // 切会话时拿到的历史；实时回放不可用时退回它（见 connectRun 的 404 分支）。
   const historyRef = useRef<{ role: "user" | "agent"; text: string; withheld?: boolean }[]>([]);
+  // 历史投影里挂起的确认请求与最新运行（P7-S7）：实时回放不可用（服务重启过）时据此恢复确认卡片。
+  const pendingRef = useRef<unknown>(null);
+  const latestRunRef = useRef<{ run_id: string; thread_id: string; status: string } | null>(null);
   const retries = useRef(0);
 
   const selectedSession = sessions.find((item) => item.thread_id === selectedThreadId) ?? null;
@@ -221,7 +232,8 @@ export function useWorkspaceController(): WorkspaceController {
         },
       });
       retries.current = 0;
-      if (!isTerminalStatus(runStatus.current) && !controller.signal.aborted) {
+      // 停在人工确认门时流正常结束（stream_end: waiting_confirmation），不是断线：等用户决定，不重连
+      if (!isTerminalStatus(runStatus.current) && !isWaitingConfirmation(runStatus.current) && !controller.signal.aborted) {
         setPageError("SSE 连接已结束，正在等待后端事件继续恢复");
         reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 500);
       }
@@ -232,7 +244,10 @@ export function useWorkspaceController(): WorkspaceController {
       // "正在检索与计算…"永不消失，历史回答也因等着回放而不显示。
       if (error instanceof WorkspaceApiError && error.status === 404) {
         setStreaming(false);
-        setRun(emptyRunState());
+        // 停在确认门的运行：挂起在服务端 checkpoint 里，重启后仍可决定——卡片从历史恢复
+        const restored = runStateFromPendingConfirmation(pendingRef.current, latestRunRef.current);
+        setRun(restored ?? emptyRunState());
+        if (restored) runStatus.current = restored.status;
         setMessages(replayUnavailable(historyRef.current, runStatus.current));
         setPageError(null);
         return;
@@ -257,7 +272,7 @@ export function useWorkspaceController(): WorkspaceController {
       // 历史读不到不该挡住会话本身：降级为空历史并提示，最新运行照常回放。
       api.getMessages(selectedThreadId).catch((error) => {
         if (active) setPageError(`历史消息加载失败：${apiMessage(error)}`);
-        return { thread_id: selectedThreadId, messages: [] };
+        return { thread_id: selectedThreadId, messages: [], pending_confirmation: null };
       }),
     ])
       .then(([session, history]) => {
@@ -265,6 +280,9 @@ export function useWorkspaceController(): WorkspaceController {
         setSessions((current) => current.map((item) => item.thread_id === selectedThreadId ? session : item));
         const latest = session.latest_run;
         historyRef.current = history.messages;
+        pendingRef.current = history.pending_confirmation ?? null;
+        latestRunRef.current = latest ?? null;
+        setConfirmationState(null);
         retries.current = 0;
         setMessages(mergeHistory(history.messages, Boolean(latest)));
         if (latest) {
@@ -328,6 +346,7 @@ export function useWorkspaceController(): WorkspaceController {
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedThreadId) return;
+    if (isWaitingConfirmation(run.status)) return;
     if (attachments.some((item) => item.status === "uploading")) return;
     const attachmentIds = attachments
       .filter((item) => item.status === "ready" && item.record)
@@ -363,6 +382,33 @@ export function useWorkspaceController(): WorkspaceController {
         setDraft((current) => current || draft);
         setAttachments((current) => [...sentAttachments, ...current]);
       });
+  };
+
+  const decideConfirmation = (approved: boolean, reason: string) => {
+    const request = run.confirmation;
+    const runId = run.runId ?? request?.run_id ?? null;
+    if (!request || !runId || confirmationState?.status === "submitting") return;
+    setConfirmationState({ status: "submitting" });
+    setPageError(null);
+    void confirmationApi.decide(runId, { confirmation_id: request.confirmation_id, approved, reason })
+      .then((accepted) => {
+        setConfirmationState(null);
+        pendingRef.current = null;
+        setRun((current) => ({ ...current, runId: accepted.run_id, confirmation: null, status: accepted.status }));
+        runStatus.current = accepted.status;
+        retries.current = 0;
+        cursor.current = accepted.event_cursor;
+        setStreaming(true);
+        // 按服务端给的游标重新订阅同一个 run：挂起时的 stream_end 是合成帧、不在事件日志里，
+        // 服务重启过时日志从头开始——客户端自己的游标在两种情况下都不对
+        void connectRun(accepted.run_id, accepted.event_cursor);
+      })
+      .catch((error) => setConfirmationState({
+        status: "failed",
+        message: error instanceof WorkspaceApiError
+          ? confirmationErrorMessage(error.code, error.message)
+          : confirmationErrorMessage("WEB_REQUEST_FAILED"),
+      }));
   };
 
   const cancelRun = () => {
@@ -475,5 +521,7 @@ export function useWorkspaceController(): WorkspaceController {
     deleteUpload,
     exportState,
     downloadExport,
+    confirmationState,
+    decideConfirmation,
   };
 }
