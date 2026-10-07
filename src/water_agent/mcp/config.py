@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
@@ -42,13 +44,23 @@ from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 #: P7-S3 新增 ``disabled`` / ``cwd`` 字段、收紧 ``command``、``env_file`` 改按配置文件所在
 #: 目录解析，递进。
 #: P7-S5 新增 ``lifecycle``（``per_run`` / ``shared``），递进。
-MCP_CONFIG_VERSION = "p7-s5-2026-10-06"
+#: P7-S6 新增第三层 Web 管理层（``WATER_AGENT_MCP_WEB_LAYER``）与 ``credential_env`` 凭据槽位，递进。
+MCP_CONFIG_VERSION = "p7-s6-2026-10-07"
 
 #: 配置文件位置覆盖环境变量。
 ENV_MCP_CONFIG = "WATER_AGENT_MCP_CONFIG"
 
 #: 部署覆盖层文件位置（P7-S3，不入库）。未设 = 没有覆盖层；设了但文件不存在 = 配置错误。
 ENV_MCP_OVERLAY = "WATER_AGENT_MCP_OVERLAY"
+
+#: Web 管理层文件位置（P7-S6）。未设 = 没有这一层；设了但文件不存在 = 空层（面板首次写入时创建）。
+#: 合并顺序：仓库默认层 → 部署覆盖层 → Web 管理层。读写见 ``mcp/web_layer.py``。
+ENV_MCP_WEB_LAYER = "WATER_AGENT_MCP_WEB_LAYER"
+
+#: Web 管理层每台 server 能改的键（P7-S6）。其余字段——``command`` / ``args`` / ``env`` /
+#: ``env_file`` / ``cwd`` / ``lifecycle`` / ``human_confirmation`` / 超时 / 凭据槽位——只能由运维写在
+#: 下面两层：面板能写它们，就等于浏览器能决定 agent 执行什么。
+WEB_LAYER_SERVER_KEYS = frozenset({"server_id", "disabled", "allow"})
 
 #: 覆盖层顶层只允许这两个键。``confirmation_handler_ready`` 只能写在仓库默认层：
 #: 覆盖层能改它，S1 的确认门限制就能从部署侧绕开。
@@ -62,6 +74,25 @@ _SERVER_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 #: 子进程默认透传的本机变量。**只有这两个**：PATH（找可执行文件）、
 #: HOME（多数 server 读用户配置目录）。API Key/凭据一律不在默认透传内。
 DEFAULT_ENV_PASSTHROUGH: tuple[str, ...] = ("PATH", "HOME")
+
+
+def check_allow_items(value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+    """``allow`` 白名单的形状：工具名不含空白、不重复（与 tools/list 清单精确匹配）。
+
+    ``MCPServerConfig`` 与 Web 管理层（P7-S6）共用这一份规则。
+    """
+    if value is None:
+        return None
+    seen: set[str] = set()
+    for tool in value:
+        if tool.strip() != tool or any(ch.isspace() for ch in tool):
+            raise ValueError(
+                f"allow 项 {tool!r} 不得含空白（与 tools/list 清单精确匹配）"
+            )
+        if tool in seen:
+            raise ValueError(f"allow 项 {tool!r} 重复")
+        seen.add(tool)
+    return value
 
 
 class ServerTransport(str, Enum):
@@ -157,18 +188,7 @@ class MCPServerConfig(BaseModel):
     @field_validator("allow")
     @classmethod
     def _validate_allow(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
-        if value is None:
-            return None
-        seen: set[str] = set()
-        for tool in value:
-            if tool.strip() != tool or any(ch.isspace() for ch in tool):
-                raise ValueError(
-                    f"allow 项 {tool!r} 不得含空白（与 tools/list 清单精确匹配）"
-                )
-            if tool in seen:
-                raise ValueError(f"allow 项 {tool!r} 重复")
-            seen.add(tool)
-        return value
+        return check_allow_items(value)
 
     @field_validator("env")
     @classmethod
@@ -320,22 +340,115 @@ def merge_overlay(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, An
     return merged
 
 
-def load_layered_gateway_config() -> MCPGatewayConfig | None:
-    """仓库默认层 + 部署覆盖层（P7-S3）。
+def merge_web_layer(
+    base: dict[str, Any], overrides: Iterable[Mapping[str, Any]]
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """把 Web 管理层叠在运维两层的合并结果上（P7-S6，纯函数）。
 
-    | 默认层 | 覆盖层 | 结果 |
-    |---|---|---|
-    | 有 | 未设 | 只用默认层（与 :func:`load_gateway_config` 相同） |
-    | 缺失 | 有 | 默认层按空骨架处理 |
-    | 缺失 | 未设 | ``None``（功能关闭） |
+    - 每条只能写 :data:`WEB_LAYER_SERVER_KEYS`，写了别的键即 ``ValueError``；
+    - **不能新增 server**：下层没有的 ``server_id`` 是孤立条目，不进合并结果，按出现顺序返回给调用方
+      （孤立条目只能停用 / 放行一台不存在的 server，没有效果；为它让整个配置失败，等于运维删一台
+      server 就把 Web 的 MCP 全停了）；
+    - ``disabled`` / ``allow`` 与覆盖层同规则**整体替换**。
 
-    ``WATER_AGENT_MCP_OVERLAY`` 设了但文件不存在、覆盖层不是合法 JSON、合并结果校验不过，
-    一律 ``MCP_CONFIG_INVALID``。两层里的相对 ``env_file`` 各按自己所在目录解析。
+    返回的 dict 还要经 ``MCPGatewayConfig.model_validate`` 才算合法配置。
     """
+    merged_servers: list[Any] = [
+        dict(server) if isinstance(server, dict) else server
+        for server in base.get("servers", []) or []
+    ]
+    index = {
+        server.get("server_id"): position
+        for position, server in enumerate(merged_servers)
+        if isinstance(server, dict)
+    }
+    orphans: list[str] = []
+    for patch in overrides:
+        unknown = set(patch) - WEB_LAYER_SERVER_KEYS
+        if unknown:
+            raise ValueError(
+                f"Web 管理层每台 server 只能写 {sorted(WEB_LAYER_SERVER_KEYS)}，不能写 {sorted(unknown)}"
+            )
+        server_id = patch["server_id"]
+        position = index.get(server_id)
+        if position is None:
+            orphans.append(server_id)
+            continue
+        merged_servers[position] = {
+            **merged_servers[position],
+            **{key: value for key, value in patch.items() if key != "server_id"},
+        }
+    merged = {key: value for key, value in base.items() if key != "servers"}
+    merged["servers"] = merged_servers
+    return merged, tuple(orphans)
+
+
+@dataclass(frozen=True)
+class OperatorLayers:
+    """运维的两层配置（仓库默认层 + 部署覆盖层）读出来的原始内容（P7-S6 拆出）。
+
+    相对 ``env_file`` 已按各自所在目录改写成绝对路径；还没做模型校验，也没查文件系统。
+    ``base`` 为 ``None`` 表示默认层文件不存在；``overlay`` 为 ``None`` 表示没设覆盖层。
+    """
+
+    base: Any
+    base_path: Path
+    overlay: dict[str, Any] | None = None
+    overlay_path: Path | None = None
+
+    @property
+    def configured(self) -> bool:
+        return self.base is not None or self.overlay is not None
+
+    @property
+    def source(self) -> Path:
+        """报错时指向的文件：有覆盖层指覆盖层，否则指默认层。"""
+        return self.overlay_path if self.overlay_path is not None else self.base_path
+
+    def payload(self) -> Any:
+        """两层合并后的原始 dict（不校验）；两层都没有时为 ``None``。"""
+        if self.overlay is None:
+            return self.base
+        try:
+            return merge_overlay(self.base if self.base is not None else {}, self.overlay)
+        except (TypeError, ValueError) as exc:
+            raise MCPError(
+                MCP_CONFIG_INVALID, f"覆盖层 {self.overlay_path} 合并后校验失败：{exc}"
+            ) from exc
+
+    def validate(self) -> MCPGatewayConfig | None:
+        """模型层校验（不查文件系统）；两层都没有时 ``None``（功能关闭）。报错口径与 P7-S3 相同。"""
+        if not self.configured:
+            return None
+        if self.overlay is None:
+            try:
+                return MCPGatewayConfig.model_validate(self.base)
+            except ValueError as exc:
+                raise MCPError(MCP_CONFIG_INVALID, f"{self.base_path} 校验失败：{exc}") from exc
+        payload = self.payload()
+        try:
+            return MCPGatewayConfig.model_validate(payload)
+        except ValueError as exc:
+            raise MCPError(
+                MCP_CONFIG_INVALID, f"覆盖层 {self.overlay_path} 合并后校验失败：{exc}"
+            ) from exc
+
+
+def read_operator_layers() -> OperatorLayers:
+    """读仓库默认层与部署覆盖层（不校验）。读不了、不是合法 JSON、覆盖层给了却不存在 →
+    ``MCP_CONFIG_INVALID``。"""
     base_path = default_config_path()
     overlay_raw = os.environ.get(ENV_MCP_OVERLAY, "").strip()
     if not overlay_raw:
-        return load_gateway_config()
+        if not base_path.exists():
+            return OperatorLayers(None, base_path)
+        try:
+            base_text = base_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise MCPError(MCP_CONFIG_INVALID, f"无法读取 {base_path}：{exc}") from exc
+        base = _read_json_object(base_path, base_text)
+        return OperatorLayers(_resolve_env_files(base, base_path.parent), base_path)
+
     overlay_path = Path(overlay_raw).expanduser()
     if not overlay_path.is_file():
         raise MCPError(MCP_CONFIG_INVALID, f"{ENV_MCP_OVERLAY} 指向的覆盖层文件不存在：{overlay_path}")
@@ -358,13 +471,44 @@ def load_layered_gateway_config() -> MCPGatewayConfig | None:
         base = _resolve_env_files(base, base_path.parent)
     else:
         base = {}
-    try:
-        merged = merge_overlay(base, _resolve_env_files(overlay, overlay_path.parent))
-        config = MCPGatewayConfig.model_validate(merged)
-    except (TypeError, ValueError) as exc:
-        raise MCPError(MCP_CONFIG_INVALID, f"覆盖层 {overlay_path} 合并后校验失败：{exc}") from exc
-    _check_paths_exist(config, overlay_path)
-    return config
+    return OperatorLayers(
+        base, base_path, _resolve_env_files(overlay, overlay_path.parent), overlay_path
+    )
+
+
+def web_layer_path() -> Path | None:
+    """``WATER_AGENT_MCP_WEB_LAYER`` 指向的文件；未设 → ``None``（没有这一层）。"""
+    raw = os.environ.get(ENV_MCP_WEB_LAYER, "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def load_layered_gateway_config() -> MCPGatewayConfig | None:
+    """仓库默认层 + 部署覆盖层（P7-S3）+ Web 管理层（P7-S6）。
+
+    | 默认层 | 覆盖层 | 结果 |
+    |---|---|---|
+    | 有 | 未设 | 只用默认层（与 :func:`load_gateway_config` 相同） |
+    | 缺失 | 有 | 默认层按空骨架处理 |
+    | 缺失 | 未设 | ``None``（功能关闭） |
+
+    ``WATER_AGENT_MCP_OVERLAY`` 设了但文件不存在、覆盖层不是合法 JSON、合并结果校验不过，
+    一律 ``MCP_CONFIG_INVALID``。两层里的相对 ``env_file`` 各按自己所在目录解析。
+
+    设了 ``WATER_AGENT_MCP_WEB_LAYER`` 时再叠一层 Web 管理层（``mcp/web_layer.py``）：只改
+    ``disabled`` / ``allow``、不能新增 server（孤立条目忽略）、文件损坏即 ``MCP_CONFIG_INVALID``。
+    下面两层都没有时 Web 管理层照样校验，结果仍是 ``None``。路径存在性在**最终**配置上检查：
+    面板停用一台 ``cwd`` 已不存在的 server，其余 server 就能照常加载。
+    """
+    layers = read_operator_layers()
+    web_path = web_layer_path()
+    if web_path is None:
+        config = layers.validate()
+        if config is not None:
+            _check_paths_exist(config, layers.source)
+        return config
+    from water_agent.mcp.web_layer import effective_config, load_web_layer
+
+    return effective_config(layers, load_web_layer(web_path), web_path=web_path)
 
 
 def _read_json_object(path: Path, raw_text: str) -> Any:
@@ -396,22 +540,37 @@ def _resolve_env_files(payload: Any, base_dir: Path) -> Any:
     return {**payload, "servers": servers}
 
 
-def _check_paths_exist(config: MCPGatewayConfig, source: Path) -> None:
-    """加载期就确认 ``env_file`` 与 ``cwd`` 存在（F9）：缺失是配置错误，不能拖到连接时被当成
-    "这台 server 跳过"。停用的 server 不查——停用就是为了让一台暂时不可用的 server 不影响其余。"""
+def missing_paths(config: MCPGatewayConfig) -> list[tuple[str, str]]:
+    """启用的 server 里 ``env_file`` / ``cwd`` 不存在的 ``(server_id, 字段名)``，按配置顺序。
+
+    停用的 server 不查——停用就是为了让一台暂时不可用的 server 不影响其余。
+    """
+    missing: list[tuple[str, str]] = []
     for server in config.servers:
         if server.disabled:
             continue
         if server.env_file is not None and not Path(server.env_file).expanduser().is_file():
-            raise MCPError(
-                MCP_CONFIG_INVALID,
-                f"{source}：server {server.server_id!r} 的 env_file 不存在：{server.env_file}",
-            )
+            missing.append((server.server_id, "env_file"))
         if server.cwd is not None and not Path(server.cwd).is_dir():
+            missing.append((server.server_id, "cwd"))
+    return missing
+
+
+def _check_paths_exist(config: MCPGatewayConfig, source: Path | str) -> None:
+    """加载期就确认 ``env_file`` 与 ``cwd`` 存在（F9）：缺失是配置错误，不能拖到连接时被当成
+    "这台 server 跳过"。停用的 server 不查（见 :func:`missing_paths`）。"""
+    servers = {server.server_id: server for server in config.servers}
+    for server_id, field in missing_paths(config)[:1]:
+        server = servers[server_id]
+        if field == "env_file":
             raise MCPError(
                 MCP_CONFIG_INVALID,
-                f"{source}：server {server.server_id!r} 的 cwd 不是存在的目录：{server.cwd}",
+                f"{source}：server {server_id!r} 的 env_file 不存在：{server.env_file}",
             )
+        raise MCPError(
+            MCP_CONFIG_INVALID,
+            f"{source}：server {server_id!r} 的 cwd 不是存在的目录：{server.cwd}",
+        )
 
 
 def _parse_env_file(text: str) -> dict[str, str]:
@@ -470,13 +629,20 @@ __all__ = [
     "DEFAULT_ENV_PASSTHROUGH",
     "ENV_MCP_CONFIG",
     "ENV_MCP_OVERLAY",
+    "ENV_MCP_WEB_LAYER",
     "MCP_CONFIG_VERSION",
+    "WEB_LAYER_SERVER_KEYS",
     "MCPGatewayConfig",
     "MCPServerConfig",
+    "OperatorLayers",
     "ServerTransport",
     "child_env",
     "default_config_path",
     "load_gateway_config",
     "load_layered_gateway_config",
     "merge_overlay",
+    "merge_web_layer",
+    "missing_paths",
+    "read_operator_layers",
+    "web_layer_path",
 ]
