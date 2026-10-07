@@ -10,8 +10,8 @@
 复用的是进程，不是授权：每次调用仍经 ``ToolRegistry.invoke``（主体 ``MCP_INVOKE``、参数护栏、
 执行期确认门）。同一连接上的请求由 ``MCPStdioClient`` 串行。
 
-**重载**按单台 server 的指纹判断：指纹 = 该 server 的已校验配置 + 网关确认位 + 解析后子进程 env
-的摘要（只用于比较，不落日志、不进 trace）。指纹变了、进程死了、配置里删掉或停用了，旧连接
+**重载**按单台 server 的指纹判断：指纹 = 该 server 的已校验配置 + 入口的确认位（P7-S7：调用方是否
+接了人工确认门）+ 解析后子进程 env 的摘要（只用于比较，不落日志、不进 trace）。指纹变了、进程死了、配置里删掉或停用了，旧连接
 退役：没人借用时立即关闭，否则等最后一个借用它的租约释放后关闭。调用中途崩溃不重试（远端
 操作可能不幂等），结构化错误照常回给模型，下一次租约重开。
 """
@@ -28,6 +28,7 @@ from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig, child_env
 from water_agent.mcp.wiring import (
     MCPGatewayAssembly,
     SkippedServer,
+    bridge_gateway_view,
     compute_manifest_hash,
     pre_connection_skips,
     session_failed,
@@ -39,8 +40,14 @@ CONNECTION_SHARED_NEW = "shared_new"
 CONNECTION_SHARED_REUSED = "shared_reused"
 
 
-def server_fingerprint(server: MCPServerConfig, gateway: MCPGatewayConfig) -> str:
-    """单台 server 的指纹。env 的值只进摘要，摘要本身也不对外暴露。"""
+def server_fingerprint(
+    server: MCPServerConfig, gateway: MCPGatewayConfig, *, confirmation_ready: bool = False
+) -> str:
+    """单台 server 的指纹。env 的值只进摘要，摘要本身也不对外暴露。
+
+    ``confirmation_ready`` 是入口的确认位（P7-S7）：同一台 server 在"接了确认门"与"没接"两种
+    入口下桥接出的工具集不同（后者整台不暴露），不能互相复用。
+    """
 
     env = child_env(server)
     env_digest = hashlib.sha256(
@@ -48,7 +55,7 @@ def server_fingerprint(server: MCPServerConfig, gateway: MCPGatewayConfig) -> st
     ).hexdigest()
     payload = {
         "server": server.model_dump(mode="json"),
-        "confirmation_handler_ready": gateway.confirmation_handler_ready,
+        "confirmation_ready": confirmation_ready or gateway.confirmation_handler_ready,
         "env": env_digest,
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
@@ -102,9 +109,15 @@ class McpConnectionPool:
 
     # ------------------------------------------------------------------ 借用
 
-    def lease(self, config: MCPGatewayConfig | None) -> McpLease:
+    def lease(
+        self, config: MCPGatewayConfig | None, *, confirmation_ready: bool = False
+    ) -> McpLease:
         """为一个 run 准备 MCP 装配。配置是调用方用 ``load_mcp_gateway`` 加载好的（坏配置在
-        那里就已响亮失败）；``None`` 表示功能关闭，同时让池里全部 shared 连接退役。"""
+        那里就已响亮失败）；``None`` 表示功能关闭，同时让池里全部 shared 连接退役。
+
+        ``confirmation_ready``（P7-S7）：调用方入口接了人工确认门（Web 会话工厂传 ``True``）。为
+        ``True`` 时 ``human_confirmation=true`` 的 server 照常连接与暴露，否则整台跳过。
+        """
 
         with self._lock:
             if self._closed:
@@ -115,7 +128,10 @@ class McpConnectionPool:
             if server.lifecycle == "shared" and not server.disabled
         }
         if config is not None:
-            shared_ids -= {skip.server_id for skip in pre_connection_skips(config)}
+            shared_ids -= {
+                skip.server_id
+                for skip in pre_connection_skips(config, confirmation_ready=confirmation_ready)
+            }
         self._retire_missing(shared_ids)
         lease = McpLease(
             assembly=MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_hash=""),
@@ -126,8 +142,9 @@ class McpConnectionPool:
         if config is None:
             return lease
 
-        pre_skips = pre_connection_skips(config)
+        pre_skips = pre_connection_skips(config, confirmation_ready=confirmation_ready)
         blocked = {skip.server_id for skip in pre_skips}
+        bridge_view = bridge_gateway_view(config, confirmation_ready=confirmation_ready)
         sessions: list[MCPServerSession] = []
         skipped: list[SkippedServer] = list(pre_skips)
         connections: dict[str, str] = {}
@@ -136,7 +153,9 @@ class McpConnectionPool:
                 if server.server_id in blocked:
                     continue
                 if server.lifecycle == "shared":
-                    entry, kind, failed = self._acquire_shared(server, config)
+                    entry, kind, failed = self._acquire_shared(
+                        server, config, bridge_view, confirmation_ready=confirmation_ready
+                    )
                     if entry is None:
                         assert failed is not None
                         skipped.extend(session_skips(failed))
@@ -145,7 +164,7 @@ class McpConnectionPool:
                     sessions.append(entry.session)
                     connections[server.server_id] = kind
                     continue
-                session = open_bridge(server, config)
+                session = open_bridge(server, bridge_view)
                 if session_failed(session):
                     skipped.extend(session_skips(session))
                     continue
@@ -165,11 +184,19 @@ class McpConnectionPool:
         return lease
 
     def _acquire_shared(
-        self, server: MCPServerConfig, gateway: MCPGatewayConfig
+        self,
+        server: MCPServerConfig,
+        gateway: MCPGatewayConfig,
+        bridge_view: MCPGatewayConfig,
+        *,
+        confirmation_ready: bool,
     ) -> tuple[_SharedEntry | None, str, MCPServerSession | None]:
-        """借一台 shared server：指纹相同且活着就复用，否则开新的（同一台只有一个线程去开）。"""
+        """借一台 shared server：指纹相同且活着就复用，否则开新的（同一台只有一个线程去开）。
 
-        fingerprint = server_fingerprint(server, gateway)
+        ``gateway`` 是已校验配置（进指纹），``bridge_view`` 是交给 ``open_bridge`` 的视图（入口的确认位）。
+        """
+
+        fingerprint = server_fingerprint(server, gateway, confirmation_ready=confirmation_ready)
         while True:
             to_close: list[_SharedEntry] = []
             with self._lock:
@@ -191,7 +218,7 @@ class McpConnectionPool:
                 waiting.wait(timeout=server.startup_timeout_seconds + server.call_timeout_seconds)
                 continue
             try:
-                session = open_bridge(server, gateway)
+                session = open_bridge(server, bridge_view)
             except BaseException:
                 with self._lock:
                     self._opening.pop(server.server_id, None)

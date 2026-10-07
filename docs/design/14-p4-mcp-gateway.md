@@ -121,7 +121,9 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
   - `version`（`p7-s5-2026-10-06`；加载时不比对）；
-  - `confirmation_handler_ready`：危险操作确认门是否接线（本步恒 `False`）；
+  - `confirmation_handler_ready`：历史字段，配置里只接受 `False`（`true` 加载期 `MCP_CONFIG_INVALID`）。
+    P7-S7 起确认门是否可用由**入口**决定，不由配置声明：只有 Web 会话工厂接了确认门
+    （`open_gateway_sessions` / `McpConnectionPool.lease` 的 `confirmation_ready=True`），CLI 与评测 runner 没有；
   - `servers: tuple[MCPServerConfig, ...]`，`server_id` 唯一。
 - `MCPServerConfig`（`extra="forbid"`）：
   - `server_id`：`^[a-z][a-z0-9_]{1,31}$`，命名空间前缀来源；
@@ -141,7 +143,10 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
     的配置或子进程 env 变化后，下一个 run 换新进程。CLI 与评测 runner 不看这个字段；
   - `allow`：工具白名单，**`None` = 全拒（fail closed）**，列名与 tools/list
     **精确匹配**；
-  - `human_confirmation`：`true` 且确认门未接线时整台 server 的工具不暴露；
+  - `human_confirmation`：`true` 表示这台 server 的工具**每次执行前**须人工确认（P7-S7）。接了确认门的入口
+    （Web）照常暴露，工具在 ToolNode 里是 `return_direct` 延迟工具，由 run 所有者在确认卡片上批准后凭
+    一次性凭证执行一次（`docs/design/16-p7-plugin-mcp.md` §3.7）；没有确认门的入口（CLI、runner）整台
+    server 不暴露（`MCP_CONFIRMATION_UNAVAILABLE`、不 spawn）。粒度仍是 server 级，不能按工具声明；
   - `startup_timeout_seconds = 10.0`、`call_timeout_seconds = 30.0`、
     `max_response_bytes = 65536`。
 
@@ -275,9 +280,9 @@ MCP 工具是**动态**的（来自外部 server），无法静态进 `TOOL_CAPA
 2. **真实 CAD/BIM 与企业库 blocked**：本机无天正/Revit/中望，无企业库端点。
    Step 23 的 fake server 是**机制验证**，**不构成**路线图"至少接通 1 个 CAD/BIM
    工具与 1 个企业数据源"的验收证据。
-3. **`human_confirmation` 只是拒绝位**：危险操作确认的完整 HITL
-   （interrupt → 人工批准 → resume）在 Step 25 接线，本步该字段唯一语义是
-   "不暴露"。
+3. **`human_confirmation` 的确认门只在 Web 入口接线**（P7-S7 交付，取代原计划的 Step 25）：
+   interrupt → run 所有者批准 / 拒绝 → 同一个 run 上 resume，执行凭证单次有效、绑定参数摘要与主体。
+   CLI / runner 没有确认门，该字段在那里仍等于"不暴露"。管理员代批、多人会签、超时自动拒绝不在范围内。
 4. **工具描述投毒防御是确定性正则规则集**，不是分类器，必然存在未覆盖的改写
    变体（与 P2.5 Step 14、P3 §9.4 同一口径）。不得声称"能拦住任意工具投毒"。
 5. **不冒充认证**：`Principal.authenticated()` 仍无调用方；本步不把"配置了

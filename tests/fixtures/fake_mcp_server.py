@@ -18,7 +18,9 @@
 - ``--mode cwd``：tools/list 只有一个只读工具 ``read_relative``，调用时回报子进程的工作目录、
   以及参数里的相对路径在那个目录下是否存在（测 P7-S3 的工作目录隔离；**只回报存不存在，
   不读文件内容**）。
-- ``--mode stateful``：tools/list 返回 ``whoami``（回报进程 pid）、``bump``（进程内计数器 +1 并返回）、
+- ``--mode stateful``：tools/list 返回 ``whoami``（回报进程 pid）、``bump``（进程内计数器 +1 并返回，
+  可选参数 ``note`` 原样回显——P7-S7 用它证明"批准的参数就是执行的参数"）、``peek``（只读回报计数器，
+  P7-S7 用它证明"挂起 / 拒绝时副作用没有发生"）、
   ``slow_echo``（睡 ``seconds`` 秒、上限 5 秒，再原样回显 ``tag``）。测 P7-S5 的长驻连接：同一进程
   是否被复用、共享状态是否跨租约可见、同一连接上的并发请求是否各自拿到自己的响应。``slow_echo``
   在后台线程里执行、**按完成顺序**应答（JSON-RPC 允许乱序；按到达顺序应答会掩盖客户端取错响应的缺陷）。
@@ -87,7 +89,12 @@ def stateful_tool_list() -> list[dict]:
 
     return [
         tool("whoami", "回报 fake server 子进程的 pid（合成 fixture，只读）", {}),
-        tool("bump", "把 fake server 进程内计数器加一并返回新值（合成 fixture）", {}),
+        tool(
+            "bump",
+            "把 fake server 进程内计数器加一并返回新值，原样回显可选的 note（合成 fixture）",
+            {"note": {"type": "string", "maxLength": 80, "description": "随调用回显的备注"}},
+        ),
+        tool("peek", "回报 fake server 进程内计数器的当前值，不改变它（合成 fixture，只读）", {}),
         tool(
             "slow_echo",
             "睡指定秒数后原样回显 tag（合成 fixture，只读）",
@@ -269,9 +276,14 @@ def main() -> int:
                 name = message.get("params", {}).get("name")
                 if name == "whoami":
                     send(_structured(message.get("id"), {"pid": os.getpid()}))
+                elif name == "peek":
+                    send(_structured(message.get("id"), {"pid": os.getpid(), "counter": counter}))
                 elif name == "bump":
                     counter += 1
-                    send(_structured(message.get("id"), {"pid": os.getpid(), "counter": counter}))
+                    result = {"pid": os.getpid(), "counter": counter}
+                    if "note" in arguments:
+                        result["note"] = arguments["note"]
+                    send(_structured(message.get("id"), result))
                 else:
                     seconds = min(float(arguments.get("seconds", 0) or 0), _STATEFUL_LIMIT_SECONDS)
 
