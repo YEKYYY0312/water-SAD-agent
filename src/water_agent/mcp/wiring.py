@@ -50,11 +50,16 @@ from water_agent.tools.registry import ToolRegistry
 
 @dataclass(frozen=True, slots=True)
 class SkippedServer:
-    """一台 server 未暴露任何工具的结构化原因。"""
+    """一台 server 未暴露任何工具的结构化原因。
+
+    ``remote_tool``（P7-S6）：这条原因针对的远端工具名；整台 server 层面的原因（停用、连接失败……）
+    为 ``None`` 或 ``"*"``。只供 Web 扩展面板的探测列出工具名，不进 ``to_dict`` / trace 摘要。
+    """
 
     server_id: str
     code: str
     detail: str
+    remote_tool: str | None = None
 
     def to_dict(self) -> dict[str, str]:
         return {"server_id": self.server_id, "code": self.code, "detail": self.detail}
@@ -249,7 +254,7 @@ def session_failed(session: MCPServerSession) -> bool:
 
 def session_skips(session: MCPServerSession) -> list[SkippedServer]:
     return [
-        SkippedServer(session.result.server_id, skip.code, skip.detail)
+        SkippedServer(session.result.server_id, skip.code, skip.detail, skip.remote_tool)
         for skip in session.result.skipped
     ]
 
