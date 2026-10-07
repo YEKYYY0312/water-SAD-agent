@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
+import { McpAdminPanel } from "./McpAdminPanel";
 import { SettingsApi, SettingsApiError, type CredentialStatus } from "./settingsApi";
 import {
   credentialRows,
@@ -219,6 +220,9 @@ export function SettingsPanel({
         密钥只写不读：本页只能看到「是否已配置、来自哪一层、何时更新」，任何接口都不会
         回传密钥内容。要确认填对了，回到会话发一条消息。
       </p>
+
+      {/* 只有管理员看得到：读接口 403 时整块不渲染（P7-S6） */}
+      <McpAdminPanel />
     </section>
   );
 }
