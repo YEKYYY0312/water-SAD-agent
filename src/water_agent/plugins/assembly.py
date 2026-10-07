@@ -2,6 +2,9 @@
 
 两阶段：先收集全部插件的贡献，再用最终主体建**一个** ``ToolRegistry`` 并注册。
 不先建注册表再"补授权"：``ToolRegistry`` 持有的主体在构造时就定了，护栏按它判定。
+
+P7-S7：运行时绑定要求人工确认的工具，交给 ToolNode 的是延迟工具（``tool_spec_to_deferred_tool``），
+注册表里仍是真实 ``ToolSpec``——确认门批准后经同一个注册表执行。
 """
 from __future__ import annotations
 
@@ -26,7 +29,8 @@ from water_agent.plugins.exposure import (
 )
 from water_agent.prompting.assembler import SEGMENT_BUDGETS
 from water_agent.runtime.governance.contracts import Principal
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
+from water_agent.runtime.governance.inventory import mcp_tool_binding
+from water_agent.tools.ds_adapters import tool_spec_to_base_tool, tool_spec_to_deferred_tool
 from water_agent.tools.registry import ToolRegistry
 
 _C = TypeVar("_C", bound=PluginContribution)
@@ -36,13 +40,15 @@ _C = TypeVar("_C", bound=PluginContribution)
 class ToolAssembly:
     """一次装配的产物。``tools`` 按 ``registry.list_all_names()``（字母序），全部委托给
     ``registry``；``PromptAssembler`` 也必须持有这同一个 ``registry``。``exposure`` 是本次装配的
-    按意图暴露策略（P7-S4），生产路径必须把它交给 ``build_agentic_app``（规格 P7-I08）。"""
+    按意图暴露策略（P7-S4），生产路径必须把它交给 ``build_agentic_app``（规格 P7-I08）。
+    ``confirmation_tools`` 是要求人工确认、在 ``tools`` 里以延迟工具出现的工具名（P7-S7）。"""
 
     registry: ToolRegistry
     tools: list[StructuredTool]
     principal: Principal
     contributions: tuple[PluginContribution, ...]
     exposure: ToolExposurePolicy
+    confirmation_tools: frozenset[str] = frozenset()
 
     def contribution(self, kind: type[_C]) -> _C:
         """取某一类插件的贡献（例如 ``DrawingContribution``、``McpContribution``）。"""
@@ -120,7 +126,17 @@ def assemble_tools(
     for item in contributions:
         for spec in item.tools:
             registry.register(spec)
-    tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+    confirmation_tools = frozenset(
+        name
+        for name in registry.list_all_names()
+        if (binding := mcp_tool_binding(name)) is not None and binding.requires_human_confirmation
+    )
+    tools = [
+        tool_spec_to_deferred_tool(registry, name)
+        if name in confirmation_tools
+        else tool_spec_to_base_tool(registry, name)
+        for name in registry.list_all_names()
+    ]
     exposure = ToolExposurePolicy(
         strategy=strategy,
         groups=[group for item in contributions for group in item.exposure_groups()],
@@ -134,6 +150,7 @@ def assemble_tools(
         principal=principal,
         contributions=tuple(contributions),
         exposure=exposure,
+        confirmation_tools=confirmation_tools,
     )
 
 
