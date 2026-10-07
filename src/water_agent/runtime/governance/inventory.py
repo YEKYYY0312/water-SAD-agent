@@ -229,7 +229,9 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: 可用工具集已变（这类 server 不再能被暴露），递进。
 #: P7 S4：按意图最小暴露——每轮发给模型的工具集随问题变化（注册集与 capability 映射不变），
 #: 递进。
-TOOL_POLICY_VERSION = "p7-step4-2026-10-06"
+#: P7 S7：确认门接线——Web 入口下 human_confirmation=true 的 server 可以暴露（以延迟工具出现），
+#: 新增凭证放行路径，可用工具集已变，递进。
+TOOL_POLICY_VERSION = "p7-step7-2026-10-07"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
@@ -312,9 +314,10 @@ class McpToolBinding(BaseModel):
     remote_tool: str = Field(min_length=1)
     capability: Capability
     #: server 配置是否显式声明了该工具的写/危险操作需人工确认。
-    #: 为 ``True`` 的绑定，``GuardrailPipeline.validate_tool_call`` 一律以
-    #: ``tool.confirmation_required`` 拒绝调用（P7-S1）——确认门（P7-S7）接线之前
-    #: 不存在"确认后放行"的路径，这是装配期拒绝之外的第二道防线。
+    #: 为 ``True`` 的绑定，``GuardrailPipeline.validate_tool_call`` 没有执行凭证时一律以
+    #: ``tool.confirmation_required`` 拒绝调用（P7-S1）；唯一的放行路径是外层确认门在人工批准后
+    #: 签发的一次性凭证（P7-S7，``ToolRegistry.invoke_confirmed``）。装配时这类工具在 ToolNode 里
+    #: 是延迟工具（``plugins/assembly.py``）。
     requires_human_confirmation: bool = False
 
 

@@ -332,7 +332,7 @@ async def get_session_messages(
     except ResourceNotFoundError:
         return _not_found()
     try:
-        messages = manager.thread_messages(thread_id, user.user_id)
+        messages, pending = manager.thread_history(thread_id, user.user_id)
     except ResourceNotFoundError:
         return _not_found()
     except (RuntimeError, OSError, SQLAlchemyError):
@@ -341,9 +341,17 @@ async def get_session_messages(
             "Conversation history could not be loaded",
             status_code=503,
         )
+    # pending_confirmation（P7-S7）：会话停在人工确认门时的请求（参数已按 SSE 口径脱敏），刷新后
+    # 前端据此恢复确认卡片；没有挂起时为 null。
     return JSONResponse(
         status_code=200,
-        content=_ok({"thread_id": str(thread_id), "messages": messages}),
+        content=_ok(
+            {
+                "thread_id": str(thread_id),
+                "messages": messages,
+                "pending_confirmation": pending,
+            }
+        ),
     )
 
 

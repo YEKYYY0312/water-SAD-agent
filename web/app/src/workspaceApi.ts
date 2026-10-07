@@ -182,7 +182,10 @@ export class WorkspaceApi {
     });
   }
 
-  getMessages(threadId: string): Promise<{ thread_id: string; messages: HistoryMessage[] }> {
+  /** ``pending_confirmation``（P7-S7）：会话停在人工确认门时的请求，刷新后据此恢复确认卡片。 */
+  getMessages(
+    threadId: string,
+  ): Promise<{ thread_id: string; messages: HistoryMessage[]; pending_confirmation?: unknown }> {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`);
   }
 

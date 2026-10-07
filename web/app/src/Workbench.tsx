@@ -143,11 +143,13 @@ export function Workbench() {
             attachments={workspace.attachments}
             exportState={workspace.exportState}
             feedbackState={workspace.feedbackState}
+            confirmationState={workspace.confirmationState}
             inspectorOpen={inspectorOpen}
             onDraftChange={workspace.setDraft}
             onSubmit={workspace.sendMessage}
             onCancel={workspace.cancelRun}
             onFeedback={workspace.submitFeedback}
+            onDecideConfirmation={workspace.decideConfirmation}
             onAttach={workspace.attachFiles}
             onDismissAttachment={workspace.dismissAttachment}
             onDownload={workspace.downloadExport}

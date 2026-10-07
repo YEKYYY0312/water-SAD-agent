@@ -1,5 +1,7 @@
 import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
+import { ConfirmationCard, type ConfirmationSubmitState } from "./ConfirmationCard.tsx";
+import { isWaitingConfirmation } from "./confirmationApi.ts";
 import { availableExports, type ExportFormat } from "./exportApi.ts";
 import { Icon } from "./icons";
 import { formatBytes, UPLOAD_ACCEPT, uploadNotice, type UploadRecord } from "./uploadApi.ts";
@@ -19,6 +21,7 @@ const STATUS_LABEL: Record<string, string> = {
   blocked: "被拦截",
   cancelled: "已取消",
   cancellation_requested: "正在取消",
+  waiting_confirmation: "等待确认",
 };
 
 function mark(status: string): string {
@@ -293,11 +296,13 @@ export function ConversationPanel({
   attachments,
   exportState,
   feedbackState,
+  confirmationState,
   inspectorOpen,
   onDraftChange,
   onSubmit,
   onCancel,
   onFeedback,
+  onDecideConfirmation,
   onAttach,
   onDismissAttachment,
   onDownload,
@@ -314,11 +319,13 @@ export function ConversationPanel({
   attachments: Attachment[];
   exportState: ExportState;
   feedbackState: string | null;
+  confirmationState: ConfirmationSubmitState;
   inspectorOpen: boolean;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   onFeedback: (rating: "useful" | "not_useful") => void;
+  onDecideConfirmation: (approved: boolean, reason: string) => void;
   onAttach: (files: FileList | File[]) => void;
   onDismissAttachment: (key: string) => void;
   onDownload: (format: ExportFormat) => void;
@@ -331,6 +338,8 @@ export function ConversationPanel({
   // 收口后只显示 finalize 给出的回答；运行中的草稿另行显示并标明"待校验"，绝不当成回答。
   const answer = isTerminalStatus(run.status) ? run.answer : "";
   const answerDraft = isTerminalStatus(run.status) ? "" : run.draft;
+  // 停在人工确认门：先批准或拒绝，再发下一条（后端同样会以 409 WEB_CONFIRMATION_PENDING 拒绝）
+  const waiting = isWaitingConfirmation(run.status);
   const uploading = attachments.some((item) => item.status === "uploading");
   const hasReadyAttachment = attachments.some((item) => item.status === "ready");
   const empty = session !== null && messages.length === 0 && !answer && !answerDraft && !streaming && run.status === "idle";
@@ -413,6 +422,14 @@ export function ConversationPanel({
                 <AnswerMarkdown text={answerDraft} />
               </article>
             )}
+            {run.confirmation && (
+              <ConfirmationCard
+                key={run.confirmation.confirmation_id}
+                request={run.confirmation}
+                state={confirmationState}
+                onDecide={onDecideConfirmation}
+              />
+            )}
             {streaming && (
               <p className="streaming-note">
                 <span className="pulse" aria-hidden="true" />
@@ -447,10 +464,16 @@ export function ConversationPanel({
           <textarea
             id="message"
             value={draft}
-            disabled={!session || streaming}
+            disabled={!session || streaming || waiting}
             onChange={(event) => onDraftChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={session ? "描述要检索、计算或审查的问题，Enter 发送" : "先选择一个会话"}
+            placeholder={
+              !session
+                ? "先选择一个会话"
+                : waiting
+                  ? "请先在上方批准或拒绝这次工具调用"
+                  : "描述要检索、计算或审查的问题，Enter 发送"
+            }
             rows={2}
           />
           <div className="composer-bar">
@@ -471,7 +494,7 @@ export function ConversationPanel({
             {streaming ? (
               <button type="button" className="stop-button" onClick={onCancel}><Icon name="stop" />停止</button>
             ) : (
-              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || (!draft.trim() && !hasReadyAttachment)}>
+              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || waiting || (!draft.trim() && !hasReadyAttachment)}>
                 <Icon name="arrowUp" />
               </button>
             )}
