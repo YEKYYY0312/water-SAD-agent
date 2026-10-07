@@ -225,7 +225,8 @@ test("a ready attachment alone is enough to send", async () => {
   const { readFile } = await import("node:fs/promises");
   const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
   const controller = await readFile(new URL("../src/useWorkspaceController.ts", import.meta.url), "utf8");
-  assert.match(components, /disabled=\{!session \|\| uploading \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
+  // P7-S7：停在人工确认门时也不能发（waiting），其余条件不变
+  assert.match(components, /disabled=\{!session \|\| uploading \|\| waiting \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
   assert.match(controller, /draft\.trim\(\) \|\| \(attachmentIds\.length > 0 \? ATTACHMENT_ONLY_PROMPT : ""\)/);
 });
 
