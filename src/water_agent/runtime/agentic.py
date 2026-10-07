@@ -531,6 +531,8 @@ class AgenticSession:
         registry = assembly.registry
         tools = assembly.tools
         self.registry = registry
+        #: 要求人工确认、在 ToolNode 里是延迟工具的工具名（P7-S7）
+        self.confirmation_tools = assembly.confirmation_tools
         if assembly.confirmation_tools and not confirmation:
             raise ValueError(
                 "装配里有要求人工确认的工具，但本入口没有接确认门（confirmation=False）："
