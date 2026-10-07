@@ -23,6 +23,7 @@ import {
   sourceSummary,
   toggleAllowItem,
   toolChoices,
+  validateImportText,
   validateToolName,
 } from "./mcpAdminState";
 import { validateCredentialInput } from "./settingsState";
@@ -342,6 +343,12 @@ function ImportSection() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    const complaint = validateImportText(text);
+    if (complaint) {
+      setPreview(null);
+      setError({ code: "WEB_MCP_CONFIG_REJECTED", message: complaint });
+      return;
+    }
     setBusy(true);
     setError(null);
     setCopied(false);

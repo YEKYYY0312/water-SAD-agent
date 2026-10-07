@@ -7,6 +7,18 @@ export const MCP_ADMIN_NOTICE =
 /** 与后端 mcp_admin_routes.MAX_TOOL_NAME_LENGTH 一致。 */
 export const MAX_TOOL_NAME_LENGTH = 128;
 
+/** 与后端 mcp_admin_routes.MAX_IMPORT_CHARACTERS 一致：超过就不发请求，直接说明原因。 */
+export const MAX_IMPORT_CHARACTERS = 16_000;
+
+/** 导入框的前置检查；通过返回 null。 */
+export function validateImportText(text: string): string | null {
+  if (!text.trim()) return "请粘贴 mcpServers 配置";
+  if (text.length > MAX_IMPORT_CHARACTERS) {
+    return `内容超过 ${MAX_IMPORT_CHARACTERS} 个字符：只粘贴 mcpServers 那一段`;
+  }
+  return null;
+}
+
 /** 下载导入提案时的文件名。 */
 export const PROPOSAL_FILENAME = "mcp_overlay_proposal.json";
 

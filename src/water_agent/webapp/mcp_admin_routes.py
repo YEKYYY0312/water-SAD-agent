@@ -39,7 +39,7 @@ from water_agent.mcp.config import (
 )
 from water_agent.mcp.credentials import delete_slot, slot_status, write_slot
 from water_agent.mcp.errors import MCPError
-from water_agent.mcp.importer import MAX_IMPORT_BYTES, ImportRejected, preview_import
+from water_agent.mcp.importer import ImportRejected, preview_import
 from water_agent.mcp.pool import McpConnectionPool
 from water_agent.mcp.web_layer import (
     WebLayerDocument,
@@ -702,11 +702,17 @@ async def probe_server(
 # ---------------------------------------------------------------------------
 
 
+#: 经 HTTP 导入的字符上限。JSON 请求体按最坏情况每字符 12 字节计（转义的代理对），请求体上限
+#: （``body_limit.REQUEST_BODY_LIMIT_BYTES``）要给最大的合法请求体留 4 倍余量，且最大的仍须是消息请求
+#: （``tests/test_upload_body_limit.py``）；64 Ki 个字符最坏要 768 KiB，16 000 个字符约 188 KiB。
+#: ``preview_import`` 自己的 UTF-8 字节上限（64 KiB）仍对直接调用方生效。真实的 mcpServers 配置通常只有几 KB。
+MAX_IMPORT_CHARACTERS = 16_000
+
+
 class ImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # 字节上限在 preview_import 里按 UTF-8 判；这里先挡掉明显超长的输入
-    text: str = Field(min_length=1, max_length=MAX_IMPORT_BYTES)
+    text: str = Field(min_length=1, max_length=MAX_IMPORT_CHARACTERS)
 
 
 @router.post("/api/admin/mcp/import-preview", dependencies=[Depends(validate_csrf)])
@@ -728,4 +734,4 @@ async def import_preview(body: ImportRequest, auth: tuple = Depends(require_admi
     return _ok({"preview": preview.to_dict()})
 
 
-__all__ = ["NOTICE", "McpAdminState", "router"]
+__all__ = ["MAX_IMPORT_CHARACTERS", "NOTICE", "McpAdminState", "router"]

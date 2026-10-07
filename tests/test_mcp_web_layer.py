@@ -348,19 +348,19 @@ def test_writes_are_atomic_and_revisioned(layers, tmp_path: Path, monkeypatch: p
 
 
 def test_store_reports_an_unwritable_directory(tmp_path: Path) -> None:
-    """P7-S6-A01 层文件目录不可写（未挂卷 / 只读根文件系统）：WebLayerStoreUnavailable，不留半个文件。"""
+    """P7-S6-A01 层文件目录不可写（未挂卷 / 只读根文件系统）：WebLayerStoreUnavailable，不留半个文件。
 
-    if os.geteuid() == 0:
-        pytest.skip("root 不受目录权限约束")
-    locked = tmp_path / "ro"
-    locked.mkdir()
-    locked.chmod(0o500)
-    try:
-        store = WebLayerStore(locked / "sub" / "web_layer.json")
-        with pytest.raises(WebLayerStoreUnavailable):
-            store.update(lambda doc: doc, expected_revision=0, validate=lambda _doc: None)
-    finally:
-        locked.chmod(0o700)
+    用"父路径是个普通文件"模拟建不了目录——与 root 下目录权限不生效无关，任何用户都确定失败。
+    """
+
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x", encoding="utf-8")
+    store = WebLayerStore(blocker / "mcp-admin" / "web_layer.json")
+    with pytest.raises(WebLayerStoreUnavailable):
+        store.update(lambda doc: doc, expected_revision=0, validate=lambda _doc: None)
+    with pytest.raises(WebLayerStoreUnavailable):
+        store.reset()
+    assert blocker.read_text(encoding="utf-8") == "x"
 
 
 def test_default_skeleton_and_model_layer_are_unchanged_by_the_third_layer() -> None:
