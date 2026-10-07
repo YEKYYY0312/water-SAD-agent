@@ -30,8 +30,8 @@ import itertools
 import json
 import re
 import time
-from collections.abc import Callable, Sequence
-from typing import Annotated, Any, NotRequired, TypedDict, cast
+from collections.abc import Callable, Hashable, Sequence
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired, TypedDict, cast
 from uuid import uuid4
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -51,6 +51,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
+from langgraph.types import Command
 from pydantic import ConfigDict
 
 from water_agent.domain.citation import CitationClaim, enrich_claims, validate_citations
@@ -85,6 +86,9 @@ from water_agent.runtime.governance.pipeline import (
     GuardrailPipeline,
     default_guardrail_pipeline,
 )
+
+if TYPE_CHECKING:
+    from water_agent.graphs.confirmation import ConfirmationRuntime
 
 # 外层图安全网：agent_loop ↔ citation_validator 最多 4 轮 + finalize，远小于 20
 RECURSION_LIMIT = 20
@@ -218,6 +222,11 @@ class AgenticRAGState(TypedDict):
     #: P7-S4 本轮的工具暴露决定（``ExposureDecision.to_state()``）：agent_loop 每轮算一次，引用校验
     #: 回流再进 agent_loop 时复用；PromptAssembler 据此渲染工具指引。逐轮重置。
     tool_exposure: NotRequired[dict[str, Any] | None]
+    #: P7-S7 人工确认的审计记录（``graphs/confirmation.py``）：随 checkpoint 持久化、**跨轮累积**，
+    #: 不在 ``PER_TURN_RESET`` 里。每条只有 id、工具名、参数摘要、主体 hash、决定、脱敏原因与结果码。
+    confirmation_log: NotRequired[list[dict[str, Any]]]
+    #: P7-S7 本轮已决定的确认次数（每轮上限见 ``MAX_CONFIRMATIONS_PER_TURN``），逐轮重置。
+    confirmations_this_turn: NotRequired[int]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -1264,6 +1273,7 @@ def build_agentic_app(
     pipeline: GuardrailPipeline | None = None,
     cache_service: AnswerCacheService | None = None,
     exposure: ToolExposurePolicy | None = None,
+    confirmation: ConfirmationRuntime | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -1281,6 +1291,9 @@ def build_agentic_app(
       缺省回落进程级默认实例（仍经治理层，不绕过）；
     - ``exposure``：P7-S4 按意图暴露策略（``ToolAssembly.exposure``）。``None`` 即全量暴露；
       生产路径（会话、runner）必须传（规格 P7-I08）。``tools`` 仍是全部已注册工具（ToolNode）。
+    - ``confirmation``：P7-S7 人工确认门（``graphs/confirmation.py``）。给了就在 agent_loop 之后
+      接入 ``confirmation_request`` → ``confirmation_gate``；``None`` 时图结构与此前完全相同。
+      只有 Web 入口给它（确认门是否可用由入口决定）。
     """
     if checkpointer is None:
         raise ValueError("agentic 循环必须配置 checkpointer（thread_id 会话隔离）")
@@ -1342,9 +1355,58 @@ def build_agentic_app(
         ),
     )
 
+    def has_pending(state: AgenticRAGState) -> bool:
+        """本轮还有待确认的调用（只有接了确认门才可能为真）。"""
+        if confirmation is None:
+            return False
+        # 延迟导入：confirmation 模块依赖本模块的 current_turn_messages
+        from water_agent.graphs.confirmation import pending_confirmations
+
+        return bool(pending_confirmations(state.get("messages", []), confirmation.tools))
+
+    agent_targets: dict[Hashable, str] = {
+        "citation_validator": "citation_validator",
+        "finalize": "finalize",
+    }
+    if confirmation is not None:
+        from water_agent.graphs.confirmation import (
+            make_confirmation_gate,
+            make_confirmation_request_node,
+        )
+
+        graph.add_node("confirmation_request", make_confirmation_request_node(confirmation, trace))
+        graph.add_node("confirmation_gate", make_confirmation_gate(confirmation, trace))
+        agent_targets["confirmation_request"] = "confirmation_request"
+
+        def route_after_request(state: AgenticRAGState) -> str:
+            return "finalize" if state.get("status") == STATUS_FAILED else "confirmation_gate"
+
+        def route_after_gate(state: AgenticRAGState) -> str:
+            if state.get("status") == STATUS_FAILED:
+                return "finalize"
+            # 同一条 AI 消息里还有待确认的调用：逐条确认，不让模型看到占位消息
+            return "confirmation_request" if has_pending(state) else "agent_loop"
+
+        graph.add_conditional_edges(
+            "confirmation_request",
+            route_after_request,
+            {"confirmation_gate": "confirmation_gate", "finalize": "finalize"},
+        )
+        graph.add_conditional_edges(
+            "confirmation_gate",
+            route_after_gate,
+            {
+                "confirmation_request": "confirmation_request",
+                "agent_loop": "agent_loop",
+                "finalize": "finalize",
+            },
+        )
+
     def route_after_agent(state: AgenticRAGState) -> str:
         if state.get("status") in (STATUS_FAILED, STATUS_BLOCKED):
             return "finalize"
+        if has_pending(state):
+            return "confirmation_request"
         return "citation_validator"
 
     def route_after_citation(state: AgenticRAGState) -> str:
@@ -1353,11 +1415,7 @@ def build_agentic_app(
         return "agent_loop"
 
     graph.add_edge(START, "agent_loop")
-    graph.add_conditional_edges(
-        "agent_loop",
-        route_after_agent,
-        {"citation_validator": "citation_validator", "finalize": "finalize"},
-    )
+    graph.add_conditional_edges("agent_loop", route_after_agent, agent_targets)
     graph.add_conditional_edges(
         "citation_validator",
         route_after_citation,
@@ -1382,6 +1440,7 @@ PER_TURN_RESET: dict[str, Any] = {
     "retry_count": 0,
     "empty_citation_reflows": 0,
     "tool_exposure": None,
+    "confirmations_this_turn": 0,
 }
 
 
@@ -1637,6 +1696,7 @@ async def astream_agentic(
     attachment_context: Any | None = None,
     pipeline: GuardrailPipeline | None = None,
     request_context: RequestContext | None = None,
+    resume: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """流式运行 agentic 图（``subgraphs=True``，内层模型逐块到达），返回最终状态。
 
@@ -1650,10 +1710,19 @@ async def astream_agentic(
     - ``messages``：可选的初始消息列表（Step 8 用于注入运行时上下文），默认只有问题本身；
     - ``memory_context`` / ``upload_context`` / ``attachment_context``：本轮召回结果，只进入
       独立 data 段，不承载指令、不参与数值推导、不改变引用校验；
-    - ``pipeline`` / ``request_context``：草稿过检用的护栏与主体（缺省回落默认实例）。
+    - ``pipeline`` / ``request_context``：草稿过检用的护栏与主体（缺省回落默认实例）；
+    - ``resume``（P7-S7）：对挂起的确认门给出决定，以 ``Command(resume=...)`` 继续同一轮——不重置
+      本轮状态、不追加消息，``query`` 与各 ``*_context`` 被忽略。
+
+    图停在确认门时（``get_state().interrupts`` 非空）流照常结束，返回的是挂起前的状态；是否挂起由
+    调用方读 checkpoint 判定。
     """
     router = _StreamRouter(on_token, on_event, on_draft, pipeline, request_context)
-    input_state = _agentic_input(query, messages, memory_context, upload_context, attachment_context)
+    input_state: Any = (
+        Command(resume=resume)
+        if resume is not None
+        else _agentic_input(query, messages, memory_context, upload_context, attachment_context)
+    )
     try:
         async for event in app.astream(
             input_state,
