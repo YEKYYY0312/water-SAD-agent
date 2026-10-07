@@ -88,6 +88,40 @@ def test_compose_gives_traces_a_writable_volume_outside_the_backup_scope() -> No
     assert "/var/lib/water-agent-traces" in _line("chmod 700"), "trace 含用户原文，不得对其他用户可读"
 
 
+def test_mcp_admin_layer_volume_is_backed_up() -> None:
+    """P7-S6-A08 Web 扩展面板的第三层 MCP 配置有可写的卷，且在备份范围内；凭据值仍只在 app_credentials。
+
+    层文件只有启停与工具白名单（没有密钥），所以挂在 ``/var/lib/water-agent`` 之下、随
+    ``scripts/backup.sh`` 的 ``tar -C /var/lib/water-agent .`` 一起备份。镜像根文件系统只读，层文件只能
+    落在卷里；挂载点必须在镜像里预建并归 wateragent，否则 named volume 首次挂载是 root 所有。
+    """
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+
+    assert "app_mcp_admin:/var/lib/water-agent/mcp-admin" in compose
+    assert "\n  app_mcp_admin:\n" in compose, "named volume 必须在顶层 volumes 注册"
+    assert "WATER_AGENT_MCP_WEB_LAYER: /var/lib/water-agent/mcp-admin/web_layer.json" in compose
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认层文件仍被备份"
+
+    # 环境变量与卷挂载在同一个服务里（app），不是只有冒烟或别的服务拿到
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert "WATER_AGENT_MCP_WEB_LAYER:" in app_block
+    assert "app_mcp_admin:/var/lib/water-agent/mcp-admin" in app_block
+
+    def _line(marker: str) -> str:
+        matches = [line for line in dockerfile.splitlines() if marker in line]
+        assert len(matches) == 1, f"Dockerfile 里 {marker!r} 命中 {len(matches)} 行，断言已失焦"
+        return matches[0]
+
+    assert "/var/lib/water-agent/mcp-admin" in _line("mkdir -p /var/lib/water-agent/uploads")
+    assert "/var/lib/water-agent " in _line("chown -R wateragent:wateragent"), "chown -R 覆盖 mcp-admin"
+
+    # 凭据槽位的值仍只在 app_credentials 卷，那个卷不在备份范围内
+    assert "app_credentials:/var/lib/water-agent-credentials" in compose
+    assert "app_credentials:/var/lib/water-agent/" not in compose
+
+
 def test_container_uses_a_non_root_runtime_user_and_a_multistage_build() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 

@@ -80,6 +80,10 @@ services:
       # 不改这个变量的话每次运行结束 JsonTraceRecorder.finish() 都会 OSError，
       # 恰好在最需要现场的时候什么都不留。
       WATER_AGENT_TRACE_DIR: /var/lib/water-agent-traces
+      # Web 扩展面板（P7-S6）的改动写进这份第三层 MCP 配置（只有启停与工具白名单，没有密钥），
+      # 合并在部署覆盖层之后；挂在 /var/lib/water-agent 之下，随 scripts/backup.sh 一起备份。
+      # 凭据槽位的值不在这里，在 app_credentials 卷。
+      WATER_AGENT_MCP_WEB_LAYER: /var/lib/water-agent/mcp-admin/web_layer.json
     secrets:
       - postgres_password
       - deepseek_api_key
@@ -96,6 +100,7 @@ services:
     volumes:
       - app_uploads:/var/lib/water-agent/uploads
       - app_exports:/var/lib/water-agent/exports
+      - app_mcp_admin:/var/lib/water-agent/mcp-admin
       # Web 设置面板写入的密钥落在这里。刻意不放进 /var/lib/water-agent：
       # scripts/backup.sh 打包的是那个目录整体（tar -C /var/lib/water-agent .），
       # 挂进去会把密钥明文写进 user_files.tar。
@@ -202,6 +207,7 @@ volumes:
   postgres_data:
   app_uploads:
   app_exports:
+  app_mcp_admin:
   app_credentials:
   app_traces:
   local_model_data:
