@@ -7,11 +7,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.documents.attachments import MAX_ATTACHMENTS_PER_MESSAGE
 from water_agent.documents.repository import UploadRepository
+from water_agent.graphs.confirmation import STATUS_WAITING_CONFIRMATION
 from water_agent.runtime.agentic import (
     embedding_configured,
     embedding_required,
@@ -27,6 +28,7 @@ from water_agent.webapp.auth.csrf import validate_csrf
 from water_agent.webapp.auth.dependencies import require_password_changed
 from water_agent.webapp.auth.user_store import UserNotFoundError, get_user_store
 from water_agent.webapp.run_manager import (
+    ConfirmationStaleError,
     RunManager,
     RunNotManagedError,
     ThreadBusyError,
@@ -56,6 +58,16 @@ class MessageRequest(BaseModel):
         if not value.strip():
             raise ValueError("message must not be blank")
         return value
+
+
+class ConfirmationDecisionRequest(BaseModel):
+    """对挂起的人工确认给出决定（P7-S7）。``approved`` 只认严格 bool（``"yes"``、``1`` 一律 422）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_id: str = Field(min_length=1, max_length=128)
+    approved: StrictBool
+    reason: str | None = Field(default=None, max_length=500)
 
 
 def _manager(request: Request) -> RunManager | None:
@@ -100,6 +112,49 @@ def _thread_busy() -> JSONResponse:
                 "code": "WEB_RUN_IN_PROGRESS",
                 "message": "This session is still answering the previous message",
             },
+        },
+    )
+
+
+def _confirmation_pending() -> JSONResponse:
+    """409：会话停在人工确认门（P7-S7），先对挂起的确认做决定，再发下一条。"""
+
+    return JSONResponse(
+        status_code=409,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {
+                "code": "WEB_CONFIRMATION_PENDING",
+                "message": "This session is waiting for a tool confirmation",
+            },
+        },
+    )
+
+
+def _confirmation_stale() -> JSONResponse:
+    """409：run 没有在等这一个确认（已决定、重复提交、过期页面）。"""
+
+    return JSONResponse(
+        status_code=409,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {
+                "code": "WEB_CONFIRMATION_STALE",
+                "message": "This run is not waiting for this confirmation",
+            },
+        },
+    )
+
+
+def _run_unavailable() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "version": _API_VERSION,
+            "ok": False,
+            "error": {"code": "WEB_RUN_UNAVAILABLE", "message": "Run could not be started"},
         },
     )
 
@@ -198,6 +253,16 @@ async def create_message(
     # 建 run 行之前（被拒的请求不留 queued 行）。
     if manager.thread_busy(thread_id):
         return _thread_busy()
+    # 会话停在人工确认门（P7-S7）：新问题会叠在挂起的轮次上，checkpoint 里出现没有应答的
+    # tool_call。判定读 checkpoint（不读进程内状态：重启后照样拦得住）；判定不了就不建 run。
+    try:
+        pending = manager.pending_confirmation(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    except (RuntimeError, OSError, SQLAlchemyError):
+        return _run_unavailable()
+    if pending is not None:
+        return _confirmation_pending()
 
     try:
         run = RunRepository(database).create(thread_id, user.user_id)
@@ -226,14 +291,77 @@ async def create_message(
         # A run row without a managed event log is not a successful API call.
         # Keep the public response generic; the repository row remains queued
         # and can be diagnosed by the server trace, never by the browser.
-        return JSONResponse(
-            status_code=503,
-            content={
-                "version": _API_VERSION,
-                "ok": False,
-                "error": {"code": "WEB_RUN_UNAVAILABLE", "message": "Run could not be started"},
+        return _run_unavailable()
+    return JSONResponse(status_code=202, content=_ok(payload))
+
+
+@router.post(
+    "/api/runs/{run_id}/confirmation",
+    dependencies=[Depends(validate_csrf)],
+)
+async def decide_confirmation(
+    run_id: UUID,
+    body: ConfirmationDecisionRequest,
+    request: Request,
+    auth: tuple = Depends(require_password_changed),
+) -> JSONResponse:
+    """对停在人工确认门的 run 给出决定（P7-S7），在同一个 run 上继续执行。
+
+    检查顺序与发消息一致：归属（只有 run 的所有者，别人的 / 不存在的同答 404）→ 项目写权限（403）
+    → run 确实在等**这一个**确认（库里是 ``waiting_confirmation``、checkpoint 挂起的 ``confirmation_id``
+    与请求一致，否则 409 ``WEB_CONFIRMATION_STALE``）→ 202。返回的 ``event_cursor`` 是重新订阅事件流时
+    应带的 ``Last-Event-ID``。
+    """
+
+    user, principal = auth
+    database = getattr(request.app.state, "database", None)
+    manager = _manager(request)
+    if database is None or manager is None:
+        return _database_unavailable()
+    try:
+        run = RunRepository(database).get_owned_for_user(run_id, user.user_id)
+        web_session = WebSessionRepository(database).get_for_user(run.thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    # 确认的是"我的 agent 要替我做这件事"：与发消息同一条写权限规则（被降为 viewer 后不能再批准）
+    if web_session.project_id is not None:
+        try:
+            role = ProjectRepository(database).membership_role(
+                web_session.project_id, user.user_id
+            )
+        except ResourceNotFoundError:
+            return _not_found()
+        if not _can_write_project(role, user.role):
+            return _forbidden()
+    if run.status != STATUS_WAITING_CONFIRMATION:
+        return _confirmation_stale()
+    try:
+        pending = manager.pending_confirmation(run.thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    except (RuntimeError, OSError, SQLAlchemyError):
+        return _run_unavailable()
+    if pending is None or pending.get("confirmation_id") != body.confirmation_id:
+        return _confirmation_stale()
+    try:
+        payload = manager.resume(
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            owner_user_id=user.user_id,
+            principal=principal,
+            project_id=web_session.project_id,
+            decision={
+                "confirmation_id": body.confirmation_id,
+                "approved": body.approved,
+                "reason": body.reason,
             },
         )
+    except ConfirmationStaleError:
+        return _confirmation_stale()
+    except ThreadBusyError:
+        return _thread_busy()
+    except (RuntimeError, ValueError):
+        return _run_unavailable()
     return JSONResponse(status_code=202, content=_ok(payload))
 
 
@@ -326,4 +454,4 @@ async def run_trace(
     return JSONResponse(status_code=200, content=_ok(payload))
 
 
-__all__ = ["MessageRequest", "router"]
+__all__ = ["ConfirmationDecisionRequest", "MessageRequest", "router"]

@@ -92,9 +92,10 @@ class MCPServerConfig(BaseModel):
     #: 工具白名单。**None = 全拒（fail closed）**；列出的名字与 server
     #: tools/list 清单**精确匹配**。
     allow: tuple[str, ...] | None = None
-    #: server 上的写/危险操作是否需要人工确认门。``True`` 且确认门未接线
-    #: （``MCPGatewayConfig.confirmation_handler_ready=False``）时整台 server
-    #: 的工具**不暴露**（宁可不给，也不给"先问一句再执行"的假象）。
+    #: server 上的写/危险操作是否需要人工确认门（P7-S7 起是**每次执行前确认**）。``True`` 时：
+    #: 接了确认门的入口（Web 会话）照常暴露，工具在 ToolNode 里是延迟工具、每次执行前由 run 所有者
+    #: 批准；没有确认门的入口（CLI、评测 runner）整台 server 的工具**不暴露**（宁可不给，也不给
+    #: "先问一句再执行"的假象）。
     human_confirmation: bool = False
     startup_timeout_seconds: float = Field(default=10.0, gt=0)
     call_timeout_seconds: float = Field(default=30.0, gt=0)
@@ -203,26 +204,28 @@ class MCPGatewayConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: str = Field(default=MCP_CONFIG_VERSION, min_length=1)
-    #: 危险操作人工确认门是否已接线。``False`` 时任何
-    #: ``human_confirmation=true`` 的 server 的工具都不暴露。
-    #: 确认门（P7-S7）接线之前只接受 ``False``，见 :meth:`_confirmation_gate_not_wired`。
+    #: 历史字段：确认门是否可用曾由它声明。P7-S7 起由**入口**决定（只有 Web 会话工厂接了确认门，
+    #: 见 ``wiring.open_gateway_sessions(confirmation_ready=)``），配置里只接受 ``False``，见
+    #: :meth:`_confirmation_gate_not_wired`。
     confirmation_handler_ready: bool = False
     servers: tuple[MCPServerConfig, ...] = Field(default=())
 
     @field_validator("confirmation_handler_ready")
     @classmethod
     def _confirmation_gate_not_wired(cls, value: bool) -> bool:
-        """P7-S1（F7）：确认门还没有实现，``True`` 是一个没人能兑现的声明。
+        """P7-S1（F7）/ P7-S7：配置不能声明"确认门可用"。
 
-        此前把它改成 ``True``，``human_confirmation=true`` 的 server 就会直接暴露、工具可被
-        调用，却没有任何人被问过。文件加载与直接构造走同一个校验；``load_gateway_config``
-        把它包成 ``MCP_CONFIG_INVALID``。
+        S1 之前把它改成 ``True``，``human_confirmation=true`` 的 server 就会直接暴露、工具可被
+        调用，却没有任何人被问过。S7 接通确认门之后，可用与否取决于**入口**有没有确认 UI——写在
+        配置里会让 CLI、评测 runner 这类没有确认门的入口凭空"可确认"。文件加载与直接构造走同一个
+        校验；``load_gateway_config`` 把它包成 ``MCP_CONFIG_INVALID``。
         """
         if value:
             raise ValueError(
-                "confirmation_handler_ready=true 暂不可用：危险操作人工确认门（P7-S7）尚未接线，"
-                "打开它会让 human_confirmation=true 的 server 未经任何确认就暴露工具。"
-                "确认门接线前请保持 false（这类 server 会整台不暴露，MCP_CONFIRMATION_UNAVAILABLE）"
+                "confirmation_handler_ready 不能写成 true：人工确认门是否可用由入口决定"
+                "（Web 会话已接线，human_confirmation=true 的 server 在 Web 下照常暴露、每次执行前"
+                "由 run 所有者确认；CLI 与评测 runner 没有确认门，这类 server 整台不暴露）。"
+                "请删除该键或保持 false"
             )
         return value
 

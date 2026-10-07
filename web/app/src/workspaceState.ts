@@ -1,4 +1,5 @@
 import type { TraceSnapshot, WorkspaceRunEvent } from "./workspaceApi";
+import { parseConfirmationRequest, WAITING_CONFIRMATION, type ConfirmationRequest } from "./confirmationApi.ts";
 
 export type ToolCard = {
   tool_name: string;
@@ -35,6 +36,8 @@ export type WorkspaceRunState = {
   errors: string[];
   trace: TraceSnapshot | null;
   lastEventId: string;
+  /** 挂起的人工确认请求（P7-S7）：有值时界面显示确认卡片，决定提交后清空。 */
+  confirmation: ConfirmationRequest | null;
 };
 
 export const emptyRunState = (): WorkspaceRunState => ({
@@ -53,6 +56,7 @@ export const emptyRunState = (): WorkspaceRunState => ({
   errors: [],
   trace: null,
   lastEventId: "0",
+  confirmation: null,
 });
 
 /** 对话里的一条消息。agent 消息带收口状态：失败的回答也要留在对话里，但必须标出来。 */
@@ -129,7 +133,8 @@ export function replayUnavailable(
   latestStatus: string,
 ): ConversationMessage[] {
   const messages = mergeHistory(history, false);
-  if (TERMINAL.has(latestStatus)) return messages;
+  // 停在确认门不是被重启打断：挂起在服务端 checkpoint 里，确认卡片从历史恢复
+  if (TERMINAL.has(latestStatus) || latestStatus === WAITING_CONFIRMATION) return messages;
   const last = messages[messages.length - 1];
   if (last && last.role === "agent") return messages;
   return [...messages, { role: "agent", text: "这次运行因服务重启中断，没有完成。可以重新发送问题。", status: "failed" }];
@@ -173,8 +178,18 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
   };
   const payload = event.payload;
 
+  if (event.type === "confirmation_required") {
+    // 作答停在人工确认门：卡片取代"正在检索与计算…"，草稿作废（同 run_ended 撤回）
+    const confirmation = parseConfirmationRequest(payload);
+    return confirmation
+      ? { ...next, status: WAITING_CONFIRMATION, confirmation, draft: "" }
+      : next;
+  }
+  if (event.type === "confirmation_decided" || event.type === "run_queued") {
+    return { ...next, confirmation: null, status: event.type === "run_queued" ? "queued" : next.status };
+  }
   if (event.type === "run_started" || event.type === "state") {
-    return { ...next, status: asString(payload.status) ?? "running" };
+    return { ...next, confirmation: null, status: asString(payload.status) ?? "running" };
   }
   if (event.type === "token") {
     const text = asString(payload.text) ?? "";
@@ -254,4 +269,24 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
 
 export function isTerminalStatus(status: string): boolean {
   return ["succeeded", "failed", "blocked", "cancelled"].includes(status);
+}
+
+/**
+ * 刷新 / 重启后从历史恢复确认卡片：最新运行停在确认门、但实时事件已不可用（或尚未回放）时，
+ * 用历史投影里的挂起请求重建运行态。挂起请求不属于这个运行就不用它（防止卡片挂错 run）。
+ */
+export function runStateFromPendingConfirmation(
+  pending: unknown,
+  latest: { run_id: string; thread_id: string; status: string } | null | undefined,
+): WorkspaceRunState | null {
+  const confirmation = parseConfirmationRequest(pending);
+  if (!confirmation || !latest || latest.status !== WAITING_CONFIRMATION) return null;
+  if (confirmation.run_id && confirmation.run_id !== latest.run_id) return null;
+  return {
+    ...emptyRunState(),
+    runId: latest.run_id,
+    threadId: latest.thread_id,
+    status: WAITING_CONFIRMATION,
+    confirmation,
+  };
 }
