@@ -36,7 +36,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
+from water_agent.mcp.credentials import read_slot, validate_slot_name
+from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCP_CREDENTIAL_MISSING, MCPError
 
 #: 配置版本。**改任何字段语义都要改它**（与治理配置同纪律）。``version`` 是写进配置文件的
 #: 元数据、加载时不比对，旧配置照常有效。
@@ -143,6 +144,11 @@ class MCPServerConfig(BaseModel):
     #: 区分的状态**（例如"当前打开的文档"），agent 无法替运维验证这一点。CLI 与评测 runner
     #: 不看这个字段，始终现开现关。
     lifecycle: Literal["per_run", "shared"] = "per_run"
+    #: 凭据槽位（P7-S6）：运维声明要注入子进程的环境变量**名**，值由管理员在 Web 扩展面板填写
+    #: （只写不读，存凭据卷，见 ``mcp/credentials.py``）。只能写在仓库默认层或部署覆盖层；
+    #: 不与内联 ``env`` 重名，不能是加载器 / 解释器会执行的变量。有槽位没填值的 server 连接前跳过
+    #: （``MCP_CREDENTIAL_MISSING``）。
+    credential_env: tuple[str, ...] = ()
 
     @field_validator("server_id")
     @classmethod
@@ -199,6 +205,25 @@ class MCPServerConfig(BaseModel):
                     f"env 的 key {name!r} 必须是大写环境变量名（如 PATH、HTTPS_PROXY）"
                 )
         return value
+
+    @field_validator("credential_env")
+    @classmethod
+    def _validate_credential_env(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for name in value:
+            validate_slot_name(name)
+        duplicates = sorted({name for name in value if value.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"credential_env 重复：{duplicates}")
+        return value
+
+    @model_validator(mode="after")
+    def _credential_env_disjoint_from_env(self) -> MCPServerConfig:
+        overlap = sorted(set(self.credential_env) & set(self.env))
+        if overlap:
+            raise ValueError(
+                f"credential_env 与内联 env 重名：{overlap}（同一个变量只能有一个来源）"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -590,10 +615,13 @@ def _parse_env_file(text: str) -> dict[str, str]:
 
 
 def child_env(config: MCPServerConfig, *, env_file_dir: Path | str | None = None) -> dict[str, str]:
-    """构造子进程 env：默认透传 + env_file + 内联 env（内联覆盖文件）。
+    """构造子进程 env：默认透传 + env_file + 凭据槽位 + 内联 env（后者覆盖前者）。
 
     - ``env_file`` 为相对路径时按 ``env_file_dir``（配置所在目录）解析；
       env_file 配置了但缺失 = 配置错误（响亮失败，不静默裸奔）。
+    - 凭据槽位（``credential_env``，P7-S6）的值从凭据卷读；没填值 → ``MCP_CREDENTIAL_MISSING``
+      （正常情况下 ``pre_connection_skips`` 已在连接前跳过这台 server，这里只兜住两者之间被清掉的竞态）。
+      槽位与内联 ``env`` 重名在加载期已拒绝。
     - 内联 ``env`` 与 env_file 的同名 key 以**内联**为准（单一真源）。
     - 本机其他变量（含 API Key）一律不进入子进程（最小权限，规格 §3）。
     """
@@ -619,6 +647,15 @@ def child_env(config: MCPServerConfig, *, env_file_dir: Path | str | None = None
             raise MCPError(
                 MCP_CONFIG_INVALID, f"无法读取 env_file {env_path}：{exc}"
             ) from exc
+
+    for name in config.credential_env:
+        value = read_slot(config.server_id, name)
+        if value is None:
+            raise MCPError(
+                MCP_CREDENTIAL_MISSING,
+                f"server {config.server_id!r} 的凭据槽位 {name} 还没填值（由管理员在 Web 扩展面板填写）",
+            )
+        child_env_vars[name] = value
 
     child_env_vars.update(config.env)
     return child_env_vars
