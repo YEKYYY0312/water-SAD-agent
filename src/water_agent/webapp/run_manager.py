@@ -288,7 +288,9 @@ class WebAgenticSessionFactory:
         )
         # 坏配置在借用之前就 MCP_CONFIG_INVALID（任何子进程启动之前）；借到立即登记释放，
         # 之后会话构造的任何一步抛错都不会漏掉租约。
-        lease = self.mcp_pool.lease(load_mcp_gateway())
+        # P7-S7：Web 是唯一接了人工确认门的入口——借连接时声明确认门可用（human_confirmation 的
+        # server 才暴露），会话同时接上确认门；CLI 与评测 runner 不传，这类 server 整台不暴露。
+        lease = self.mcp_pool.lease(load_mcp_gateway(), confirmation_ready=True)
         stack.callback(lease.release)
         return build_agentic_session(
             self._args(),
@@ -297,6 +299,7 @@ class WebAgenticSessionFactory:
             request_context=request_context,
             checkpointer=scoped_saver,
             mcp_lease=lease,
+            confirmation=True,
         )
 
     def close(self) -> dict[str, Any]:

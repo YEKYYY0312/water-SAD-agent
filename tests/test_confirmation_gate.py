@@ -12,7 +12,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Iterator
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -459,3 +459,107 @@ def test_confirmation_audit_has_no_raw_arguments(gate_workdir: Path) -> None:
         assert all(e["query"] == "" for e in events)
         assert secret_note not in json.dumps(snapshot, ensure_ascii=False)
         assert phone not in json.dumps(snapshot, ensure_ascii=False)
+
+
+def test_only_the_web_entry_point_enables_confirmation(
+    gate_workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S7-A05：确认门是否可用由入口决定。Web 会话工厂借连接时 ``human_confirmation`` 的 server
+    暴露（工具以延迟工具出现、图里接了确认门）；CLI 会话、评测 runner 的现开路径与默认的池租约仍整台
+    ``MCP_CONFIRMATION_UNAVAILABLE``、不 spawn；配置里写 ``confirmation_handler_ready=true`` 仍在加载期
+    被拒绝，报错指向"由入口决定"。池的单台 server 指纹纳入入口的确认位。"""
+
+    from langgraph.checkpoint.memory import InMemorySaver as _Saver
+
+    from water_agent.mcp.config import MCPGatewayConfig, load_gateway_config
+    from water_agent.mcp.errors import MCP_CONFIRMATION_UNAVAILABLE, MCPError
+    from water_agent.mcp.pool import McpConnectionPool, server_fingerprint
+    from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
+    from water_agent.runtime.governance.binding import local_request_context
+    from water_agent.webapp import run_manager as rm
+
+    config = load_mcp_gateway()
+    assert config is not None
+    unavailable = (SERVER, MCP_CONFIRMATION_UNAVAILABLE)
+
+    # CLI 会话（confirmation 缺省 False）：整台跳过，不注册、主体不拿 MCP_INVOKE
+    with ExitStack() as stack:
+        cli_session = AgenticSession(
+            _session_args(gate_workdir),
+            stack=stack,
+            checkpointer=_Saver(serde=default_checkpoint_serde()),
+            model=ScriptedChatModel(steps=[]),
+            retriever=TriviumRetriever(db_path=None, fallback_clauses=[]),
+        )
+        assert cli_session.mcp_tool_names == []
+        assert [(s.server_id, s.code) for s in cli_session.mcp_assembly.skipped_servers] == [unavailable]
+        assert cli_session.confirmation_enabled is False
+        assert cli_session.confirmation_tools == frozenset()
+        assert cli_session.pending_confirmation() is None
+
+    # runner 的现开路径（open_gateway_sessions 缺省）与池的缺省租约：同样整台跳过
+    assembly = open_gateway_sessions(config)
+    try:
+        assert assembly.sessions == ()
+        assert [(s.server_id, s.code) for s in assembly.skipped_servers] == [unavailable]
+    finally:
+        assembly.close()
+    pool = McpConnectionPool()
+    try:
+        lease = pool.lease(config)
+        assert [(s.server_id, s.code) for s in lease.assembly.skipped_servers] == [unavailable]
+        lease.release()
+        ready = pool.lease(config, confirmation_ready=True)
+        assert [s.config.server_id for s in ready.assembly.sessions] == [SERVER]
+        ready.release()
+    finally:
+        pool.close()
+    server = config.servers[0]
+    assert server_fingerprint(server, config, confirmation_ready=True) != server_fingerprint(
+        server, config, confirmation_ready=False
+    )
+
+    # Web 会话工厂：借连接时声明确认门可用，会话接上确认门，工具是延迟工具
+    @contextmanager
+    def memory_checkpointer(_database: Any) -> Iterator[Any]:
+        yield _Saver(serde=default_checkpoint_serde())
+
+    monkeypatch.setattr(rm, "postgres_checkpointer", memory_checkpointer)
+    monkeypatch.setattr(rm, "ScopedPostgresSaver", lambda saver, _sessions, _user: saver)
+    factory = rm.WebAgenticSessionFactory(
+        None,  # type: ignore[arg-type]  # checkpointer 已换成内存实现，不碰数据库
+        None,  # type: ignore[arg-type]
+        trace_dir=gate_workdir / "traces",
+        session_dir=gate_workdir / "sessions",
+        mock_generator=True,
+    )
+    try:
+        with ExitStack() as stack:
+            thread_id = uuid4().hex
+            web_session = factory.create(
+                run_id=uuid4().hex,
+                thread_id=thread_id,
+                user_id=uuid4(),
+                principal=local_request_context(thread_id=thread_id).principal,
+                project_id=None,
+                stack=stack,
+            )
+            assert web_session.confirmation_enabled is True
+            assert BUMP in web_session.mcp_tool_names
+            assert web_session.confirmation_tools == frozenset({BUMP})
+            assert web_session.mcp_assembly.skipped_servers == ()
+            # 暴露不是授权：无凭证直接经注册表调用仍被拒（S1 的执行期规则）
+            blocked = web_session.registry.invoke(BUMP, note="direct")
+            assert blocked["code"] == "GUARDRAIL_BLOCKED"
+    finally:
+        factory.close()
+
+    # 配置仍不能自己声明"可确认"
+    path = gate_workdir / "ready.json"
+    path.write_text(json.dumps({"confirmation_handler_ready": True, "servers": []}), encoding="utf-8")
+    with pytest.raises(MCPError) as exc:
+        load_gateway_config(path)
+    assert exc.value.code == "MCP_CONFIG_INVALID"
+    assert "入口" in str(exc.value)
+    with pytest.raises(ValueError, match="confirmation_handler_ready"):
+        MCPGatewayConfig(confirmation_handler_ready=True)
