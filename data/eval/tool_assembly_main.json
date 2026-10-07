@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S7 Step 2：确认门执行凭证（ConfirmationGrant + invoke_confirmed + tool.confirmation_mismatch/replayed），可用工具集变化，TOOL_POLICY_VERSION 递进；surface 与 lifecycle 不变",
+    "last_write_reason": "P7-S6：新增第三层 Web 管理层与 credential_env 凭据槽位，MCP_CONFIG_VERSION 递进；surface 与 lifecycle 不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -3435,7 +3435,7 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p7-s5-2026-10-06",
+    "MCP_CONFIG_VERSION": "p7-s6-2026-10-07",
     "PROMPT_TEMPLATE_VERSION": "p7-s4-intent-tool-guide-2026-10-06",
     "TOOL_POLICY_VERSION": "p7-step7-2026-10-07"
   }

@@ -54,7 +54,7 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
-    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 当前代码的装配快照与入仓基线逐字段一致。"""
+    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 当前代码的装配快照与入仓基线逐字段一致。"""
 
     lines = snap.diff_snapshots(baseline, head)
     assert not lines, (
@@ -65,16 +65,23 @@ def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any
 def test_snapshot_is_hermetic_and_deterministic(
     head: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S0-A04 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。"""
+    """P7-S0-A04 / P7-S6-A10 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
+
+    ``WATER_AGENT_MCP_WEB_LAYER`` 指向一份损坏的层文件：没被快照钉住的话，带 MCP 的 profile 全会
+    变成 ``MCP_CONFIG_INVALID``。
+    """
 
     from water_agent.drawing.synth import build_synthetic_drawing
 
     drawings = tmp_path / "drawings"
     drawings.mkdir()
     build_synthetic_drawing(drawings, drawing_id="X-01")
+    corrupt_web_layer = tmp_path / "web_layer.json"
+    corrupt_web_layer.write_text("{ 这不是 JSON", encoding="utf-8")
     polluted = {
         "DRAWING_ROOT": str(drawings),
         "WATER_AGENT_MCP_CONFIG": str(tmp_path / "missing" / "mcp_servers.json"),
+        "WATER_AGENT_MCP_WEB_LAYER": str(corrupt_web_layer),
         "LOCAL_MODEL_ENABLED": "true",
         "WEB_MOCK_GENERATOR": "true",
         "DEEPSEEK_API_KEY": "sk-polluted-environment-0000",
