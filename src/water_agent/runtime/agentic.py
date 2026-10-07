@@ -443,6 +443,8 @@ class AgenticSession:
     ) -> None:
         self.args = args
         self.confirmation_enabled = confirmation
+        #: 恢复确认时调用方交回的本轮召回结果（只在 aresume 期间非空，见 ConfirmationRuntime.turn_contexts）
+        self._resume_contexts: dict[str, Any] = {}
         self.stack = stack
         self.thread_id = thread_id or uuid4().hex
         self.request_context = request_context or local_request_context(
@@ -546,6 +548,7 @@ class AgenticSession:
                     principal=assembly.principal,
                     tools=assembly.confirmation_tools,
                     request_context=self.request_context,
+                    turn_contexts=lambda: self._resume_contexts,
                 )
             }
             if confirmation
@@ -654,6 +657,9 @@ class AgenticSession:
         decision: dict[str, Any],
         *,
         run_id: str | None = None,
+        memory_context: MemoryRecallResult | None = None,
+        upload_context: Any | None = None,
+        attachment_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
         on_draft: Callable[[str, dict[str, Any]], None] | None = None,
@@ -664,10 +670,24 @@ class AgenticSession:
         ``decision`` 原样交给确认门（``{"confirmation_id", "approved", "reason"}``）；非法值不会让
         会话出错，而是带 ``error`` 再次挂起（返回值仍是 ``waiting_confirmation``）。事件、草稿与
         取消语义与 :meth:`aask` 相同。
+
+        三个 ``*_context`` 是这一轮挂起前的召回结果（同进程恢复时由调用方原样交回），经
+        ``ConfirmationRuntime.turn_contexts`` 交给 agent_loop，不写进状态。没交回而本轮原本有召回时
+        （进程重启过），本轮剩下的部分不带它们作答，``warnings`` 与 trace 如实记一条
+        ``turn_recall_context_unavailable``——降级必须可见。
         """
         if not self.confirmation_enabled:
             raise ValueError("本会话没有接人工确认门（confirmation=False），不能恢复确认")
         self.start_trace(run_id or uuid4().hex, "")
+        self._resume_contexts = {
+            key: value
+            for key, value in (
+                ("memory_context", memory_context),
+                ("upload_context", upload_context),
+                ("attachment_context", attachment_context),
+            )
+            if value is not None
+        }
 
         def checked_token(token: str) -> None:
             if cancel_check is not None and cancel_check():
@@ -681,17 +701,20 @@ class AgenticSession:
             if on_event is not None:
                 on_event(mode, payload)
 
-        with cancellation_scope(cancel_check):
-            result = await astream_agentic(
-                self.app,
-                "",
-                self.config,
-                on_token=checked_token if on_token is not None else None,
-                on_event=checked_event,
-                on_draft=on_draft,
-                request_context=self.request_context,
-                resume=decision,
-            )
+        try:
+            with cancellation_scope(cancel_check):
+                result = await astream_agentic(
+                    self.app,
+                    "",
+                    self.config,
+                    on_token=checked_token if on_token is not None else None,
+                    on_event=checked_event,
+                    on_draft=on_draft,
+                    request_context=self.request_context,
+                    resume=decision,
+                )
+        finally:
+            self._resume_contexts = {}
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
         return self._turn_payload(
@@ -764,14 +787,18 @@ class AgenticSession:
         print(flush=True)
         return self._payload(state, query=query, streamed=True)
 
-    def _thread_messages(self) -> list[Any]:
-        """本 thread 已持久化的消息；读不到（首轮、checkpoint 不可用）就当作空会话。"""
+    def _thread_values(self) -> dict[str, Any]:
+        """本 thread 已持久化的状态；读不到（首轮、checkpoint 不可用）就当作空会话。"""
         try:
             snapshot = self.app.get_state(self.config)
-        except Exception:  # noqa: BLE001 — 读不到历史只影响"变化才注入"的判断，不影响作答
-            return []
+        except Exception:  # noqa: BLE001 — 读不到历史只影响"变化才注入"等判断，不影响作答
+            return {}
         values = getattr(snapshot, "values", None) or {}
-        return list(values.get("messages", []) or [])
+        return dict(values)
+
+    def _thread_messages(self) -> list[Any]:
+        """本 thread 已持久化的消息；读不到（首轮、checkpoint 不可用）就当作空会话。"""
+        return list(self._thread_values().get("messages", []) or [])
 
     def _initial_messages(self, query: str) -> list[Any]:
         return _initial_messages_with_runtime_context(

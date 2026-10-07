@@ -30,7 +30,7 @@ resume 值契约与 docgen 相同的思路：只接受 ``{"confirmation_id": str
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -84,6 +84,7 @@ class ConfirmationRuntime:
     ``registry`` / ``principal`` 必须是本次装配的同一份（``ToolAssembly.registry`` /
     ``ToolAssembly.principal``）：凭证里的主体 hash 与注册表持有的主体不一致时，护栏判
     ``tool.confirmation_mismatch``。``pipeline`` / ``request_context`` 只用于给原因脱敏。
+    ``turn_contexts`` 在恢复后交回本轮的召回结果（见 ``agent_rag.make_agent_loop``）。
     """
 
     registry: ToolRegistry
@@ -91,6 +92,7 @@ class ConfirmationRuntime:
     tools: frozenset[str]
     request_context: RequestContext | None = None
     pipeline: GuardrailPipeline | None = None
+    turn_contexts: Callable[[], dict[str, Any]] | None = None
 
 
 def is_pending_confirmation(message: Any, tools: frozenset[str]) -> bool:
