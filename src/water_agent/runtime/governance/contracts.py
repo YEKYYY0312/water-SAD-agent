@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Self
@@ -683,6 +685,40 @@ class BudgetPolicy(str, Enum):
 #: 价格/阈值未经人工确认时的占位：**不得**把知识库示例价格复制为项目事实。
 PRICE_UNKNOWN: Literal["unknown"] = "unknown"
 
+
+# ---------------------------------------------------------------------------
+# 人工确认凭证（P7-S7）
+# ---------------------------------------------------------------------------
+
+
+def confirmation_args_hash(args: Mapping[str, Any]) -> str:
+    """工具参数的确认摘要：规范化 JSON（键排序、紧凑分隔符）的 sha256 全长。
+
+    确认门在批准时用它绑定"批准的是哪一份参数"，护栏在执行时用同一函数重算——两边口径
+    只有这一处。``default=str`` 让不可序列化的值也能得到稳定摘要（模型产出的参数本就是 JSON）。
+    """
+    payload = json.dumps(
+        dict(args), sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class ConfirmationGrant(BaseModel):
+    """一次人工批准签发的执行凭证（P7-S7）：只能由确认门在合法的批准之后构造。
+
+    绑定三项——工具名、参数摘要、主体 hash——并且只能用一次（护栏在进程内记下已用的
+    ``confirmation_id``）。模型只能产出 JSON，传不出这个对象；``ToolRegistry.invoke`` 的
+    ``**args`` 是工具参数，所以凭证只走 ``invoke_confirmed`` 的关键字参数，不会与参数撞名。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmation_id: str = Field(min_length=1, max_length=128)
+    tool_name: str = Field(min_length=1, max_length=256)
+    args_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    principal_hash: str = Field(min_length=1, max_length=64)
+    decided_at: datetime
+
 __all__ = [
     "CODE_BUDGET_EXCEEDED",
     "CODE_CACHE_INVALIDATED",
@@ -708,6 +744,7 @@ __all__ = [
     "CacheStatus",
     "CallCategory",
     "Capability",
+    "ConfirmationGrant",
     "ContentEnvelope",
     "GovernanceError",
     "PiiMode",
@@ -721,6 +758,7 @@ __all__ = [
     "SourceTag",
     "SourceTagDowngradeError",
     "UsageRecord",
+    "confirmation_args_hash",
     "is_instruction_bearing",
     "trust_level",
 ]
