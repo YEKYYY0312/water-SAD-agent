@@ -39,8 +39,10 @@ from water_agent.mcp.config import (
     load_gateway_config,
     load_layered_gateway_config,
 )
+from water_agent.mcp.credentials import missing_slots
 from water_agent.mcp.errors import (
     MCP_CONFIRMATION_UNAVAILABLE,
+    MCP_CREDENTIAL_MISSING,
     MCP_SERVER_DISABLED,
 )
 from water_agent.tools.registry import ToolRegistry
@@ -194,11 +196,36 @@ def _confirmation_skips(
     ]
 
 
+def _credential_skips(config: MCPGatewayConfig, *, already: set[str]) -> list[SkippedServer]:
+    """声明了凭据槽位却没填值的 server 不 spawn（P7-S6）：不带 token 启动的 server 会以各种
+    不可诊断的方式失败。已被前面的条件跳过的 server 不再查（停用的 server 不查凭据）。
+
+    detail 只有槽位名，没有值。
+    """
+    skips: list[SkippedServer] = []
+    for server in config.servers:
+        if server.server_id in already or server.disabled or not server.credential_env:
+            continue
+        missing = missing_slots(server.server_id, server.credential_env)
+        if missing:
+            skips.append(
+                SkippedServer(
+                    server.server_id,
+                    MCP_CREDENTIAL_MISSING,
+                    f"凭据槽位还没填值：{', '.join(missing)}（由管理员在 Web 扩展面板填写）",
+                )
+            )
+    return skips
+
+
 def pre_connection_skips(
     config: MCPGatewayConfig, *, confirmation_ready: bool = False
 ) -> list[SkippedServer]:
-    """不连接就能判定的跳过：停用，以及本入口没有确认门时要求人工确认的 server（停用先于确认门）。"""
-    return [*_disabled_skips(config), *_confirmation_skips(config, confirmation_ready=confirmation_ready)]
+    """不连接就能判定的跳过：停用，本入口没有确认门时要求人工确认的 server，以及凭据槽位没填值的
+    server（依次判定，一台 server 只记第一条）。"""
+    skips = [*_disabled_skips(config), *_confirmation_skips(config, confirmation_ready=confirmation_ready)]
+    skips.extend(_credential_skips(config, already={skip.server_id for skip in skips}))
+    return skips
 
 
 def bridge_gateway_view(
