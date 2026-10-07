@@ -343,6 +343,28 @@ code { font-family: var(--mono); font-size: .92em; }
 .settings-card-name { color: var(--faint); font: .76rem var(--mono); }
 .settings-footnote { max-width: 46rem; }
 
+/* ---------- MCP 扩展（P7-S6）：复用设置页卡片，只补元数据、工具列表与凭据槽位 ---------- */
+.mcp-admin { display: grid; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.mcp-server-card, .mcp-allow, .mcp-slots { display: grid; gap: .65rem; }
+.mcp-server-card h3, .mcp-admin .settings-card h3 { font-size: .92rem; font-weight: 600; }
+.mcp-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; font-size: .84rem; }
+.mcp-meta dt { color: var(--muted); }
+.mcp-meta dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-tags { display: flex; flex-wrap: wrap; gap: .35rem; }
+.mcp-tag { padding: .05rem .5rem; border-radius: var(--r-pill); color: var(--ink-soft); background: var(--surface-strong); font-size: .76rem; }
+.mcp-actions { justify-content: flex-start; flex-wrap: wrap; }
+.mcp-tool-list { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.mcp-tool-list li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; padding: .35rem .55rem; border-radius: var(--r-item); background: var(--surface); font-size: .84rem; }
+.mcp-tool-list label { display: inline-flex; align-items: center; gap: .45rem; }
+.mcp-inline-form { display: flex; gap: .5rem; }
+.mcp-inline-form input, .mcp-slot input { flex: 1; min-height: 2.2rem; padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .86rem; }
+.mcp-slot { display: grid; gap: .4rem; }
+.mcp-slot label { display: grid; gap: .3rem; font-size: .84rem; }
+.mcp-note { display: block; color: var(--muted); font-size: .78rem; }
+.mcp-import textarea { font-family: var(--mono); font-size: .82rem; }
+.mcp-import-result { display: grid; gap: .6rem; }
+.mcp-import-result .mcp-tool-list li { display: grid; justify-content: stretch; gap: .2rem; }
+
 /* ---------- 生成图纸（P6-S1）：复用设置页的版式，只补表单错误与结果区 ---------- */
 .drawing-panel { width: min(72rem, 100%); }
 .drawing-form .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
