@@ -219,7 +219,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S4 | Step C | 按意图最小暴露 / 工具分组（每轮确定性决定，core = 检索 + 引用 + 流速计算）；修 F4/F5（先建 `tool_exposure_p0`）；回滚开关 `WATER_AGENT_TOOL_EXPOSURE=full` | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | delivered |
 | S5 | Step D（一） | MCP 长驻连接（stdio）：`lifecycle: shared` 的 server 跨 run 复用进程（修 F8，缺省 `per_run` 不变）、客户端请求串行化（修 F17 并发取错响应）、按单台 server 指纹重载 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | delivered |
 | S6 | Step E1 | Web 扩展面板（只改启停 / allow / 凭据引用；导入 `mcpServers` 只生成禁用的待审提案） | 开工前另写 | planned |
-| S7 | Step E2 | HITL 确认门：外层图 interrupt、waiting 态、批准/拒绝 API、审计 | 开工前另写 | planned |
+| S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | planned |
 | S8 | Step D（二） | Streamable HTTP 传输：`NETWORK_FETCH` 能力决策 + 出站清单 7 → 8（2026-10-06 从 S5 拆出） | 开工前另写 | planned |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
@@ -246,7 +246,13 @@ S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 - **S6**：导入 `mcpServers` 会带来 `command` / `args`，面板不能写它们，只能生成"已禁用的待审提案"，
   由运维离线应用。
 - **S7**：内层 react agent 是 `checkpointer=False`（`graphs/agent_rag.py`），工具执行中的 interrupt
-  无法恢复，确认门必须放在**外层图**（先例：`multi_agent/orchestrator.py` 的审批 interrupt）。
+  无法恢复，确认门必须放在**外层图**（先例：`multi_agent/orchestrator.py` 的审批 interrupt）。2026-10-06
+  写执行 Prompt 时定下（理由见 Prompt §0）：需确认的工具在 ToolNode 里换成同名同 schema 的
+  `return_direct` 延迟工具，内层循环在它之后结束；外层 `confirmation_gate` 挂起，批准后签发绑定工具名 +
+  参数摘要 + 主体的一次性 `ConfirmationGrant`，经 `ToolRegistry.invoke_confirmed` 执行一次并同 id 替换
+  待确认消息；S1 的无凭证拒绝原样保留；`confirmation_handler_ready` 仍在加载期拒绝，确认门是否可用由
+  **入口**决定（只有 Web）；新增 run 状态 `waiting_confirmation`（无迁移），批准者是 run 所有者；
+  CLI / runner 不接。
 
 ---
 
@@ -463,6 +469,21 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S5-A09 | F8：shared 的 server 跨 run 不再重开；快照只有 `/versions/MCP_CONFIG_VERSION` 变化 | `tests/test_p7_known_figures.py::test_shared_mcp_servers_survive_across_runs` | delivered |
 | P7-S5-A10 | 手动验收：本机 autocad-mcp 设为 shared，两次 Web run 的 trace 依次为 `shared_new`、`shared_reused`（只证明连接复用，不是 CAD 验收） | 无 | untested |
 
+### S7：危险操作人工确认门（Step E2）
+
+| ID | 验收 | 验证 | 状态 |
+|---|---|---|---|
+| P7-S7-A01 | 需确认的工具在 ToolNode 里是 `return_direct` 延迟工具：执行不调用注册表、不碰 MCP，内层循环随即结束 | `tests/test_confirmation_gate.py::test_deferred_tool_never_executes_and_ends_the_inner_loop` | planned |
+| P7-S7-A02 | 执行凭证：无凭证仍 `tool.confirmation_required`；工具名 / 参数摘要 / 主体不一致 `tool.confirmation_mismatch`；重放 `tool.confirmation_replayed`；正确凭证执行一次 | `tests/test_confirmation_grant.py::test_grant_must_match_tool_args_and_principal`<br>`tests/test_confirmation_grant.py::test_grant_is_single_use` | planned |
+| P7-S7-A03 | 外层确认门：挂起时副作用未发生；批准恰好执行一次、模型看到真实结果；拒绝零次、模型看到拒绝 observation；非法 resume 不毒化会话；同一消息多条逐条确认；每轮上限 3 次 | `tests/test_confirmation_gate.py::test_approve_executes_exactly_once`<br>`tests/test_confirmation_gate.py::test_reject_executes_nothing`<br>`tests/test_confirmation_gate.py::test_invalid_resume_does_not_poison_the_session` | planned |
+| P7-S7-A04 | 审计：`confirmation_log` 随 checkpoint 持久化、跨轮累积；三类 trace 事件；参数只记摘要、主体只记 hash、原因脱敏截断 | `tests/test_confirmation_gate.py::test_confirmation_audit_has_no_raw_arguments` | planned |
+| P7-S7-A05 | 入口决定可用性：Web 借连接时 `human_confirmation` 的 server 暴露；CLI / runner 仍 `MCP_CONFIRMATION_UNAVAILABLE`；`confirmation_handler_ready=true` 仍加载期拒绝 | `tests/test_confirmation_gate.py::test_only_the_web_entry_point_enables_confirmation` | planned |
+| P7-S7-A06 | Web：`waiting_confirmation` 态与 `confirmation_required` 事件；挂起期间发消息 409；决定接口的归属 404 / 写权限 403 / 过期 409 / 正确 202；同一 run 上恢复；重启后仍可决定 | `tests/test_web_confirmation.py::test_confirmation_round_trip_on_the_same_run`<br>`tests/test_web_confirmation.py::test_confirmation_endpoint_authorization`<br>`tests/test_web_confirmation.py::test_pending_confirmation_survives_restart` | planned |
+| P7-S7-A07 | 前端确认卡片：显示请求、批准 / 拒绝、刷新后从历史恢复（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
+| P7-S7-A08 | 快照只有 `/versions/TOOL_POLICY_VERSION` 变化 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline` | planned |
+| P7-S7-A09 | F7 最终形态：Web 入口下需确认的工具暴露为延迟工具、无凭证执行仍被拒 | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | planned |
+| P7-S7-A10 | 手动验收：浏览器里看到确认卡片，批准后回答带计数结果、拒绝后计数不变 | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
@@ -473,6 +494,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
+- **P7-S7-A07**：前端测试是 `web/app/tests/*.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不在 `scripts/ci_gate.sh` 里，也不是追溯检查能识别的 pytest 节点；不是没有测试，而是验证项格式表达不了。
+- **P7-S7-A10**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A06（HTTP 往返）与 A07（前端单测）。
 - **P7-S5-A10**：依赖本机装了 autocad-mcp 与 Web 栈，CI 上没有；做了也只证明连接复用，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
 - **F17**：S0 事实表里没有，是 S5 读码时发现的现有缺陷（规格补登记）。
 - **P7-S3-A13**：依赖本机装了 autocad-mcp，CI 上没有。2026-10-05 本机已做：覆盖层指向 autocad-mcp 仓库后暴露 `mcp_autocad_mcp_read_dwg`。这只证明能连上，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
@@ -536,6 +559,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | S3 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | S4 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | S5 执行 Prompt（含范围块） |
+| `docs/execution-prompts/P7-S7-hitl-confirmation.md` | S7 执行 Prompt（含范围块） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/harness/tool_exposure_eval.py` + `data/eval/tool_exposure_p0.jsonl` | S4 评测集与 harness（入仓基线 `data/eval/tool_exposure_p0_main.json`） |
 | `src/water_agent/harness/tool_assembly_snapshot.py` | H1 装配快照 |
