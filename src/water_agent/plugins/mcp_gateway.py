@@ -96,18 +96,30 @@ class McpGatewayPlugin:
         stack: ExitStack | None = None,
         assembly: MCPGatewayAssembly | None = None,
         owns: bool,
+        confirmation_ready: bool = False,
     ) -> None:
         self._config = config
         self._stack = stack
         self._assembly = assembly
         self._owns = owns
+        self._confirmation_ready = confirmation_ready
         self._used = False
 
     @classmethod
-    def owning(cls, config: MCPGatewayConfig | None, *, stack: ExitStack) -> McpGatewayPlugin:
-        """按配置现开；``config=None``（功能关闭）时得到空装配，照样登记关闭。"""
+    def owning(
+        cls,
+        config: MCPGatewayConfig | None,
+        *,
+        stack: ExitStack,
+        confirmation_ready: bool = False,
+    ) -> McpGatewayPlugin:
+        """按配置现开；``config=None``（功能关闭）时得到空装配，照样登记关闭。
 
-        return cls(config=config, stack=stack, owns=True)
+        ``confirmation_ready``（P7-S7）：调用方接了人工确认门时为 ``True``，要求确认的 server 才会
+        连接与暴露（见 ``open_gateway_sessions``）。
+        """
+
+        return cls(config=config, stack=stack, owns=True, confirmation_ready=confirmation_ready)
 
     @classmethod
     def borrowing(cls, assembly: MCPGatewayAssembly | None) -> McpGatewayPlugin:
@@ -119,7 +131,9 @@ class McpGatewayPlugin:
                 raise RuntimeError("McpGatewayPlugin.owning 只能装配一次：同一批 MCP 子进程不能交给两次装配")
             self._used = True
             assert self._stack is not None
-            assembly = open_gateway_sessions(self._config)
+            assembly = open_gateway_sessions(
+                self._config, confirmation_ready=self._confirmation_ready
+            )
             self._stack.callback(assembly.close)
         else:
             assembly = self._assembly if self._assembly is not None else _EMPTY_ASSEMBLY

@@ -371,7 +371,17 @@ class RunRepository:
         database remains the authoritative owner/status boundary.
         """
 
-        allowed = {"queued", "running", "succeeded", "failed", "blocked", "cancelled"}
+        # waiting_confirmation（P7-S7）：作答停在人工确认门，不是终态；决定后经 queued 在同一个 run 上
+        # 继续。状态只在这里校验（runs.status 没有数据库约束），新增取值不需要迁移。
+        allowed = {
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+            "waiting_confirmation",
+        }
         if status not in allowed:
             raise ValueError(f"unknown run status: {status}")
         with self.database.transaction() as session:
