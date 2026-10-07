@@ -91,10 +91,14 @@ def test_mcp_manifest_reaches_the_cache_service(profiles: dict[str, Any]) -> Non
 
 
 def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
-    """P7-S1-A03 F7 已修：confirmation_handler_ready=true 在加载期即被拒绝，装配不再发生。
+    """P7-S1-A03 / P7-S7-A09 F7 的最终形态：配置不能声明"可确认"，确认门是否可用由入口决定。
 
-    S0 时这个 profile 的现状是"要求人工确认的工具直接暴露并可调用"；现在会话在加载配置时
-    就以 MCP_CONFIG_INVALID 失败，不 spawn 任何 server、不授权、不构图。
+    S0 时 ``session_mcp_ready_flag`` 的现状是"要求人工确认的工具直接暴露并可调用"；S1 起会话在加载
+    配置时就以 MCP_CONFIG_INVALID 失败，不 spawn 任何 server、不授权、不构图。快照的会话 profile 走 CLI
+    路径（没有确认门），``session_mcp_confirm_skip`` 仍整台跳过。
+
+    S7：Web 入口（连接池租约声明 ``confirmation_ready``、装配借用租约）下，要求确认的工具暴露为
+    ``return_direct`` 延迟工具；暴露不是授权——不经确认门直接执行仍被 ``tool.confirmation_required`` 拒绝。
     """
 
     ready = profiles["session_mcp_ready_flag"]
@@ -108,6 +112,59 @@ def test_confirmation_gate_is_enforced(profiles: dict[str, Any]) -> None:
         ["snapconfirm", "MCP_CONFIRMATION_UNAVAILABLE"]
     ]
     assert "mcp_invoke" not in _caps(skipped["surface"]["principal"])
+
+    import sys
+    from pathlib import Path
+
+    from water_agent.mcp.config import MCP_CONFIG_VERSION, MCPGatewayConfig
+    from water_agent.mcp.pool import McpConnectionPool
+    from water_agent.plugins import AssemblyContext, McpGatewayPlugin, assemble_tools
+    from water_agent.retrieval.trivium import TriviumRetriever
+    from water_agent.runtime.governance.contracts import Principal
+    from water_agent.runtime.governance.pipeline import GuardrailPipeline
+
+    fake = Path(__file__).resolve().parent / "fixtures" / "fake_mcp_server.py"
+    config = MCPGatewayConfig.model_validate(
+        {
+            "version": MCP_CONFIG_VERSION,
+            "servers": [
+                {
+                    "server_id": "f7web",
+                    "command": sys.executable,
+                    "args": [str(fake), "--mode", "stateful"],
+                    "allow": ["bump"],
+                    "human_confirmation": True,
+                }
+            ],
+        }
+    )
+    pool = McpConnectionPool()
+    try:
+        cli_like = pool.lease(config)
+        assert [(s.server_id, s.code) for s in cli_like.assembly.skipped_servers] == [
+            ("f7web", "MCP_CONFIRMATION_UNAVAILABLE")
+        ]
+        cli_like.release()
+
+        lease = pool.lease(config, confirmation_ready=True)
+        try:
+            assembly = assemble_tools(
+                AssemblyContext(retriever=TriviumRetriever(db_path=None, fallback_clauses=[])),
+                base_principal=Principal.local("f7-web"),
+                trace=None,
+                plugins=[McpGatewayPlugin.borrowing(lease.assembly)],
+            )
+            assert assembly.confirmation_tools == frozenset({"mcp_f7web_bump"})
+            tool = next(item for item in assembly.tools if item.name == "mcp_f7web_bump")
+            assert tool.return_direct is True
+            assert "mcp_invoke" in {cap.value for cap in assembly.principal.capabilities}
+            outcome = GuardrailPipeline().validate_tool_call("mcp_f7web_bump", {}, assembly.principal)
+            assert outcome.decision.rule_id == "tool.confirmation_required"
+            assert assembly.registry.invoke("mcp_f7web_bump")["code"] == "GUARDRAIL_BLOCKED"
+        finally:
+            lease.release()
+    finally:
+        pool.close()
 
 
 def test_no_assembly_trace_calls_that_never_land(profiles: dict[str, Any]) -> None:
