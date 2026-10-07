@@ -441,6 +441,17 @@ def test_embedding_key_is_not_required_without_a_real_index(
         "water_agent.retrieval.trivium.DEFAULT_INDEX_DIR", tmp_path / "no-indexes"
     )
     client, _, thread_id = _client(database, tmp_path)
+    # 真实工厂会在建 run 之前读 checkpoint 判定会话是否停在确认门（P7-S7）；SQLite 上没有 PG
+    # checkpointer，换成内存实现（空会话 = 未挂起），本用例只验 embedding 凭据这一项预检。
+    from contextlib import contextmanager
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    @contextmanager
+    def memory_checkpointer(_database):
+        yield InMemorySaver()
+
+    client.app.state.run_manager.checkpointer_factory = memory_checkpointer
     response = client.post(
         f"/api/sessions/{thread_id}/messages",
         json={"message": "问题"},

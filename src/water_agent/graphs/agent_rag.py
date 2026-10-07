@@ -572,6 +572,7 @@ def make_agent_loop(
     temperature: float = 0.0,
     recursion_limit: int | None = None,
     exposure: ToolExposurePolicy | None = None,
+    turn_contexts: Callable[[], dict[str, Any]] | None = None,
 ):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
 
@@ -583,6 +584,12 @@ def make_agent_loop(
     外层 config。超预算、撞上递归上限、治理层拒绝都收口为结构化结果，不以裸异常冒出图。
 
     ``trace``：首次进入时 ``start``，每轮结束把 llm_call 记录刷进去（Step 10 观测）。
+
+    ``turn_contexts``（P7-S7）：确认门恢复后取回本轮召回结果的回调。三个 ``*_context`` 在一次
+    invoke 之内是原对象，经 checkpoint 读回后却是 dict（生产 serde 只放行 ``CitationClaim``），交给
+    PromptAssembler 会当场 TypeError。这里把 dict 换成回调给的原对象（同进程恢复），取不到就换成
+    ``None`` 并记一条 :data:`WARNING_TURN_CONTEXT_UNAVAILABLE`（降级可见）。只换交给内层子图的那份，
+    不写回状态。正常作答路径上三者每轮重新写入，不会出现 dict。
 
     P2.5 接线（review 修复）：运行 react agent 前先对用户输入做护栏（注入/超长→blocked），
     再在真正 provider 调用前做缓存 lookup（agentic 分类不可缓存，故只会 MISS/INELIGIBLE）。
@@ -670,6 +677,15 @@ def make_agent_loop(
                 if name and name != INVALID_TOOL_CALL_NAME and name not in exposed:
                     _record("unexposed_call", {"tool_name": name, "unexposed_call": True})
 
+    def _restore_turn_contexts(state: AgenticRAGState) -> tuple[dict[str, Any], list[str]]:
+        """经 checkpoint 读回成 dict 的召回结果 → 回调给的原对象，或 ``None``（记为取不回）。"""
+        stale = [key for key in TURN_CONTEXT_KEYS if isinstance(state.get(key), dict)]
+        if not stale:
+            return {}, []
+        supplied = turn_contexts() if turn_contexts is not None else {}
+        restored = {key: supplied.get(key) for key in stale}
+        return restored, [key for key in stale if restored[key] is None]
+
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
         query = state.get("query", "") or _first_human_text(state)
@@ -708,12 +724,24 @@ def make_agent_loop(
         inner_state: Any = (
             state if decision_state is None else {**state, "tool_exposure": decision_state}
         )
+        restored, lost = _restore_turn_contexts(state)
+        if restored:
+            inner_state = {**inner_state, **restored}
         inner_config = config if recursion_limit is None else {**config, "recursion_limit": recursion_limit}
         try:
             result = dict(react_agent.invoke(inner_state, config=inner_config))
+            # 换进内层的原对象不写回状态（checkpoint 照旧存 dict，下次进入再换）
+            for key in restored:
+                result.pop(key, None)
             if decision_state is not None:
                 result["tool_exposure"] = decision_state
                 _record_unexposed_calls(state, result, decision_state)
+            if lost:
+                warnings = list(result.get("warnings") or state.get("warnings", []) or [])
+                if WARNING_TURN_CONTEXT_UNAVAILABLE not in warnings:
+                    warnings.append(WARNING_TURN_CONTEXT_UNAVAILABLE)
+                    _record("turn_context_unavailable", {"keys": lost})
+                result["warnings"] = warnings
             return result
         except ToolBudgetExceeded as exc:
             return {
@@ -856,6 +884,11 @@ WARNING_NON_NORMATIVE_NO_CITATION = "no_citation_non_normative"
 WARNING_NO_BASIS_REFUSAL = "no_citation_no_basis"
 #: trace 写盘失败：答案照常返回，只少了诊断现场（见 make_finalize._finish_trace）。
 WARNING_TRACE_WRITE_FAILED = "trace_write_failed"
+#: 本轮的召回结果（长期记忆 / 上传资料 / 附件）在恢复后取不回来（P7-S7：确认门挂起期间进程重启过），
+#: 本轮剩下的部分不带它们作答。
+WARNING_TURN_CONTEXT_UNAVAILABLE = "turn_recall_context_unavailable"
+#: 每轮写入、无 reducer 的召回结果键（见 :func:`_agentic_input`）。
+TURN_CONTEXT_KEYS: tuple[str, ...] = ("memory_context", "upload_context", "attachment_context")
 _NORMATIVE_MARKERS = (
     re.compile(r"(?:GB|CJJ|CECS|JGJ|DBJ?|T/)\s*/?\s*T?\s*\d{3,5}", re.IGNORECASE),
     re.compile(r"(?<![\d.])\d{1,2}\.\d{1,2}\.\d{1,3}(?![\d.])"),
@@ -1340,6 +1373,7 @@ def build_agentic_app(
             temperature=cache_temperature,
             recursion_limit=inner_recursion_limit(max_tool_turns),
             exposure=exposure,
+            turn_contexts=confirmation.turn_contexts if confirmation is not None else None,
         ),
     )
     graph.add_node("citation_validator", make_citation_validator(version_registry))
@@ -1712,7 +1746,10 @@ async def astream_agentic(
       独立 data 段，不承载指令、不参与数值推导、不改变引用校验；
     - ``pipeline`` / ``request_context``：草稿过检用的护栏与主体（缺省回落默认实例）；
     - ``resume``（P7-S7）：对挂起的确认门给出决定，以 ``Command(resume=...)`` 继续同一轮——不重置
-      本轮状态、不追加消息，``query`` 与各 ``*_context`` 被忽略。
+      本轮状态、不追加消息、不写任何状态键，``query`` 与各 ``*_context`` 被忽略。本轮的召回结果由
+      agent_loop 经 ``turn_contexts`` 取回（见 :func:`make_agent_loop`）：不能用 ``Command(update=...)``
+      写回——非法 resume 再挂起之后第二次带 update 恢复，同一步里同一个键收到两次写入，LangGraph 在
+      确认门节点**执行完工具之后**才报 ``InvalidUpdateError``（实测）。
 
     图停在确认门时（``get_state().interrupts`` 非空）流照常结束，返回的是挂起前的状态；是否挂起由
     调用方读 checkpoint 判定。
