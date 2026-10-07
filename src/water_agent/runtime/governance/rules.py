@@ -26,7 +26,9 @@ from enum import Enum
 
 #: 规则集版本。**改动任何规则都必须改它**（进 trace 与 PolicyDecision，便于回溯裁定依据）。
 #: P7-S1：工具面新增 ``tool.confirmation_required``（需人工确认的 MCP 工具执行期一律拒绝）。
-RULESET_VERSION = "p7-s1-2026-10-03"
+#: P7-S7：工具面新增执行凭证的两条规则 ``tool.confirmation_mismatch`` / ``tool.confirmation_replayed``
+#: （凭证是确认门在人工批准后签发的唯一放行路径）。
+RULESET_VERSION = "p7-s7-2026-10-07"
 
 # ---------------------------------------------------------------------------
 # 输入上限（规格 §6：输入规范化与字节/token 上限）
