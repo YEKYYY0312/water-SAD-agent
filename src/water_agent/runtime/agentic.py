@@ -30,6 +30,12 @@ from water_agent.graphs.agent_rag import (
     build_agentic_app,
     stream_agentic,
 )
+from water_agent.graphs.confirmation import (
+    STATUS_WAITING_CONFIRMATION,
+    ConfirmationRuntime,
+    pending_confirmation_request,
+    public_confirmation_request,
+)
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.pool import McpLease
 from water_agent.mcp.wiring import load_mcp_gateway
@@ -410,6 +416,11 @@ class AgenticSession:
 
     ``mcp_lease``（P7-S5）：Web 从进程内连接池借来的 MCP 连接。给了就借用它的装配（不打开、
     不关闭进程），并把 ``release`` 登记到 ``stack``；不给就照旧按配置现开现关（CLI）。
+
+    ``confirmation``（P7-S7）：本入口接了人工确认门（只有 Web 会话工厂传 ``True``）。为 ``True`` 时
+    要求确认的 MCP server 照常暴露（工具以延迟工具出现），图里接入 ``confirmation_gate``；作答停在
+    确认门时返回 ``status="waiting_confirmation"`` 与 ``confirmation`` 请求，由 :meth:`aresume` 继续。
+    为 ``False`` 时装配里出现要求确认的工具即报错（没有确认门就不能有延迟工具）。
     """
 
     #: RunManager 只给声明支持的会话传 ``attachment_context`` / ``on_draft``（AgentSessionFactory 是协议）。
@@ -428,8 +439,10 @@ class AgenticSession:
         retriever: Retriever | None = None,
         mcp_enabled: bool = True,
         mcp_lease: McpLease | None = None,
+        confirmation: bool = False,
     ) -> None:
         self.args = args
+        self.confirmation_enabled = confirmation
         self.stack = stack
         self.thread_id = thread_id or uuid4().hex
         self.request_context = request_context or local_request_context(
@@ -495,7 +508,9 @@ class AgenticSession:
             mcp_plugin = McpGatewayPlugin.borrowing(mcp_lease.assembly)
         else:
             mcp_plugin = McpGatewayPlugin.owning(
-                load_mcp_gateway() if mcp_enabled else None, stack=stack
+                load_mcp_gateway() if mcp_enabled else None,
+                stack=stack,
+                confirmation_ready=confirmation,
             )
         assembly = assemble_tools(
             AssemblyContext(
@@ -516,6 +531,24 @@ class AgenticSession:
         registry = assembly.registry
         tools = assembly.tools
         self.registry = registry
+        if assembly.confirmation_tools and not confirmation:
+            raise ValueError(
+                "装配里有要求人工确认的工具，但本入口没有接确认门（confirmation=False）："
+                f"{sorted(assembly.confirmation_tools)}"
+            )
+        # 只在接了确认门时才把它交给图（不传时 build_agentic_app 的入参与此前逐字相同）
+        confirmation_kwargs: dict[str, Any] = (
+            {
+                "confirmation": ConfirmationRuntime(
+                    registry=registry,
+                    principal=assembly.principal,
+                    tools=assembly.confirmation_tools,
+                    request_context=self.request_context,
+                )
+            }
+            if confirmation
+            else {}
+        )
         self.projection = RuntimeContextProjection()
         self.config = {"configurable": {"thread_id": self.thread_id}}
         saver = checkpointer if checkpointer is not None else build_cli_checkpointer(args.session_dir, stack)
@@ -534,6 +567,7 @@ class AgenticSession:
                 if not args.mock_generator
                 else None
             ),
+            **confirmation_kwargs,
         )
 
     def _thread_retrieved_source_ids(self) -> set[str]:
@@ -611,7 +645,78 @@ class AgenticSession:
             )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
-        return self._payload(result, query=query, streamed=on_token is not None)
+        return self._turn_payload(result, query=query, streamed=on_token is not None)
+
+    async def aresume(
+        self,
+        decision: dict[str, Any],
+        *,
+        run_id: str | None = None,
+        on_token: Callable[[str], None] | None = None,
+        on_event: Callable[[str, Any], None] | None = None,
+        on_draft: Callable[[str, dict[str, Any]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """对挂起的确认请求给出决定，继续同一轮（P7-S7，Web 恢复路径）。
+
+        ``decision`` 原样交给确认门（``{"confirmation_id", "approved", "reason"}``）；非法值不会让
+        会话出错，而是带 ``error`` 再次挂起（返回值仍是 ``waiting_confirmation``）。事件、草稿与
+        取消语义与 :meth:`aask` 相同。
+        """
+        if not self.confirmation_enabled:
+            raise ValueError("本会话没有接人工确认门（confirmation=False），不能恢复确认")
+        self.start_trace(run_id or uuid4().hex, "")
+
+        def checked_token(token: str) -> None:
+            if cancel_check is not None and cancel_check():
+                raise RunCancelled()
+            if on_token is not None:
+                on_token(token)
+
+        def checked_event(mode: str, payload: Any) -> None:
+            if cancel_check is not None and cancel_check():
+                raise RunCancelled()
+            if on_event is not None:
+                on_event(mode, payload)
+
+        with cancellation_scope(cancel_check):
+            result = await astream_agentic(
+                self.app,
+                "",
+                self.config,
+                on_token=checked_token if on_token is not None else None,
+                on_event=checked_event,
+                on_draft=on_draft,
+                request_context=self.request_context,
+                resume=decision,
+            )
+        if cancel_check is not None and cancel_check():
+            raise RunCancelled()
+        return self._turn_payload(
+            result, query=str(result.get("query") or ""), streamed=on_token is not None
+        )
+
+    def pending_confirmation(self) -> dict[str, Any] | None:
+        """本 thread 挂起在确认门的请求（读 checkpoint 的 interrupts，不只看 ``next``）。
+
+        没有接确认门时恒为 ``None``。读 checkpoint 出错时**上抛**：把挂起的会话报成"没挂起"，
+        调用方会把 run 当成失败收口，而会话其实还停在确认门。
+        """
+        if not self.confirmation_enabled:
+            return None
+        snapshot = self.app.get_state(self.config)
+        return pending_confirmation_request(getattr(snapshot, "interrupts", ()) or ())
+
+    def _turn_payload(self, state: dict[str, Any], *, query: str, streamed: bool) -> dict[str, Any]:
+        payload = self._payload(state, query=query, streamed=streamed)
+        pending = self.pending_confirmation()
+        if pending is not None:
+            payload.update(
+                status=STATUS_WAITING_CONFIRMATION,
+                answer="",
+                confirmation=public_confirmation_request(pending),
+            )
+        return payload
 
     def ask(self, query: str) -> dict[str, Any]:
         """同步作答（CLI）。``--stream`` 时逐句打印已过护栏的草稿。
@@ -716,6 +821,7 @@ def build_agentic_session(
     request_context: RequestContext | None = None,
     checkpointer: Any | None = None,
     mcp_lease: McpLease | None = None,
+    confirmation: bool = False,
 ) -> AgenticSession:
     """Single assembly function used by CLI and Web adapters."""
 
@@ -726,6 +832,7 @@ def build_agentic_session(
         request_context=request_context,
         checkpointer=checkpointer,
         mcp_lease=mcp_lease,
+        confirmation=confirmation,
     )
 
 

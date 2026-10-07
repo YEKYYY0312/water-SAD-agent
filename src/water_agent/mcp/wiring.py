@@ -8,9 +8,11 @@
 
 1. **文件不存在 = 功能关闭**（返回空装配，不报错）；**文件坏 =
    ``MCP_CONFIG_INVALID`` 上抛**（响亮失败 —— 静默跳过全部 server 是最危险的降级）。
-2. ``human_confirmation=true`` 且确认门未接线（``confirmation_handler_ready=false``）
-   的 server **整台不暴露**（`MCP_CONFIRMATION_UNAVAILABLE`，只记 skip，不 spawn
-   进程）—— 宁可不暴露，也不给"先问一句再执行"的假象（interrupt/HITL 是后续 Step）。
+2. ``human_confirmation=true`` 的 server 只在**接了确认门的入口**暴露（``confirmation_ready=True``，
+   P7-S7：只有 Web 会话工厂）；其余入口（CLI、评测 runner）**整台不暴露**
+   （`MCP_CONFIRMATION_UNAVAILABLE`，只记 skip，不 spawn 进程）—— 宁可不暴露，也不给"先问一句
+   再执行"的假象。确认门是否可用由入口决定，不由配置声明（``confirmation_handler_ready`` 在加载期
+   即被拒绝）。
 3. 工具暴露需要**两把钥匙**：``allow`` 白名单（装配期，``None`` = 全拒）+
    ``Principal`` 显式授予 ``Capability.MCP_INVOKE``（本模块构造主体时叠加授予，
    基础能力集不变）。缺任何一把，``ToolRegistry.invoke`` 的护栏都拒绝。
@@ -174,25 +176,43 @@ def _disabled_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
     ]
 
 
-def _confirmation_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
-    """确认门未接线时，``human_confirmation=true`` 的 server 整台拒绝（不 spawn）。"""
-    if config.confirmation_handler_ready:
+def _confirmation_skips(
+    config: MCPGatewayConfig, *, confirmation_ready: bool
+) -> list[SkippedServer]:
+    """本入口没有确认门时，``human_confirmation=true`` 的 server 整台拒绝（不 spawn）。"""
+    if confirmation_ready:
         return []
     return [
         SkippedServer(
             server.server_id,
             MCP_CONFIRMATION_UNAVAILABLE,
-            "server 配置 human_confirmation=true，但 confirmation_handler_ready=false："
-            "危险操作人工确认门未接线，整台 server 的工具不暴露（interrupt/HITL 为后续 Step）",
+            "server 配置 human_confirmation=true，但本入口没有接人工确认门（只有 Web 会话接线）："
+            "整台 server 的工具不暴露",
         )
         for server in config.servers
         if server.human_confirmation and not server.disabled
     ]
 
 
-def pre_connection_skips(config: MCPGatewayConfig) -> list[SkippedServer]:
-    """不连接就能判定的跳过：停用，以及确认门未接线时要求人工确认的 server（停用先于确认门）。"""
-    return [*_disabled_skips(config), *_confirmation_skips(config)]
+def pre_connection_skips(
+    config: MCPGatewayConfig, *, confirmation_ready: bool = False
+) -> list[SkippedServer]:
+    """不连接就能判定的跳过：停用，以及本入口没有确认门时要求人工确认的 server（停用先于确认门）。"""
+    return [*_disabled_skips(config), *_confirmation_skips(config, confirmation_ready=confirmation_ready)]
+
+
+def bridge_gateway_view(
+    config: MCPGatewayConfig, *, confirmation_ready: bool
+) -> MCPGatewayConfig:
+    """交给 ``open_bridge`` 的网关配置视图：入口接了确认门时，确认位取入口的决定（P7-S7）。
+
+    ``confirmation_handler_ready`` 在配置文件里写 ``true`` 仍在加载期被拒绝——配置不能凭空声明
+    "可确认"。这里用 ``model_copy`` 生成只在本次连接里使用的视图，不经过那条校验；视图不进
+    manifest、不进 ``raw_config``，也不回写任何配置。
+    """
+    if not confirmation_ready:
+        return config
+    return config.model_copy(update={"confirmation_handler_ready": True})
 
 
 def session_failed(session: MCPServerSession) -> bool:
@@ -211,6 +231,7 @@ def open_gateway_sessions(
     config: MCPGatewayConfig | None,
     *,
     config_path: str | Path | None = None,
+    confirmation_ready: bool = False,
 ) -> MCPGatewayAssembly:
     """连接全部可用 server 并桥接工具（装配期入口，单台故障不拖垮其余）。
 
@@ -222,18 +243,22 @@ def open_gateway_sessions(
         config: 已加载的网关配置；``None`` 表示功能关闭。
         config_path: 配置路径（仅用于 env_file 相对路径解析的目录推导，
             透传给子进程 env 构造的调用方；本函数不重读文件）。
+        confirmation_ready: 调用方入口是否接了人工确认门（P7-S7，只有 Web 会话工厂传 ``True``）。
+            为 ``True`` 时 ``human_confirmation=true`` 的 server 照常连接与桥接，其工具由装配换成
+            延迟工具、执行须经确认门签发的凭证。
     """
     if config is None:
         return MCPGatewayAssembly(sessions=(), skipped_servers=(), manifest_hash="")
 
-    pre_skips = pre_connection_skips(config)
+    pre_skips = pre_connection_skips(config, confirmation_ready=confirmation_ready)
     blocked = {s.server_id for s in pre_skips}
+    bridge_view = bridge_gateway_view(config, confirmation_ready=confirmation_ready)
     sessions: list[MCPServerSession] = []
     skipped: list[SkippedServer] = list(pre_skips)
     for server in config.servers:
         if server.server_id in blocked:
             continue
-        session = open_bridge(server, config)
+        session = open_bridge(server, bridge_view)
         if session_failed(session):
             # 连接失败 / 全部工具被拒：记录原因后与"没有这台 server"同态。
             # 连接已由 open_bridge 收掉（不留活进程）。
@@ -286,6 +311,7 @@ def principal_with_mcp(
 __all__ = [
     "MCPGatewayAssembly",
     "SkippedServer",
+    "bridge_gateway_view",
     "compute_manifest_hash",
     "load_mcp_gateway",
     "open_gateway_sessions",

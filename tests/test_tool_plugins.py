@@ -375,8 +375,8 @@ def test_runner_mcp_opened_and_closed_per_case(
     opened: list[Any] = []
     original_open = gateway_module.open_gateway_sessions
 
-    def spy_open(config: Any) -> Any:
-        assembly = original_open(config)
+    def spy_open(config: Any, **kwargs: Any) -> Any:
+        assembly = original_open(config, **kwargs)
         opened.append(assembly)
         return assembly
 
