@@ -606,6 +606,14 @@ def test_import_preview_endpoint_is_stateless(app: Any, database: Database, laye
     response = admin.post("/api/admin/mcp/import-preview", json={"text": "not json or toml ["}, headers=_headers(admin))
     assert response.status_code == 422 and response.json()["error"]["code"] == "WEB_MCP_CONFIG_REJECTED"
 
+    # HTTP 层字符上限（请求体上限要给最大的合法请求体留 4 倍余量，见 MAX_IMPORT_CHARACTERS）
+    from water_agent.webapp.mcp_admin_routes import MAX_IMPORT_CHARACTERS
+
+    response = admin.post(
+        "/api/admin/mcp/import-preview", json={"text": "x" * (MAX_IMPORT_CHARACTERS + 1)}, headers=_headers(admin)
+    )
+    assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # A07：审计
@@ -617,6 +625,24 @@ def test_admin_changes_are_audited_without_secrets(
 ) -> None:
     """P7-S6-A07 每次变更一条结构化审计事件（actor、server、字段名、allow 增减工具名）；凭据只记槽位名
     与动作、不记值；层文件条目带 updated_at / updated_by。"""
+
+    import logging
+
+    class _Collect(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__(level=logging.DEBUG)
+            self.lines: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.lines.append(record.getMessage())
+
+    collector = _Collect()
+    watched = [logging.getLogger(), logging.getLogger("water_agent"), logging.getLogger("water_agent.auth.audit"),
+               logging.getLogger("uvicorn"), logging.getLogger("httpx")]
+    previous_levels = [logger.level for logger in watched]
+    for logger in watched:
+        logger.addHandler(collector)
+        logger.setLevel(logging.DEBUG)
 
     admin = _login(app, database, UserRole.ADMIN)
     me = admin.get("/api/auth/me").json()["data"]["user"]["user_id"]
@@ -642,6 +668,8 @@ def test_admin_changes_are_audited_without_secrets(
     on_disk = json.loads(layers.web.read_text(encoding="utf-8"))
     entry = on_disk["servers"][0]
     assert entry["updated_by"] == me and entry["updated_at"]
+    # 层文件随备份流转：里面没有任何凭据值
+    _no_secrets(layers.web.read_text(encoding="utf-8"))
     assert admin.delete("/api/admin/mcp/servers/adm_cad/overrides?expected_revision=2", headers=_headers(admin)).status_code == 200
     assert admin.delete("/api/admin/mcp/web-layer", headers=_headers(admin)).status_code == 200
 
@@ -666,3 +694,13 @@ def test_admin_changes_are_audited_without_secrets(
     text = json.dumps(events, ensure_ascii=False)
     _no_secrets(text)
     _no_secrets(json.dumps(_get_events(), ensure_ascii=False))
+
+    # 日志里也没有：结构化审计逐行落 stdout，其余 logger 一并收集
+    for logger, level in zip(watched, previous_levels, strict=True):
+        logger.removeHandler(collector)
+        logger.setLevel(level)
+    assert any("mcp.credential_changed" in line for line in collector.lines), "审计事件确实进了日志"
+    _no_secrets("\n".join(collector.lines))
+    # 清除之后，凭据卷里也不留这个值
+    slot_files = [path for path in (layers.tmp / "credentials").rglob("*") if path.is_file()]
+    assert all(SLOT_SECRET not in path.read_text(encoding="utf-8") for path in slot_files), "清除后槽位文件已删"

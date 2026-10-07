@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { McpAdminApi } from "../src/mcpAdminApi.ts";
 import {
+  MAX_IMPORT_CHARACTERS,
   MCP_ADMIN_NOTICE,
   PROPOSAL_FILENAME,
   codeLabel,
@@ -18,6 +19,7 @@ import {
   sourceSummary,
   toggleAllowItem,
   toolChoices,
+  validateImportText,
   validateToolName,
 } from "../src/mcpAdminState.ts";
 import { WorkspaceApiError } from "../src/workspaceApi.ts";
@@ -134,6 +136,10 @@ test("server status explains what will happen on the next run", () => {
   assert.match(mcpAdminErrorMessage("WEB_MCP_REVISION_CONFLICT", "x"), /重新读取/);
   assert.equal(mcpAdminErrorMessage("UNKNOWN", "服务端原文"), "服务端原文");
   assert.equal(PROPOSAL_FILENAME, "mcp_overlay_proposal.json");
+  // 导入框先在前端挡掉超长输入（与后端同一个上限），不发一个必然 422 的请求
+  assert.equal(validateImportText('{"mcpServers": {}}'), null);
+  assert.match(validateImportText("  "), /粘贴/);
+  assert.match(validateImportText("x".repeat(MAX_IMPORT_CHARACTERS + 1)), /16000/);
 });
 
 test("api sends only the editable fields, with CSRF on writes, and surfaces error codes", async () => {
