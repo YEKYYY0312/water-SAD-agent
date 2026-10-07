@@ -200,7 +200,7 @@ def test_cli_prints_the_summary_before_the_prompt_and_keeps_stdout_pure_json(
 ) -> None:
     code, _ = _run_cli(monkeypatch, tmp_path, "--json")
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
 
     payload = json.loads(captured.out)  # stdout 只有最终 JSON，人读摘要没有混进来
     summary = payload["approval_summary"]
@@ -252,7 +252,7 @@ def test_cli_resume_of_a_request_without_summary_rebuilds_it_from_the_session(
     monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
     code = cli.main(["--flow", "multi-agent", "--json", "--session-dir", str(tmp_path / "sessions"), "--resume", session])
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     before_prompt = captured.err[: captured.err.index(_PROMPT)]
     assert "管段（1 段）" in before_prompt and "case-cli-1" in before_prompt and "velocity_mps" in before_prompt
     assert json.loads(captured.out)["status"] == "succeeded"
@@ -263,7 +263,7 @@ def test_cli_without_json_prints_the_summary_on_stdout_before_the_prompt(
 ) -> None:
     code, _ = _run_cli(monkeypatch, tmp_path)
     captured = capsys.readouterr()
-    assert code == 0, captured.err
+    assert code == 0, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
 
     out = captured.out
     assert _PROMPT in out

@@ -10,6 +10,7 @@ import pytest
 from water_agent.docgen import (
     RealPolishTransport,
     build_polish_prompt,
+    numeric_preservation_problems,
     render_docgen_doc,
     run_quality_polish,
     strip_polish_meta_lines,
@@ -179,6 +180,27 @@ class TestQualityPolish:
         with pytest.raises(ConnectionError, match="network unavailable"):
             transport("system", "user")
         assert transport.last_usage is None
+
+
+class TestNumericPreservationIdentifiers:
+    """编号尾巴碰巧是溢出的科学计数法字面量（多 Agent CLI 偶发失败的根因）。
+
+    管段 ID 是 ``seg-`` + 12 位 hex，hex 只由数字和一个 ``e`` 组成时（约 0.27%），
+    ``seg-21634e590093`` 的尾巴被读成 2.1634e590097 → ``float`` 溢出为 inf。有限的同类尾巴
+    （全数字 hex）一直靠底座白名单放行，溢出的那种却在查白名单之前就被判"非有限数值"。
+    """
+
+    _SOURCE_LINE = "- 1. steel DN200：25.0 m（来源：seg-21634e590093(25m)）"
+
+    def test_identifier_copied_verbatim_from_the_base_is_not_an_invented_number(self) -> None:
+        assert numeric_preservation_problems(self._SOURCE_LINE, {}, base_text=self._SOURCE_LINE) == []
+
+    def test_overflowing_literal_absent_from_the_base_is_still_rejected(self) -> None:
+        """守护（修复前后都成立）：底座里没有的溢出字面量照旧判非有限，白名单只认逐字出现过的 token。"""
+        assert numeric_preservation_problems("- 另有 1e999 项", {}, base_text="- 另有若干项") == [
+            "正文出现非有限数值：1e999"
+        ]
+        assert "正文出现非有限数值：21634e590093" in numeric_preservation_problems(self._SOURCE_LINE, {})
 
 
 class TestDocgenQualityHarness:

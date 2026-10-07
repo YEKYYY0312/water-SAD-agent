@@ -256,7 +256,7 @@ def test_cli_zero_flow_puts_the_code_and_reason_in_the_top_level_output(
     monkeypatch.setattr("builtins.input", lambda _prompt="": pytest.fail("不应走到审批"))
     code = cli.main(["--flow", "multi-agent", "--json", "--session-dir", str(tmp_path / "sessions"), _CLI_ZERO_FLOW])
     captured = capsys.readouterr()
-    assert code == 1
+    assert code == 1, f"stdout:\n{captured.out}\nstderr:\n{captured.err}"
     payload = json.loads(captured.out)
     assert payload["status"] == "blocked"
     assert MULTI_CALC_BLOCKED in payload["errors"]
