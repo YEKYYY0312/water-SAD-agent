@@ -79,7 +79,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 - **不接受 JSON-RPC 批量（数组）消息**：MCP stdio 不用批处理，接受只会扩大
   攻击面（一次注入多条消息），解码层直接判协议错误。
 
-### 2.3 稳定错误码（`mcp/errors.py`，14 个；P7-S3 新增 `MCP_SERVER_DISABLED`）
+### 2.3 稳定错误码（`mcp/errors.py`，15 个；P7-S3 新增 `MCP_SERVER_DISABLED`，P7-S6 新增 `MCP_CREDENTIAL_MISSING`）
 
 | 错误码 | 触发条件 |
 |---|---|
@@ -97,6 +97,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 | `MCP_NAME_COLLISION` | 桥接后的本地工具名与既有登记冲突 |
 | `MCP_NOT_IN_ALLOWLIST` | 工具不在 server 配置的 `allow` 白名单内（None=全拒） |
 | `MCP_SERVER_DISABLED` | server 在配置中停用（`disabled=true`，P7-S3）：不 spawn、不暴露 |
+| `MCP_CREDENTIAL_MISSING` | server 声明的凭据槽位（`credential_env`，P7-S6）还没填值：连接前跳过、不 spawn |
 
 **错误语义分层**：远端业务失败（`isError=true`）是**结果**不是异常 ——
 `client.call_tool` 返回 `{"ok": False, "code": MCP_TOOL_REMOTE_ERROR, ...}`；
@@ -113,6 +114,11 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   不合并**。覆盖层顶层只能写 `version` / `servers`，写 `confirmation_handler_ready` 即
   `MCP_CONFIG_INVALID`；覆盖层路径给了但文件不存在同样报错。只有覆盖层时默认层按空骨架处理。
   合并规则见 `docs/design/16-p7-plugin-mcp.md` 与 `docs/execution-prompts/P7-S3-layered-mcp-config.md`。
+- **Web 管理层（P7-S6）**：`WATER_AGENT_MCP_WEB_LAYER` 指向的文件，合并在部署覆盖层**之后**，由 Web 扩展面板
+  写（`mcp/web_layer.py`）。每台 server 只能写 `server_id` / `disabled` / `allow`（`allow` 整体替换），顶层只认
+  `version` / `revision` / `servers`；**不能新增 server**（下层没有的 id 是孤立条目，加载时忽略）；损坏 / 写了不允许的键即
+  `MCP_CONFIG_INVALID`。未设变量 = 没有这一层；设了但文件不存在 = 空层。设了该变量时路径存在性在三层合并后的最终配置上
+  检查（停用的 server 不查）。规则见 `docs/design/16-p7-plugin-mcp.md` §3.8。
 - **文件不存在 = 功能关闭**（特性开关，不是错误）；**文件存在但坏 = `MCP_CONFIG_INVALID`**
   （响亮失败，防止"写错了却静默跳过全部 server"）；**显式指定路径但文件不存在**
   也是错误（显式给路径却找不到，与"没配"是两件事）。
@@ -120,7 +126,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   真实 server 写进部署覆盖层；`data/mcp_servers.example.json` 是写覆盖层的参考（占位路径，
   不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
-  - `version`（`p7-s5-2026-10-06`；加载时不比对）；
+  - `version`（`p7-s6-2026-10-07`；加载时不比对）；
   - `confirmation_handler_ready`：历史字段，配置里只接受 `False`（`true` 加载期 `MCP_CONFIG_INVALID`）。
     P7-S7 起确认门是否可用由**入口**决定，不由配置声明：只有 Web 会话工厂接了确认门
     （`open_gateway_sessions` / `McpConnectionPool.lease` 的 `confirmation_ready=True`），CLI 与评测 runner 没有；
@@ -147,6 +153,11 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
     （Web）照常暴露，工具在 ToolNode 里是 `return_direct` 延迟工具，由 run 所有者在确认卡片上批准后凭
     一次性凭证执行一次（`docs/design/16-p7-plugin-mcp.md` §3.7）；没有确认门的入口（CLI、runner）整台
     server 不暴露（`MCP_CONFIRMATION_UNAVAILABLE`、不 spawn）。粒度仍是 server 级，不能按工具声明；
+  - `credential_env`（P7-S6）：凭据槽位——运维声明要注入子进程的**环境变量名**（大写；不与内联 `env` 重名；拒绝
+    `PATH` / `HOME` 与加载器、解释器会读来执行代码的变量，如 `LD_*`、`DYLD_*`、`PYTHON*`、`NODE_*`、`PERL*`、`RUBY*`、
+    `BASH_ENV`、`ENV`、`JAVA_TOOL_OPTIONS`），值由管理员在 Web 扩展面板填写（只写不读，存凭据卷
+    `<credentials_dir>/mcp/<server_id>/<NAME>`，0600，不进备份），只能写在仓库默认层或部署覆盖层。子进程 env 注入顺序
+    `env_file` < 槽位 < 内联 `env`；有槽位没填值的 server 连接前跳过（`MCP_CREDENTIAL_MISSING`、不 spawn）；
   - `startup_timeout_seconds = 10.0`、`call_timeout_seconds = 30.0`、
     `max_response_bytes = 65536`。
 

@@ -223,6 +223,41 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
   （库里比较交换 `waiting_confirmation → queued`，返回 `event_cursor`）；同一个 run 继续；历史投影带
   `pending_confirmation`。前端 `ConfirmationCard.tsx` + `confirmationApi.ts`。
 
+
+### 3.8 Web 扩展面板（S6）
+
+实现：`src/water_agent/mcp/web_layer.py`、`src/water_agent/mcp/credentials.py`、`src/water_agent/mcp/importer.py`、
+`src/water_agent/webapp/mcp_admin_routes.py`、`web/app/src/McpAdminPanel.tsx`；决策记录 `docs/design/p7-step-6-decision.md`。
+
+- **第三层配置 Web 管理层**：`WATER_AGENT_MCP_WEB_LAYER` 指向的 JSON（`{"version", "revision", "servers": [...]}`），
+  合并顺序 仓库默认层 → 部署覆盖层 → Web 管理层（`config.load_layered_gateway_config`，会话 / runner / Web 共用）。
+  每台只能写 `server_id` / `disabled` / `allow`（外加 `updated_at` / `updated_by` 元数据），`allow` 整体替换；
+  不能新增 server——下层没有的 id 是孤立条目，加载时忽略、列表接口列出；损坏 / 写了不允许的键即
+  `MCP_CONFIG_INVALID`。未设变量 = 没有这一层（与 S3 逐字相同）；设了但文件不存在 = 空层。运维两层先过模型
+  校验（报错指向运维的文件），**路径存在性在最终配置上检查**：面板停用一台 `cwd` 已不存在的 server，其余照常加载。
+- **写入**：`WebLayerStore.update` 持 `<文件>.lock` 的 `fcntl.flock`（只覆盖同一台主机）→ 比对 `expected_revision`
+  （不符 409）→ 整份合并并完整校验（`check_candidate`，与加载同一套）→ 同目录临时文件 + `os.replace`；
+  校验不过 422 且不落盘。整层恢复删除文件（损坏时也可用）。
+- **凭据槽位**：运维在默认层 / 覆盖层声明 `credential_env`（环境变量名；大写、不与内联 `env` 重名、拒绝 `PATH` /
+  `HOME` 与加载器 / 解释器会执行的变量），面板只给已声明的槽位写值（只写不读，`<credentials_dir>/mcp/<server_id>/<NAME>`，
+  0600，不进备份）；`child_env` 注入顺序 `env_file` < 槽位 < 内联 `env`；有槽位没填值 → 连接前跳过
+  `MCP_CREDENTIAL_MISSING`、不 spawn。值进子进程 env 摘要，改值即换 shared server 指纹。
+- **导入预览**：`preview_import`（Claude Code / Cursor JSON、Codex TOML；函数本身 ≤ 64 KiB UTF-8，经 HTTP ≤ 16 000 字符——
+  请求体上限要给最大的合法 JSON 请求体留 4 倍余量）产出覆盖层格式提案：每台
+  `disabled: true`、不写 `allow`、`env` 值一律丢弃（键变槽位，不能当槽位的键只列名字）、url / 非 stdio 标为 S8、
+  冲突 id 改名；逐条模型层校验。不落盘、不 spawn、不应用。
+- **探测**：只对启用的 server，经 Web 会话工厂的连接池借一次租约（`confirmation_ready=True`），视图只含目标与池里
+  已在用的 shared server（不顺带 spawn 其他 per_run server，也不让在用的 shared 连接退役）；只返回远端工具名、
+  是否暴露与跳过码（`SkippedServer.remote_tool` 承载"全部未放行"时的工具名），不返回远端描述与跳过 detail；同一台
+  server 同时只允许一个探测。
+- **API**：`GET /api/admin/mcp/servers`、`PATCH /api/admin/mcp/servers/{id}`、`DELETE …/{id}/overrides`、
+  `DELETE /api/admin/mcp/web-layer`、`PUT|DELETE …/{id}/credentials/{name}`、`POST …/{id}/probe`、
+  `POST /api/admin/mcp/import-preview`；全部 `require_admin`，写接口加 CSRF；读接口不返回 `args`、`env` 的值、
+  `env_file` 内容、完整命令路径（只给文件名）与任何凭据值；错误不回显请求值。变更进 `webapp/auth/audit.py`
+  的结构化事件（`mcp.server_updated` 带字段名与 `allow` 增减；凭据只记槽位名与动作）。能力端点只给计数。
+- **生效时机**：下一个 run——Web 每个 run 都重新 `load_mcp_gateway()`，连接池按单台 server 指纹换新进程；正在跑的
+  run 不受影响。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -249,7 +284,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S3 | Step B | 配置分层（仓库默认层 + 部署覆盖层）、每台 server 结果可观察、`disabled`、子进程工作目录隔离；修 F6/F9/F10/F13/F15/F16；**entry point 发现推迟**（见下） | `docs/execution-prompts/P7-S3-layered-mcp-config.md` | delivered |
 | S4 | Step C | 按意图最小暴露 / 工具分组（每轮确定性决定，core = 检索 + 引用 + 流速计算）；修 F4/F5（先建 `tool_exposure_p0`）；回滚开关 `WATER_AGENT_TOOL_EXPOSURE=full` | `docs/execution-prompts/P7-S4-intent-tool-exposure.md` | delivered |
 | S5 | Step D（一） | MCP 长驻连接（stdio）：`lifecycle: shared` 的 server 跨 run 复用进程（修 F8，缺省 `per_run` 不变）、客户端请求串行化（修 F17 并发取错响应）、按单台 server 指纹重载 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | delivered |
-| S6 | Step E1 | Web 扩展面板：第三层配置 Web 管理层（只改启停 / allow）、运维声明的凭据槽位（值只写不读）、导入 `mcpServers` 只生成禁用的待审提案、探测、审计 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | planned |
+| S6 | Step E1 | Web 扩展面板：第三层配置 Web 管理层（只改启停 / allow）、运维声明的凭据槽位（值只写不读）、导入 `mcpServers` 只生成禁用的待审提案、探测、审计 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | delivered |
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
 | S8 | Step D（二） | Streamable HTTP 传输：`NETWORK_FETCH` 能力决策 + 出站清单 7 → 8（2026-10-06 从 S5 拆出） | 开工前另写 | planned |
 
@@ -526,16 +561,16 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 | ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S6-A01 | Web 管理层：只能写 `server_id` / `disabled` / `allow`、不能新增 server；合并在部署覆盖层之后、`allow` 整体替换；`confirmation_handler_ready` / 未知键 / 坏 JSON → `MCP_CONFIG_INVALID`；孤立条目忽略且可列出；写入原子、revision 冲突拒绝 | `tests/test_mcp_web_layer.py::test_web_layer_can_only_toggle_and_allow`<br>`tests/test_mcp_web_layer.py::test_web_layer_merges_last_and_fails_loudly`<br>`tests/test_mcp_web_layer.py::test_orphan_entries_are_ignored_and_listed`<br>`tests/test_mcp_web_layer.py::test_writes_are_atomic_and_revisioned` | planned |
-| P7-S6-A02 | 凭据槽位：名字只由运维声明（拒绝加载器 / 解释器变量与内联 `env` 重名，Web 管理层写不了）；值只写不读、文件 0600、注入子进程；缺值 `MCP_CREDENTIAL_MISSING` 不 spawn；改值后 shared server 换新进程 | `tests/test_mcp_credentials.py::test_credential_slots_are_declared_by_the_operator`<br>`tests/test_mcp_credentials.py::test_credential_values_are_write_only_and_reach_the_child`<br>`tests/test_mcp_credentials.py::test_missing_credential_skips_the_server` | planned |
-| P7-S6-A03 | 导入预览：Claude Code / Cursor JSON 与 Codex TOML → 覆盖层格式提案，每台 `disabled: true`、无 `allow`、`env` 值全部丢弃（键变成槽位）；不支持的条目逐条说明；不落盘、不 spawn | `tests/test_mcp_import.py::test_import_produces_disabled_proposals_only`<br>`tests/test_mcp_import.py::test_import_never_echoes_env_values` | planned |
-| P7-S6-A04 | 管理 API：admin + CSRF；读接口不含 `args` / `env` 值 / 凭据值 / 完整命令路径；PATCH 乐观并发与整份校验（不合法 422 且不落盘）；单台与整层恢复部署配置（配置损坏时也可用） | `tests/test_web_mcp_admin.py::test_admin_api_authorization`<br>`tests/test_web_mcp_admin.py::test_server_update_is_validated_and_versioned`<br>`tests/test_web_mcp_admin.py::test_reset_restores_deployment_config` | planned |
-| P7-S6-A05 | 下一个 run 生效：停用 / 改 `allow` / 改凭据后，下一次会话工厂装配随之变化，shared server 换新进程 | `tests/test_web_mcp_admin.py::test_changes_take_effect_on_the_next_run` | planned |
-| P7-S6-A06 | 探测：只对启用的 server、经连接池租约（`confirmation_ready=True`），返回工具名与跳过码、不含远端描述原文；停用 409、并发 409 | `tests/test_web_mcp_admin.py::test_probe_reports_tools_without_remote_text` | planned |
-| P7-S6-A07 | 审计：每次变更一条结构化事件（user_id、server_id、字段名、`allow` 增减），不含凭据值；层文件条目带 `updated_at` / `updated_by` | `tests/test_web_mcp_admin.py::test_admin_changes_are_audited_without_secrets` | planned |
-| P7-S6-A08 | 部署：新卷挂在 `/var/lib/water-agent/mcp-admin`（在备份范围内）、环境变量指向卷内文件、镜像预建目录且属主 `wateragent`；凭据值仍只在 `app_credentials` 卷 | `tests/test_web_deployment.py::test_mcp_admin_layer_volume_is_backed_up` | planned |
+| P7-S6-A01 | Web 管理层：只能写 `server_id` / `disabled` / `allow`、不能新增 server；合并在部署覆盖层之后、`allow` 整体替换；`confirmation_handler_ready` / 未知键 / 坏 JSON → `MCP_CONFIG_INVALID`；孤立条目忽略且可列出；写入原子、revision 冲突拒绝 | `tests/test_mcp_web_layer.py::test_web_layer_can_only_toggle_and_allow`<br>`tests/test_mcp_web_layer.py::test_web_layer_merges_last_and_fails_loudly`<br>`tests/test_mcp_web_layer.py::test_orphan_entries_are_ignored_and_listed`<br>`tests/test_mcp_web_layer.py::test_writes_are_atomic_and_revisioned`<br>`tests/test_mcp_web_layer.py::test_store_reports_an_unwritable_directory` | delivered |
+| P7-S6-A02 | 凭据槽位：名字只由运维声明（拒绝加载器 / 解释器变量与内联 `env` 重名，Web 管理层写不了）；值只写不读、文件 0600、注入子进程；缺值 `MCP_CREDENTIAL_MISSING` 不 spawn；改值后 shared server 换新进程 | `tests/test_mcp_credentials.py::test_credential_slots_are_declared_by_the_operator`<br>`tests/test_mcp_credentials.py::test_credential_values_are_write_only_and_reach_the_child`<br>`tests/test_mcp_credentials.py::test_missing_credential_skips_the_server` | delivered |
+| P7-S6-A03 | 导入预览：Claude Code / Cursor JSON 与 Codex TOML → 覆盖层格式提案，每台 `disabled: true`、无 `allow`、`env` 值全部丢弃（键变成槽位）；不支持的条目逐条说明；不落盘、不 spawn | `tests/test_mcp_import.py::test_import_produces_disabled_proposals_only`<br>`tests/test_mcp_import.py::test_import_never_echoes_env_values`<br>`tests/test_web_mcp_admin.py::test_import_preview_endpoint_is_stateless` | delivered |
+| P7-S6-A04 | 管理 API：admin + CSRF；读接口不含 `args` / `env` 值 / 凭据值 / 完整命令路径；PATCH 乐观并发与整份校验（不合法 422 且不落盘）；单台与整层恢复部署配置（配置损坏时也可用） | `tests/test_web_mcp_admin.py::test_admin_api_authorization`<br>`tests/test_web_mcp_admin.py::test_server_update_is_validated_and_versioned`<br>`tests/test_web_mcp_admin.py::test_reset_restores_deployment_config`<br>`tests/test_web_mcp_admin.py::test_capabilities_report_counts_only` | delivered |
+| P7-S6-A05 | 下一个 run 生效：停用 / 改 `allow` / 改凭据后，下一次会话工厂装配随之变化，shared server 换新进程 | `tests/test_web_mcp_admin.py::test_changes_take_effect_on_the_next_run` | delivered |
+| P7-S6-A06 | 探测：只对启用的 server、经连接池租约（`confirmation_ready=True`），返回工具名与跳过码、不含远端描述原文；停用 409、并发 409 | `tests/test_web_mcp_admin.py::test_probe_reports_tools_without_remote_text` | delivered |
+| P7-S6-A07 | 审计：每次变更一条结构化事件（user_id、server_id、字段名、`allow` 增减），不含凭据值；层文件条目带 `updated_at` / `updated_by` | `tests/test_web_mcp_admin.py::test_admin_changes_are_audited_without_secrets` | delivered |
+| P7-S6-A08 | 部署：新卷挂在 `/var/lib/water-agent/mcp-admin`（在备份范围内）、环境变量指向卷内文件、镜像预建目录且属主 `wateragent`；凭据值仍只在 `app_credentials` 卷 | `tests/test_web_deployment.py::test_mcp_admin_layer_volume_is_backed_up` | delivered |
 | P7-S6-A09 | 前端 MCP 扩展区：启停、`allow` 编辑、凭据只写、探测、恢复、导入预览（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
-| P7-S6-A10 | 快照只有 `/versions/MCP_CONFIG_VERSION` 变化；`WATER_AGENT_MCP_WEB_LAYER` 被快照钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S6-A10 | 快照只有 `/versions/MCP_CONFIG_VERSION` 变化；`WATER_AGENT_MCP_WEB_LAYER` 被快照钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | delivered |
 | P7-S6-A11 | 手动验收：浏览器里探测 → 放行 → 填凭据 → 工具出现；停用 → 工具消失；导入含密钥的配置，提案里没有密钥值 | 无 | untested |
 
 ### 未覆盖项（显式声明）
@@ -549,7 +584,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
 - **P7-S6-A09**：前端测试是 `web/app/tests/mcp_admin.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不在 `scripts/ci_gate.sh` 里，也不是追溯检查能识别的 pytest 节点。
-- **P7-S6-A11**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A04–A07（HTTP 往返）与 A09（前端单测）。
+- **P7-S6-A11**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A04–A07（HTTP 往返）与 A09（前端单测）。2026-10-07 在本机 SQLite 开发服务器（真实鉴权 + 三层配置 + fake server）上用浏览器做了探测 → 放行 → 填凭据 → 导入含密钥配置这几段；"发一条问题、看到工具卡片"需要 PostgreSQL 栈与真实模型，未做（见 `docs/design/p7-step-6-decision.md` §2）。
 - **P7-S7-A07**：前端测试是 `web/app/tests/*.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不在 `scripts/ci_gate.sh` 里，也不是追溯检查能识别的 pytest 节点；不是没有测试，而是验证项格式表达不了。
 - **P7-S7-A10**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A06（HTTP 往返）与 A07（前端单测）。
 - **P7-S5-A10**：依赖本机装了 autocad-mcp 与 Web 栈，CI 上没有；做了也只证明连接复用，真实 CAD/BIM 验收仍是 P4 Step 26 blocked。
@@ -619,6 +654,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | S7 执行 Prompt（含范围块） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
+| `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |
+| `src/water_agent/webapp/mcp_admin_routes.py` + `web/app/src/McpAdminPanel.tsx` | S6 管理 API 与设置页 MCP 扩展区 |
 | `src/water_agent/harness/tool_exposure_eval.py` + `data/eval/tool_exposure_p0.jsonl` | S4 评测集与 harness（入仓基线 `data/eval/tool_exposure_p0_main.json`） |
 | `src/water_agent/harness/tool_assembly_snapshot.py` | H1 装配快照 |
 | `data/eval/tool_assembly_main.json` | H1 基线 |

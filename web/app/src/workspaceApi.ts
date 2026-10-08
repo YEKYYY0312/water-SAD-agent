@@ -51,6 +51,11 @@ export type SystemCapabilities = {
     status: "blocked" | "not_configured" | "unavailable";
     message: string;
     configured_server_count: number | null;
+    /** P7-S6：普通成员只看到计数，server 清单只在管理员的 MCP 扩展面板里。 */
+    enabled_server_count?: number | null;
+    disabled_server_count?: number | null;
+    confirmation_server_count?: number | null;
+    shared_server_count?: number | null;
     real_endpoints_verified: false;
   };
 };
