@@ -60,9 +60,11 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 # credentials, nor the verbatim user questions and answers a trace contains.
 # Traces live on a volume at all because /app/data is baked read-only below,
 # which would make JsonTraceRecorder.finish() fail on every run.
+# mcp-admin holds the Web extension panel's MCP layer (P7-S6): no secrets, so it
+# sits inside /var/lib/water-agent and is backed up with the user files.
 RUN groupadd --gid 10001 wateragent \
     && useradd --uid 10001 --gid wateragent --create-home --shell /usr/sbin/nologin wateragent \
-    && mkdir -p /var/lib/water-agent/uploads /var/lib/water-agent/exports \
+    && mkdir -p /var/lib/water-agent/uploads /var/lib/water-agent/exports /var/lib/water-agent/mcp-admin \
     && mkdir -p /var/lib/water-agent-credentials /var/lib/water-agent-traces \
     && chown -R wateragent:wateragent /var/lib/water-agent /var/lib/water-agent-credentials /var/lib/water-agent-traces \
     && chmod 700 /var/lib/water-agent-credentials /var/lib/water-agent-traces
