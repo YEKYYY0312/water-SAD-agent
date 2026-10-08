@@ -110,6 +110,62 @@ def audit_bootstrap_admin_skipped(*, reason: str = "active_admin_exists") -> Non
 
 
 # ---------------------------------------------------------------------------
+# P7-S6: Web 扩展面板（MCP 管理）。只记谁、哪台 server、改了哪些字段名、allow 增减的
+# 工具名；凭据只记槽位名与动作，**永不记值**。不新建审计表，与上面同一个出口。
+# ---------------------------------------------------------------------------
+
+
+def audit_mcp_server_updated(
+    *,
+    actor_user_id: str,
+    server_id: str,
+    fields: list[str],
+    allow_added: list[str],
+    allow_removed: list[str],
+    revision: int,
+) -> None:
+    _emit(
+        "mcp.server_updated",
+        {
+            "actor_user_id": actor_user_id,
+            "server_id": server_id,
+            "fields": sorted(fields),
+            "allow_added": sorted(allow_added),
+            "allow_removed": sorted(allow_removed),
+            "revision": revision,
+        },
+    )
+
+
+def audit_mcp_override_removed(
+    *, actor_user_id: str, server_id: str, orphan: bool, revision: int
+) -> None:
+    _emit(
+        "mcp.override_removed",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "orphan": orphan, "revision": revision},
+    )
+
+
+def audit_mcp_web_layer_reset(*, actor_user_id: str, existed: bool) -> None:
+    _emit("mcp.web_layer_reset", {"actor_user_id": actor_user_id, "existed": existed})
+
+
+def audit_mcp_credential_changed(
+    *, actor_user_id: str, server_id: str, slot: str, action: str
+) -> None:
+    """action is 'set' or 'cleared'; the value itself is never passed in."""
+    _emit(
+        "mcp.credential_changed",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "slot": slot, "action": action},
+    )
+
+
+def audit_mcp_server_probed(*, actor_user_id: str, server_id: str, status: str) -> None:
+    """探测会按需 spawn 运维配置的命令：不是配置变更，但留一条记录。"""
+    _emit("mcp.server_probed", {"actor_user_id": actor_user_id, "server_id": server_id, "status": status})
+
+
+# ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------
 

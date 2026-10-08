@@ -43,6 +43,9 @@ MCP_NOT_IN_ALLOWLIST = "MCP_NOT_IN_ALLOWLIST"
 #: server 在配置里被停用（``disabled=true``，P7-S3）：不 spawn、不暴露任何工具。
 MCP_SERVER_DISABLED = "MCP_SERVER_DISABLED"
 
+#: server 声明的凭据槽位（``credential_env``，P7-S6）还没填值：连接前跳过、不 spawn。
+MCP_CREDENTIAL_MISSING = "MCP_CREDENTIAL_MISSING"
+
 #: 全部 MCP 稳定错误码（测试锁死不缩小）。
 MCP_ERROR_CODES: frozenset[str] = frozenset(
     {
@@ -60,6 +63,7 @@ MCP_ERROR_CODES: frozenset[str] = frozenset(
         MCP_NAME_COLLISION,
         MCP_NOT_IN_ALLOWLIST,
         MCP_SERVER_DISABLED,
+        MCP_CREDENTIAL_MISSING,
     }
 )
 
@@ -81,6 +85,7 @@ _CODE_HINTS: dict[str, str] = {
     MCP_NAME_COLLISION: "MCP 工具本地名冲突：",
     MCP_NOT_IN_ALLOWLIST: "MCP 工具不在 allow 白名单：",
     MCP_SERVER_DISABLED: "MCP server 已在配置中停用：",
+    MCP_CREDENTIAL_MISSING: "MCP server 的凭据槽位未填写：",
 }
 
 
@@ -110,6 +115,7 @@ __all__ = [
     "MCP_CONFIG_INVALID",
     "MCP_CONFIRMATION_UNAVAILABLE",
     "MCP_CONNECT_FAILED",
+    "MCP_CREDENTIAL_MISSING",
     "MCP_DESCRIPTION_UNSAFE",
     "MCP_ERROR_CODES",
     "MCP_NAME_COLLISION",

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cad": {
+      "command": "uvx",
+      "args": ["cad-mcp"],
+      "env": {"CAD_API_TOKEN": "cursor-fixture-secret-c4d5e6"}
+    },
+    "legacy-sse": {
+      "url": "https://legacy.example.invalid/sse"
+    }
+  }
+}
