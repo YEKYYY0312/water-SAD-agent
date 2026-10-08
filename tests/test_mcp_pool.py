@@ -109,7 +109,7 @@ def test_lifecycle_field_defaults_to_per_run(tmp_path: Path, monkeypatch: pytest
     )
     from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 
-    assert MCP_CONFIG_VERSION == "p7-s5-2026-10-06"
+    assert MCP_CONFIG_VERSION == "p7-s6-2026-10-07"
     assert _server("poollife").lifecycle == "per_run"
 
     base = tmp_path / "base.json"
