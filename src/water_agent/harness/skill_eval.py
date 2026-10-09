@@ -261,7 +261,8 @@ def _tool_results(received: Sequence[Sequence[Any]], tool: str) -> list[dict[str
             try:
                 parsed = json.loads(content)
             except (TypeError, ValueError):
-                parsed = {}
+                # ToolNode 对未注册工具回的是纯文本 "Error: … is not a valid tool"：同样是错误结果
+                parsed = {"error": True} if content.startswith("Error:") else {}
             results.append(parsed if isinstance(parsed, dict) else {})
     return results
 
