@@ -12,7 +12,7 @@
 
 ## 0. 相对规格的修订与本步决定（以本文为准）
 
-> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"。下表与后文已按修订改写。
+> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
 
 S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不复用）。用户的两个决定：**skill 正文要能当指令用**、**来源分两级（仓库内置 + 运维目录）**；首批写 3–5 个领域 skill。下面是读码后定下的做法，规格在本 Prompt 的同一个 PR 里同步：
 
@@ -148,6 +148,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "scripts/ci_gate.sh",
     "compose.yml",
     "pyproject.toml",
+    "uv.lock",
     "data/eval/skill_p0.jsonl",
     "data/eval/skill_p0_main.json",
     "data/eval/tool_assembly_main.json",
