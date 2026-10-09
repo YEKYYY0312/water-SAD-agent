@@ -24,6 +24,8 @@ from water_agent.plugins.builtin import (
     DrawingPlugin,
     HydraulicsPlugin,
     MaterialsPlugin,
+    SkillsContribution,
+    SkillsPlugin,
     builtin_plugins,
 )
 from water_agent.plugins.mcp_gateway import McpContribution, McpGatewayPlugin, McpServerOutcome
@@ -41,6 +43,8 @@ __all__ = [
     "McpGatewayPlugin",
     "McpServerOutcome",
     "PluginContribution",
+    "SkillsContribution",
+    "SkillsPlugin",
     "ToolAssembly",
     "ToolPlugin",
     "assemble_tools",

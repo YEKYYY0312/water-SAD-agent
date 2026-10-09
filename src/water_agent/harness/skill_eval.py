@@ -189,14 +189,14 @@ def tool_names(tools: Sequence[Any]) -> list[str]:
 
 
 def catalog_of(tools: Sequence[Any]) -> list[str] | None:
-    """``load_skill`` 的 ``name`` 参数枚举（字母序）；本次没有发出 ``load_skill`` 时为 ``None``。"""
+    """``load_skill`` 的 ``skill`` 参数枚举（字母序）；本次没有发出 ``load_skill`` 时为 ``None``。"""
 
     for item in tools:
         function = item.get("function", {}) if isinstance(item, dict) else {}
         if function.get("name") != SKILL_TOOL:
             continue
         parameters = function.get("parameters") or {}
-        prop = (parameters.get("properties") or {}).get("name") or {}
+        prop = (parameters.get("properties") or {}).get("skill") or {}
         values = prop.get("enum")
         if values is None:
             for ref in (parameters.get("$defs") or {}).values():
