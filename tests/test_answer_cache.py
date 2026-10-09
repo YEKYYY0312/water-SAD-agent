@@ -252,15 +252,31 @@ class TestInvalidationFactors:
             {"spec_version_digest": "sv2"},
             {"retrieval_params": "top_k=10;recall=20;rerank=none"},
             {"entry_version": "other"},
+            {"skill_library_digest": "sk2"},
         ],
     )
     def test_each_factor_change_causes_miss(self, override: dict) -> None:
+        """P7-S9-A06 任一失效因子变化 → miss（含 Skill 库摘要）。"""
         cache = InMemoryAnswerCache()
         cache.store(_factors(), answer="A", citation_source_ids=_SOURCES,
                     eligibility=_eligible())
         disposition, entry = cache.lookup(_factors(**override), _ctx())
         assert disposition.status is CacheStatus.MISS
         assert entry is None
+
+    def test_empty_skill_digest_keeps_historic_key(self) -> None:
+        """P7-S9-A06 没有 skill（开关 off）时 ``skill_library_digest=""``：缓存键与加字段之前逐字相同，
+        不无谓清空既有缓存；非空即换键。"""
+        import hashlib
+
+        legacy = _factors().model_dump(mode="json")
+        legacy.pop("mcp_server_manifest", None)
+        legacy.pop("skill_library_digest", None)
+        expected = hashlib.sha256(
+            json.dumps(legacy, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        assert _factors().cache_key() == expected
+        assert _factors(skill_library_digest="sk1").cache_key() != expected
 
     def test_key_factors_forbid_extra_field(self) -> None:
         """新增失效维度必须改契约，不能靠额外字段偷偷混入。"""
