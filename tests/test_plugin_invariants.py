@@ -97,8 +97,10 @@ def test_invariants_hold(invariant: str) -> None:
         callers = _callers("assemble_tools")
         assert {"runtime/agentic.py", "harness/runner.py"} <= callers, sorted(callers)
     elif invariant == "P7-I04":
+        # P7-S9：末尾追加 skills（排在全部工具插件之后——它按先于它的插件贡献的工具核对 requires_tools，
+        # 指引里列在最后、预算不够时与 MCP 一样整组让位）
         assert _assigned_literal("plugins/builtin.py", "BUILTIN_PLUGIN_ORDER") == (
-            "clauses", "hydraulics", "materials", "drawing", "mcp_gateway"
+            "clauses", "hydraulics", "materials", "drawing", "mcp_gateway", "skills"
         )
         from water_agent.plugins import BUILTIN_PLUGIN_ORDER, McpGatewayPlugin, builtin_plugins
 

@@ -182,6 +182,9 @@ class Capability(str, Enum):
     #: 只授予读，不含写入/网络/shell —— 与 `EXPORT_TO_ALLOWED_DIR` 语义分离
     #: （可读 ≠ 可写，见 `docs/design/p3-step-17-decision.md` D4）。
     READ_DRAWING = "read_drawing"
+    #: P7-S9：按名加载 skill 库里的操作规程（只读：读随包分发的内置规程或运维只读目录）。
+    #: 本地只读能力，与检索、计算同档；规程正文生效的约束在 ``skills/`` 与提示装配器里，不在这里。
+    LOAD_SKILL = "load_skill"
     LLM_INFERENCE = "llm_inference"
     EMBEDDING = "embedding"
     RERANK = "rerank"
@@ -216,6 +219,7 @@ DEFAULT_LOCAL_CAPABILITIES: frozenset[Capability] = frozenset(
         Capability.CALCULATE,
         Capability.MATERIAL_STATS,
         Capability.READ_DRAWING,
+        Capability.LOAD_SKILL,
         Capability.EXPORT_TO_ALLOWED_DIR,
         Capability.LLM_INFERENCE,
         Capability.EMBEDDING,

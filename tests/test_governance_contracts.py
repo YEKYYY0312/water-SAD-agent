@@ -521,12 +521,15 @@ class TestInventoryCoverage:
 
         P5-S52 后远程出口由 6 变 7：CAD 导出 PDF 的视觉审阅（``bailian_vision_pdf_review``）
         正是上面预言的那种 vision 调用——登记进清单、经 gateway，计数随之更新。
+
+        P7-S9 后工具数由 5 变 6（新增只读的 `load_skill`，按名取 skill 库里的规程）。**远程出口仍是
+        7** —— skill 正文来自随包分发的内置目录或运维只读目录，不新增任何 provider 调用点。
         """
         assert governance_coverage() == {
             "provider_call_sites": 7,
             "provider_governed": 7,
-            "tools": 5,
-            "tools_guardrail_validated": 5,
+            "tools": 6,
+            "tools_guardrail_validated": 6,
         }
         for site in PROVIDER_CALL_SITES:
             assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"
