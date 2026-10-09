@@ -27,6 +27,7 @@
    一个入口（S2）。内置工具是内置插件，每台 MCP server 是 MCP 插件的一个实例（S3）。
 2. **可配置**：插件分层配置（仓库默认 + 部署覆盖层），可按实例启停（S3）；Web 管理面板只能
    改启停、白名单与凭据引用（S6）。
+   Skill 库（S9）：仓库内置 + 运维只读目录两级的操作规程，模型经 `load_skill` 按需加载，面板只读（管理员可启停）。
 3. **MCP 可用性**：长驻连接、Streamable HTTP（S5）；危险操作人工确认门（S1 先封住、S7 接通）。
 4. **不漂移**：每一步的完成都有机器可判的证据——装配快照、需求 ↔ 测试追溯、改动范围守卫、
    结构不变量（§6）。
@@ -287,6 +288,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S6 | Step E1 | Web 扩展面板：第三层配置 Web 管理层（只改启停 / allow）、运维声明的凭据槽位（值只写不读）、导入 `mcpServers` 只生成禁用的待审提案、探测、审计 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | delivered |
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
 | S8 | Step D（二） | Streamable HTTP 传输：`NETWORK_FETCH` 能力决策 + 出站清单 7 → 8（2026-10-06 从 S5 拆出） | 开工前另写 | planned |
+| S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | planned |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -318,6 +320,14 @@ S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
   可以启用运维停用的 server（放行不是授权，执行期检查不变）；导入是无状态预览（`env` 值丢弃、`disabled: true`、
   不写 `allow`）；探测只对启用的 server 经连接池借一次租约；全部接口 `require_admin`，写接口加 CSRF，变更进
   结构化审计；不建数据库表。
+- **S9**（2026-10-09 新增）：用户要求 skill 正文能当指令用、来源分仓库内置与运维目录两级。写执行 Prompt 时定下（理由见
+  Prompt §0）：skill 不是新的 `SourceTag`——正文是 `SYSTEM_POLICY` 的按需加载分片，`INSTRUCTION_BEARING_SOURCES` 不改，
+  扩大的是"谁能写系统策略"（运维只读目录 `WATER_AGENT_SKILLS_DIR`），在威胁模型登记为 T12；只有这两级来源，不扫描
+  项目 / 用户目录、上传文件或 MCP 资源，面板不能新增 / 编辑 skill；装配期安检（注入检测、铁律否定式改写、`requires_tools`
+  核对），单个 skill 出错只跳过它；目录放在 `load_skill` 工具描述里（≤ 900 字符）、按 intent 暴露，不进静态提示段，
+  `< 4500` 与 `< 1950` 不上调；正文进动态段 `skill_context`，checkpoint 只存名字与摘要；`LOAD_SKILL` 能力由插件授予
+  （`GRANTABLE_CAPABILITIES` 扩为 `{MCP_INVOKE, LOAD_SKILL}`，P7-I06 同步），不进默认能力集；缓存键加
+  `skill_library_digest`；skill 正文不得给出数值限值或规范号（铁律①②），`skill_p0` 锁住加载规程后铁律仍成立。
 - **S7**：内层 react agent 是 `checkpointer=False`（`graphs/agent_rag.py`），工具执行中的 interrupt
   无法恢复，确认门必须放在**外层图**（先例：`multi_agent/orchestrator.py` 的审批 interrupt）。2026-10-06
   写执行 Prompt 时定下（理由见 Prompt §0）：需确认的工具在 ToolNode 里换成同名同 schema 的
@@ -573,6 +583,24 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S6-A10 | 快照只有 `/versions/MCP_CONFIG_VERSION` 变化；`WATER_AGENT_MCP_WEB_LAYER` 被快照钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | delivered |
 | P7-S6-A11 | 手动验收：浏览器里探测 → 放行 → 填凭据 → 工具出现；停用 → 工具消失；导入含密钥的配置，提案里没有密钥值 | 无 | untested |
 
+### S9：Skill 库（Step F）
+
+| ID | 验收 | 验证 | 状态 |
+|---|---|---|---|
+| P7-S9-A01 | 格式与加载：`<root>/<name>/SKILL.md` 单层、frontmatter 白名单、名字与目录一致、长度上限、符号链接不逃逸；两级来源合并、同名内置优先（`SKILL_SHADOWED`）；单个坏 skill 只记错误码；`WATER_AGENT_SKILLS_DIR` 设了却不可读响亮失败 | `tests/test_skill_loader.py::test_skill_manifest_is_strict`<br>`tests/test_skill_loader.py::test_two_sources_builtin_wins`<br>`tests/test_skill_loader.py::test_bad_skill_is_skipped_not_fatal` | planned |
+| P7-S9-A02 | 安检：注入命中 `SKILL_UNSAFE`（不脱敏放行）、铁律否定式改写 `SKILL_CONFLICTS_IRON_RULE`、`requires_tools` 缺失 `SKILL_TOOL_UNAVAILABLE` | `tests/test_skill_safety.py::test_unsafe_skills_are_not_loaded`<br>`tests/test_skill_safety.py::test_iron_rule_conflicts_are_rejected` | planned |
+| P7-S9-A03 | `load_skill` 工具与能力：`ToolSpec` 在 `tools/`、`LOAD_SKILL` 进 `TOOL_CAPABILITIES`、由插件授予（不进默认能力集）；没有已启用 skill 时插件 skipped、不授予能力 | `tests/test_load_skill_tool.py::test_load_skill_is_governed_and_granted_by_the_plugin`<br>`tests/test_load_skill_tool.py::test_no_skills_means_no_tool_and_no_capability` | planned |
+| P7-S9-A04 | 暴露：skills 组 intent（triggers ∪ 固定词表）、sticky；目录 schema ≤ 900（超出按字母序截断并记 `SKILL_CATALOG_FULL`）；最紧组合下整组让位并记 dropped | `tests/test_load_skill_tool.py::test_catalog_fits_and_skills_group_yields_under_budget` | planned |
+| P7-S9-A05 | 正文注入：`skill_context` 段只来自 `SkillLibrary`、以 `SYSTEM_POLICY` 信封包装；checkpoint 只存名字与摘要；skill 被删 / 停用 / 摘要变化后不再注入并记 `skill_unavailable`；段为空不渲染 | `tests/test_skill_prompting.py::test_loaded_skill_becomes_system_policy_segment`<br>`tests/test_skill_prompting.py::test_removed_or_changed_skill_is_not_injected` | planned |
+| P7-S9-A06 | 缓存键：`skill_library_digest` 变化 → miss；没有 skill 时与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss` | planned |
+| P7-S9-A07 | 首批内置 skill：4 份全部过安检、`requires_tools` 都在默认装配里、正文不含规范号与带单位数值 | `tests/test_builtin_skills.py::test_builtin_skills_pass_safety_and_carry_no_numbers` | planned |
+| P7-S9-A08 | 面板与 API：成员可读列表（不含正文与运维路径）、正文与启停只给管理员（启停写进 Web 管理层 `skills` 键，revision / 锁 / 整份校验同 S6）、写接口 CSRF、审计；停用后下一个 run 不在目录里；S6 的 `servers` 改动不受影响 | `tests/test_web_skills.py::test_skill_listing_is_read_only_for_members`<br>`tests/test_web_skills.py::test_admin_can_disable_a_skill_for_the_next_run` | planned |
+| P7-S9-A09 | 部署：`WATER_AGENT_SKILLS_DIR` 指向只读挂载的 `app_skills` 卷，不在备份范围；内置 skill 随包分发 | `tests/test_web_deployment.py::test_operator_skills_volume_is_read_only` | planned |
+| P7-S9-A10 | `skill_p0`：目录与暴露、正文注入与来源、停用 / 不安全 / 遮蔽 / 删除不注入、加载规程后数值仍只来自计算工具且引用仍过校验器；接进 `ci_gate.sh` 与入仓基线对比 | `gate:skill_p0`<br>`tests/test_skill_eval.py::test_skill_p0_hard_metrics` | planned |
+| P7-S9-A11 | 快照：现有 15 个 profile 逐字不变，新增 `session_skills_builtin`；`WATER_AGENT_SKILLS_DIR` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S9-A12 | 前端 Skill 库区：成员只读列表、管理员启停与查看正文、MCP 计数卡片（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
+| P7-S9-A13 | 真实模型加载并遵循规程（需 `DEEPSEEK_API_KEY`，见未覆盖项） | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
@@ -583,6 +611,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
+- **P7-S9-A12**：前端测试是 `web/app/tests/skills.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不是追溯检查能识别的 pytest 节点。
+- **P7-S9-A13**：`skill_p0` 用脚本模型，只证明"目录发出去了、加载了就进系统提示、铁律不被绕过"，不证明真实模型会在该加载时加载、加载后会照做。需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称规程遵循率。
 - **P7-S6-A09**：前端测试是 `web/app/tests/mcp_admin.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不在 `scripts/ci_gate.sh` 里，也不是追溯检查能识别的 pytest 节点。
 - **P7-S6-A11**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A04–A07（HTTP 往返）与 A09（前端单测）。2026-10-07 在本机 SQLite 开发服务器（真实鉴权 + 三层配置 + fake server）上用浏览器做了探测 → 放行 → 填凭据 → 导入含密钥配置这几段；"发一条问题、看到工具卡片"需要 PostgreSQL 栈与真实模型，未做（见 `docs/design/p7-step-6-decision.md` §2）。
 - **P7-S7-A07**：前端测试是 `web/app/tests/*.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不在 `scripts/ci_gate.sh` 里，也不是追溯检查能识别的 pytest 节点；不是没有测试，而是验证项格式表达不了。
@@ -652,6 +682,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | S5 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | S6 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | S7 执行 Prompt（含范围块） |
+| `docs/execution-prompts/P7-S9-skill-library.md` | S9 执行 Prompt（含范围块） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
 | `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |
