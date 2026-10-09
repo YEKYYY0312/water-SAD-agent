@@ -74,6 +74,7 @@ from water_agent.plugins import (
     AssemblyContext,
     McpContribution,
     McpGatewayPlugin,
+    SkillsContribution,
     assemble_tools,
     builtin_plugins,
 )
@@ -867,6 +868,8 @@ class HarnessRunner:
             # 装配期写的事件在 recorder 尚未 start 时全被吞掉。
             recorder.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=case.query)
             mcp_assembly = assembly.contribution(McpContribution).assembly
+            # P7-S9：开关 off（缺省）时是空库，下面两处都不变
+            skill_library = assembly.contribution(SkillsContribution).library
             if mcp_assembly.has_activity:
                 recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.trace_summary())
             # 延迟口径与改造前一致：从构图开始计时，不含工具装配与 MCP 子进程启动
@@ -875,11 +878,16 @@ class HarnessRunner:
                 model=self._real_chat_model,
                 tools=assembly.tools,
                 checkpointer=saver,
-                prompt=PromptAssembler(tool_registry=assembly.registry, exposure=assembly.exposure),
+                prompt=PromptAssembler(
+                    tool_registry=assembly.registry,
+                    exposure=assembly.exposure,
+                    skill_library=skill_library,
+                ),
                 max_tool_turns=self.max_tool_turns,
                 trace=recorder,
                 request_context=request_context,
                 exposure=assembly.exposure,
+                **({"skill_library": skill_library} if skill_library.enabled else {}),
             )
             app_holder["app"] = app
             result = app.invoke(

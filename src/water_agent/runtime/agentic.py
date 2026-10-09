@@ -46,6 +46,7 @@ from water_agent.plugins import (
     DrawingContribution,
     McpContribution,
     McpGatewayPlugin,
+    SkillsContribution,
     assemble_tools,
     builtin_plugins,
 )
@@ -529,6 +530,8 @@ class AgenticSession:
         )
         self.mcp_assembly = assembly.contribution(McpContribution).assembly
         self.drawing_root_status = assembly.contribution(DrawingContribution).resolution
+        #: P7-S9：本次装配的 skill 库（开关 off 时为空库）。提示装配与外层图共用这一个实例。
+        self.skill_library = assembly.contribution(SkillsContribution).library
         self.mcp_tool_names = assembly.registered("mcp_gateway")
         registry = assembly.registry
         tools = assembly.tools
@@ -554,6 +557,10 @@ class AgenticSession:
             if confirmation
             else {}
         )
+        # P7-S9：只在库里有已启用的 skill 时才交给图（开关 off 时 build_agentic_app 的入参与此前逐字相同，
+        # 装配快照的 app_kwargs 被冻结）
+        if self.skill_library.enabled:
+            confirmation_kwargs["skill_library"] = self.skill_library
         self.projection = RuntimeContextProjection()
         self.config = {"configurable": {"thread_id": self.thread_id}}
         saver = checkpointer if checkpointer is not None else build_cli_checkpointer(args.session_dir, stack)
@@ -561,7 +568,9 @@ class AgenticSession:
             model=self.model,
             tools=tools,
             checkpointer=saver,
-            prompt=PromptAssembler(tool_registry=registry, exposure=assembly.exposure),
+            prompt=PromptAssembler(
+                tool_registry=registry, exposure=assembly.exposure, skill_library=self.skill_library
+            ),
             trace=self.recorder,
             request_context=self.request_context,
             exposure=assembly.exposure,
