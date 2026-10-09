@@ -268,7 +268,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | P7-I01 | src 里构造面向模型的 `ToolRegistry(` 只在 `plugins/assembly.py`；内部注册表白名单写死并附理由（`mcp/memory_adapter.py`、`runtime/governance/scenarios.py`、`harness/memory_eval.py`、探针 `harness/local_model_compat.py`），白名单条目不再对应真实代码同样判失败；用 AST 判定 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I02 | `tool_spec_to_base_tool(` 只在 `plugins/assembly.py` 与上述探针里调用 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I03 | `runtime/agentic.py` 与 `harness/runner.py` 都调用 `assemble_tools` | `tests/test_plugin_invariants.py` | delivered |
-| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway")` | `tests/test_plugin_invariants.py` | delivered |
+| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway", "skills")`（P7-S9 末尾追加 `skills`：它按先于它的插件贡献的工具核对 `requires_tools`） | `tests/test_plugin_invariants.py` | delivered |
 | P7-I05 | `plugins/` 里不出现 `ToolSpec(` 调用；`ToolSpec` 定义留在 `tools/`（F12 的扫描前提） | `tests/test_plugin_invariants.py` | delivered |
 | P7-I06 | 插件能追加给主体的能力只限 `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | `plugins/assembly.py` + `tests/test_tool_plugins.py` | delivered |
 | P7-I07 | 只有 `runtime/agentic.py` 与 `harness/runner.py` 调用 `build_agentic_app`（装配快照捕获点的前提） | `tests/test_plugin_invariants.py` | delivered |

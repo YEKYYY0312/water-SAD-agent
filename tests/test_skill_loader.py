@@ -1,7 +1,6 @@
 """P7-S9：skill 的格式、加载与两级来源合并（``docs/design/16-p7-plugin-mcp.md`` §7 S9 A01）。"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -149,7 +148,7 @@ def test_two_sources_builtin_wins(tmp_path: Path) -> None:
     assert "运维正文" not in str(summary) and "内置正文" not in str(summary), "trace 摘要不含正文"
 
 
-def test_bad_skill_is_skipped_not_fatal(tmp_path: Path) -> None:
+def test_bad_skill_is_skipped_not_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """P7-S9-A01 单个坏 skill 只记错误码、其余照常；运维目录设了却不存在 / 不是目录、开关取值不对 → 装配期
     响亮失败；开关关闭时一个目录都不读（空库）。"""
 
@@ -192,5 +191,5 @@ def test_bad_skill_is_skipped_not_fatal(tmp_path: Path) -> None:
     assert off.active is False and off.names == () and off.digest() == ""
 
     # 缺省读 os.environ
-    os.environ.pop("WATER_AGENT_SKILLS", None)
+    monkeypatch.delenv("WATER_AGENT_SKILLS", raising=False)
     assert build_skill_library(available_tools=TOOLS, builtin_dir=builtin).active is False
