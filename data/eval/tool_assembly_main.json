@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S9 Step 3：新增只读能力 LOAD_SKILL 进默认能力集与 Web 成员能力集（load_skill 工具由开关 WATER_AGENT_SKILLS 护住、缺省 off 不注册），TOOL_POLICY_VERSION 递进；只有主体能力集变化，工具 / 指引 / 暴露 / 系统提示不变",
+    "last_write_reason": "P7-S9 Step 4：新增动态提示段 skill_context（已加载的操作规程，SYSTEM_POLICY 分片），PROMPT_TEMPLATE_VERSION 递进；开关 off 时段为空不渲染，系统提示摘要逐字不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -3460,7 +3460,7 @@
   },
   "versions": {
     "MCP_CONFIG_VERSION": "p7-s6-2026-10-07",
-    "PROMPT_TEMPLATE_VERSION": "p7-s4-intent-tool-guide-2026-10-06",
+    "PROMPT_TEMPLATE_VERSION": "p7-s9-skill-context-2026-10-09",
     "TOOL_POLICY_VERSION": "p7-step9-2026-10-09"
   }
 }
