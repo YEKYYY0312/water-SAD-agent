@@ -248,10 +248,11 @@ def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=N
 
 
 def _build_cache_service(
-    args: argparse.Namespace, *, mcp_server_manifest: str = ""
+    args: argparse.Namespace, *, mcp_server_manifest: str = "", skill_library_digest: str = ""
 ) -> AnswerCacheService:
     """``mcp_server_manifest`` 进缓存键（P7-S3，F6）：MCP server 清单 / 白名单 / 命令任一变化，
-    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。"""
+    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。
+    ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
     return AnswerCacheService(
         embedding_model="qwen3.7-text-embedding",
@@ -261,6 +262,7 @@ def _build_cache_service(
         reranker=reranker,
         version_registry=get_version_registry(),
         mcp_server_manifest=mcp_server_manifest,
+        skill_library_digest=skill_library_digest,
     )
 
 
@@ -576,7 +578,9 @@ class AgenticSession:
             exposure=assembly.exposure,
             cache_service=(
                 _build_cache_service(
-                    args, mcp_server_manifest=self.mcp_assembly.manifest_hash
+                    args,
+                    mcp_server_manifest=self.mcp_assembly.manifest_hash,
+                    skill_library_digest=self.skill_library.digest(),
                 )
                 if not args.mock_generator
                 else None
