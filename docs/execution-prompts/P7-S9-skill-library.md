@@ -12,6 +12,8 @@
 
 ## 0. 相对规格的修订与本步决定（以本文为准）
 
+> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
+
 S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不复用）。用户的两个决定：**skill 正文要能当指令用**、**来源分两级（仓库内置 + 运维目录）**；首批写 3–5 个领域 skill。下面是读码后定下的做法，规格在本 Prompt 的同一个 PR 里同步：
 
 | 疑问 | 本步做法 | 原因 |
@@ -21,10 +23,11 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 | 谁能写系统策略（信任扩张） | 两级来源，**只有这两级**：① **内置**：`src/water_agent/skills/builtin/<name>/SKILL.md`，随包分发、经代码评审合入；② **运维**：部署覆盖层顶层新键不行（覆盖层只认 `version` / `servers`），改为环境变量 `WATER_AGENT_SKILLS_DIR` 指向的一个只读目录（compose 里挂只读卷），运维对它负责。**不扫描**项目目录、用户主目录、上传文件、MCP 资源；**面板不能新增或编辑 skill**；导入 skill 不做 | 运维本来就能改镜像、改覆盖层里的 `command`，给他写系统策略不是新的权限；但这是 T1 防线的一次显式放宽（运维目录里的文字会被当指令），必须在威胁模型里登记，并配下面的装配期安检 |
 | 运维 skill 的安检 | 装配期逐个检查：描述与正文过 `detect_injection`（命中即 `SKILL_UNSAFE`，不加载，**不脱敏放行**）；正文不得含三条铁律的否定式改写（"不必调用 calc_velocity""可以不引用"等，一条固定的确定性正则表 `SKILL_FORBIDDEN_DIRECTIVES`，命中即 `SKILL_CONFLICTS_IRON_RULE`）；`requires_tools` 里的工具当前装配没有 → `SKILL_TOOL_UNAVAILABLE`（不加载：一份要求调用不存在工具的规程会诱导模型编造调用）。内置 skill 同样过这三道检查（由测试保证入库时就过） | 运维目录是新增的指令来源；规则集是确定性正则，**必然有未覆盖的改写变体**——这一点写进威胁模型残余风险，不得声称"能拦住任意越权 skill" |
 | 同名 | 内置与运维同名时**内置优先**，运维那份记 `SKILL_SHADOWED`；运维目录内重名不可能（目录名即 name） | 运维不能用同名 skill 替换经评审的内置规程 |
+| 特性开关 | `WATER_AGENT_SKILLS=off\|on`（`skills/library.py::resolve_skills_switch`，空值即 `off`，其他值装配期 `ValueError`）。`off`：不读任何 skill 目录、`skills` 插件 skipped、提示与 S7 逐字相同（除主体能力集多 `load_skill`）；`on`：读内置 + 运维目录。代码缺省 `off`（CLI、评测 runner、现有快照场景不变），`compose.yml` 给 Web 设 `on`；`skill_p0` 与新增快照场景显式设 `on` | AGENTS.md「未完成功能用特性开关护住」；内置 skill 随包分发，没有开关时每个装配都会多出 `load_skill`，快照与 4497 全变 |
 | 模型怎么看到 skill | **不进系统提示的静态段**（`role_and_principles` 等受预算断言保护，系统提示 < 1950 锁死）。新增一个 `skills` 插件，贡献一个工具 `load_skill(name)`；工具的 `description` 里就是目录（每个已启用 skill 一行 `name：description 首句`），`name` 参数是这些名字的 `enum`。目录随工具 schema 一起发出、一起被暴露策略裁决 | 静态段与系统提示总量都有受保护的上限；把目录塞进工具描述，就由 S4 的两项预算统一管住，不另开一个预算口子 |
 | 暴露策略 | `skills` 组是 **intent**：本轮问题命中任一已启用 skill 的 `triggers`，或出现"按规程 / 按流程 / 用 skill / load_skill"这类词，才开放；上一轮调用过 `load_skill` 则 sticky。**不是 core**（core 已用掉 2125 字符，再加目录可能让最紧的"读图 + 材料"组合撞 4500）。放不下就整组让位、记 `dropped`，与 MCP 同规则 | 4500 只剩 3 字符余量，`< 4500` 断言不得上调；skill 不是铁律，漏开的代价是"没按规程答"，而不是"心算数值" |
 | 目录大小 | `load_skill` 的完整 schema（含目录）装配期测量，**超过 900 字符即装配期把多出的 skill 按名字字母序截掉并记 `SKILL_CATALOG_FULL`**（不是运行期静默截断）；指引行只占一行（"load_skill：按名加载操作规程。"） | 900 让"core + skills"≤ 3025、"core + 读图 + skills"≤ 3981，均在 4500 内；"读图 + 材料 + skills"同时命中时 skills 让位（与 MCP 同），在评测里如实记 dropped |
-| skill 正文怎么进上下文 | `load_skill` 是普通 `ToolSpec`（`Capability.LOAD_SKILL`，新的只读能力，**不进** `DEFAULT_LOCAL_CAPABILITIES` 与 Web 成员能力集，而是像 `MCP_INVOKE` 一样由插件在确实贡献了工具时授予：`GRANTABLE_CAPABILITIES` 从 `{MCP_INVOKE}` 扩为 `{MCP_INVOKE, LOAD_SKILL}`，P7-I06 同步改。这样没有 skill 的装配主体能力集逐字不变——快照里每个 profile 都记录主体能力，进默认集会让 15 个 profile 的 surface 全变），返回 `{"name", "source", "version", "content"}`；`agent_rag` 在**提示装配**时把本 thread 已加载的 skill 正文作为独立段 `skill_context` 放在工具指引之后（`SEGMENT_BUDGETS["skill_context"] = 6000`，超出按 skill 整份丢弃最早加载的、并在段尾写明省略了哪几个），工具结果本身只留一行回执（"已加载 skill X，规程已进入系统提示"），避免正文在历史里重复 | 正文要以 `SYSTEM_POLICY` 身份生效，就必须进系统提示而不是留在 `ToolMessage`（工具结果是 `TOOL_OUTPUT` 数据）；`skill_context` 是动态段，不碰受保护的静态段 |
+| skill 正文怎么进上下文 | `load_skill` 是普通 `ToolSpec`（`Capability.LOAD_SKILL`，新的只读能力，**进** `DEFAULT_LOCAL_CAPABILITIES` 与 Web 成员能力集——与检索、计算同属本地只读能力，`test_every_inventoried_tool_capability_is_granted_locally` 原样成立；`GRANTABLE_CAPABILITIES` 仍只有 `MCP_INVOKE`，P7-I06 不改。能力在默认集里不等于工具在：开关关闭或没有已启用 skill 时 `skills` 插件 skipped、不注册工具），返回 `{"name", "source", "version", "content"}`；`agent_rag` 在**提示装配**时把本 thread 已加载的 skill 正文作为独立段 `skill_context` 放在工具指引之后（`SEGMENT_BUDGETS["skill_context"] = 6000`，超出按 skill 整份丢弃最早加载的、并在段尾写明省略了哪几个），工具结果本身只留一行回执（"已加载 skill X，规程已进入系统提示"），避免正文在历史里重复 | 正文要以 `SYSTEM_POLICY` 身份生效，就必须进系统提示而不是留在 `ToolMessage`（工具结果是 `TOOL_OUTPUT` 数据）；`skill_context` 是动态段，不碰受保护的静态段 |
 | 加载状态存哪 | state 新键 `loaded_skills: list[{name, source, version, digest}]`（跨轮累积、不在 `PER_TURN_RESET`；同名再次加载去重）；每轮装配时按 `name` + `digest` 从当前 skill 库取正文，**库里已没有或 digest 变了**就不注入并记 warning `skill_unavailable`（不复用 checkpoint 里的旧正文——正文不进 checkpoint） | 正文不进 checkpoint：运维删掉一个有问题的 skill，下一轮就不再生效；checkpoint 里只存名字与摘要 |
 | 缓存 | `CacheKeyFactors` 新增 `skill_library_digest`（全部已启用 skill 的 name + digest 的摘要；没有 skill 时为空串，与历史键同键）。**不**按"本轮加载了哪些"进键（lookup 在加载之前，同 S2.5 规范版本摘要的教训） | skill 是系统策略的一部分：规程变了，旧回答不该再命中；`CacheKeyFactors` 是 `extra="forbid"`，新增失效维度必须改契约（`TestInvalidationFactors` 加一条） |
 | 面板 | 设置页新增只读"Skill 库"区（**所有已登录用户可见**——这是能力说明，不是部署细节）：名称、来源（内置 / 运维）、版本、描述、`triggers`、`requires_tools`、状态（已启用 / 各错误码）。管理员另可按 skill **停用 / 启用**（写进 S6 的 Web 管理层，新顶层键 `skills: [{name, disabled}]`，与 `servers` 同一份文件、同一套 revision / 文件锁 / 整份校验）；**面板不能新增、编辑、上传 skill，不显示正文**（管理员可看正文：`GET /api/admin/skills/{name}`，只读） | "查看有哪些 skill"是用户的原始需求；停用是运维出问题时的止血开关，与 MCP 的启停同一机制 |
@@ -38,15 +41,15 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 
 1. **Skill 格式与加载（A01）**：新包 `src/water_agent/skills/`：`models.py`（`SkillManifest` / `Skill`，pydantic `extra="forbid"`）、`loader.py`（解析 `SKILL.md`：frontmatter 用 PyYAML `safe_load`，已在锁文件里，不新增依赖；单层目录、不跟随符号链接逃出根目录、单文件 ≤ 64 KiB、正文 ≤ 6 000 字）、`library.py`（`SkillLibrary`：两级来源合并、同名内置优先、`digest`、错误码逐个记录、`catalog()` / `get(name)`）。新错误码集合 `SKILL_ERROR_CODES`（`SKILL_INVALID` / `SKILL_UNSAFE` / `SKILL_CONFLICTS_IRON_RULE` / `SKILL_TOOL_UNAVAILABLE` / `SKILL_SHADOWED` / `SKILL_CATALOG_FULL` / `SKILL_DISABLED`），有测试锁死不缩小。
 2. **安检（A02）**：`skills/safety.py`：`detect_injection`（复用治理层，不另写）+ `SKILL_FORBIDDEN_DIRECTIVES`（铁律否定式改写的确定性正则表，带反例与正例测试）+ `requires_tools` 核对。内置 skill 有测试保证入库即过。
-3. **`load_skill` 工具与插件（A03）**：`tools/load_skill.py`（`ToolSpec` 定义在 `tools/` 里，治理清单静态扫描的前提，P7-I05）；`Capability.LOAD_SKILL`（只读）进 `TOOL_CAPABILITIES`（工具计数 5 → 6，`tools_guardrail_validated` 5 → 6），**不进** `DEFAULT_LOCAL_CAPABILITIES` / Web 成员能力集，由 `SkillsPlugin` 的 `grants` 申请、`GRANTABLE_CAPABILITIES` 扩为 `{MCP_INVOKE, LOAD_SKILL}`（P7-I06 的断言随之改，规格 §4 同步）；新插件 `plugins/builtin.py::SkillsPlugin`，`BUILTIN_PLUGIN_ORDER` 末尾追加 `"skills"`（在 `mcp_gateway` 之后：指引里排最后、预算不够最先让位）；没有任何已启用 skill 时插件 `status="skipped"`、不贡献工具（**快照的现有 profile 都没有 skill 目录 → surface 不变**）。
+3. **`load_skill` 工具与插件（A03）**：`tools/load_skill.py`（`ToolSpec` 定义在 `tools/` 里，治理清单静态扫描的前提，P7-I05）；`Capability.LOAD_SKILL`（只读）进 `TOOL_CAPABILITIES`（工具计数 5 → 6，`tools_guardrail_validated` 5 → 6）、`DEFAULT_LOCAL_CAPABILITIES` 与 Web 成员能力集（`webapp/auth/dependencies.py::_MEMBER_CAPABILITIES`）；`GRANTABLE_CAPABILITIES` 不改；新插件 `plugins/builtin.py::SkillsPlugin`，`BUILTIN_PLUGIN_ORDER` 末尾追加 `"skills"`（在 `mcp_gateway` 之后：指引里排最后、预算不够最先让位）；开关 `off` 或没有任何已启用 skill 时插件 `status="skipped"`、不贡献工具（**现有快照场景开关都是 off → 只有主体能力集多一项**）。
 4. **暴露（A04）**：`SkillsPlugin` 的 `ExposureRule(mode="intent")`，关键词 = 全部已启用 skill 的 `triggers` ∪ 固定词表；目录 schema 装配期 ≤ 900 字符（超出按字母序截断并记 `SKILL_CATALOG_FULL`）。
 5. **正文注入（A05）**：`PromptAssembler` 新增动态段 `skill_context`（工具指引之后、记忆段之前），只接受 `SkillLibrary` 取回的正文并以 `ContentEnvelope(source_tag=SYSTEM_POLICY)` 包装（装配器只在这里构造 `SYSTEM_POLICY` 信封，其他来源仍拒绝）；`agent_rag` 新 state 键 `loaded_skills`；`load_skill` 的 `ToolMessage` 只留回执。`PROMPT_TEMPLATE_VERSION` 递进（新增分段）；`TOOL_POLICY_VERSION` 递进（新工具 / 新能力）；`RULESET_VERSION` 递进（新增 `SKILL_FORBIDDEN_DIRECTIVES`）。
 6. **缓存键（A06）**：`CacheKeyFactors.skill_library_digest`（缺省 `""`）；`AnswerCacheService` 与 `AgenticSession` 传入；`TestInvalidationFactors` 加一条。
 7. **首批内置 skill（A07）**：`calc-book-workflow`（计算书编写流程：先澄清已知量与缺参 → 只用 `calc_velocity` 出数 → 引用条文经 `cite_clauses` → 结论只复述工具输出）、`drawing-review-report`（转述图纸审查报告：保留"未检查项"、不把未检查写成合规、报告外的图面信息不编造）、`spec-conflict-handling`（多本规范规定不一致时：分别检索、并列引用、说明口径差异、不自行裁决取严）、`missing-input-clarification`（缺参澄清话术：列缺什么、为什么需要、不给默认值）。每份正文不含数值限值与规范号（有测试扫描）。
 8. **面板与 API（A08）**：`webapp/skill_routes.py`：`GET /api/skills`（`require_password_changed`：名称 / 来源 / 版本 / 描述 / triggers / requires_tools / 状态码，不含正文、不含运维目录路径）、`GET /api/admin/skills/{name}`（`require_admin`，含正文，只读）、`PATCH /api/admin/skills/{name}`（`require_admin` + CSRF，`{"disabled": bool, "expected_revision": int}`，写进 S6 Web 管理层的新顶层键 `skills`；`web_layer.py` 的键白名单与整份校验同步扩展；停用内置 skill 也允许）。变更进结构化审计（`skill.updated`）。前端设置页"Skill 库"区（`SkillLibraryPanel.tsx` + `skillsApi.ts` + `skillsState.ts`；成员只读、管理员带启停开关与"查看正文"；下方 MCP 计数卡片复用能力端点）。
-9. **部署（A09）**：`compose.yml` 给 app 设 `WATER_AGENT_SKILLS_DIR=/etc/water-agent/skills` 并挂只读卷 `app_skills:/etc/water-agent/skills:ro`（运维把 skill 拷进卷；卷不在 `/var/lib/water-agent` 之下——它是部署配置不是用户数据，备份范围照旧）；`pyproject.toml` 的 `package-data` 加 `"water_agent.skills" = ["builtin/*/SKILL.md"]`（内置 skill 随包分发，镜像里不靠 `data/`）。
+9. **部署（A09）**：`compose.yml` 给 app 设 `WATER_AGENT_SKILLS=on`、`WATER_AGENT_SKILLS_DIR=/etc/water-agent/skills` 并挂只读卷 `app_skills:/etc/water-agent/skills:ro`（运维把 skill 拷进卷；卷不在 `/var/lib/water-agent` 之下——它是部署配置不是用户数据，备份范围照旧）；`pyproject.toml` 的 `package-data` 加 `"water_agent.skills" = ["builtin/*/SKILL.md"]`（内置 skill 随包分发，镜像里不靠 `data/`）。
 10. **评测（A10）**：`data/eval/skill_p0.jsonl`（Step 1 冻结）+ `harness/skill_eval.py` + `scripts/compare_skill_p0.py` + 入仓基线 `data/eval/skill_p0_main.json`；接进 `scripts/ci_gate.sh`。
-11. **快照（A11）**：`PINNED_ENV_KEYS` 加 `WATER_AGENT_SKILLS_DIR`；新增 profile `session_skills_builtin`（打开内置 skill）。现有 15 个 profile 的 surface 与 lifecycle **逐字不变**（没有 skill 目录 → `skills` 插件 skipped、不授予能力、新分段为空不渲染）；只有 `/versions/` 下 `PROMPT_TEMPLATE_VERSION` / `TOOL_POLICY_VERSION` 变化（`--write --reason`）。
+11. **快照（A11）**：`PINNED_ENV_KEYS` 加 `WATER_AGENT_SKILLS` 与 `WATER_AGENT_SKILLS_DIR`；新增 profile `session_skills_builtin`（开关 `on`）。现有 15 个 profile 只允许**主体能力集**变化（`surface/principal`、`surface/registry_principal`、`lifecycle/app/chat_model_principal` 多 `load_skill`），其余 surface 与 lifecycle **逐字不变**（开关 off → `skills` 插件 skipped、新分段为空不渲染）；`/versions/` 下 `PROMPT_TEMPLATE_VERSION` / `TOOL_POLICY_VERSION` 变化（`--write --reason`）。
 
 **不做**：
 
@@ -90,7 +93,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 `skills/` 包（不含内置 skill 内容）；`tests/test_skill_loader.py`、`tests/test_skill_safety.py`：frontmatter 白名单、名字与目录一致、单层不递归、符号链接不逃逸、长度上限、错误码逐个、同名遮蔽、`SKILL_FORBIDDEN_DIRECTIVES` 正反例、注入命中不脱敏放行、`WATER_AGENT_SKILLS_DIR` 缺失响亮失败。
 
 ### Step 3：工具、能力、插件、暴露（A03、A04）
-`tools/load_skill.py`、`Capability.LOAD_SKILL`、`TOOL_CAPABILITIES`（5 → 6，计数断言 `tools_guardrail_validated: 5` **会变**，见 §6）、`GRANTABLE_CAPABILITIES` 扩为 `{MCP_INVOKE, LOAD_SKILL}`（P7-I06）、`SkillsPlugin`、`BUILTIN_PLUGIN_ORDER` 追加 `skills`（P7-I04）、目录 900 字符上限；`TOOL_POLICY_VERSION` 递进。快照：现有 15 个 profile 无 skill → surface 与 lifecycle 逐字不变，只有 `/versions/TOOL_POLICY_VERSION` 变化。
+`tools/load_skill.py`、`Capability.LOAD_SKILL`（进默认能力集与 Web 成员能力集）、`TOOL_CAPABILITIES`（5 → 6，计数断言 `tools_guardrail_validated: 5` **会变**，见 §6）、`SkillsPlugin`、`BUILTIN_PLUGIN_ORDER` 追加 `skills`（P7-I04）、开关 `WATER_AGENT_SKILLS`、目录 900 字符上限；`TOOL_POLICY_VERSION` 递进。快照：现有 15 个 profile 开关 off → 只有主体能力集与 `/versions/TOOL_POLICY_VERSION` 变化（`--write --reason`，`--diff` 贴进决策记录）。
 
 ### Step 4：正文注入与状态（A05）
 `PromptAssembler` 的 `skill_context` 段、`loaded_skills` state、回执、`skill_unavailable` warning；`PROMPT_TEMPLATE_VERSION`、`RULESET_VERSION` 递进。快照：只有版本号变化（新段为空不渲染，`system_prompt` 摘要逐字不变）。
@@ -140,10 +143,12 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "src/water_agent/webapp/skill_routes.py",
     "src/water_agent/webapp/app.py",
     "src/water_agent/webapp/auth/audit.py",
+    "src/water_agent/webapp/auth/dependencies.py",
     "scripts/compare_skill_p0.py",
     "scripts/ci_gate.sh",
     "compose.yml",
     "pyproject.toml",
+    "uv.lock",
     "data/eval/skill_p0.jsonl",
     "data/eval/skill_p0_main.json",
     "data/eval/tool_assembly_main.json",
@@ -164,6 +169,9 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "tests/test_plugin_invariants.py",
     "tests/test_tool_exposure.py",
     "tests/test_mcp_web_layer.py",
+    "tests/test_web_mcp_admin.py",
+    "tests/test_tool_policy.py",
+    "tests/test_upload_retrieval.py",
     "tests/test_p7_known_figures.py",
     "tests/test_tool_assembly_snapshot.py",
     "docs/design/p7-step-9-decision.md",
@@ -198,7 +206,6 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "tests/test_confirmation_grant.py",
     "tests/test_confirmation_gate.py",
     "tests/test_web_confirmation.py",
-    "tests/test_web_mcp_admin.py",
     "data/eval/baseline.json",
     "data/eval/tool_exposure_p0.jsonl",
     "data/eval/tool_exposure_p0_main.json",
@@ -242,17 +249,37 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
       "path": "data/eval/tool_assembly_main.json",
       "pointers": [
         "/versions/MCP_CONFIG_VERSION",
-        "/profiles/session_cli_default",
-        "/profiles/session_drawing_arg",
-        "/profiles/session_drawing_env",
-        "/profiles/session_mcp_config_invalid",
-        "/profiles/session_mcp_confirm_skip",
-        "/profiles/session_mcp_fake",
-        "/profiles/session_mcp_ready_flag",
-        "/profiles/session_mcp_register_fault",
-        "/profiles/session_mock_default",
-        "/profiles/session_web_member",
-        "/profiles/runner_*"
+        "/profiles/*/description",
+        "/profiles/*/side",
+        "/profiles/*/surface/tools",
+        "/profiles/*/surface/registration_order",
+        "/profiles/*/surface/model_tool_order",
+        "/profiles/*/surface/schema_chars_total",
+        "/profiles/*/surface/tool_guide",
+        "/profiles/*/surface/system_prompt",
+        "/profiles/*/surface/exposure",
+        "/profiles/*/lifecycle/captures",
+        "/profiles/*/lifecycle/exception",
+        "/profiles/*/lifecycle/mcp",
+        "/profiles/*/lifecycle/mcp_clients_alive_after_scope",
+        "/profiles/*/lifecycle/stack",
+        "/profiles/*/lifecycle/trace_record_calls",
+        "/profiles/*/lifecycle/app/app_kwargs",
+        "/profiles/*/lifecycle/app/cache_service",
+        "/profiles/*/lifecycle/app/checkpointer",
+        "/profiles/*/lifecycle/app/max_tool_turns",
+        "/profiles/*/lifecycle/app/probes",
+        "/profiles/runner_mcp_config_invalid/surface",
+        "/profiles/runner_mcp_config_invalid/lifecycle/app",
+        "/profiles/runner_mcp_register_fault/surface",
+        "/profiles/runner_mcp_register_fault/lifecycle/app",
+        "/profiles/session_mcp_config_invalid/surface",
+        "/profiles/session_mcp_config_invalid/lifecycle/app",
+        "/profiles/session_mcp_ready_flag/surface",
+        "/profiles/session_mcp_ready_flag/lifecycle/app",
+        "/profiles/session_mcp_register_fault/surface",
+        "/profiles/session_mcp_register_fault/lifecycle/app",
+        "/profiles/*/lifecycle/app/tools_bound_to_prompt_registry"
       ]
     }
   ]
@@ -265,13 +292,13 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 - 信任：`INSTRUCTION_BEARING_SOURCES == {SYSTEM_POLICY}`。
 - 出站清单 `provider_call_sites: 7`（skill 不新增远程调用）。
 - S1 / S3：确认门无凭证拒绝；覆盖层不能写 `confirmation_handler_ready` 或未知键（S9 不给覆盖层加任何键）。
-- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`；P7-I06 的 `GRANTABLE_CAPABILITIES` 加 `LOAD_SKILL`。三者都要在规格 §4 同步写明原因。
+- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`（规格 §4 同步写明原因）；`tests/test_upload_retrieval.py::test_prompt_template_version_was_bumped_for_the_new_segment` 的版本字面量随 `PROMPT_TEMPLATE_VERSION` 递进。`GRANTABLE_CAPABILITIES` / P7-I06 **不改**。
 
 ## 7. 停止条件
 
 满足任一条就停下，写清现象后等确认：
 
-- 现有 15 个 profile 的 surface 或 lifecycle 有任何变化（尤其主体能力集、`system_prompt`、`tool_guide`、`exposure`）；
+- 现有 15 个 profile 除主体能力集多 `load_skill` 外有任何变化（尤其 `tools`、`registration_order`、`system_prompt`、`tool_guide`、`exposure`、`schema_chars_total`）；
 - `load_skill` 加目录后 900 字符装不下 4 个内置 skill 的目录（说明描述写太长，先改描述，不得上调 900 或 4500）；
 - 需要改 `plugins/exposure.py` / `plugins/assembly.py` / `tools/registry.py` / 治理层的 `pipeline.py` / `gateway.py`，或需要数据库迁移；
 - 需要新增 `SourceTag` 或改 `INSTRUCTION_BEARING_SOURCES` 才能让 skill 正文生效；
@@ -283,7 +310,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 
 ```bash
 export VENV=/Users/yaerken/Desktop/给排水agent/_venv PYTHONPATH=src
-unset WATER_AGENT_MCP_OVERLAY WATER_AGENT_MCP_CONFIG WATER_AGENT_MCP_WEB_LAYER WATER_AGENT_TOOL_EXPOSURE WATER_AGENT_SKILLS_DIR
+unset WATER_AGENT_MCP_OVERLAY WATER_AGENT_MCP_CONFIG WATER_AGENT_MCP_WEB_LAYER WATER_AGENT_TOOL_EXPOSURE WATER_AGENT_SKILLS WATER_AGENT_SKILLS_DIR
 git fetch origin main
 $VENV/bin/pytest -q tests/test_skill_loader.py tests/test_skill_safety.py tests/test_load_skill_tool.py tests/test_skill_prompting.py tests/test_builtin_skills.py tests/test_skill_eval.py tests/test_web_skills.py tests/test_answer_cache.py tests/test_governance_contracts.py tests/test_tool_plugins.py tests/test_plugin_invariants.py tests/test_tool_exposure.py tests/test_tool_exposure_eval.py tests/test_mcp_web_layer.py tests/test_web_mcp_admin.py tests/test_p7_known_figures.py tests/test_tool_assembly_snapshot.py tests/test_p7_traceability.py
 $VENV/bin/python -m water_agent.harness.skill_eval data/eval/skill_p0.jsonl --report-path data/eval/reports/skill_p0_head.json
@@ -317,7 +344,7 @@ COMPOSE_PROJECT_NAME=p7s9 VENV=$VENV bash scripts/ci_gate.sh
 ## 11. 常见坑（本仓库实测过）
 
 - worktree 里不设 `PYTHONPATH=src` 时 pytest 被 H0 拦下（exit 4）；web/app 新 worktree 先 `npm ci`（走代理）再 `npm run build`。
-- 本机设了 `WATER_AGENT_MCP_*`、`WATER_AGENT_TOOL_EXPOSURE`、`WATER_AGENT_SKILLS_DIR` 时先 unset 再跑测试和快照。
+- 本机设了 `WATER_AGENT_MCP_*`、`WATER_AGENT_TOOL_EXPOSURE`、`WATER_AGENT_SKILLS`、`WATER_AGENT_SKILLS_DIR` 时先 unset 再跑测试和快照。
 - 动态段为空时必须返回空串（不渲染标题）：S48 上传段实测过"空段仍渲染标题"会让系统提示摘要变化。
 - 规则 / 测试里的零宽字符只能用 `\uXXXX` 转义。
 - 运行时 MCP 绑定登记只增不删；skill 库没有全局登记，测试里每个用例自建 `SkillLibrary`。
