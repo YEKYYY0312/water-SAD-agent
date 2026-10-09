@@ -325,9 +325,10 @@ S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
   扩大的是"谁能写系统策略"（运维只读目录 `WATER_AGENT_SKILLS_DIR`），在威胁模型登记为 T12；只有这两级来源，不扫描
   项目 / 用户目录、上传文件或 MCP 资源，面板不能新增 / 编辑 skill；装配期安检（注入检测、铁律否定式改写、`requires_tools`
   核对），单个 skill 出错只跳过它；目录放在 `load_skill` 工具描述里（≤ 900 字符）、按 intent 暴露，不进静态提示段，
-  `< 4500` 与 `< 1950` 不上调；正文进动态段 `skill_context`，checkpoint 只存名字与摘要；`LOAD_SKILL` 能力由插件授予
-  （`GRANTABLE_CAPABILITIES` 扩为 `{MCP_INVOKE, LOAD_SKILL}`，P7-I06 同步），不进默认能力集；缓存键加
-  `skill_library_digest`；skill 正文不得给出数值限值或规范号（铁律①②），`skill_p0` 锁住加载规程后铁律仍成立。
+  `< 4500` 与 `< 1950` 不上调；正文进动态段 `skill_context`，checkpoint 只存名字与摘要；`LOAD_SKILL` 进默认能力集
+  与 Web 成员能力集（2026-10-09 修订：原写法"由插件授予"与 `test_every_inventoried_tool_capability_is_granted_locally`
+  冲突），`GRANTABLE_CAPABILITIES` / P7-I06 不改；特性开关 `WATER_AGENT_SKILLS`（代码缺省 off，Web compose 设 on）——
+  现有快照场景只有主体能力集多一项；缓存键加 `skill_library_digest`；skill 正文不得给出数值限值或规范号（铁律①②），`skill_p0` 锁住加载规程后铁律仍成立。
 - **S7**：内层 react agent 是 `checkpointer=False`（`graphs/agent_rag.py`），工具执行中的 interrupt
   无法恢复，确认门必须放在**外层图**（先例：`multi_agent/orchestrator.py` 的审批 interrupt）。2026-10-06
   写执行 Prompt 时定下（理由见 Prompt §0）：需确认的工具在 ToolNode 里换成同名同 schema 的
@@ -589,7 +590,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 |---|---|---|---|
 | P7-S9-A01 | 格式与加载：`<root>/<name>/SKILL.md` 单层、frontmatter 白名单、名字与目录一致、长度上限、符号链接不逃逸；两级来源合并、同名内置优先（`SKILL_SHADOWED`）；单个坏 skill 只记错误码；`WATER_AGENT_SKILLS_DIR` 设了却不可读响亮失败 | `tests/test_skill_loader.py::test_skill_manifest_is_strict`<br>`tests/test_skill_loader.py::test_two_sources_builtin_wins`<br>`tests/test_skill_loader.py::test_bad_skill_is_skipped_not_fatal` | planned |
 | P7-S9-A02 | 安检：注入命中 `SKILL_UNSAFE`（不脱敏放行）、铁律否定式改写 `SKILL_CONFLICTS_IRON_RULE`、`requires_tools` 缺失 `SKILL_TOOL_UNAVAILABLE` | `tests/test_skill_safety.py::test_unsafe_skills_are_not_loaded`<br>`tests/test_skill_safety.py::test_iron_rule_conflicts_are_rejected` | planned |
-| P7-S9-A03 | `load_skill` 工具与能力：`ToolSpec` 在 `tools/`、`LOAD_SKILL` 进 `TOOL_CAPABILITIES`、由插件授予（不进默认能力集）；没有已启用 skill 时插件 skipped、不授予能力 | `tests/test_load_skill_tool.py::test_load_skill_is_governed_and_granted_by_the_plugin`<br>`tests/test_load_skill_tool.py::test_no_skills_means_no_tool_and_no_capability` | planned |
+| P7-S9-A03 | `load_skill` 工具与能力：`ToolSpec` 在 `tools/`、`LOAD_SKILL` 进 `TOOL_CAPABILITIES`、默认能力集与 Web 成员能力集；开关 `WATER_AGENT_SKILLS` 缺省 off，off 或没有已启用 skill 时插件 skipped、不注册工具；开关取值非法装配期失败 | `tests/test_load_skill_tool.py::test_load_skill_is_governed_and_locally_granted`<br>`tests/test_load_skill_tool.py::test_switch_off_or_no_skills_means_no_tool` | planned |
 | P7-S9-A04 | 暴露：skills 组 intent（triggers ∪ 固定词表）、sticky；目录 schema ≤ 900（超出按字母序截断并记 `SKILL_CATALOG_FULL`）；最紧组合下整组让位并记 dropped | `tests/test_load_skill_tool.py::test_catalog_fits_and_skills_group_yields_under_budget` | planned |
 | P7-S9-A05 | 正文注入：`skill_context` 段只来自 `SkillLibrary`、以 `SYSTEM_POLICY` 信封包装；checkpoint 只存名字与摘要；skill 被删 / 停用 / 摘要变化后不再注入并记 `skill_unavailable`；段为空不渲染 | `tests/test_skill_prompting.py::test_loaded_skill_becomes_system_policy_segment`<br>`tests/test_skill_prompting.py::test_removed_or_changed_skill_is_not_injected` | planned |
 | P7-S9-A06 | 缓存键：`skill_library_digest` 变化 → miss；没有 skill 时与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss` | planned |
@@ -597,7 +598,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S9-A08 | 面板与 API：成员可读列表（不含正文与运维路径）、正文与启停只给管理员（启停写进 Web 管理层 `skills` 键，revision / 锁 / 整份校验同 S6）、写接口 CSRF、审计；停用后下一个 run 不在目录里；S6 的 `servers` 改动不受影响 | `tests/test_web_skills.py::test_skill_listing_is_read_only_for_members`<br>`tests/test_web_skills.py::test_admin_can_disable_a_skill_for_the_next_run` | planned |
 | P7-S9-A09 | 部署：`WATER_AGENT_SKILLS_DIR` 指向只读挂载的 `app_skills` 卷，不在备份范围；内置 skill 随包分发 | `tests/test_web_deployment.py::test_operator_skills_volume_is_read_only` | planned |
 | P7-S9-A10 | `skill_p0`：目录与暴露、正文注入与来源、停用 / 不安全 / 遮蔽 / 删除不注入、加载规程后数值仍只来自计算工具且引用仍过校验器；接进 `ci_gate.sh` 与入仓基线对比 | `gate:skill_p0`<br>`tests/test_skill_eval.py::test_skill_p0_hard_metrics` | planned |
-| P7-S9-A11 | 快照：现有 15 个 profile 逐字不变，新增 `session_skills_builtin`；`WATER_AGENT_SKILLS_DIR` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S9-A11 | 快照：现有 15 个 profile 除主体能力集多 `load_skill` 外逐字不变（范围块 `frozen_json` 冻结其余全部片段），新增 `session_skills_builtin`；`WATER_AGENT_SKILLS` / `WATER_AGENT_SKILLS_DIR` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
 | P7-S9-A12 | 前端 Skill 库区：成员只读列表、管理员启停与查看正文、MCP 计数卡片（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
 | P7-S9-A13 | 真实模型加载并遵循规程（需 `DEEPSEEK_API_KEY`，见未覆盖项） | 无 | untested |
 
