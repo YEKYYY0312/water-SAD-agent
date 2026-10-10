@@ -74,6 +74,8 @@ PINNED_ENV_KEYS = (
     "WATER_AGENT_MCP_CONFIG",
     "WATER_AGENT_MCP_OVERLAY",
     "WATER_AGENT_MCP_WEB_LAYER",
+    "WATER_AGENT_SKILLS",
+    "WATER_AGENT_SKILLS_DIR",
     "WATER_AGENT_TOOL_EXPOSURE",
     "WEB_MOCK_GENERATOR",
     "DEEPSEEK_API_KEY",
@@ -114,6 +116,8 @@ class Profile:
     fault: Literal["mcp_register"] | None = None
     web: bool = False
     cli_checkpointer: bool = False
+    #: P7-S9：打开 Skill 库（``WATER_AGENT_SKILLS=on``，只用随包分发的内置 skill）。
+    skills: bool = False
 
 
 #: 会话侧 ``drawing``：off = ``drawing_root=""``（不注册图纸工具）；arg = 显式目录；
@@ -166,6 +170,12 @@ PROFILES: tuple[Profile, ...] = (
         mcp="fake",
         mcp_server_id="snapweb",
         web=True,
+    ),
+    Profile(
+        "session_skills_builtin",
+        "session",
+        "Skill 库打开（只有内置 skill）：多出 load_skill（intent，目录在工具描述里）",
+        skills=True,
     ),
     Profile(
         "session_mcp_register_fault",
@@ -551,7 +561,7 @@ def _write_mcp_config(path: Path, profile: Profile) -> Path:
 def _apply_profile_environment(profile: Profile, workdir: Path) -> Path | None:
     """按 profile 设置环境变量，返回要通过参数传入的图纸根（只有 drawing=arg 时非空）。"""
 
-    for key in ("DRAWING_ROOT", "WATER_AGENT_MCP_CONFIG", "DEEPSEEK_API_KEY"):
+    for key in ("DRAWING_ROOT", "WATER_AGENT_MCP_CONFIG", "DEEPSEEK_API_KEY", "WATER_AGENT_SKILLS"):
         os.environ.pop(key, None)
     drawing_arg: Path | None = None
     if profile.drawing in {"arg", "env"}:
@@ -566,6 +576,8 @@ def _apply_profile_environment(profile: Profile, workdir: Path) -> Path | None:
         )
     if profile.web:
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
+    if profile.skills:
+        os.environ["WATER_AGENT_SKILLS"] = "on"
     return drawing_arg
 
 
