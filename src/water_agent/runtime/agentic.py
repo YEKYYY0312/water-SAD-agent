@@ -610,6 +610,11 @@ class AgenticSession:
             self.recorder.record(
                 node="mcp", event="mcp_assembly", data=self.mcp_assembly.trace_summary()
             )
+        if self.skill_library.active:
+            # P7-S9：只有名字、来源与错误码（不含正文、不含运维目录路径）；开关 off 时不写
+            self.recorder.record(
+                node="skills", event="skill_library", query="", data=self.skill_library.trace_summary()
+            )
 
     async def aask(
         self,

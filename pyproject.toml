@@ -53,6 +53,8 @@ where = ["src"]
 # P6-S1：建筑类型规则表随包分发（几何规划读它，不读仓库路径）。
 [tool.setuptools.package-data]
 "water_agent.drawing" = ["*.json"]
+# P7-S9：内置 skill 随包分发（skill 库读包内路径，不读仓库 data/）。
+"water_agent.skills" = ["builtin/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
