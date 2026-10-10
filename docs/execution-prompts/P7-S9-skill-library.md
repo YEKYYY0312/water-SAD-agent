@@ -12,7 +12,7 @@
 
 ## 0. 相对规格的修订与本步决定（以本文为准）
 
-> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
+> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；⑤ 冻结范围里的 `/profiles/*/…` 会把本步必须新增的 `session_skills_builtin` 也算成"被改动"，改为按名字模式只冻结现有 15 个 profile（`session_[!s]*` 与 `runner_*`；现有会话侧 profile 没有以 `session_s` 开头的）。④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
 
 S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不复用）。用户的两个决定：**skill 正文要能当指令用**、**来源分两级（仓库内置 + 运维目录）**；首批写 3–5 个领域 skill。下面是读码后定下的做法，规格在本 Prompt 的同一个 PR 里同步：
 
@@ -249,26 +249,46 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
       "path": "data/eval/tool_assembly_main.json",
       "pointers": [
         "/versions/MCP_CONFIG_VERSION",
-        "/profiles/*/description",
-        "/profiles/*/side",
-        "/profiles/*/surface/tools",
-        "/profiles/*/surface/registration_order",
-        "/profiles/*/surface/model_tool_order",
-        "/profiles/*/surface/schema_chars_total",
-        "/profiles/*/surface/tool_guide",
-        "/profiles/*/surface/system_prompt",
-        "/profiles/*/surface/exposure",
-        "/profiles/*/lifecycle/captures",
-        "/profiles/*/lifecycle/exception",
-        "/profiles/*/lifecycle/mcp",
-        "/profiles/*/lifecycle/mcp_clients_alive_after_scope",
-        "/profiles/*/lifecycle/stack",
-        "/profiles/*/lifecycle/trace_record_calls",
-        "/profiles/*/lifecycle/app/app_kwargs",
-        "/profiles/*/lifecycle/app/cache_service",
-        "/profiles/*/lifecycle/app/checkpointer",
-        "/profiles/*/lifecycle/app/max_tool_turns",
-        "/profiles/*/lifecycle/app/probes",
+        "/profiles/session_[!s]*/description",
+        "/profiles/runner_*/description",
+        "/profiles/session_[!s]*/side",
+        "/profiles/runner_*/side",
+        "/profiles/session_[!s]*/surface/tools",
+        "/profiles/runner_*/surface/tools",
+        "/profiles/session_[!s]*/surface/registration_order",
+        "/profiles/runner_*/surface/registration_order",
+        "/profiles/session_[!s]*/surface/model_tool_order",
+        "/profiles/runner_*/surface/model_tool_order",
+        "/profiles/session_[!s]*/surface/schema_chars_total",
+        "/profiles/runner_*/surface/schema_chars_total",
+        "/profiles/session_[!s]*/surface/tool_guide",
+        "/profiles/runner_*/surface/tool_guide",
+        "/profiles/session_[!s]*/surface/system_prompt",
+        "/profiles/runner_*/surface/system_prompt",
+        "/profiles/session_[!s]*/surface/exposure",
+        "/profiles/runner_*/surface/exposure",
+        "/profiles/session_[!s]*/lifecycle/captures",
+        "/profiles/runner_*/lifecycle/captures",
+        "/profiles/session_[!s]*/lifecycle/exception",
+        "/profiles/runner_*/lifecycle/exception",
+        "/profiles/session_[!s]*/lifecycle/mcp",
+        "/profiles/runner_*/lifecycle/mcp",
+        "/profiles/session_[!s]*/lifecycle/mcp_clients_alive_after_scope",
+        "/profiles/runner_*/lifecycle/mcp_clients_alive_after_scope",
+        "/profiles/session_[!s]*/lifecycle/stack",
+        "/profiles/runner_*/lifecycle/stack",
+        "/profiles/session_[!s]*/lifecycle/trace_record_calls",
+        "/profiles/runner_*/lifecycle/trace_record_calls",
+        "/profiles/session_[!s]*/lifecycle/app/app_kwargs",
+        "/profiles/runner_*/lifecycle/app/app_kwargs",
+        "/profiles/session_[!s]*/lifecycle/app/cache_service",
+        "/profiles/runner_*/lifecycle/app/cache_service",
+        "/profiles/session_[!s]*/lifecycle/app/checkpointer",
+        "/profiles/runner_*/lifecycle/app/checkpointer",
+        "/profiles/session_[!s]*/lifecycle/app/max_tool_turns",
+        "/profiles/runner_*/lifecycle/app/max_tool_turns",
+        "/profiles/session_[!s]*/lifecycle/app/probes",
+        "/profiles/runner_*/lifecycle/app/probes",
         "/profiles/runner_mcp_config_invalid/surface",
         "/profiles/runner_mcp_config_invalid/lifecycle/app",
         "/profiles/runner_mcp_register_fault/surface",
@@ -279,7 +299,8 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
         "/profiles/session_mcp_ready_flag/lifecycle/app",
         "/profiles/session_mcp_register_fault/surface",
         "/profiles/session_mcp_register_fault/lifecycle/app",
-        "/profiles/*/lifecycle/app/tools_bound_to_prompt_registry"
+        "/profiles/session_[!s]*/lifecycle/app/tools_bound_to_prompt_registry",
+        "/profiles/runner_*/lifecycle/app/tools_bound_to_prompt_registry"
       ]
     }
   ]
