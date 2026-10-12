@@ -150,7 +150,7 @@ F1–F14 的事实表在 `docs/design/16-p7-plugin-mcp.md` §2，每条数字都
 | S5 | Step D（一） | MCP 长驻连接（stdio，修 F8）。执行 Prompt：`docs/execution-prompts/P7-S5-shared-mcp-connections.md` | 共享须按 server 显式声明 `lifecycle: shared`（缺省 `per_run`）；客户端请求串行；按单台 server 指纹重载；出站清单不变 |
 | S6 | Step E1 | Web 扩展面板（Web 管理层只改启停 / allow、运维声明的凭据槽位、导入只出禁用提案）。执行 Prompt：`docs/execution-prompts/P7-S6-mcp-admin-panel.md` | admin + CSRF；不能写 `command` / `args` / 环境变量名；不建数据库表 |
 | S7 | Step E2 | HITL 确认门（外层图 interrupt、waiting 态、批准 / 拒绝 API、审计、前端卡片）。执行 Prompt：`docs/execution-prompts/P7-S7-hitl-confirmation.md` | 内层 react agent 无 checkpointer，确认门必须在外层图；一次性执行凭证；只有 Web 入口接线 |
-| S8 | Step D（二） | Streamable HTTP 传输（2026-10-06 从 S5 拆出） | `NETWORK_FETCH` 能力决策；出站清单 7→8 |
+| S8 | Step D（二） | Streamable HTTP 传输 + OAuth 2.1 服务级授权 + 静态 Bearer 槽位（2026-10-06 从 S5 拆出）。执行 Prompt：`docs/execution-prompts/P7-S8-streamable-http.md` | 出口由运维写死的 URL 决定、`NETWORK_FETCH` 不放宽（远程工具仍持 `MCP_INVOKE`）；连接期 SSRF 校验 + 钉死 IP + 不跟随重定向；出站清单 7→8 并经 `ProviderGateway`、工具调用零重试；协议以 2025-11-25 为主、2026-07-28 只识别；令牌只写不读；`mcp_http_p0` 先冻结 |
 | S9 | Step F | Skill 库：仓库内置 + 运维只读目录两级 `SKILL.md`，`load_skill` 按需加载、正文以 `SYSTEM_POLICY` 分片进动态段，设置页只读 Skill 库（管理员可启停）（2026-10-09 新增）。执行 Prompt：`docs/execution-prompts/P7-S9-skill-library.md` | 不新增 `SourceTag`、不改 `INSTRUCTION_BEARING_SOURCES`；信任扩张登记威胁模型 T12；预算不上调；`skill_p0` 先冻结 |
 
 ---
@@ -272,10 +272,6 @@ S0 首次引入本文档，用 `python scripts/check_step_scope.py docs/给排�
     {
       "node": "tests/test_answer_cache.py::TestContextBudgetReview::test_system_prompt_within_segment_budget",
       "contains": "assert used < 1950"
-    },
-    {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"provider_call_sites\": 7"
     }
   ]
 }

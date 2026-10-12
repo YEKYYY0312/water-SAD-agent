@@ -165,10 +165,6 @@ runner 侧 surface（除 `runner_mcp_register_fault`）与 `runner_mcp_config_in
     {
       "node": "tests/test_answer_cache.py::TestContextBudgetReview::test_system_prompt_within_segment_budget",
       "contains": "assert used < 1950"
-    },
-    {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"provider_call_sites\": 7"
     }
   ],
   "frozen_json": [

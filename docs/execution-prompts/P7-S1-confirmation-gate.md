@@ -145,10 +145,6 @@
     {
       "node": "tests/test_answer_cache.py::TestContextBudgetReview::test_system_prompt_within_segment_budget",
       "contains": "assert used < 1950"
-    },
-    {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"provider_call_sites\": 7"
     }
   ],
   "frozen_json": [

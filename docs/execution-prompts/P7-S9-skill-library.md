@@ -229,10 +229,6 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
       "contains": "assert INSTRUCTION_BEARING_SOURCES == frozenset({SourceTag.SYSTEM_POLICY})"
     },
     {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"provider_call_sites\": 7"
-    },
-    {
       "node": "tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters",
       "contains": "assert surface[\"schema_chars_total\"] == 4497"
     },
