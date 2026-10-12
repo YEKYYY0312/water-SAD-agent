@@ -165,6 +165,14 @@ def audit_mcp_server_probed(*, actor_user_id: str, server_id: str, status: str) 
     _emit("mcp.server_probed", {"actor_user_id": actor_user_id, "server_id": server_id, "status": status})
 
 
+def audit_skill_updated(*, actor_user_id: str, name: str, disabled: bool, revision: int) -> None:
+    """P7-S9：管理员停用 / 启用一个 skill。只记名字与动作，不记正文。"""
+    _emit(
+        "skill.updated",
+        {"actor_user_id": actor_user_id, "name": name, "disabled": disabled, "revision": revision},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------

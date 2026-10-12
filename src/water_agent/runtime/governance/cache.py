@@ -196,6 +196,10 @@ class CacheKeyFactors(BaseModel):
     #: MCP server 清单摘要（P4 Step 25）。清单/白名单/DWG 版本任一变化 → 失效；
     #: 未启用 MCP（空清单）时为空串，与历史键同键（不无谓清空既有缓存）。
     mcp_server_manifest: str = ""
+    #: Skill 库摘要（P7-S9）：全部已启用 skill 的 name + 来源 + 摘要。skill 是系统策略的一部分，规程变了、
+    #: 启停了，旧回答不该再命中。用**全量**库而非"本轮加载了哪些"（lookup 在加载之前，同规范版本摘要的
+    #: 教训）；没有 skill（开关 off）时为空串，与历史键同键。
+    skill_library_digest: str = ""
     #: 条目格式版本。
     entry_version: str = Field(default=CACHE_ENTRY_VERSION, min_length=1)
 
@@ -208,9 +212,11 @@ class CacheKeyFactors(BaseModel):
         排除空 mcp_server_manifest 以保持与历史缓存键兼容（P4 Step 25 缓存迁移）。
         """
         data = self.model_dump(mode="json")
-        # 未启用 MCP 时排除该字段，与历史键保持一致
+        # 未启用 MCP / 没有 skill 时排除该字段，与历史键保持一致
         if not data.get("mcp_server_manifest"):
             data.pop("mcp_server_manifest", None)
+        if not data.get("skill_library_digest"):
+            data.pop("skill_library_digest", None)
         raw = json.dumps(data, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 

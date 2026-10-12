@@ -5,14 +5,19 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from water_agent.drawing.drawing_root import DrawingRootResult
 from water_agent.plugins.base import AssemblyContext, PluginContribution, ToolPlugin
 from water_agent.plugins.exposure import CORE, ExposureRule
 from water_agent.plugins.mcp_gateway import McpGatewayPlugin
+from water_agent.skills.library import BUILTIN_SKILLS_DIR, SkillLibrary, build_skill_library
+from water_agent.skills.models import Skill
 from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
+from water_agent.tools.load_skill import build_load_skill_tool, fit_catalog
 from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
@@ -25,6 +30,7 @@ BUILTIN_PLUGIN_ORDER: tuple[str, ...] = (
     "materials",
     "drawing",
     "mcp_gateway",
+    "skills",
 )
 
 
@@ -116,15 +122,113 @@ class DrawingPlugin:
         )
 
 
-def builtin_plugins(*, mcp: McpGatewayPlugin) -> tuple[ToolPlugin, ...]:
-    """按 :data:`BUILTIN_PLUGIN_ORDER` 排好的全部内置插件。MCP 插件由调用方给出来源模式。"""
+#: Skill 目录何时开放（P7-S9）：问题点名规程 / 流程，或命中任一已启用 skill 的 ``triggers``（装配时并入）。
+#: "流程"单列：问法常是"按计算书流程来"——"按流程"不是它的子串，只靠被停用的那份 skill 的 triggers 才命中。
+SKILL_FIXED_KEYWORDS: tuple[str, ...] = (
+    "按规程", "按流程", "按步骤", "规程", "流程", "操作规程", "load_skill", "skill",
+)
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SkillsContribution(PluginContribution):
+    """Skill 插件的贡献，带回本次装配的 skill 库（提示装配器从同一个实例取正文）。"""
+
+    library: SkillLibrary = field(default_factory=SkillLibrary)
+
+
+class SkillsPlugin:
+    """按名加载操作规程（P7-S9）。排在最后：指引里列在最末、预算不够时与 MCP 一样整组让位。
+
+    开关 ``WATER_AGENT_SKILLS`` 为 off 或没有任何已启用 skill 时 skipped、不注册工具。``requires_tools``
+    按**先于它的插件已贡献的工具**核对，所以必须排在全部工具插件之后。
+    """
+
+    plugin_id = "skills"
+
+    def __init__(
+        self,
+        *,
+        earlier: Sequence[ToolPlugin] = (),
+        disabled: Sequence[str] = (),
+        library: SkillLibrary | None = None,
+        builtin_dir: Path = BUILTIN_SKILLS_DIR,
+    ) -> None:
+        self._earlier = tuple(earlier)
+        self._disabled = tuple(disabled)
+        self._library = library
+        self._builtin_dir = builtin_dir
+        self._loaded: list[Skill] = []
+
+    def contribute(self, ctx: AssemblyContext) -> SkillsContribution:
+        library = self._library
+        if library is None:
+            available = sorted(
+                {
+                    spec.name
+                    for plugin in self._earlier
+                    for spec in getattr(plugin, "contributed_tools", ())
+                }
+            )
+            library = build_skill_library(
+                available_tools=available, disabled=self._disabled, builtin_dir=self._builtin_dir
+            )
+        library = fit_catalog(library)
+        tool = build_load_skill_tool(library)
+        if tool is None:
+            return SkillsContribution(
+                plugin_id=self.plugin_id,
+                status="skipped",
+                detail="disabled" if not library.active else "no_enabled_skills",
+                library=library,
+            )
+        keywords = tuple(
+            dict.fromkeys(
+                [*SKILL_FIXED_KEYWORDS, *(word for skill in library.enabled for word in skill.manifest.triggers)]
+            )
+        )
+        return SkillsContribution(
+            plugin_id=self.plugin_id,
+            tools=(tool,),
+            library=library,
+            exposure=ExposureRule(mode="intent", keywords=keywords),
+        )
+
+
+class _Remembering:
+    """包一层插件：记下它贡献的工具，供 :class:`SkillsPlugin` 核对 ``requires_tools``。"""
+
+    def __init__(self, inner: ToolPlugin) -> None:
+        self._inner = inner
+        self.contributed_tools: tuple[object, ...] = ()
+
+    @property
+    def plugin_id(self) -> str:
+        return self._inner.plugin_id
+
+    def contribute(self, ctx: AssemblyContext) -> PluginContribution:
+        contribution = self._inner.contribute(ctx)
+        self.contributed_tools = contribution.tools
+        return contribution
+
+
+def builtin_plugins(
+    *,
+    mcp: McpGatewayPlugin,
+    skills_disabled: Sequence[str] = (),
+    skills_builtin_dir: Path = BUILTIN_SKILLS_DIR,
+) -> tuple[ToolPlugin, ...]:
+    """按 :data:`BUILTIN_PLUGIN_ORDER` 排好的全部内置插件。MCP 插件由调用方给出来源模式。
+
+    ``skills_disabled`` 是 Web 管理层里停用的 skill 名（P7-S9）；开关与目录由环境变量决定。
+    """
+
+    tool_plugins = tuple(
+        _Remembering(plugin)
+        for plugin in (ClausesPlugin(), HydraulicsPlugin(), MaterialsPlugin(), DrawingPlugin(), mcp)
+    )
     plugins: tuple[ToolPlugin, ...] = (
-        ClausesPlugin(),
-        HydraulicsPlugin(),
-        MaterialsPlugin(),
-        DrawingPlugin(),
-        mcp,
+        *tool_plugins,
+        SkillsPlugin(earlier=tool_plugins, disabled=skills_disabled, builtin_dir=skills_builtin_dir),
     )
     assert tuple(plugin.plugin_id for plugin in plugins) == BUILTIN_PLUGIN_ORDER
     return plugins
@@ -134,10 +238,13 @@ __all__ = [
     "BUILTIN_PLUGIN_ORDER",
     "DRAWING_EXPOSURE",
     "MATERIALS_EXPOSURE",
+    "SKILL_FIXED_KEYWORDS",
     "ClausesPlugin",
     "DrawingContribution",
     "DrawingPlugin",
     "HydraulicsPlugin",
     "MaterialsPlugin",
+    "SkillsContribution",
+    "SkillsPlugin",
     "builtin_plugins",
 ]

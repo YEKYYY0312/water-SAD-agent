@@ -231,7 +231,8 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: 递进。
 #: P7 S7：确认门接线——Web 入口下 human_confirmation=true 的 server 可以暴露（以延迟工具出现），
 #: 新增凭证放行路径，可用工具集已变，递进。
-TOOL_POLICY_VERSION = "p7-step7-2026-10-07"
+#: P7 S9：新增 `load_skill` 工具与 `Capability.LOAD_SKILL`（进默认能力集），可用工具集与能力映射已变，递进。
+TOOL_POLICY_VERSION = "p7-step9-2026-10-09"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
@@ -280,6 +281,16 @@ TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
         effect=(
             "只读（在 ToolPolicy.allowed_read_dirs 内读 DXF；无写入、无网络、无 shell。"
             "路径由装配期注入的 DRAWING_ROOT 决定，模型只能表达 drawing_id）"
+        ),
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="load_skill",
+        module="water_agent/tools/load_skill.py",
+        required_capability=Capability.LOAD_SKILL,
+        effect=(
+            "只读（按名取 skill 库里已过安检的规程；名字是目录枚举，模型表达不出目录之外的名字。"
+            "正文由提示装配器放进系统提示，不进工具结果）"
         ),
         guardrail_validated=True,
     ),

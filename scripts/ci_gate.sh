@@ -2,7 +2,7 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
+#      → tool_exposure_p0 → skill_p0 → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
 #
@@ -152,6 +152,29 @@ else
     fi
 fi
 
+# skill_p0（P7-S9）：Skill 库机制层。生产 AgenticSession + 记录型脚本模型，判定目录与暴露、
+# 正文注入与来源、停用 / 不安全 / 遮蔽 / 删除不注入、加载规程后数值仍只来自计算工具且引用仍过校验器。
+# ⚠️ 脚本模型——不证明真实模型会在该加载时加载、加载后会照做（P7-S9-A13）。
+step "skill_p0 Skill 库机制层（26 条，硬指标全达标）"
+SK_HEAD="data/eval/reports/skill_p0_head.json"
+SK_MAIN="data/eval/skill_p0_main.json"
+if ! $PY -m water_agent.harness.skill_eval data/eval/skill_p0.jsonl --report-path "$SK_HEAD" > "$LOG_DIR/skill.log" 2>&1; then
+    tail -30 "$LOG_DIR/skill.log"
+    fail "skill_p0 runner"
+else
+    head -4 "$LOG_DIR/skill.log"
+    if [ -f "$SK_MAIN" ]; then
+        if ! $PY scripts/compare_skill_p0.py --head "$SK_HEAD" --base "$SK_MAIN" > "$LOG_DIR/skill_cmp.log" 2>&1; then
+            cat "$LOG_DIR/skill_cmp.log"
+            fail "skill_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/skill_cmp.log"
+        fi
+    else
+        missing_baseline "skill_p0" "cp $SK_HEAD $SK_MAIN"
+    fi
+fi
+
 # drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
 # ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
 # HEAD 与 main 的用例级回归与 smoke 观测指标（阈值 5pt），**不是**真实缺陷
@@ -270,4 +293,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
