@@ -64,7 +64,8 @@ def no_side_effects(monkeypatch: pytest.MonkeyPatch):
 
 def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
     """P7-S6-A03 Claude Code / Cursor JSON 与 Codex TOML → 覆盖层格式提案：每台 disabled: true、不写 allow、
-    env 键变成 credential_env；url / 非 stdio、含 / 的相对 command、归一不出 id 的名字逐条给原因；
+    env 键变成 credential_env；旧 HTTP+SSE、含 / 的相对 command、归一不出 id 的名字逐条给原因；
+    （P7-S8 起 url / type: http 条目生成 streamable_http 禁用提案，见 test_http_entries_become_disabled_proposals）；
     与现有 server_id 冲突改名并标出；超过 64 KiB 拒绝；全程不写文件、不启动子进程。"""
 
     claude = preview_import(_fixture("claude_code.mcp.json"), existing_ids={"cad"})
@@ -73,7 +74,7 @@ def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
     assert {name: entry.status for name, entry in by_name.items()} == {
         "autocad-mcp": "proposed",
         "Project Library": "proposed",
-        "remote-search": "unsupported",
+        "remote-search": "proposed",
         "relative": "invalid",
         "123": "invalid",
     }
@@ -81,13 +82,15 @@ def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
     assert by_name["autocad-mcp"].credential_env == ("AUTOCAD_API_TOKEN",)
     assert any("NODE_OPTIONS" in note for note in by_name["autocad-mcp"].notes), "危险变量名被去掉并说明"
     assert by_name["Project Library"].server_id == "project_library"
-    assert any("S8" in reason for reason in by_name["remote-search"].reasons)
+    assert by_name["remote-search"].server_id == "remote_search"
     assert any("command" in reason for reason in by_name["relative"].reasons)
     assert by_name["123"].server_id is None and by_name["123"].reasons
 
     proposal = json.loads(claude.proposal_text)
     assert proposal["version"] == MCP_CONFIG_VERSION
-    assert [server["server_id"] for server in proposal["servers"]] == ["autocad_mcp", "project_library"]
+    assert [server["server_id"] for server in proposal["servers"]] == [
+        "autocad_mcp", "project_library", "remote_search",
+    ]
     for server in proposal["servers"]:
         assert server["disabled"] is True
         assert "allow" not in server, "不写 allow 即全拒"
@@ -100,7 +103,7 @@ def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
     cad = next(entry for entry in cursor.entries if entry.name == "cad")
     assert cad.status == "proposed" and cad.server_id == "cad_2"
     assert any("冲突" in note for note in cad.notes)
-    assert next(e for e in cursor.entries if e.name == "legacy-sse").status == "unsupported"
+    assert next(e for e in cursor.entries if e.name == "real-sse").status == "unsupported", "type: sse（旧 HTTP+SSE）仍不支持"
 
     codex = preview_import(_fixture("codex.config.toml"), existing_ids=())
     assert codex.source_format == "codex_toml"
@@ -109,7 +112,7 @@ def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
     assert any("PYTHONPATH" in note for note in docs.notes)
     assert any("startup_timeout_sec" in note for note in docs.notes), "不支持的字段只列键名"
     figma = next(entry for entry in codex.entries if entry.name == "figma")
-    assert figma.status == "unsupported"
+    assert figma.status == "proposed"
     codex_proposal = json.loads(codex.proposal_text)
     assert codex_proposal["servers"] == [
         {
@@ -119,7 +122,13 @@ def test_import_produces_disabled_proposals_only(no_side_effects: None) -> None:
             "cwd": "/srv/docs",
             "credential_env": ["DOCS_TOKEN"],
             "disabled": True,
-        }
+        },
+        {
+            "server_id": "figma",
+            "transport": "streamable_http",
+            "url": "https://figma.example.invalid/mcp",
+            "disabled": True,
+        },
     ]
 
     # 同批里两条归一成同一个 id：后者改名
@@ -161,3 +170,54 @@ def test_import_never_echoes_env_values(no_side_effects: None) -> None:
     text = json.dumps({"mcpServers": {"broken": {"command": "./rel", "env": {"BROKEN_TOKEN": "zz-secret-value-123"}}}})
     rendered = json.dumps(preview_import(text).to_dict(), ensure_ascii=False)
     assert "zz-secret-value-123" not in rendered
+
+
+def test_http_entries_become_disabled_proposals(no_side_effects: None) -> None:
+    """P7-S8-A10：url / type: http 条目生成 ``transport: streamable_http`` 的禁用提案（不写 allow）；请求头与令牌的值
+    一律丢弃、只在备注里列名字，形似 Authorization 的提示改用 bearer_credential 槽位或 oauth；URL 的查询串丢弃；
+    旧 HTTP+SSE（type: sse）与其他传输仍不支持；不合格的 URL（明文 http、userinfo）逐条给原因。"""
+
+    payload = {
+        "mcpServers": {
+            "Remote Search": {
+                "type": "http",
+                "url": "https://mcp.example.invalid/search?api_key=query-fixture-secret-1&tenant=7",
+                "headers": {"Authorization": "Bearer header-fixture-secret-2", "X-Tenant": "t-7"},
+                "env": {"IGNORED": "x"},
+            },
+            "no-type": {"url": "https://mcp.example.invalid/mcp"},
+            "old-sse": {"type": "sse", "url": "https://mcp.example.invalid/sse"},
+            "socket": {"type": "websocket", "url": "wss://mcp.example.invalid/ws"},
+            "plain": {"type": "http", "url": "http://mcp.example.invalid/mcp"},
+            "userinfo": {"type": "http", "url": "https://u:p@mcp.example.invalid/mcp"},
+            "no-url": {"type": "http"},
+        }
+    }
+    preview = preview_import(json.dumps(payload), existing_ids={"remote_search"})
+    by_name = {entry.name: entry for entry in preview.entries}
+    assert {name: entry.status for name, entry in by_name.items()} == {
+        "Remote Search": "proposed", "no-type": "proposed", "old-sse": "unsupported", "socket": "unsupported",
+        "plain": "invalid", "userinfo": "invalid", "no-url": "invalid",
+    }
+    remote = by_name["Remote Search"]
+    assert remote.server_id == "remote_search_2", "与现有 id 冲突改名"
+    joined = " ".join(remote.notes)
+    assert "Authorization" in joined and "X-Tenant" in joined and "bearer_credential" in joined and "oauth" in joined
+    assert "api_key" in joined and "tenant" in joined and "查询串" in joined
+    assert any("没有声明传输类型" in note for note in by_name["no-type"].notes)
+    assert any("HTTP+SSE" in reason for reason in by_name["old-sse"].reasons)
+    assert any("allow_private_network" in reason for reason in by_name["plain"].reasons)
+    assert any("userinfo" in reason for reason in by_name["userinfo"].reasons)
+
+    proposal = json.loads(preview.proposal_text)
+    assert proposal["servers"] == [
+        {"server_id": "remote_search_2", "transport": "streamable_http",
+         "url": "https://mcp.example.invalid/search", "disabled": True},
+        {"server_id": "no_type", "transport": "streamable_http", "url": "https://mcp.example.invalid/mcp",
+         "disabled": True},
+    ]
+    for secret in ("query-fixture-secret-1", "header-fixture-secret-2", "Bearer ", "t-7"):
+        assert secret not in preview.proposal_text
+        assert not any(secret in note for entry in preview.entries for note in (*entry.notes, *entry.reasons))
+    gateway = MCPGatewayConfig.model_validate(proposal)
+    assert all(server.disabled and server.allow is None for server in gateway.servers)

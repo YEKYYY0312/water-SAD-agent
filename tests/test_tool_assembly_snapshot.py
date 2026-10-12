@@ -54,8 +54,8 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
-    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 当前代码的装配快照与入仓基线
-    逐字段一致；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
+    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 当前代码的装配快照与入仓基线
+    逐字段一致（S8 新增 ``session_http_mcp_fake``，其余 16 个 profile 不变）；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
     （其余 profile 开关 off，只有主体能力集多了 ``load_skill``）。"""
 
     lines = snap.diff_snapshots(baseline, head)
@@ -73,7 +73,7 @@ def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any
 def test_snapshot_is_hermetic_and_deterministic(
     head: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S0-A04 / P7-S6-A10 / P7-S9-A11 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
+    """P7-S0-A04 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
 
     ``WATER_AGENT_MCP_WEB_LAYER`` 指向一份损坏的层文件：没被快照钉住的话，带 MCP 的 profile 全会
     变成 ``MCP_CONFIG_INVALID``。``WATER_AGENT_SKILLS=on`` 与一个放了运维 skill 的目录：没被钉住的话，
@@ -100,6 +100,8 @@ def test_snapshot_is_hermetic_and_deterministic(
         "DEEPSEEK_API_KEY": "sk-polluted-environment-0000",
         "WATER_AGENT_SKILLS": "on",
         "WATER_AGENT_SKILLS_DIR": str(operator_skills),
+        # P7-S8-A13：授权回调地址的来源也被钉住——污染值不能让任何 profile 的装配发生变化
+        "WEB_PUBLIC_BASE_URL": "https://polluted.example.invalid",
     }
     for key, value in polluted.items():
         monkeypatch.setenv(key, value)
@@ -289,3 +291,25 @@ def test_cli_check_exit_codes(tmp_path: Path, baseline: dict[str, Any]) -> None:
     assert snap.main(["--check", str(doctored_path)]) == 1
 
     assert snap.main(["--check", str(snap.DEFAULT_BASELINE)]) == 0
+
+
+def test_http_mcp_profile_is_added_and_the_existing_ones_are_untouched(
+    head: dict[str, Any], baseline: dict[str, Any]
+) -> None:
+    """P7-S8-A13：新增 ``session_http_mcp_fake``（经 fake Streamable HTTP server 暴露两个工具、一个被 schema 子集
+    拒绝）；入仓基线里其余 16 个 profile 逐字不变；``WEB_PUBLIC_BASE_URL`` 在钉住的环境变量里。"""
+
+    profile = head["profiles"]["session_http_mcp_fake"]
+    assert profile["side"] == "session"
+    view = profile["lifecycle"]["mcp"][0]
+    assert view["exposed"] == ["mcp_snaphttp_echo_query", "mcp_snaphttp_lookup_project"]
+    assert ["snaphttp", "nested_schema_tool", "MCP_UNSUPPORTED_SCHEMA"] in view["skipped_tools"]
+    assert profile["lifecycle"]["exception"] is None
+    assert profile["lifecycle"]["mcp_clients_alive_after_scope"] == 0, "会话收尾后 HTTP 会话已关闭"
+    assert profile["surface"]["tools"]["mcp_snaphttp_echo_query"]["schema_chars"] > 0
+
+    existing = {name for name in baseline["profiles"] if name != "session_http_mcp_fake"}
+    assert len(existing) == 16
+    for name in existing:
+        assert head["profiles"][name] == baseline["profiles"][name], name
+    assert "WEB_PUBLIC_BASE_URL" in snap.PINNED_ENV_KEYS

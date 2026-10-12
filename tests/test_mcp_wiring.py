@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 
 from water_agent.mcp.config import (
-    MCP_CONFIG_VERSION,
     MCPGatewayConfig,
     MCPServerConfig,
     load_gateway_config,
@@ -52,7 +51,9 @@ class TestConfigWiring:
         """
         cfg = load_gateway_config(str(DEFAULT_CONFIG))
         assert cfg is not None
-        assert cfg.version == MCP_CONFIG_VERSION
+        # 文件里的 version 只是元数据、加载时不比对（见 config.MCP_CONFIG_VERSION 注释）。P7-S8 起入仓骨架
+        # 不再随常量递进（范围块把 data/mcp_servers.json 列为禁改）：只要求它非空。
+        assert cfg.version
         assert cfg.servers == ()
         assert cfg.confirmation_handler_ready is False
 
@@ -61,7 +62,9 @@ class TestConfigWiring:
         example = REPO_ROOT / "data" / "mcp_servers.example.json"
         payload = json.loads(example.read_text(encoding="utf-8"))
         config = MCPGatewayConfig.model_validate(payload)
-        assert [server.server_id for server in config.servers] == ["autocad_mcp"]
+        assert [server.server_id for server in config.servers] == [
+            "autocad_mcp", "enterprise_library", "cad_cloud",
+        ]
         server = config.servers[0]
         assert server.cwd is not None and server.cwd.startswith("/path/to/")
         assert server.allow == ("read_dwg",)

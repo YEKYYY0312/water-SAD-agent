@@ -217,6 +217,29 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         target_gateway_method="ProviderGateway.call",
         governed=True,
     ),
+    ProviderCallSite(
+        site_id="mcp_streamable_http",
+        module="water_agent/mcp/http_client.py",
+        egress_module="water_agent/mcp/http_transport.py",
+        symbol="MCPHttpClient._governed / mcp.oauth → http_transport.open_exchange",
+        provider=ProviderKind.MCP_REMOTE,
+        category=CallCategory.MCP_TOOL_CALL,
+        required_capability=Capability.MCP_INVOKE,
+        # 工具参数来自用户问题与模型的推理；OAuth 请求只含授权码 / 令牌 / 客户端注册信息。
+        data_class=DATA_CLASS_USER_QUERY,
+        principal_source=(
+            "tools/call：调用者主体（会话 / runner / Web 的 RequestContext，经 mcp_request_scope 下传）；"
+            "initialize / tools/list / DELETE / 授权端点：server 级服务主体（运维配置驱动）"
+        ),
+        current_timeout_seconds=30.0,
+        current_retry=(
+            "ProviderGateway：max_attempts=1——工具调用不重试（可能有副作用）；401/403 零重试且不计熔断；"
+            "仅 404（会话已终止、请求未处理）与一次 401 后的令牌刷新会重发被拒绝的那个请求"
+        ),
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
 )
 
 #: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
@@ -385,6 +408,11 @@ _EGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bOpenAIEmbeddings\s*\("),
     re.compile(r"\bhttpx\.(?:get|post|request|Client)\s*\("),
     re.compile(r"\brequests\.(?:get|post|request|Session)\s*\("),
+    # P7-S8：标准库 ``http.client`` 的连接类——直接调用、子类化、或 ``from http.client import …`` 都算。
+    # MCP 远程出口只有 ``mcp/http_transport.py`` 一个模块开这种连接。（刻意写成 ``http.client.`` 限定：
+    # starlette 的 ``HTTPConnection`` 是入站请求视图，不是出站连接。）
+    re.compile(r"\bhttp\.client\.HTTPS?Connection\b"),
+    re.compile(r"from\s+http\.client\s+import[^\n]*\bHTTPS?Connection\b"),
 )
 
 #: 扫描豁免：治理层自身、以及只做离线确定性计算的模块。

@@ -9,7 +9,9 @@
 - 每台 ``disabled: true``，**不写 ``allow``**（即全拒）——运维贴进去之后什么都不会自动运行；
 - ``env`` 的**值一律丢弃**、键变成 ``credential_env`` 槽位（导入文件里的 ``env`` 常含真实密钥，留在提案
   里就等于把密钥写进运维会到处粘贴的文本）；不能当槽位的键（``NODE_OPTIONS`` 这类）只列出名字、不进提案；
-- ``url`` / 非 stdio 条目标为不支持（Streamable HTTP 是 S8）；
+- ``url`` / ``type: http`` 条目（Claude Code / Cursor / Codex 的远程 server）生成 ``transport: streamable_http`` 的禁用提案（P7-S8）：
+  请求头 / 令牌**一律丢弃**（只在备注里列头的名字，形似 ``Authorization`` 的提示改用 ``bearer_credential`` 槽位或 ``oauth``），
+  URL 的查询串丢弃（常含 ``api_key=`` 之类）；旧的 HTTP+SSE（``type: sse``）与其他传输仍标为不支持；
 - 名字归一成合法 ``server_id``，与现有 id 或同批条目冲突时改名并标出（同名 id 贴进覆盖层会改写那台
   server 的配置）；
 - 逐条用 ``MCPServerConfig`` 做模型层校验（不查文件系统），不合格的逐条给原因。
@@ -22,6 +24,7 @@ import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from pydantic import ValidationError
 
@@ -43,7 +46,14 @@ FORMAT_TOML = "codex_toml"
 _ID_JUNK_RE = re.compile(r"[^a-z0-9_]+")
 #: 能照搬进提案的字段（其余字段忽略并在 notes 里列出键名）。
 _COPIED_KEYS = frozenset({"command", "args", "cwd"})
-_KNOWN_KEYS = _COPIED_KEYS | frozenset({"env", "type", "transport", "url", "name"})
+#: 远程 server 条目里可能出现的请求头 / 令牌字段（值一律丢弃，只在备注里列名字）。
+_HEADER_KEYS = ("headers", "http_headers", "httpHeaders", "env_http_headers")
+_TOKEN_KEYS = ("bearer_token_env_var", "bearerTokenEnvVar", "bearer_token")
+_KNOWN_KEYS = _COPIED_KEYS | frozenset(
+    {"env", "type", "transport", "url", "name", "enabled", "disabled", *_HEADER_KEYS, *_TOKEN_KEYS}
+)
+#: 声明为 Streamable HTTP 的 ``type`` 取值（各客户端写法不一）。
+_HTTP_TYPES = frozenset({"http", "streamable-http", "streamable_http", "streamablehttp", "streamableHttp"})
 
 
 class ImportRejected(ValueError):
@@ -147,6 +157,46 @@ def _reasons(error: ValidationError) -> tuple[str, ...]:
     return tuple(reasons)
 
 
+def _remote_proposal(raw: dict[str, Any], proposal: dict[str, Any], notes: list[str], *, explicit_type: bool) -> None:
+    """Streamable HTTP 条目：只带 transport 与（去掉查询串的）url；令牌、请求头的值一律丢弃。"""
+    proposal["transport"] = "streamable_http"
+    url = raw.get("url")
+    if isinstance(url, str):
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            proposal["url"] = url  # 交给模型校验报原因
+        else:
+            if parts.query:
+                names = sorted({key for key, _value in parse_qsl(parts.query, keep_blank_values=True)})
+                notes.append(
+                    f"URL 的查询串已丢弃（参数名：{', '.join(names) or '无'}；常含 api_key / token）："
+                    "认证请改用 bearer_credential 槽位或 oauth"
+                )
+            proposal["url"] = urlunsplit(parts._replace(query=""))
+    else:
+        proposal["url"] = url
+    if not explicit_type:
+        notes.append("条目没有声明传输类型，按 Streamable HTTP 处理；若 server 实际是旧版 HTTP+SSE，连接会失败")
+    header_names: list[str] = []
+    for key in _HEADER_KEYS:
+        headers = raw.get(key)
+        if isinstance(headers, dict):
+            header_names.extend(str(name) for name in headers)
+    token_fields = [key for key in _TOKEN_KEYS if key in raw]
+    if header_names or token_fields:
+        shown = sorted({*header_names, *token_fields})
+        notes.append(f"丢弃了请求头 / 令牌的值（名字：{', '.join(shown)}）")
+    if any(name.lower() == "authorization" or "token" in name.lower() or "key" in name.lower() for name in header_names) \
+            or token_fields:
+        notes.append(
+            "这个 server 需要认证：提案里没有任何令牌。请改用 bearer_credential 槽位"
+            "（运维声明 credential_env，管理员在面板填值）或 oauth（服务级授权）"
+        )
+    if raw.get("env") is not None:
+        notes.append("远程 server 没有子进程环境：env 已丢弃")
+
+
 def _entry(
     name: str, raw: Any, *, taken: set[str]
 ) -> tuple[ImportEntry, dict[str, Any] | None]:
@@ -154,12 +204,16 @@ def _entry(
         return ImportEntry(name, STATUS_INVALID, reasons=("条目不是对象",)), None
 
     transport = raw.get("type", raw.get("transport"))
-    if "url" in raw or (transport is not None and transport != "stdio"):
+    remote = "url" in raw and transport in (None, *_HTTP_TYPES)
+    if transport in _HTTP_TYPES and "url" not in raw:
+        return ImportEntry(name, STATUS_INVALID, reasons=("type 是 http，但条目没有 url",)), None
+    if not remote and (transport not in (None, "stdio") or "url" in raw):
+        which = "旧的 HTTP+SSE（type: sse）" if transport == "sse" else f"传输方式 {str(transport)[:30]!r}"
         return (
             ImportEntry(
                 name,
                 STATUS_UNSUPPORTED,
-                reasons=("只支持 stdio：url / SSE / Streamable HTTP 条目要等 S8",),
+                reasons=(f"{which}不支持：只导入 stdio 与 Streamable HTTP（本网关不实现已废弃的 HTTP+SSE）",),
             ),
             None,
         )
@@ -186,14 +240,17 @@ def _entry(
         server_id = renamed
 
     proposal: dict[str, Any] = {"server_id": server_id}
-    for key in ("command", "args", "cwd"):
-        if key in raw:
-            proposal[key] = raw[key]
-    if "args" in proposal:
-        notes.append("args 原样保留：请检查里面有没有写进去的令牌")
+    if remote:
+        _remote_proposal(raw, proposal, notes, explicit_type=transport is not None)
+    else:
+        for key in ("command", "args", "cwd"):
+            if key in raw:
+                proposal[key] = raw[key]
+        if "args" in proposal:
+            notes.append("args 原样保留：请检查里面有没有写进去的令牌")
 
     slots: list[str] = []
-    env = raw.get("env")
+    env = None if remote else raw.get("env")
     if env is not None:
         if not isinstance(env, dict):
             notes.append("env 不是对象，已丢弃")

@@ -2,7 +2,7 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → skill_p0 → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
+#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
 #
@@ -175,6 +175,30 @@ else
     fi
 fi
 
+# mcp_http_p0（P7-S8）：MCP Streamable HTTP 与 OAuth 2.1 机制层。会话 / Web 连接池 / runner 三条入口经
+# **本地假 HTTP MCP server + 假授权服务器**（自签 TLS，子进程），判定暴露与跳过码、调用结果、应拦的目标零字节
+# 发出、令牌零泄漏、工具调用零重放、每个出站请求都有 ProviderGateway 账。
+# ⚠️ 没有真实 HTTP MCP server、真实授权服务器、企业代理 / 证书链，也没有浏览器里的授权跳转（P7-S8-A14 / A15）。
+step "mcp_http_p0 MCP Streamable HTTP 与 OAuth 机制层（44 条，硬指标全达标）"
+MH_HEAD="data/eval/reports/mcp_http_p0_head.json"
+MH_MAIN="data/eval/mcp_http_p0_main.json"
+if ! $PY -m water_agent.harness.mcp_http_eval data/eval/mcp_http_p0.jsonl --report-path "$MH_HEAD" > "$LOG_DIR/mcp_http.log" 2>&1; then
+    tail -30 "$LOG_DIR/mcp_http.log"
+    fail "mcp_http_p0 runner"
+else
+    head -4 "$LOG_DIR/mcp_http.log"
+    if [ -f "$MH_MAIN" ]; then
+        if ! $PY scripts/compare_mcp_http_p0.py --head "$MH_HEAD" --base "$MH_MAIN" > "$LOG_DIR/mcp_http_cmp.log" 2>&1; then
+            cat "$LOG_DIR/mcp_http_cmp.log"
+            fail "mcp_http_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/mcp_http_cmp.log"
+        fi
+    else
+        missing_baseline "mcp_http_p0" "cp $MH_HEAD $MH_MAIN"
+    fi
+fi
+
 # drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
 # ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
 # HEAD 与 main 的用例级回归与 smoke 观测指标（阈值 5pt），**不是**真实缺陷
@@ -293,4 +317,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
