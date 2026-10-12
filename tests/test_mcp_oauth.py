@@ -281,7 +281,7 @@ def env_for(server: MCPServerConfig) -> oauth._Env:
 
 
 def test_protected_resource_metadata_discovery_order(tls_routes: Callable[[], TlsRoutes]) -> None:
-    """规范 MUST（1）：401 的 resource_metadata 优先——有就只用它，不再试 well-known；没有才按顺序试
+    """P7-S8-A06 规范 MUST（1）：401 的 resource_metadata 优先——有就只用它，不再试 well-known；没有才按顺序试
     路径插入 → 根路径。"""
 
     # (a) 头里有 resource_metadata：只请求它
@@ -325,7 +325,7 @@ def test_protected_resource_metadata_discovery_order(tls_routes: Callable[[], Tl
 
 
 def test_authorization_server_metadata_discovery_order(tls_routes: Callable[[], TlsRoutes]) -> None:
-    """规范 MUST（2）：有 path 的 issuer 依次试 RFC 8414 路径插入 → OIDC 路径插入 → OIDC 路径追加；
+    """P7-S8-A06 规范 MUST（2）：有 path 的 issuer 依次试 RFC 8414 路径插入 → OIDC 路径插入 → OIDC 路径追加；
     没有 path 的试 RFC 8414 → OIDC。元数据里的 issuer 必须等于用来构造 URL 的 issuer。"""
 
     assert oauth.authorization_server_candidates("https://auth.example.com/tenant1") == [
@@ -389,7 +389,7 @@ def test_discovery_trusts_only_the_first_allowed_issuer_and_our_own_resource(
 
 
 def test_pkce_support_is_required(tls_routes: Callable[[], TlsRoutes]) -> None:
-    """规范 MUST（3）：缺 code_challenge_methods_supported、或不含 S256（只有 plain）都拒绝继续。"""
+    """P7-S8-A06 规范 MUST（3）：缺 code_challenge_methods_supported、或不含 S256（只有 plain）都拒绝继续。"""
 
     for methods in (None, [], ["plain"]):
         routes = tls_routes()
@@ -409,7 +409,7 @@ def test_pkce_support_is_required(tls_routes: Callable[[], TlsRoutes]) -> None:
 
 
 def test_authorization_server_endpoints_must_be_https(tls_routes: Callable[[], TlsRoutes]) -> None:
-    """规范 MUST（7）：授权服务器端点必须 https；回调地址是 https 或 localhost。"""
+    """P7-S8-A07 规范 MUST（7）：授权服务器端点必须 https；回调地址是 https 或 localhost。"""
 
     routes = tls_routes()
     routes.routes[("POST", "/mcp")] = unauthorized(routes.origin, hint=None)
@@ -435,7 +435,7 @@ def test_authorization_server_endpoints_must_be_https(tls_routes: Callable[[], T
 
 
 def test_authorization_request_parameters(fake: Callable[..., Fake], cert_dir: Path) -> None:
-    """规范 MUST（4）：授权请求与令牌请求都带规范 URI 的 resource；PKCE S256；state 足够随机；scope 优先级。"""
+    """P7-S8-A07 规范 MUST（4）：授权请求与令牌请求都带规范 URI 的 resource；PKCE S256；state 足够随机；scope 优先级。"""
 
     server = fake("oauth")
     cfg = config(server.url)
@@ -484,7 +484,7 @@ def test_canonical_resource_uri_and_scope_selection(tls_routes: Callable[[], Tls
 
 
 def test_callback_rejects_bad_state_and_issuer(fake: Callable[..., Fake]) -> None:
-    """规范 MUST（5）：state 一次性、不匹配即丢弃；回调带 iss 时必须等于记录的 issuer；任何失败都不留令牌。"""
+    """P7-S8-A07 规范 MUST（5）：state 一次性、不匹配即丢弃；回调带 iss 时必须等于记录的 issuer；任何失败都不留令牌。"""
 
     server = fake("oauth")
     cfg = config(server.url)
@@ -546,7 +546,7 @@ def test_pending_sessions_are_bounded(fake: Callable[..., Fake]) -> None:
 
 
 def test_refresh_rotation_and_expiry(fake: Callable[..., Fake], monkeypatch: pytest.MonkeyPatch) -> None:
-    """规范 MUST（9）：refresh token 被轮换时替换旧值（第二次刷新仍成功）；即将过期才刷新；
+    """P7-S8-A07 规范 MUST（9）：refresh token 被轮换时替换旧值（第二次刷新仍成功）；即将过期才刷新；
     刷新被拒 → 清除令牌、MCP_OAUTH_REQUIRED、记事件；授权服务器暂时不可用 → 令牌保留。"""
 
     server = fake("oauth_expire")
@@ -651,7 +651,7 @@ def test_a_401_triggers_one_refresh_and_a_retry(fake: Callable[..., Fake]) -> No
 
 
 def test_registration_is_bound_to_the_issuer(fake: Callable[..., Fake]) -> None:
-    """规范 MUST（8）：动态注册的 client_id 按 issuer（与回调地址）存；对不上就作废、重新注册，不复用。"""
+    """P7-S8-A07 规范 MUST（8）：动态注册的 client_id 按 issuer（与回调地址）存；对不上就作废、重新注册，不复用。"""
 
     server = fake("oauth", "--dynamic-registration")
     cfg = config(server.url)
@@ -699,7 +699,7 @@ def test_client_secret_comes_from_the_slot(fake: Callable[..., Fake]) -> None:
 
 
 def test_insufficient_scope_is_reported_and_never_upgraded(fake: Callable[..., Fake]) -> None:
-    """规范 MUST（10）：403 insufficient_scope → 如实报出所需 scope，不自动发起升级授权。"""
+    """P7-S8-A07 规范 MUST（10）：403 insufficient_scope → 如实报出所需 scope，不自动发起升级授权。"""
 
     server = fake("insufficient_scope")
     cfg = config(server.url)
@@ -716,7 +716,7 @@ def test_insufficient_scope_is_reported_and_never_upgraded(fake: Callable[..., F
 
 
 def test_tokens_are_only_sent_to_the_configured_endpoint(fake: Callable[..., Fake]) -> None:
-    """规范 MUST（6）：令牌只发给签发它的 issuer 对应的那个 MCP endpoint——URL 变了、issuer 不在白名单了就不发。"""
+    """P7-S8-A07 规范 MUST（6）：令牌只发给签发它的 issuer 对应的那个 MCP endpoint——URL 变了、issuer 不在白名单了就不发。"""
 
     server = fake("oauth")
     cfg = config(server.url)
