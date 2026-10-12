@@ -1,7 +1,7 @@
 """mcp_http_p0：MCP Streamable HTTP 与 OAuth 2.1 的机制层评测（P7-S8，规格 §7 P7-S8-A12）。
 
 每条用例起一个**本地假 HTTP MCP server + 假授权服务器**（``tests/fixtures/fake_mcp_http_server.py``，自签 TLS，
-子进程），写一份只含这台 server 的 MCP 配置，再经**生产装配**连接：
+进程内两个监听线程），写一份只含这台 server 的 MCP 配置，再经**生产装配**连接：
 
 - ``session``：生产 ``AgenticSession``（真实 ``assemble_tools``、护栏、``ToolRegistry``）+ 脚本模型，工具由模型
   的脚本调用；
@@ -28,12 +28,12 @@ import asyncio
 import contextlib
 import hashlib
 import importlib
+import importlib.util
 import json
 import logging
 import os
 import socket
 import ssl
-import subprocess
 import sys
 import tempfile
 import time
@@ -217,8 +217,25 @@ def load_cases(path: Path) -> tuple[list[McpHttpCase], list[str]]:
 # ---------------------------------------------------------------------------
 
 
+_FAKE_MODULE: Any = None
+
+
+def fake_module() -> Any:
+    """按路径加载假 server 模块（``tests/fixtures`` 不是包）。进程内使用：评测 harness 不拉子进程。"""
+
+    global _FAKE_MODULE
+    if _FAKE_MODULE is None:
+        spec = importlib.util.spec_from_file_location("fake_mcp_http_server", FAKE_HTTP_SERVER)
+        if spec is None or spec.loader is None:
+            raise HarnessUsageError(f"无法加载假 HTTP MCP server：{FAKE_HTTP_SERVER}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _FAKE_MODULE = module
+    return _FAKE_MODULE
+
+
 class FakeServer:
-    """一台假 HTTP MCP server + 假授权服务器的子进程。"""
+    """一台假 HTTP MCP server + 假授权服务器（进程内两个监听线程，用例结束时关闭）。"""
 
     def __init__(self, spec: ServerSpec, *, cert_dir: Path, workdir: Path) -> None:
         self.spec = spec
@@ -226,40 +243,25 @@ class FakeServer:
         self.secrets_path = workdir / "server_secrets.json"
         self.mcp_port = 0
         self.auth_port = 0
-        self._proc: subprocess.Popen[str] | None = None
         self._cert_dir = cert_dir
+        self._running: Any = None
 
     def start(self) -> None:
-        command = [
-            sys.executable, str(FAKE_HTTP_SERVER), "--mode", self.spec.mode,
-            "--cert-dir", str(self._cert_dir), "--log", str(self.log_path),
-            "--secrets", str(self.secrets_path), *self.spec.flags,
-        ]
-        self._proc = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        module = fake_module()
+        args = module.build_parser().parse_args(
+            [
+                "--mode", self.spec.mode, "--cert-dir", str(self._cert_dir), "--log", str(self.log_path),
+                "--secrets", str(self.secrets_path), *self.spec.flags,
+            ]
         )
-        assert self._proc.stdout is not None
-        line = self._proc.stdout.readline()
-        if not line:
-            error = self._proc.stderr.read() if self._proc.stderr else ""
-            raise HarnessUsageError(f"假 HTTP MCP server 没有启动：{error.strip()[:300]}")
-        ports = json.loads(line)
-        self.mcp_port = int(ports["mcp_port"])
-        self.auth_port = int(ports["auth_port"])
+        self._running = module.start_servers(args)
+        self.mcp_port = int(self._running.mcp_port)
+        self.auth_port = int(self._running.auth_port)
 
     def stop(self) -> None:
-        proc, self._proc = self._proc, None
-        if proc is None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        for stream in (proc.stdout, proc.stderr):
-            if stream is not None:
-                stream.close()
+        running, self._running = self._running, None
+        if running is not None:
+            running.stop()
 
     def log(self) -> list[dict[str, Any]]:
         if not self.log_path.is_file():
@@ -281,14 +283,12 @@ class FakeServer:
 
 
 def make_certificate(directory: Path) -> None:
-    """生成一次自签证书（openssl 子进程；SAN：localhost、127.0.0.1）。"""
+    """生成一次自签证书（假 server 模块里的 openssl 调用；SAN：localhost、127.0.0.1 等）。"""
 
-    result = subprocess.run(
-        [sys.executable, str(FAKE_HTTP_SERVER), "--make-cert", str(directory)],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode != 0:
-        raise HarnessUsageError(f"生成测试证书失败（需要 openssl 命令）：{result.stderr.strip()[:300]}")
+    try:
+        fake_module().generate_certificate(str(directory))
+    except Exception as exc:
+        raise HarnessUsageError(f"生成测试证书失败（需要 openssl 命令）：{exc}") from exc
 
 
 # ---------------------------------------------------------------------------
