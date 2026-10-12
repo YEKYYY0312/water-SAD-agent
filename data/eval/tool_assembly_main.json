@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S9 Step 6：新增 profile session_skills_builtin（开关 on、只有内置 4 个 skill，load_skill 以 intent 暴露）；PINNED_ENV_KEYS 钉住 WATER_AGENT_SKILLS / WATER_AGENT_SKILLS_DIR；现有 15 个 profile 不变",
+    "last_write_reason": "P7-S8 Step 2：MCP_CONFIG_VERSION 递进（新增 streamable_http 传输与 url / oauth 等字段）；工具面与 16 个 profile 不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -3770,7 +3770,7 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p7-s6-2026-10-07",
+    "MCP_CONFIG_VERSION": "p7-s8-2026-10-12",
     "PROMPT_TEMPLATE_VERSION": "p7-s9-skill-context-2026-10-09",
     "TOOL_POLICY_VERSION": "p7-step9-2026-10-09"
   }
