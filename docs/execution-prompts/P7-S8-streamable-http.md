@@ -191,6 +191,7 @@ S8 是 2026-10-06 从 S5 拆出的一步（规格 §5 只写了"`NETWORK_FETCH` 
     "tests/test_mcp_credentials.py",
     "tests/test_governance_contracts.py",
     "tests/test_dxf_upload.py",
+    "tests/test_vision_review.py",
     "tests/test_provider_gateway.py",
     "tests/test_web_deployment.py",
     "tests/test_p7_known_figures.py",
@@ -315,7 +316,7 @@ S8 是 2026-10-06 从 S5 拆出的一步（规格 §5 只写了"`NETWORK_FETCH` 
 - 危险能力：`DANGEROUS_CAPABILITIES` 不变、`Principal` 构造期拒绝、护栏层拒绝（两层测试原样通过）；`DEFAULT_LOCAL_CAPABILITIES` 不含危险能力。
 - 出站扫描：`test_no_ungoverned_remote_egress` 断言不变（新模块必须登记，而不是放宽断言）。
 - S1 / S3 / S6 / S7：确认门无凭证拒绝；覆盖层不能写 `confirmation_handler_ready` 或未知键；Web 管理层可写键不变、命令只来自运维两层。
-- **会变的锁定数字**（本步唯一允许改的）：`tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12` 的 `"provider_call_sites": 7` / `"provider_governed": 7` → 8（docstring 记一行原因：P7-S8 新增 MCP 远程出口）；`tests/test_dxf_upload.py::test_tool_schema_budget_and_governance_counts_are_untouched` 同一组数字同样 7 → 8（`tools` / `tools_guardrail_validated` 仍是 6）；`tests/test_mcp_pool.py` 的 `MCP_CONFIG_VERSION` 字面量；`test_scan_actually_finds_known_egress` 的已知出口列表加 `water_agent/mcp/http_transport.py`。**任务书与 S1–S9 执行 Prompt 的 `protect` 里锁着 `"provider_call_sites": 7`**——它们不在本步范围内，必须在**本 Prompt 的文档 PR 里**一并改掉（见 §12），否则 S8 实现合入后 `test_repo_scope_blocks_are_usable` 在 main 上变红（S9 实测踩过同类问题）。
+- **会变的锁定数字**（本步唯一允许改的）：`tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12` 的 `"provider_call_sites": 7` / `"provider_governed": 7` → 8（docstring 记一行原因：P7-S8 新增 MCP 远程出口）；`tests/test_dxf_upload.py::test_tool_schema_budget_and_governance_counts_are_untouched` 同一组数字同样 7 → 8（`tools` / `tools_guardrail_validated` 仍是 6）；`tests/test_vision_review.py::test_vision_call_site_is_registered_and_governed` 的 `len(PROVIDER_CALL_SITES) == 7` 是同一个 7 → 8（写 Prompt 时漏列，S8 全量门禁实测发现，见 `p7-step-8-decision.md` D13）；`tests/test_mcp_pool.py` 的 `MCP_CONFIG_VERSION` 字面量；`test_scan_actually_finds_known_egress` 的已知出口列表加 `water_agent/mcp/http_transport.py`。**任务书与 S1–S9 执行 Prompt 的 `protect` 里锁着 `"provider_call_sites": 7`**——它们不在本步范围内，必须在**本 Prompt 的文档 PR 里**一并改掉（见 §12），否则 S8 实现合入后 `test_repo_scope_blocks_are_usable` 在 main 上变红（S9 实测踩过同类问题）。
 - `MCP_ERROR_CODES` 只增不减（本步新增 5 个：`MCP_DESTINATION_FORBIDDEN`、`MCP_PROTOCOL_UNSUPPORTED`、`MCP_OAUTH_REQUIRED`、`MCP_OAUTH_UNAVAILABLE`、`MCP_OAUTH_INSUFFICIENT_SCOPE`）。
 
 **规范逐条（OAuth 客户端 MUST 项，每条一个断言，A06–A08）**：
