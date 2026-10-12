@@ -109,7 +109,7 @@ def test_lifecycle_field_defaults_to_per_run(tmp_path: Path, monkeypatch: pytest
     )
     from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
 
-    assert MCP_CONFIG_VERSION == "p7-s6-2026-10-07"
+    assert MCP_CONFIG_VERSION == "p7-s8-2026-10-12"
     assert _server("poollife").lifecycle == "per_run"
 
     base = tmp_path / "base.json"
@@ -364,3 +364,164 @@ def test_trace_summary_reports_connection_kind(pool: Any) -> None:
         assert leaked not in rendered
     first.release()
     second.release()
+
+
+# ---------------------------------------------------------------------------
+# P7-S8：Streamable HTTP server 进连接池
+# ---------------------------------------------------------------------------
+
+
+def test_http_server_sessions_are_pooled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P7-S8-A09：HTTP server 同样支持 per_run / shared。shared 复用的是 **MCP 会话**（不是 TCP 连接）：第二个
+    租约拿到同一个 ``MCP-Session-Id``，server 只收到一次 initialize；per_run 每个租约现开、释放时 DELETE。
+    指纹含静态 Bearer 的值与 OAuth 授权身份摘要——改值 / 重新授权换会话，令牌刷新不换；会话被 server 终止（404）时
+    客户端透明重建一次，池里的条目不退役。"""
+
+    import json
+    import subprocess
+
+    from water_agent.mcp.config import MCPGatewayConfig
+    from water_agent.mcp.credentials import write_slot
+    from water_agent.mcp.http_client import mcp_request_scope
+    from water_agent.mcp.oauth_store import OAuthStore, StoredToken
+    from water_agent.mcp.pool import (
+        CONNECTION_PER_RUN,
+        CONNECTION_SHARED_NEW,
+        CONNECTION_SHARED_REUSED,
+        McpConnectionPool,
+        server_fingerprint,
+    )
+    from water_agent.runtime.governance.contracts import (
+        DEFAULT_LOCAL_CAPABILITIES,
+        Capability,
+        Principal,
+        RequestContext,
+    )
+
+    fake = Path(__file__).resolve().parent / "fixtures" / "fake_mcp_http_server.py"
+    cert_dir = tmp_path / "tls"
+    subprocess.run([sys.executable, str(fake), "--make-cert", str(cert_dir)], check=True, capture_output=True)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "credentials"))
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert_dir / "cert.pem"))
+    for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "SSL_CERT_DIR"):
+        monkeypatch.delenv(key, raising=False)
+    context = RequestContext(
+        principal=Principal.local("pooltest", capabilities=DEFAULT_LOCAL_CAPABILITIES | {Capability.MCP_INVOKE}),
+        request_id="req-pool",
+    )
+
+    def start(mode: str, name: str) -> tuple[subprocess.Popen[str], int, Path]:
+        log = tmp_path / f"{name}.jsonl"
+        proc = subprocess.Popen(
+            [sys.executable, str(fake), "--mode", mode, "--cert-dir", str(cert_dir), "--log", str(log)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        assert proc.stdout is not None
+        return proc, json.loads(proc.stdout.readline())["mcp_port"], log
+
+    def log_of(path: Path) -> list[dict[str, Any]]:
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def http(server_id: str, port: int, **overrides: Any) -> MCPServerConfig:
+        payload: dict[str, Any] = {
+            "server_id": server_id, "transport": "streamable_http", "url": f"https://127.0.0.1:{port}/mcp",
+            "allow_private_network": True, "allow": ["session_probe"], "call_timeout_seconds": 3.0,
+        }
+        payload.update(overrides)
+        return MCPServerConfig.model_validate(payload)
+
+    def probe(lease: Any, server_id: str) -> dict[str, Any]:
+        client = next(s.client for s in lease.assembly.sessions if s.config.server_id == server_id)
+        with mcp_request_scope(context):
+            return client.call_tool("session_probe", {})["structured_content"]  # type: ignore[no-any-return]
+
+    processes: list[subprocess.Popen[str]] = []
+    pool = McpConnectionPool()
+    try:
+        proc, port, log = start("json", "pooled")
+        processes.append(proc)
+        shared = http("poolshared", port, lifecycle="shared")
+        per_run = http("poolperrun", port)
+        gateway = MCPGatewayConfig(servers=(shared, per_run))
+
+        first = pool.lease(gateway)
+        second = pool.lease(gateway)
+        assert first.assembly.connections == {"poolshared": CONNECTION_SHARED_NEW, "poolperrun": CONNECTION_PER_RUN}
+        assert second.assembly.connections == {"poolshared": CONNECTION_SHARED_REUSED, "poolperrun": CONNECTION_PER_RUN}
+        a, b = probe(first, "poolshared"), probe(second, "poolshared")
+        assert a["session"] == b["session"] and (a["calls_in_session"], b["calls_in_session"]) == (1, 2)
+        assert probe(first, "poolperrun")["session"] != probe(second, "poolperrun")["session"], "per_run 各自独立会话"
+        first.release()
+        second.release()
+        deletes = [e for e in log_of(log) if e["method"] == "DELETE"]
+        assert len(deletes) == 2, "per_run 的两个会话在租约释放时 DELETE；shared 的还留在池里"
+        third = pool.lease(gateway)
+        assert probe(third, "poolshared")["calls_in_session"] == 3, "释放租约不关 shared 会话"
+        third.release()
+        assert pool.snapshot()["active"]["poolshared"] == {"refs": 0, "alive": True}
+        pool.close()
+        assert len([e for e in log_of(log) if e["method"] == "DELETE"]) == 4, "关池时 shared 会话也 DELETE"
+
+        # 指纹：静态 Bearer 的值进摘要
+        bearer = http("poolbearer", port, bearer_credential="POOL_KEY", credential_env=["POOL_KEY"])
+        gw = MCPGatewayConfig(servers=(bearer,))
+        write_slot("poolbearer", "POOL_KEY", "pool-bearer-value-0001")
+        before = server_fingerprint(bearer, gw)
+        assert server_fingerprint(bearer, gw) == before
+        write_slot("poolbearer", "POOL_KEY", "pool-bearer-value-0002")
+        assert server_fingerprint(bearer, gw) != before, "面板改值：shared 会话换新的"
+
+        # 指纹：OAuth 授权身份摘要——刷新不换、重新授权换、清除换
+        oauth_server = http("pooloauth", port, oauth={"client_id": "c"})
+        gw2 = MCPGatewayConfig(servers=(oauth_server,))
+        store = OAuthStore("pooloauth")
+        token = StoredToken(
+            authorization_id="auth-1", issuer="https://a.example", resource="https://127.0.0.1/mcp", client_id="c",
+            client_auth="none", token_endpoint="https://a.example/token", revocation_endpoint=None,
+            access_token="access-value-aaaa", refresh_token="refresh-value-aaaa", issued_at=1.0, expires_at=10.0, scope=None,
+        )
+        assert server_fingerprint(oauth_server, gw2) == server_fingerprint(oauth_server, gw2)
+        none_fp = server_fingerprint(oauth_server, gw2)
+        store.save(token)
+        authorized_fp = server_fingerprint(oauth_server, gw2)
+        assert authorized_fp != none_fp
+        store.save(token.with_tokens(access_token="access-value-bbbb", refresh_token="refresh-value-bbbb",
+                                     issued_at=2.0, expires_at=20.0, scope=None))
+        assert server_fingerprint(oauth_server, gw2) == authorized_fp, "令牌刷新：同一份授权，不换指纹"
+        store.save(StoredToken(**{**token.__dict__, "authorization_id": "auth-2"}))
+        assert server_fingerprint(oauth_server, gw2) != authorized_fp, "重新授权换指纹"
+        store.clear()
+        assert server_fingerprint(oauth_server, gw2) == none_fp, "清除授权回到未授权的指纹"
+    finally:
+        pool.close()
+        for proc in processes:
+            proc.terminate()
+            proc.wait(timeout=3)
+            for stream in (proc.stdout, proc.stderr):
+                if stream:
+                    stream.close()
+
+    # 会话被 server 终止（404）：同一个租约内透明重建一次，条目不退役
+    expire_proc, expire_port, expire_log = start("session_expire", "expire")
+    pool = McpConnectionPool()
+    try:
+        expiring = http("poolexpire", expire_port, lifecycle="shared")
+        gateway = MCPGatewayConfig(servers=(expiring,))
+        lease = pool.lease(gateway)
+        one = probe(lease, "poolexpire")
+        two = probe(lease, "poolexpire")
+        lease.release()
+        client = lease.assembly.sessions[0].client
+        assert client is not None and client.session_rebuilds == 1  # type: ignore[union-attr]
+        assert one["session"] != two["session"] and two["initialize_count"] == 2
+        assert pool.snapshot()["active"]["poolexpire"]["alive"] is True and pool.snapshot()["retired"] == 0
+        later = pool.lease(gateway)
+        assert later.assembly.connections == {"poolexpire": CONNECTION_SHARED_REUSED}
+        later.release()
+    finally:
+        pool.close()
+        expire_proc.terminate()
+        expire_proc.wait(timeout=3)
+        for stream in (expire_proc.stdout, expire_proc.stderr):
+            if stream:
+                stream.close()

@@ -6,6 +6,8 @@
 - ``lifecycle="per_run"``（缺省）的 server：与此前一样，每个租约现开、``release`` 时关闭；
 - ``lifecycle="shared"`` 的 server：池里长驻、被所有 run 复用。**声明 shared 即声明这台 server
   不持有按用户区分的状态**——共享的是同一个进程，进程里的状态对所有用户可见（有测试如实演示）。
+  Streamable HTTP server（P7-S8）同样支持：共享的是 **MCP 会话**（``MCP-Session-Id``），没有常驻 TCP
+  连接（每个请求一次新连接，各自过 SSRF 校验）；会话被 server 终止（404）时客户端透明重建一次。
 
 复用的是进程，不是授权：每次调用仍经 ``ToolRegistry.invoke``（主体 ``MCP_INVOKE``、参数护栏、
 执行期确认门）。同一连接上的请求由 ``MCPStdioClient`` 串行。
@@ -24,7 +26,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from water_agent.mcp.bridge import MCPServerSession, open_bridge
-from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig, child_env
+from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig, ServerTransport, child_env
+from water_agent.mcp.credentials import read_slot
+from water_agent.mcp.oauth_store import OAuthStore
 from water_agent.mcp.wiring import (
     MCPGatewayAssembly,
     SkippedServer,
@@ -49,17 +53,27 @@ def server_fingerprint(
     入口下桥接出的工具集不同（后者整台不暴露），不能互相复用。
     """
 
-    env = child_env(server)
-    env_digest = hashlib.sha256(
-        json.dumps(sorted(env.items()), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
     payload = {
         "server": server.model_dump(mode="json"),
         "confirmation_ready": confirmation_ready or gateway.confirmation_handler_ready,
-        "env": env_digest,
+        "env": _credential_digest(server),
     }
+    if server.transport is ServerTransport.STREAMABLE_HTTP:
+        # 授权身份的摘要（P7-S8）：重新授权 / 清除换指纹（旧 MCP 会话是用旧令牌建的），令牌刷新不换
+        # （同一份授权）。摘要里没有令牌值。
+        payload["oauth"] = OAuthStore(server.server_id).authorization_digest() if server.oauth is not None else ""
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _credential_digest(server: MCPServerConfig) -> str:
+    """凭据的摘要（只用于比较，不落日志）：stdio 是解析后的子进程 env；HTTP 是静态 Bearer 槽位的值
+    （面板改值 → 摘要变 → shared 的 MCP 会话换新的）。"""
+    if server.transport is ServerTransport.STREAMABLE_HTTP:
+        value = read_slot(server.server_id, server.bearer_credential) if server.bearer_credential else ""
+        return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+    env = child_env(server)
+    return hashlib.sha256(json.dumps(sorted(env.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 @dataclass(slots=True, eq=False)

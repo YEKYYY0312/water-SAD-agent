@@ -26,6 +26,24 @@ export type McpWebOverride = {
   updated_by?: string;
 };
 
+/** OAuth 服务级授权的状态（P7-S8）。**没有令牌、client_id、授权服务器地址**——只有主机名和状态。 */
+export type McpOAuthState = "none" | "authorized" | "expired" | "resource_changed" | "issuer_not_allowed";
+
+export type McpOAuthView = {
+  state: McpOAuthState;
+  authorized: boolean;
+  expires_at: string | null;
+  scope: string | null;
+  issuer_host: string | null;
+  /** 回调地址可用（WEB_PUBLIC_BASE_URL 合法）且 server 未停用。 */
+  can_authorize: boolean;
+  unavailable_reason: string | null;
+  /** 授权前必须让管理员看到的话：所有用户共用该授权身份。 */
+  notice: string;
+};
+
+export type McpOAuthStart = { authorization_url: string; issuer: string; expires_at: string; notice: string };
+
 export type McpServerView = {
   server_id: string;
   disabled: boolean;
@@ -33,7 +51,15 @@ export type McpServerView = {
   allow: string[] | null;
   human_confirmation: boolean;
   lifecycle: "per_run" | "shared";
-  /** 只有命令的文件名：完整路径与参数只有运维能看能改。 */
+  /** 传输方式（P7-S8）：本地 stdio 子进程，或 Streamable HTTP 远程 server。 */
+  transport: "stdio" | "streamable_http";
+  /** 远程 server 的**主机名**（不含路径与查询串——可能带租户 id）；stdio 为 null。 */
+  url_host: string | null;
+  /** 允许回环 / 私有网段目标与明文 http（本机 / 局域网调试）；stdio 为 null。 */
+  allow_private_network: boolean | null;
+  auth_kind: "oauth" | "bearer" | "none";
+  oauth: McpOAuthView | null;
+  /** 只有命令的文件名：完整路径与参数只有运维能看能改（HTTP server 为空串）。 */
   command_name: string;
   sources: Record<string, McpLayer>;
   credentials: McpCredentialSlot[];
@@ -162,6 +188,16 @@ export class McpAdminApi {
       `/api/admin/mcp/servers/${encodeURIComponent(serverId)}/credentials/${encodeURIComponent(slot)}`,
       { method: "DELETE" },
     );
+  }
+
+  /** 发起服务级授权：返回要在本浏览器里打开的授权 URL（state / PKCE 只留在服务端）。 */
+  startOAuth(serverId: string): Promise<McpOAuthStart> {
+    return this.request(`/api/admin/mcp/servers/${encodeURIComponent(serverId)}/oauth/start`, { method: "POST" });
+  }
+
+  /** 撤销授权：删本地令牌（并尽力通知授权服务器）。 */
+  revokeOAuth(serverId: string): Promise<{ oauth: McpOAuthView }> {
+    return this.request(`/api/admin/mcp/servers/${encodeURIComponent(serverId)}/oauth`, { method: "DELETE" });
   }
 
   probe(serverId: string): Promise<{ probe: McpProbe }> {

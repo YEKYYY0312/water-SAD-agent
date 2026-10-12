@@ -23,22 +23,30 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from water_agent.config.credentials import CredentialStoreUnavailableError, InvalidCredentialError
+from water_agent.mcp import oauth
 from water_agent.mcp.config import (
     MCPGatewayConfig,
     MCPServerConfig,
     OperatorLayers,
+    ServerTransport,
     missing_paths,
     read_operator_layers,
     web_layer_path,
 )
 from water_agent.mcp.credentials import delete_slot, slot_status, write_slot
-from water_agent.mcp.errors import MCPError
+from water_agent.mcp.errors import (
+    MCP_CONFIG_INVALID,
+    MCP_CREDENTIAL_MISSING,
+    MCP_OAUTH_UNAVAILABLE,
+    MCPError,
+)
 from water_agent.mcp.importer import ImportRejected, preview_import
 from water_agent.mcp.pool import McpConnectionPool
 from water_agent.mcp.web_layer import (
@@ -59,6 +67,9 @@ from water_agent.mcp.wiring import MCPGatewayAssembly, load_mcp_gateway
 from water_agent.runtime.governance.inventory import mcp_tool_binding
 from water_agent.webapp.auth.audit import (
     audit_mcp_credential_changed,
+    audit_mcp_oauth_authorized,
+    audit_mcp_oauth_failed,
+    audit_mcp_oauth_revoked,
     audit_mcp_override_removed,
     audit_mcp_server_probed,
     audit_mcp_server_updated,
@@ -76,6 +87,8 @@ REVISION_CONFLICT = "WEB_MCP_REVISION_CONFLICT"
 CONFIG_REJECTED = "WEB_MCP_CONFIG_REJECTED"
 SERVER_DISABLED = "WEB_MCP_SERVER_DISABLED"
 PROBE_BUSY = "WEB_MCP_PROBE_BUSY"
+OAUTH_UNAVAILABLE = "WEB_MCP_OAUTH_UNAVAILABLE"
+OAUTH_FAILED = "WEB_MCP_OAUTH_FAILED"
 STORE_UNAVAILABLE = "WEB_MCP_ADMIN_STORE_UNAVAILABLE"
 CREDENTIAL_INVALID = "WEB_CREDENTIAL_INVALID"
 CREDENTIAL_STORE_UNAVAILABLE = "WEB_CREDENTIAL_STORE_UNAVAILABLE"
@@ -86,6 +99,8 @@ _ERROR_STATUS: dict[str, int] = {
     CONFIG_REJECTED: 422,
     SERVER_DISABLED: 409,
     PROBE_BUSY: 409,
+    OAUTH_UNAVAILABLE: 409,
+    OAUTH_FAILED: 502,
     STORE_UNAVAILABLE: 503,
     CREDENTIAL_INVALID: 422,
     CREDENTIAL_STORE_UNAVAILABLE: 503,
@@ -213,6 +228,10 @@ def _web_layer_writable(path: Any) -> bool:
     return os.access(directory, os.W_OK | os.X_OK)
 
 
+def _url_host(server: MCPServerConfig) -> str | None:
+    return urlsplit(server.url).hostname if server.url else None
+
+
 def _server_view(
     server: MCPServerConfig,
     layers: OperatorLayers,
@@ -233,14 +252,22 @@ def _server_view(
         )
     with state.lock:
         last_probe = state.probes.get(server.server_id)
+    remote = server.transport is ServerTransport.STREAMABLE_HTTP
     return {
         "server_id": server.server_id,
         "disabled": server.disabled,
         "allow": list(server.allow) if server.allow is not None else None,
         "human_confirmation": server.human_confirmation,
         "lifecycle": server.lifecycle,
+        # P7-S8：传输方式、远程 server 的主机名（不含路径与查询串——可能带租户 id）、私网标记与授权状态。
+        # URL 本身、授权服务器地址、客户端 id、令牌都不返回；面板也改不了它们。
+        "transport": server.transport.value,
+        "url_host": _url_host(server) if remote else None,
+        "allow_private_network": server.allow_private_network if remote else None,
+        "auth_kind": "oauth" if server.oauth is not None else ("bearer" if server.bearer_credential else "none"),
+        "oauth": _oauth_view(server),
         # 只给文件名：完整路径与 args 里常有运维写进去的本机细节与令牌，面板也改不了它们
-        "command_name": PurePosixPath(server.command).name,
+        "command_name": PurePosixPath(server.command).name if server.command else "",
         "sources": field_sources(layers, document, server.server_id),
         "credentials": credentials,
         "web_override": override,
@@ -588,6 +615,164 @@ async def remove_credential(
 
 
 # ---------------------------------------------------------------------------
+# OAuth 2.1 服务级授权（P7-S8）
+# ---------------------------------------------------------------------------
+
+ENV_PUBLIC_BASE_URL = "WEB_PUBLIC_BASE_URL"
+CALLBACK_PATH = "/api/admin/mcp/oauth/callback"
+#: 授权前面板必须明确提示的话：令牌是这台 server 的部署级凭据，所有用户的 run 共用。
+OAUTH_NOTICE = "所有用户都会以该授权身份调用此 server；令牌只保存在服务端，任何接口都不会返回它"
+
+
+def public_base_url() -> tuple[str | None, str | None]:
+    """``WEB_PUBLIC_BASE_URL``：授权回调地址的唯一来源。返回 ``(规范化的基地址, 不可用原因)``。
+
+    必须是 ``https://``（本机开发允许 ``http://localhost`` / ``127.0.0.1``）、不含 userinfo / 查询串 / fragment。
+    **不从请求的 Host 头推导**：回调地址要预先注册并精确匹配，从请求推导等于让攻击者决定回调去哪。
+    """
+    raw = os.environ.get(ENV_PUBLIC_BASE_URL, "").strip()
+    if not raw:
+        return None, f"未配置 {ENV_PUBLIC_BASE_URL}：授权回调地址无从确定（需运维在部署中设置）"
+    parts = urlsplit(raw)
+    local = parts.hostname in ("localhost", "127.0.0.1", "::1")
+    if not (parts.scheme == "https" or (parts.scheme == "http" and local)):
+        return None, f"{ENV_PUBLIC_BASE_URL} 必须是 https://（本机调试允许 http://localhost）"
+    if not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        return None, f"{ENV_PUBLIC_BASE_URL} 不得含 userinfo、查询串或 fragment"
+    return raw.rstrip("/"), None
+
+
+def oauth_redirect_uri() -> str | None:
+    base, _reason = public_base_url()
+    return None if base is None else f"{base}{CALLBACK_PATH}"
+
+
+def _oauth_problem(exc: MCPError) -> _Problem:
+    """MCP 错误码 → Web 错误：前提不满足 / 配置问题是 409，其余（网络、授权服务器）是 502。消息是网关自己的说明，
+    不含令牌、授权码、verifier、state。"""
+    message = exc.message[:300]
+    if exc.code in (MCP_OAUTH_UNAVAILABLE, MCP_CREDENTIAL_MISSING, MCP_CONFIG_INVALID):
+        return _Problem(OAUTH_UNAVAILABLE, message)
+    return _Problem(OAUTH_FAILED, message)
+
+
+def _oauth_server(server_id: str) -> MCPServerConfig:
+    try:
+        config = load_mcp_gateway()
+    except MCPError as exc:
+        raise _Problem(CONFIG_REJECTED, "当前有效配置无法加载：先处理列表里报告的配置错误") from exc
+    server = next(
+        (item for item in (config.servers if config is not None else ()) if item.server_id == server_id), None
+    )
+    if server is None:
+        raise _unknown()
+    if server.oauth is None:
+        raise _Problem(OAUTH_UNAVAILABLE, "这台 server 没有配置 OAuth（运维在部署覆盖层声明 oauth 后才能授权）")
+    if server.disabled:
+        raise _Problem(SERVER_DISABLED, "这台 server 已停用：启用后再授权")
+    return server
+
+
+@router.post("/api/admin/mcp/servers/{server_id}/oauth/start", dependencies=[Depends(validate_csrf)])
+async def start_oauth(server_id: str, auth: tuple = Depends(require_admin)) -> JSONResponse:
+    """发起授权：返回要在管理员浏览器里打开的授权 URL。state / PKCE verifier 只留在服务端。"""
+    user, _principal = auth
+    try:
+        server = _oauth_server(server_id)
+        redirect_uri = oauth_redirect_uri()
+        if redirect_uri is None:
+            raise _Problem(OAUTH_UNAVAILABLE, public_base_url()[1] or "授权回调地址不可用")
+        try:
+            start = await asyncio.to_thread(oauth.start_authorization, server, redirect_uri=redirect_uri)
+        except MCPError as exc:
+            audit_mcp_oauth_failed(actor_user_id=str(user.user_id), server_id=server_id, code=exc.code)
+            raise _oauth_problem(exc) from exc
+    except _Problem as problem:
+        return _error(problem)
+    return _ok(
+        {
+            "authorization_url": start.authorization_url,
+            "issuer": start.issuer,
+            "expires_at": datetime.fromtimestamp(start.expires_at, tz=UTC).isoformat(),
+            "notice": OAUTH_NOTICE,
+        }
+    )
+
+
+@router.get(CALLBACK_PATH)
+async def oauth_callback(
+    code: str | None = Query(None, max_length=2048),
+    state: str | None = Query(None, max_length=512),
+    iss: str | None = Query(None, max_length=2048),
+    error: str | None = Query(None, max_length=200),
+    auth: tuple = Depends(require_admin),
+) -> Any:
+    """授权服务器的回调（管理员的浏览器跳回来）。**只认服务端记下的 state**（一次性、10 分钟过期）；
+    成功与失败都 303 回到应用首页，查询串里只有结果与稳定错误码——永远不带 state / code / 令牌。"""
+    user, _principal = auth
+    base, reason = public_base_url()
+    redirect_uri = oauth_redirect_uri()
+    if base is None or redirect_uri is None:
+        return _error(_Problem(OAUTH_UNAVAILABLE, reason or "授权回调地址不可用"))
+    server_id = ""
+    try:
+        status = await asyncio.to_thread(
+            oauth.complete_authorization, state=state, code=code, error=error, iss=iss, redirect_uri=redirect_uri
+        )
+        server_id = status.server_id
+        audit_mcp_oauth_authorized(
+            actor_user_id=str(user.user_id), server_id=server_id, issuer=status.issuer or "", scope=status.scope
+        )
+        outcome = {"mcp_oauth": "authorized", "server": server_id}
+    except MCPError as exc:
+        audit_mcp_oauth_failed(actor_user_id=str(user.user_id), server_id=server_id, code=exc.code)
+        outcome = {"mcp_oauth": "failed", "code": exc.code}
+    return RedirectResponse(f"{base}/?{urlencode(outcome)}", status_code=303, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/admin/mcp/servers/{server_id}/oauth", dependencies=[Depends(validate_csrf)])
+async def revoke_oauth(server_id: str, auth: tuple = Depends(require_admin)) -> JSONResponse:
+    """撤销授权：尽力调用授权服务器的 revocation endpoint，然后删本地令牌（幂等）。"""
+    user, _principal = auth
+    try:
+        try:
+            config = load_mcp_gateway()
+        except MCPError as exc:
+            raise _Problem(CONFIG_REJECTED, "当前有效配置无法加载：先处理列表里报告的配置错误") from exc
+        server = next(
+            (item for item in (config.servers if config is not None else ()) if item.server_id == server_id), None
+        )
+        if server is None or server.oauth is None:
+            raise _unknown()
+        status = await asyncio.to_thread(oauth.revoke_authorization, server)
+    except _Problem as problem:
+        return _error(problem)
+    except MCPError as exc:
+        return _error(_oauth_problem(exc))
+    audit_mcp_oauth_revoked(actor_user_id=str(user.user_id), server_id=server_id)
+    return _ok({"oauth": _oauth_view(server, status)})
+
+
+def _oauth_view(server: MCPServerConfig, status: oauth.OAuthStatus | None = None) -> dict[str, Any] | None:
+    """列表 / 授权接口里的授权状态：没有令牌值，没有授权服务器的完整地址（只有主机名）。"""
+    if server.oauth is None:
+        return None
+    current = status if status is not None else oauth.authorization_status(server)
+    _base, reason = public_base_url()
+    issuer_host = urlsplit(current.issuer).hostname if current.issuer else None
+    return {
+        "state": current.state,
+        "authorized": current.authorized,
+        "expires_at": datetime.fromtimestamp(current.expires_at, tz=UTC).isoformat() if current.expires_at else None,
+        "scope": current.scope,
+        "issuer_host": issuer_host,
+        "can_authorize": reason is None and not server.disabled,
+        "unavailable_reason": reason,
+        "notice": OAUTH_NOTICE,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 探测
 # ---------------------------------------------------------------------------
 
@@ -734,4 +919,14 @@ async def import_preview(body: ImportRequest, auth: tuple = Depends(require_admi
     return _ok({"preview": preview.to_dict()})
 
 
-__all__ = ["MAX_IMPORT_CHARACTERS", "NOTICE", "McpAdminState", "router"]
+__all__ = [
+    "CALLBACK_PATH",
+    "ENV_PUBLIC_BASE_URL",
+    "MAX_IMPORT_CHARACTERS",
+    "NOTICE",
+    "OAUTH_NOTICE",
+    "McpAdminState",
+    "oauth_redirect_uri",
+    "public_base_url",
+    "router",
+]
