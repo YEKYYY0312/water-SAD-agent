@@ -149,7 +149,8 @@ class ServerExpect(_Strict):
     #: 所有授权端点请求（authorize / token）都带了 ``resource``，且令牌请求带了 ``code_verifier``。
     resource_and_verifier_sent: bool | None = None
     dynamic_registrations: int | None = None
-    #: 每个 MCP 端点请求都带了 ``Authorization``（规范：每个 HTTP 请求都要带）。
+    #: server 接受的每个 MCP 端点请求都带了 ``Authorization``（规范：每个 HTTP 请求都要带；被 401 拒绝的无令牌
+    #: 发现探测不计）。
     authorization_on_every_mcp_request: bool | None = None
     #: well-known 受保护资源元数据被请求的路径（按出现顺序）。
     discovery_paths: list[str] | None = None
@@ -605,7 +606,9 @@ def score_server(result: RunResult, expect: ServerExpect, log: Sequence[dict[str
         _check(result, "server", got == expect.dynamic_registrations,
                f"动态注册应 {expect.dynamic_registrations} 次，实际 {got}")
     if expect.authorization_on_every_mcp_request is not None:
-        got = bool(mcp) and all(e.get("has_authorization") for e in mcp)
+        # 被 401 拒绝的请求不计：授权发现要先发一个不带令牌的探测请求去拿 WWW-Authenticate（规范流程第一步）
+        accepted = [e for e in mcp if e.get("status") != "auth_rejected"]
+        got = bool(accepted) and all(e.get("has_authorization") for e in accepted)
         _check(result, "server", got is expect.authorization_on_every_mcp_request,
                f"每个 MCP 请求都带 Authorization：期望 {expect.authorization_on_every_mcp_request}，实际 {got}")
     if expect.discovery_paths is not None:
