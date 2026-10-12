@@ -109,6 +109,7 @@ class AnswerCacheService:
         reranker: str | None = None,
         version_registry: Any = None,
         mcp_server_manifest: str = "",
+        skill_library_digest: str = "",
     ) -> None:
         self._cache = cache if cache is not None else default_answer_cache()
         self._corpus_version = combined_corpus_version(
@@ -119,6 +120,7 @@ class AnswerCacheService:
         )
         self._version_registry = version_registry
         self._mcp_server_manifest = mcp_server_manifest
+        self._skill_library_digest = skill_library_digest
 
     @property
     def corpus_version(self) -> str:
@@ -156,6 +158,7 @@ class AnswerCacheService:
             spec_version_digest=self._global_spec_digest(),
             retrieval_params=self._retrieval_params,
             mcp_server_manifest=self._mcp_server_manifest,
+            skill_library_digest=self._skill_library_digest,
         )
 
     def _global_spec_digest(self) -> str:

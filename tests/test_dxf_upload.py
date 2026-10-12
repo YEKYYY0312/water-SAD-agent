@@ -288,15 +288,18 @@ def test_capability_note_says_dxf_is_reviewed_and_dwg_is_not_supported() -> None
 
 
 def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
-    """S50 不给模型开放新工具（规格 D2）：锁死的数字不得变化。"""
+    """S50 不给模型开放新工具（规格 D2）：锁死的数字不得变化。
+
+    P7-S9 起工具数 5 → 6（只读的 ``load_skill``，与上传 / 图纸链路无关）；远程出口仍是 7。
+    """
 
     from water_agent.runtime.governance.inventory import governance_coverage
 
     assert governance_coverage() == {
         "provider_call_sites": 7,
         "provider_governed": 7,
-        "tools": 5,
-        "tools_guardrail_validated": 5,
+        "tools": 6,
+        "tools_guardrail_validated": 6,
     }
     assert json.dumps  # keep import used when the dict above changes shape
 
