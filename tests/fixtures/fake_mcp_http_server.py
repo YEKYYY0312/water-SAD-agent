@@ -493,7 +493,7 @@ class McpHandler(BaseHandler):
         if rpc_method == "tools/call":
             params = message.get("params") or {}
             entry["tool"] = params.get("name")
-        if rpc_method is None and "result" in message:
+        if rpc_method is None and ("result" in message or "error" in message):
             entry["client_response_for"] = message.get("id")
             entry["client_response_error_code"] = (message.get("error") or {}).get("code")
         if state.mode == "redirect":
@@ -557,9 +557,11 @@ class McpHandler(BaseHandler):
         else:
             self._json(200, body, headers={"Mcp-Session-Id": session})
 
-    def _respond(self, message: dict, result: dict, entry: dict, *, content_type_override: str | None = None) -> None:
+    def _respond(self, message: dict, result: dict, entry: dict, *, content_type_override: str | None = None,
+                 logged: bool = False) -> None:
         state = self.state
-        state.log({**entry, "status": 200})
+        if not logged:
+            state.log({**entry, "status": 200})
         body = {"jsonrpc": "2.0", "id": message["id"], "result": result}
         if content_type_override:
             self._send(200, json.dumps(body).encode(), content_type=content_type_override)
@@ -577,6 +579,8 @@ class McpHandler(BaseHandler):
             state.sessions[session]["calls"] += 1
             count = state.sessions[session]["calls"]
         if state.mode == "slow":
+            # 先记"已收到并处理"再睡：客户端在睡眠期间超时断开时，日志里仍然有这一次处理
+            state.log({**entry, "status": 200})
             time.sleep(2.0)
         if name == "session_probe":
             payload = {"session": hashlib.sha256(session.encode()).hexdigest()[:10], "calls_in_session": count,
@@ -606,7 +610,7 @@ class McpHandler(BaseHandler):
                 body,
             ])
             return
-        self._respond(message, result, entry)
+        self._respond(message, result, entry, logged=state.mode == "slow")
 
     def _sse(self, messages: list[dict], *, extra_headers: dict[str, str] | None = None, cut: bool = False) -> None:
         self.send_response(200)

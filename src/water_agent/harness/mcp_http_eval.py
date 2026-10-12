@@ -656,7 +656,9 @@ def summarize_assembly(assembly: Any) -> tuple[list[str], dict[str, str], str | 
     exposed = remote_names(list(assembly.exposed_tool_names))
     skips: dict[str, str] = {}
     for item in assembly.skipped_servers:
-        skips["*"] = item.code
+        # 整台 server 层面的原因（停用、连接失败、确认门……）记在 "*"；没有工具被暴露时 open_bridge 把逐个
+        # 工具的原因折进 skipped_servers，带着远端工具名
+        skips[item.remote_tool if item.remote_tool not in (None, "") else "*"] = item.code
     for session in assembly.sessions:
         for skip in session.result.skipped:
             skips[skip.remote_tool] = skip.code

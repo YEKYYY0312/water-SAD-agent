@@ -37,6 +37,7 @@ from water_agent.graphs.confirmation import (
     public_confirmation_request,
 )
 from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.mcp.http_client import mcp_request_scope
 from water_agent.mcp.pool import McpLease
 from water_agent.mcp.web_layer import disabled_skill_names
 from water_agent.mcp.wiring import load_mcp_gateway
@@ -653,7 +654,8 @@ class AgenticSession:
         initial_messages = self._initial_messages(query)
         # 取消检查经 ContextVar 下传到模型调用与工具执行（runtime/cancellation.py）：此前只在
         # 事件回调里检查，内层工具循环取消后照样把剩下的模型/工具调用跑完。
-        with cancellation_scope(cancel_check):
+        # 远程 MCP（Streamable HTTP）的 tools/call 按调用者主体做能力校验 / 限流：同样经 ContextVar 下传
+        with cancellation_scope(cancel_check), mcp_request_scope(self.request_context):
             result = await astream_agentic(
                 self.app,
                 query,
@@ -721,7 +723,7 @@ class AgenticSession:
                 on_event(mode, payload)
 
         try:
-            with cancellation_scope(cancel_check):
+            with cancellation_scope(cancel_check), mcp_request_scope(self.request_context):
                 result = await astream_agentic(
                     self.app,
                     "",
@@ -776,17 +778,18 @@ class AgenticSession:
         if not streamed:
             # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，
             # 不清空就会读到 checkpoint 里上一轮残留的值（见 astream_agentic 的说明）。
-            state = self.app.invoke(
-                {
-                    "messages": self._initial_messages(query),
-                    "query": query,
-                    "memory_context": None,
-                    "upload_context": None,
-                    "attachment_context": None,
-                    **PER_TURN_RESET,
-                },
-                config=self.config,
-            )
+            with mcp_request_scope(self.request_context):
+                state = self.app.invoke(
+                    {
+                        "messages": self._initial_messages(query),
+                        "query": query,
+                        "memory_context": None,
+                        "upload_context": None,
+                        "attachment_context": None,
+                        **PER_TURN_RESET,
+                    },
+                    config=self.config,
+                )
             return self._payload(state, query=query, streamed=False)
 
         def on_draft(kind: str, payload: dict[str, Any]) -> None:
@@ -795,14 +798,15 @@ class AgenticSession:
             elif kind == "draft_retract":
                 print("\n[以上草稿已撤回]", flush=True)
 
-        state = stream_agentic(
-            self.app,
-            query,
-            self.config,
-            on_draft=on_draft,
-            messages=self._initial_messages(query),
-            request_context=self.request_context,
-        )
+        with mcp_request_scope(self.request_context):
+            state = stream_agentic(
+                self.app,
+                query,
+                self.config,
+                on_draft=on_draft,
+                messages=self._initial_messages(query),
+                request_context=self.request_context,
+            )
         print(flush=True)
         return self._payload(state, query=query, streamed=True)
 
