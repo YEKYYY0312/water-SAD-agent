@@ -315,6 +315,21 @@ class TransportTimeout(TransportFailure, TimeoutError):
     pass
 
 
+class TransportHttpStatus(TransportFailure):
+    """服务端返回 4xx / 5xx。``status_code`` 让 ``ProviderGateway`` 的错误分类生效（401 / 403 → 认证、
+    零重试且不计熔断；408 / 429 / 5xx → 瞬时；其余 → 永久）。``headers`` / ``body`` 留给协议层解释
+    （``WWW-Authenticate``、JSON-RPC 错误体）；body 已截断到 :data:`ERROR_BODY_LIMIT`。"""
+
+    def __init__(self, status_code: int, headers: list[tuple[str, str]], body: bytes) -> None:
+        super().__init__("MCP_CONNECT_FAILED", f"HTTP {status_code}", status_code=status_code)
+        self.headers = headers
+        self.body = body
+
+    def header_all(self, name: str) -> list[str]:
+        lowered = name.lower()
+        return [value for key, value in self.headers if key.lower() == lowered]
+
+
 class TransportConnectionError(TransportFailure, ConnectionError):
     pass
 
@@ -387,6 +402,50 @@ USER_AGENT = "water-agent-mcp/1"
 _SESSION_ID_CHARS = re.compile(r"^[\x21-\x7e]+$")
 #: 4xx / 5xx 响应体最多读这么多（只用来识别 JSON-RPC 错误体），其余丢弃。
 ERROR_BODY_LIMIT = 4096
+
+
+@dataclass(frozen=True, slots=True)
+class Challenge:
+    """``WWW-Authenticate`` 里的一个质询：scheme + 参数（键小写）。"""
+
+    scheme: str
+    params: dict[str, str]
+
+
+_CHALLENGE_START = re.compile(r"(?:^|,)\s*([A-Za-z][A-Za-z0-9!#$%&'*+.^_`|~-]*)(?=\s+[A-Za-z0-9_-]+\s*=|\s*$|\s*,)")
+_PARAM = re.compile(
+    r"\s*,?\s*([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:\"((?:[^\"\\\\]|\\\\.)*)\"|([^\s,\"]+))"
+)
+
+
+def parse_www_authenticate(values: Sequence[str]) -> list[Challenge]:
+    """解析 ``WWW-Authenticate``（RFC 7235 / 6750）：``Bearer realm="x", error="invalid_token", scope="a b"``。
+
+    支持一个头里的多个质询与多个同名头；引号字符串做反斜杠转义还原。解析不了的片段跳过，不抛异常——
+    响应头是不可信输入，宁可少认也不因畸形头崩溃。
+    """
+    challenges: list[Challenge] = []
+    for raw in values:
+        text = raw.strip()
+        position = 0
+        current: Challenge | None = None
+        while position < len(text):
+            start = _CHALLENGE_START.match(text, position)
+            param = _PARAM.match(text, position)
+            if param is not None and current is not None:
+                # 先尝试把它当成当前质询的参数
+                key, quoted, token = param.group(1).lower(), param.group(2), param.group(3)
+                value = re.sub(r"\\\\(.)", r"\1", quoted) if quoted is not None else token
+                current.params[key] = value
+                position = param.end()
+                continue
+            if start is not None:
+                current = Challenge(start.group(1).lower(), {})
+                challenges.append(current)
+                position = start.end()
+                continue
+            position += 1
+    return challenges
 
 
 def valid_session_id(value: str) -> bool:
@@ -600,17 +659,20 @@ __all__ = [
     "PRIVATE",
     "PUBLIC",
     "USER_AGENT",
+    "Challenge",
     "Exchange",
     "ParsedUrl",
     "Resolver",
     "SseEvent",
     "TransportConnectionError",
     "TransportFailure",
+    "TransportHttpStatus",
     "TransportTimeout",
     "classify_address",
     "default_resolver",
     "open_exchange",
     "parse_server_url",
+    "parse_www_authenticate",
     "resolve_destination",
     "valid_session_id",
 ]
