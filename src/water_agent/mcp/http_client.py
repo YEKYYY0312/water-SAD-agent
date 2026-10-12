@@ -23,7 +23,7 @@ import json
 import ssl
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -114,6 +114,70 @@ def current_request_context() -> RequestContext | None:
     return _REQUEST_CONTEXT.get()
 
 
+def service_context(server_id: str, *, purpose: str = "lifecycle") -> RequestContext:
+    """这台 server 的服务级请求上下文：装配期的生命周期请求与授权端点用它（运维配置驱动，不是用户主体）。
+
+    主体只额外持有 ``MCP_INVOKE``（``GRANTABLE_CAPABILITIES`` 允许），与危险能力无关。
+    """
+    principal = Principal.local(
+        f"mcp-{server_id}", capabilities=DEFAULT_LOCAL_CAPABILITIES | {Capability.MCP_INVOKE}
+    )
+    return RequestContext(principal=principal, request_id=f"mcp-{server_id}-{purpose}", thread_id=f"mcp-{purpose}")
+
+
+def mcp_provider_call(server_id: str) -> ProviderCall:
+    return ProviderCall(
+        provider=ProviderKind.MCP_REMOTE,
+        category=CallCategory.MCP_TOOL_CALL,
+        model=f"mcp:{server_id}",
+        required_capability=Capability.MCP_INVOKE,
+    )
+
+
+def unwrap_governance_error(exc: GovernanceError, server_id: str) -> BaseException:
+    """gateway 把 executor 抛出的异常包成 ``GovernanceError``：取回原因并映射回 MCP 错误码。"""
+    cause = exc.__cause__
+    if isinstance(cause, TransportHttpStatus):
+        return cause  # 状态码由协议层解释（401 / 403 / 404 / 400 ……）
+    if isinstance(cause, MCPError):
+        return cause
+    if isinstance(cause, TransportFailure):
+        code = cause.mcp_code if cause.mcp_code in (MCP_TIMEOUT, MCP_CONNECT_FAILED) else MCP_CONNECT_FAILED
+        return MCPError(code, f"server {server_id!r}：{cause.message}")
+    return MCPError(
+        MCP_CONNECT_FAILED,
+        f"server {server_id!r} 的远程调用被治理层拒绝或失败（{exc.code}）：{exc}",
+    )
+
+
+def run_governed[T](
+    server_id: str,
+    executor: Callable[[], T],
+    *,
+    context: RequestContext,
+    deadline_seconds: float,
+    gateway: ProviderGateway | None = None,
+) -> T:
+    """把一次出站交换放进 ``ProviderGateway.call``（限流 / 熔断 / deadline / 账本，``max_attempts=1``）。
+
+    ``executor`` 里抛的 ``MCPError`` / ``TransportFailure`` / ``TransportHttpStatus`` 在这里还原成原异常
+    （HTTP 状态由调用方解释）；取消（``_Cancelled``）还原成 ``RunCancelled``。授权端点请求与 MCP 请求共用它。
+    """
+    bounded = context.model_copy(update={"deadline_seconds": deadline_seconds})
+
+    def wrapped() -> tuple[T, ProviderUsage]:
+        return executor(), ProviderUsage.unknown()
+
+    try:
+        return (gateway if gateway is not None else default_gateway()).call(
+            bounded, mcp_provider_call(server_id), wrapped
+        ).value
+    except _Cancelled:
+        raise RunCancelled() from None
+    except GovernanceError as exc:
+        raise unwrap_governance_error(exc, server_id) from exc
+
+
 # ---------------------------------------------------------------------------
 # 认证
 # ---------------------------------------------------------------------------
@@ -150,13 +214,19 @@ class StaticBearerAuth:
         return False
 
 
-def build_auth(config: MCPServerConfig) -> HttpAuth | None:
+def build_auth(
+    config: MCPServerConfig,
+    *,
+    gateway: ProviderGateway | None = None,
+    resolver: Resolver | None = None,
+    ssl_context: ssl.SSLContext | None = None,
+) -> HttpAuth | None:
     if config.bearer_credential is not None:
         return StaticBearerAuth(config.server_id, config.bearer_credential)
     if config.oauth is not None:
         from water_agent.mcp.oauth import OAuthAuth  # 延后导入：oauth 模块依赖本模块的类型
 
-        return OAuthAuth(config)
+        return OAuthAuth(config, gateway=gateway, resolver=resolver, ssl_context=ssl_context)
     return None
 
 
@@ -256,7 +326,9 @@ class MCPHttpClient:
         self._url: ParsedUrl = parse_server_url(config.url, allow_private_network=config.allow_private_network)
         self._gateway = gateway
         self._context = request_context
-        self._auth = auth if auth is not None else build_auth(config)
+        self._auth = (
+            auth if auth is not None else build_auth(config, gateway=gateway, resolver=resolver, ssl_context=ssl_context)
+        )
         self._resolver = resolver
         self._ssl_context = ssl_context
         self._session_id: str | None = None
@@ -316,18 +388,7 @@ class MCPHttpClient:
                 MCP_NOT_INITIALIZED,
                 f"server {self.config.server_id!r} 的 tools/call 缺少调用者主体（未在 mcp_request_scope 内调用）",
             )
-        principal = Principal.local(
-            f"mcp-{self.config.server_id}", capabilities=DEFAULT_LOCAL_CAPABILITIES | {Capability.MCP_INVOKE}
-        )
-        return RequestContext(principal=principal, request_id=f"mcp-{self.config.server_id}", thread_id="mcp-lifecycle")
-
-    def _provider_call(self) -> ProviderCall:
-        return ProviderCall(
-            provider=ProviderKind.MCP_REMOTE,
-            category=CallCategory.MCP_TOOL_CALL,
-            model=f"mcp:{self.config.server_id}",
-            required_capability=Capability.MCP_INVOKE,
-        )
+        return service_context(self.config.server_id)
 
     # ------------------------------------------------------------------ 一次 HTTP 交换
 
@@ -444,35 +505,15 @@ class MCPHttpClient:
         remaining = deadline_at - time.monotonic()
         if remaining <= 0:
             raise MCPError(MCP_TIMEOUT, f"server {self.config.server_id!r} 的调用超过时间预算")
-        bounded = context.model_copy(update={"deadline_seconds": remaining})
 
-        def executor() -> tuple[_Reply, ProviderUsage]:
-            reply = self._exchange(
+        def executor() -> _Reply:
+            return self._exchange(
                 message, method=method, expect_id=expect_id, deadline_at=deadline_at,
-                include_session=include_session, context=bounded,
+                include_session=include_session, context=context,
             )
-            return reply, ProviderUsage.unknown()
 
-        try:
-            return self._gateway_for_call().call(bounded, self._provider_call(), executor).value
-        except _Cancelled:
-            raise RunCancelled() from None
-        except GovernanceError as exc:
-            raise self._unwrap(exc) from exc
-
-    def _unwrap(self, exc: GovernanceError) -> BaseException:
-        """gateway 把 executor 抛出的异常包成 ``GovernanceError``：取回原因并映射回 MCP 错误码。"""
-        cause = exc.__cause__
-        if isinstance(cause, TransportHttpStatus):
-            return cause  # 状态码由协议层解释（401 / 403 / 404 / 400 ……）
-        if isinstance(cause, MCPError):
-            return cause
-        if isinstance(cause, TransportFailure):
-            code = cause.mcp_code if cause.mcp_code in (MCP_TIMEOUT, MCP_CONNECT_FAILED) else MCP_CONNECT_FAILED
-            return MCPError(code, f"server {self.config.server_id!r}：{cause.message}")
-        return MCPError(
-            MCP_CONNECT_FAILED,
-            f"server {self.config.server_id!r} 的远程调用被治理层拒绝或失败（{exc.code}）：{exc}",
+        return run_governed(
+            self.config.server_id, executor, context=context, deadline_seconds=remaining, gateway=self._gateway
         )
 
     # ------------------------------------------------------------------ 请求（含状态码解释）
