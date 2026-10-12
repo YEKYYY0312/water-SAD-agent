@@ -54,21 +54,30 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
-    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 当前代码的装配快照与入仓基线逐字段一致。"""
+    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 当前代码的装配快照与入仓基线
+    逐字段一致；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
+    （其余 profile 开关 off，只有主体能力集多了 ``load_skill``）。"""
 
     lines = snap.diff_snapshots(baseline, head)
     assert not lines, (
         f"装配快照与入仓基线有 {len(lines)} 处差异。{_PROTOCOL}\n" + "\n".join(lines[:40])
     )
+    with_skill_tool = sorted(
+        name
+        for name, profile in baseline["profiles"].items()
+        if profile["surface"] is not None and "load_skill" in profile["surface"]["registration_order"]
+    )
+    assert with_skill_tool == ["session_skills_builtin"]
 
 
 def test_snapshot_is_hermetic_and_deterministic(
     head: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S0-A04 / P7-S6-A10 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
+    """P7-S0-A04 / P7-S6-A10 / P7-S9-A11 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
 
     ``WATER_AGENT_MCP_WEB_LAYER`` 指向一份损坏的层文件：没被快照钉住的话，带 MCP 的 profile 全会
-    变成 ``MCP_CONFIG_INVALID``。
+    变成 ``MCP_CONFIG_INVALID``。``WATER_AGENT_SKILLS=on`` 与一个放了运维 skill 的目录：没被钉住的话，
+    开关 off 的 15 个 profile 都会多出 ``load_skill``。
     """
 
     from water_agent.drawing.synth import build_synthetic_drawing
@@ -78,6 +87,10 @@ def test_snapshot_is_hermetic_and_deterministic(
     build_synthetic_drawing(drawings, drawing_id="X-01")
     corrupt_web_layer = tmp_path / "web_layer.json"
     corrupt_web_layer.write_text("{ 这不是 JSON", encoding="utf-8")
+    import shutil
+
+    operator_skills = tmp_path / "operator-skills"
+    shutil.copytree(Path(__file__).resolve().parent / "fixtures" / "skills" / "operator", operator_skills)
     polluted = {
         "DRAWING_ROOT": str(drawings),
         "WATER_AGENT_MCP_CONFIG": str(tmp_path / "missing" / "mcp_servers.json"),
@@ -85,6 +98,8 @@ def test_snapshot_is_hermetic_and_deterministic(
         "LOCAL_MODEL_ENABLED": "true",
         "WEB_MOCK_GENERATOR": "true",
         "DEEPSEEK_API_KEY": "sk-polluted-environment-0000",
+        "WATER_AGENT_SKILLS": "on",
+        "WATER_AGENT_SKILLS_DIR": str(operator_skills),
     }
     for key, value in polluted.items():
         monkeypatch.setenv(key, value)
