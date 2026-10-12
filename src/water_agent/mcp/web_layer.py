@@ -52,9 +52,14 @@ from water_agent.mcp.config import (
     missing_paths,
 )
 from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCPError
+from water_agent.skills.models import SKILL_NAME_RE as _SKILL_NAME_RE
 
-#: 层文件顶层只允许这三个键。``confirmation_handler_ready`` 只能写在仓库默认层。
-WEB_LAYER_TOP_LEVEL_KEYS = frozenset({"version", "revision", "servers"})
+#: 层文件顶层只允许这四个键。``confirmation_handler_ready`` 只能写在仓库默认层。
+#: P7-S9：``skills`` 是管理员对 skill 库的启停（每条只有 ``name`` / ``disabled`` + 元数据），与 ``servers``
+#: 同一份文件、同一套 revision / 文件锁 / 整份校验。
+WEB_LAYER_TOP_LEVEL_KEYS = frozenset({"version", "revision", "servers", "skills"})
+#: 每条 skill 能写的键（不能写正文、来源、目录或任何别的东西）。
+WEB_LAYER_SKILL_KEYS = frozenset({"name", "disabled"})
 #: 每条除可改字段外允许的元数据键（不参与合并）。
 WEB_LAYER_METADATA_KEYS = frozenset({"updated_at", "updated_by"})
 _OVERRIDE_FIELDS = ("disabled", "allow")
@@ -129,6 +134,32 @@ class WebLayerServer(BaseModel):
         return data
 
 
+class WebLayerSkill(BaseModel):
+    """层文件里的一条 skill 启停（P7-S9）。只能停用 / 启用 skill 库里已有的 skill，不能新增或改写正文。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=2, max_length=48)
+    disabled: StrictBool = False
+    updated_at: str | None = None
+    updated_by: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        if not _SKILL_NAME_RE.match(value):
+            raise ValueError("skill name 必须是 kebab-case")
+        return value
+
+    def to_json(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"name": self.name, "disabled": self.disabled}
+        if self.updated_at is not None:
+            data["updated_at"] = self.updated_at
+        if self.updated_by is not None:
+            data["updated_by"] = self.updated_by
+        return data
+
+
 class WebLayerDocument(BaseModel):
     """层文件。``revision`` 每次写入加一，文件不存在时为 0。"""
 
@@ -137,6 +168,7 @@ class WebLayerDocument(BaseModel):
     version: str = Field(default=MCP_CONFIG_VERSION, min_length=1)
     revision: StrictInt = Field(default=0, ge=0)
     servers: tuple[WebLayerServer, ...] = ()
+    skills: tuple[WebLayerSkill, ...] = ()
 
     @model_validator(mode="after")
     def _unique_server_ids(self) -> WebLayerDocument:
@@ -144,7 +176,18 @@ class WebLayerDocument(BaseModel):
         duplicates = sorted({name for name in ids if ids.count(name) > 1})
         if duplicates:
             raise ValueError(f"server_id 重复：{duplicates}")
+        names = [entry.name for entry in self.skills]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"skill name 重复：{duplicates}")
         return self
+
+    def disabled_skills(self) -> tuple[str, ...]:
+        """管理员停用的 skill 名（P7-S9）。"""
+        return tuple(entry.name for entry in self.skills if entry.disabled)
+
+    def skill_entry(self, name: str) -> WebLayerSkill | None:
+        return next((item for item in self.skills if item.name == name), None)
 
     def entry(self, server_id: str) -> WebLayerServer | None:
         return next((item for item in self.servers if item.server_id == server_id), None)
@@ -153,11 +196,15 @@ class WebLayerDocument(BaseModel):
         return [entry.overrides() for entry in self.servers]
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "version": self.version,
             "revision": self.revision,
             "servers": [entry.to_json() for entry in self.servers],
         }
+        # 没有 skill 启停时不写这个键：与 S6 写出的层文件逐字相同
+        if self.skills:
+            data["skills"] = [entry.to_json() for entry in self.skills]
+        return data
 
 
 def _check_keys(payload: Any) -> None:
@@ -173,6 +220,18 @@ def _check_keys(payload: Any) -> None:
     servers = payload.get("servers", [])
     if not isinstance(servers, list):
         raise TypeError("servers 必须是列表")
+    skills = payload.get("skills", [])
+    if not isinstance(skills, list):
+        raise TypeError("skills 必须是列表")
+    for item in skills:
+        if not isinstance(item, dict):
+            raise TypeError("skills 的每一项都必须是对象")
+        unknown = set(item) - WEB_LAYER_SKILL_KEYS - WEB_LAYER_METADATA_KEYS
+        if unknown:
+            raise ValueError(
+                f"每个 skill 只能写 {sorted(WEB_LAYER_SKILL_KEYS)}，不能写 {sorted(unknown)}："
+                "skill 正文与来源只能由仓库评审或运维目录提供"
+            )
     allowed = WEB_LAYER_SERVER_KEYS | WEB_LAYER_METADATA_KEYS
     for item in servers:
         if not isinstance(item, dict):
@@ -201,6 +260,18 @@ def load_web_layer(path: Path) -> WebLayerDocument:
         return WebLayerDocument.model_validate(payload)
     except (TypeError, ValueError) as exc:
         raise MCPError(MCP_CONFIG_INVALID, f"Web 管理层 {path} 校验失败：{exc}") from exc
+
+
+def disabled_skill_names() -> tuple[str, ...]:
+    """Web 管理层里停用的 skill（P7-S9；会话与 runner 装配时读）。没设 ``WATER_AGENT_MCP_WEB_LAYER`` 或文件不存在
+    时为空；文件损坏时与 MCP 同语义——``MCP_CONFIG_INVALID`` 响亮失败（不能把"停用"静默当成"启用"）。"""
+
+    from water_agent.mcp.config import web_layer_path
+
+    path = web_layer_path()
+    if path is None:
+        return ()
+    return load_web_layer(path).disabled_skills()
 
 
 def merged_config(
@@ -322,7 +393,9 @@ def with_override(
         servers.append(entry)
     else:
         servers[position] = entry
-    return WebLayerDocument(version=MCP_CONFIG_VERSION, revision=document.revision, servers=tuple(servers))
+    return WebLayerDocument(
+        version=MCP_CONFIG_VERSION, revision=document.revision, servers=tuple(servers), skills=document.skills
+    )
 
 
 def without_override(document: WebLayerDocument, server_id: str) -> WebLayerDocument:
@@ -330,6 +403,33 @@ def without_override(document: WebLayerDocument, server_id: str) -> WebLayerDocu
         version=MCP_CONFIG_VERSION,
         revision=document.revision,
         servers=tuple(item for item in document.servers if item.server_id != server_id),
+        skills=document.skills,
+    )
+
+
+def with_skill_toggle(
+    document: WebLayerDocument,
+    name: str,
+    *,
+    user_id: str,
+    disabled: bool,
+    now: datetime | None = None,
+) -> WebLayerDocument:
+    """停用 / 启用一个 skill（P7-S9）。``servers`` 原样保留。启用即删掉这条（回到缺省"启用"），
+    层文件里只留停用记录。"""
+
+    stamp = (now or datetime.now(UTC)).isoformat()
+    others = tuple(item for item in document.skills if item.name != name)
+    skills = (
+        (*others, WebLayerSkill(name=name, disabled=True, updated_at=stamp, updated_by=user_id))
+        if disabled
+        else others
+    )
+    return WebLayerDocument(
+        version=MCP_CONFIG_VERSION,
+        revision=document.revision,
+        servers=document.servers,
+        skills=tuple(sorted(skills, key=lambda item: item.name)),
     )
 
 
@@ -382,6 +482,7 @@ class WebLayerStore:
                 version=MCP_CONFIG_VERSION,
                 revision=current.revision + 1,
                 servers=changed.servers,
+                skills=changed.skills,
             )
             validate(candidate)
             self._write(candidate)
@@ -426,19 +527,23 @@ __all__ = [
     "LAYER_WEB",
     "SOURCE_FIELDS",
     "WEB_LAYER_METADATA_KEYS",
+    "WEB_LAYER_SKILL_KEYS",
     "WEB_LAYER_TOP_LEVEL_KEYS",
     "WebLayerDocument",
     "WebLayerRejected",
     "WebLayerRevisionConflict",
     "WebLayerServer",
+    "WebLayerSkill",
     "WebLayerStore",
     "WebLayerStoreUnavailable",
     "check_candidate",
+    "disabled_skill_names",
     "effective_config",
     "field_sources",
     "load_web_layer",
     "merged_config",
     "orphan_entries",
     "with_override",
+    "with_skill_toggle",
     "without_override",
 ]

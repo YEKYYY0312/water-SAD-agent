@@ -38,6 +38,7 @@ from water_agent.graphs.confirmation import (
 )
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.pool import McpLease
+from water_agent.mcp.web_layer import disabled_skill_names
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -525,7 +526,7 @@ class AgenticSession:
             ),
             base_principal=self.request_context.principal,
             trace=self.recorder,
-            plugins=builtin_plugins(mcp=mcp_plugin),
+            plugins=builtin_plugins(mcp=mcp_plugin, skills_disabled=disabled_skill_names()),
         )
         self.request_context = self.request_context.model_copy(
             update={"principal": assembly.principal}
