@@ -68,6 +68,7 @@ from water_agent.harness.scorer import (
     score_material_case,
 )
 from water_agent.materials import aggregate_materials
+from water_agent.mcp.http_client import mcp_request_scope
 from water_agent.mcp.web_layer import disabled_skill_names
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -894,10 +895,12 @@ class HarnessRunner:
                 **({"skill_library": skill_library} if skill_library.enabled else {}),
             )
             app_holder["app"] = app
-            result = app.invoke(
-                {"messages": [HumanMessage(content=case.query)], "query": case.query},
-                config=thread_config,
-            )
+            # 远程 MCP 的 tools/call 按本用例的（授权后）主体做能力校验（P7-S8）
+            with mcp_request_scope(request_context):
+                result = app.invoke(
+                    {"messages": [HumanMessage(content=case.query)], "query": case.query},
+                    config=thread_config,
+                )
         latency_ms = (time.perf_counter() - started) * 1000
 
         context_articles, _, _ = _extract_validation_signal(result)
