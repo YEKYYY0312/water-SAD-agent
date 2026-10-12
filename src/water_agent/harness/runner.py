@@ -68,6 +68,7 @@ from water_agent.harness.scorer import (
     score_material_case,
 )
 from water_agent.materials import aggregate_materials
+from water_agent.mcp.web_layer import disabled_skill_names
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.plugins import (
@@ -853,7 +854,10 @@ class HarnessRunner:
                 ),
                 base_principal=request_context.principal,
                 trace=recorder,
-                plugins=builtin_plugins(mcp=McpGatewayPlugin.owning(mcp_config, stack=stack)),
+                plugins=builtin_plugins(
+                    mcp=McpGatewayPlugin.owning(mcp_config, stack=stack),
+                    skills_disabled=disabled_skill_names(),
+                ),
             )
             request_context = request_context.model_copy(
                 update={"principal": assembly.principal}
