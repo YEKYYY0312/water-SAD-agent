@@ -28,7 +28,7 @@
 2. **可配置**：插件分层配置（仓库默认 + 部署覆盖层），可按实例启停（S3）；Web 管理面板只能
    改启停、白名单与凭据引用（S6）。
    Skill 库（S9）：仓库内置 + 运维只读目录两级的操作规程，模型经 `load_skill` 按需加载，面板只读（管理员可启停）。
-3. **MCP 可用性**：长驻连接、Streamable HTTP（S5）；危险操作人工确认门（S1 先封住、S7 接通）。
+3. **MCP 可用性**：长驻连接（S5）、Streamable HTTP 与 OAuth 2.1 服务级授权（S8）；危险操作人工确认门（S1 先封住、S7 接通）。
 4. **不漂移**：每一步的完成都有机器可判的证据——装配快照、需求 ↔ 测试追溯、改动范围守卫、
    结构不变量（§6）。
 
@@ -63,12 +63,14 @@
 | F9 | ~~`env_file` 相对路径按 cwd 解析；缺失时被 `open_bridge` 吞成跳过~~ **S3 已修**：相对路径按定义它的那一层配置文件所在目录解析，`env_file` / `cwd` 缺失在加载期即 `MCP_CONFIG_INVALID` | `tests/test_mcp_layered_config.py::test_env_file_and_cwd_resolved_and_checked_at_load` | S3 已交付 |
 | F10 | ~~入仓 `data/mcp_servers.json` 写死个人机器路径、`allow` 与上游不符~~ **S3 已修**：入仓默认层改为空骨架，autocad 配置挪到 `data/mcp_servers.example.json`（占位路径、不进镜像） | `tests/test_mcp_wiring.py::TestConfigWiring::test_default_config_is_empty_skeleton` | S3 已交付 |
 | F11 | 两条测试按源码文本断言装配位置：`tests/test_read_drawing_tool.py`（**S2 已改为 AST 判定真实调用**）、`tests/test_web_runs.py`（`build_agentic_session` 字面量，Web 不在 P7 范围内，保留） | `tests/test_read_drawing_tool.py::TestWiring::test_cli_registers_tool_only_when_root_available` | S2 前者已交付 |
-| F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}`（**S9 后** `{7, 7, 6, 6}`：新增只读的 `load_skill`，远程出口仍是 7） | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
+| F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}`（**S9 后** `{7, 7, 6, 6}`：新增只读的 `load_skill`，远程出口仍是 7；**S8 后** `{8, 8, 6, 6}`：新增 MCP 远程出口 `mcp_streamable_http`） | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
 | F13 | ~~runner 的 `mcp_assembly` / `mcp_assembly_error` trace 事件尝试写入但从未落盘~~ S2 删除这两次调用；**S3 改为先开 trace 再写装配摘要**（会话与 runner 都是），事件确实落盘 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | S3 已交付 |
 | F14 | worktree 里不设 `PYTHONPATH=src` 时，pytest 与 harness 导入的是**主检出**的代码（editable install）；`ci_gate.sh` 此前不设 PYTHONPATH | `tests/test_import_guard.py::test_conftest_rejects_a_foreign_water_agent` | S0 H0 已修 |
 | F15 | ~~MCP 子进程继承 agent 的工作目录，模型能借相对路径参数读 agent 自己的文件~~ **S3 已修**：未配 `cwd` 时每次连接新建空临时目录作为子进程工作目录，连接关闭（含启动失败）即删除。不是沙箱：server 进程照样能读进程用户能读的一切 | `tests/test_mcp_layered_config.py::test_child_runs_in_isolated_or_configured_cwd` | S3 已交付 |
 | F17 | ~~`MCPStdioClient._request` 不是并发安全的：各请求共用一个 inbox，读到别人的响应时当成通知存起来继续等，真正的请求方只能超时（server 乱序应答时必然发生；同一 run 内并行调用同一台 server 的两个工具即可触发）~~ **S5 已修**：同一连接上的请求串行，等锁计入 deadline。fake server 按到达顺序应答时 `queue.Queue` 的 FIFO 恰好掩盖了它，复现需乱序应答 | `tests/test_mcp_pool.py::test_concurrent_calls_on_one_client_get_their_own_responses` | S5 已交付 |
 | F16 | ~~配置没法指定 MCP server 的工作目录，autocad-mcp 启动即崩~~ **S3 已修**：新增 `cwd` 字段；本机覆盖层指向 autocad-mcp 仓库后暴露 `mcp_autocad_mcp_read_dwg`（手动验收，只证明能连上） | `tests/test_mcp_layered_config.py::test_child_runs_in_isolated_or_configured_cwd` | S3 已交付 |
+| F18 | S8 读码发现：出站静态扫描的特征不含标准库 `http.client`，新增一个只开 `http.client` 连接的模块**扫描看不见**（反证：挪到未登记模块也不红）；且 starlette 的 `HTTPConnection`（入站请求视图）会让宽松的 `HTTPS?Connection(` 特征误报 | `tests/test_governance_contracts.py::TestInventoryCoverage::test_unregistered_http_egress_module_is_detected` | S8 已修（特征限定为 `http.client.HTTPS?Connection`） |
+| F19 | S8 读码发现：`ProviderGateway._classify_error` 对非 HTTP 异常一律判永久错误，并把 `executor` 抛出的异常包成 `GovernanceError`——远程 MCP 的 `MCPError` 码若不还原，调用方只看到 `PROVIDER_UNAVAILABLE`；`RunCancelled` 是 `Exception` 子类，也会被包成永久错误 | `tests/test_mcp_http_client.py::test_tool_calls_are_never_replayed`、`::test_cancellation_propagates_out_of_the_event_stream` | S8 已处理（`run_governed` 还原原因；取消用 `BaseException` 哨兵穿过 gateway） |
 
 ---
 
@@ -245,7 +247,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
   `MCP_CREDENTIAL_MISSING`、不 spawn。值进子进程 env 摘要，改值即换 shared server 指纹。
 - **导入预览**：`preview_import`（Claude Code / Cursor JSON、Codex TOML；函数本身 ≤ 64 KiB UTF-8，经 HTTP ≤ 16 000 字符——
   请求体上限要给最大的合法 JSON 请求体留 4 倍余量）产出覆盖层格式提案：每台
-  `disabled: true`、不写 `allow`、`env` 值一律丢弃（键变槽位，不能当槽位的键只列名字）、url / 非 stdio 标为 S8、
+  `disabled: true`、不写 `allow`、`env` 值一律丢弃（键变槽位，不能当槽位的键只列名字）、url / `type: http` 在 S8 起生成 `streamable_http` 禁用提案（请求头 / 令牌值丢弃），旧 HTTP+SSE 仍不支持、
   冲突 id 改名；逐条模型层校验。不落盘、不 spawn、不应用。
 - **探测**：只对启用的 server，经 Web 会话工厂的连接池借一次租约（`confirmation_ready=True`），视图只含目标与池里
   已在用的 shared server（不顺带 spawn 其他 per_run server，也不让在用的 shared 连接退役）；只返回远端工具名、
@@ -300,6 +302,63 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
   `scripts/ci_gate.sh` 与入仓基线 `data/eval/skill_p0_main.json`（`scripts/compare_skill_p0.py`）。脚本模型，不证明真实模型
   的加载与遵循（P7-S9-A13）。
 
+
+### 3.10 Streamable HTTP 传输与 OAuth 2.1 服务级授权（S8）
+
+实现：`src/water_agent/mcp/http_transport.py`（**唯一出站模块**）、`mcp/http_client.py`、`mcp/oauth.py`、`mcp/oauth_store.py`、
+`mcp/config.py`（`transport` / `url` / `oauth` / `bearer_credential`）、`webapp/mcp_admin_routes.py`（授权路由）、
+`web/app/src/McpAdminPanel.tsx`；评测 `src/water_agent/harness/mcp_http_eval.py` + `data/eval/mcp_http_p0.jsonl` +
+`tests/fixtures/fake_mcp_http_server.py`；决策记录 `docs/design/p7-step-8-decision.md`；威胁模型 T13。
+
+- **出口只由运维决定**：`url` 与 `command` 同属装配期配置，只能写在仓库默认层 / 部署覆盖层（Web 管理层可写键不变）；模型输入、
+  远端响应、请求头都改变不了连接目标。远程工具仍持 `Capability.MCP_INVOKE`（与 stdio 一致）；`NETWORK_FETCH` 仍在危险集、
+  `Principal` 构造期仍拒、护栏 `tool.dangerous_capability` 不变。
+- **URL 加载期校验**（`parse_server_url`）：只 `https://`（`allow_private_network=true` 才收 `http://`），拒 userinfo / fragment /
+  控制字符；主机名 IDNA 归一；最后一个标签是十进制或 `0x` 十六进制数字的主机名必须是规范点分十进制 IPv4
+  （`2130706433`、`0177.0.0.1`、`127.1`、`0x7f.0.0.1` 一律拒）。
+- **连接期 SSRF 校验（每一次建连）**：解析出**全部**地址、整体分类，任一落在禁止段即 `MCP_DESTINATION_FORBIDDEN`，发生在发出
+  第一个字节之前。回环 / 私有（RFC 1918、`fc00::/7`、CGNAT）只在 `allow_private_network=true` 时放行；链路本地、云元数据
+  （含 `100.100.100.200`、`fd00:ec2::254`）、未指定、组播、保留段永远拒；IPv4-mapped IPv6、6to4、NAT64、Teredo 按内嵌 IPv4 分类。
+  连接**钉死**到校验过的 IP（TLS 的 SNI 与证书仍按主机名），3xx 一律不跟随。**每个请求一次新连接、各自重新解析并校验**
+  （没有 keep-alive）：DNS 在首次校验后换成元数据地址，下一个请求会被拒绝、对它零连接。
+- **协议**：以 2025-11-25 会话制为主（`initialize` 不带会话号 / 版本头，之后每个请求带 `MCP-Session-Id` 与
+  `MCP-Protocol-Version`；响应是单个 JSON 或 SSE 流；404 → 重新 initialize 一次并重发被拒绝的请求；关闭时 `DELETE`，405 视为正常；
+  server→client 请求回 `MethodNotFound`、通知记录不响应；不开 GET 监听流、不做 `Last-Event-ID` 续传）。接受 server 协商出的
+  `2025-06-18` / `2025-03-26`。只讲 2026-07-28 的 server（`initialize` 被 `400` + `-32020 / -32021 / -32022` 或 `data.supported`
+  含 `2026-07-28` 的 JSON-RPC 错误拒绝）记 `MCP_PROTOCOL_UNSUPPORTED`，不回落到已废弃的 HTTP+SSE。同一会话上的请求串行。
+  **工具调用不自动重发**：流在响应前断开、超时、5xx 都直接报错；唯一的重发是 404（会话已终止、请求被拒绝在处理之前）与一次 401
+  之后的令牌刷新——两者都是 server 明确表示没处理。
+- **治理**：`PROVIDER_CALL_SITES` 7 → 8（`mcp_streamable_http`，`ProviderKind.MCP_REMOTE`、`CallCategory.MCP_TOOL_CALL`、
+  `required_capability=MCP_INVOKE`）；initialize、通知、`tools/list`、`tools/call`、对 server 请求的回绝、`DELETE`、授权端点的
+  发现 / 注册 / 令牌 / 撤销请求**每一个**都经 `ProviderGateway.call`（画像 `max_attempts=1`，熔断按 `mcp:<server_id>` 计，usage 记
+  未知）。`tools/call` 的主体是调用者的 `RequestContext`（`AgenticSession` 的每个入口与 runner 经 `mcp_request_scope` 下传，缺失
+  fail closed）；装配期的生命周期请求与授权端点用 server 级服务主体（运维配置驱动）。出站静态扫描新增特征
+  `http.client.HTTPS?Connection`。
+- **认证二选一**（同时配即 `MCP_CONFIG_INVALID`）：**静态 Bearer**——`bearer_credential` 引用本 server `credential_env` 里的槽位
+  （S6 的凭据卷，值只写不读），值只进 `Authorization` 头，缺值 `MCP_CREDENTIAL_MISSING`，server 拒绝 `MCP_CONNECT_FAILED`；
+  **OAuth 2.1 服务级授权**——管理员在面板授权一次，令牌属于这台 server 的部署、所有用户的 run 共用（授权前面板明确提示）。
+- **OAuth 流程**（客户端 MUST 项逐条有测试，见 `tests/test_mcp_oauth.py`）：不带令牌的探测请求取 401 → `resource_metadata`
+  优先，否则路径插入与根路径两个 well-known → `authorization_servers` 取第一个且必须在 `allowed_issuers`（没配只接受第一个并记录）、
+  元数据里的 `resource` 必须等于本 server 的规范 URI → RFC 8414 与 OIDC 三 / 两个发现地址（`issuer` 必须一致）→ 缺 `S256` 拒绝
+  继续 → 预注册或动态注册（RFC 7591，按 issuer 与回调地址缓存）→ 授权请求带 PKCE S256 / 一次性 `state`（10 分钟、总量 64）/ 规范
+  `resource` / `scope`（挑战 > `scopes_supported` > 运维配置）→ 回调只认服务端 state、`iss` 必须等于记录的 issuer → 令牌请求带
+  `code_verifier` 与同一个 `resource`。所有授权服务器端点必须 `https://`，同样过 SSRF 校验与不跟随重定向。
+  `403 insufficient_scope` 如实报出所需 scope（`MCP_OAUTH_INSUFFICIENT_SCOPE`），**不自动升级**。
+- **令牌**：存凭据卷 `<credentials_dir>/mcp/<server_id>/oauth.json`（文件 0600、目录 0700、原子替换，不进备份，只写不读，`repr` 隐去令牌
+  字段）；只经 `Authorization: Bearer` 头发给签发它的 issuer 对应的这一个 MCP endpoint（URL 变了 / issuer 不在白名单就不发）；
+  即将过期（提前量 `min(60s, 寿命一半)`）或收到 401 时刷新**一次**，轮换后的 refresh token 替换旧值；刷新被拒 → 清除令牌、
+  `MCP_OAUTH_REQUIRED`、记审计事件；授权服务器暂时不可用 → 令牌保留。连接池指纹含**授权身份摘要**（`authorization_id`，刷新不换、
+  重新授权 / 清除换）与静态 Bearer 值的摘要。
+- **Web**：`POST /api/admin/mcp/servers/{id}/oauth/start`（返回授权 URL 与"所有用户共用该授权身份"的提示）、
+  `GET /api/admin/mcp/oauth/callback`（303 回应用首页，查询串只有结果 / server id / 稳定错误码）、
+  `DELETE /api/admin/mcp/servers/{id}/oauth`（撤销：尽力调用 revocation endpoint，再删本地令牌），全部 `require_admin`，写接口 CSRF。
+  `WEB_PUBLIC_BASE_URL` 是回调地址的唯一来源（未配 / 不合法 = 不提供授权，**不从请求的 Host 头推导**）。审计
+  `mcp.oauth_authorized / revoked / failed / refresh_failed` 只记 server_id、issuer、scope 与稳定码，永不记令牌 / 授权码 / verifier / state。
+  列表接口新增 `transport` / `url_host`（只有主机名）/ `allow_private_network` / `auth_kind` / `oauth` 状态；面板改不了 URL 与 oauth。
+- **评测**：`mcp_http_p0`（44 条：传输 5 / 协议 8 / SSRF 7 / 静态 Bearer 3 / OAuth 14 / 确认门 2 / 入口 5，会话 38 · Web 4 · runner 2 三条入口），八项硬指标，
+  接进 `scripts/ci_gate.sh` 与入仓基线 `data/eval/mcp_http_p0_main.json`（`scripts/compare_mcp_http_p0.py`，报告逐字可复现）。
+  只对本地假 server 与假授权服务器验证，不证明任何真实远程 MCP 或企业单点登录（P7-S8-A14 / A15）。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -328,7 +387,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S5 | Step D（一） | MCP 长驻连接（stdio）：`lifecycle: shared` 的 server 跨 run 复用进程（修 F8，缺省 `per_run` 不变）、客户端请求串行化（修 F17 并发取错响应）、按单台 server 指纹重载 | `docs/execution-prompts/P7-S5-shared-mcp-connections.md` | delivered |
 | S6 | Step E1 | Web 扩展面板：第三层配置 Web 管理层（只改启停 / allow）、运维声明的凭据槽位（值只写不读）、导入 `mcpServers` 只生成禁用的待审提案、探测、审计 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | delivered |
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
-| S8 | Step D（二） | Streamable HTTP 传输（以 2025-11-25 会话制为主，2026-07-28 无状态只识别）+ OAuth 2.1 服务级授权（预注册 / 动态注册 + PKCE + `resource` + `iss` 校验）+ 静态 Bearer 槽位；出口由运维写死的 URL 决定、连接期 SSRF 校验与钉死 IP、不跟随重定向；远程工具仍持 `MCP_INVOKE`，`NETWORK_FETCH` 不放宽；出站清单 7 → 8（2026-10-06 从 S5 拆出，2026-10-12 写执行 Prompt） | `docs/execution-prompts/P7-S8-streamable-http.md` | planned |
+| S8 | Step D（二） | Streamable HTTP 传输（以 2025-11-25 会话制为主，2026-07-28 无状态只识别）+ OAuth 2.1 服务级授权（预注册 / 动态注册 + PKCE + `resource` + `iss` 校验）+ 静态 Bearer 槽位；出口由运维写死的 URL 决定、连接期 SSRF 校验与钉死 IP、不跟随重定向；远程工具仍持 `MCP_INVOKE`，`NETWORK_FETCH` 不放宽；出站清单 7 → 8（2026-10-06 从 S5 拆出，2026-10-12 写执行 Prompt） | `docs/execution-prompts/P7-S8-streamable-http.md` | delivered |
 | S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | delivered |
 | S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式：对话与 embedding 端点 / 模型 / Key 由运维或管理员配置（缺省仍是 DeepSeek + 百炼，已有部署零变化）；非缺省对话端点必须有通过的兼容性报告才能装配（硬门槛，缺省免检）；`WATER_AGENT_RETRIEVAL_MODE=auto` 下没配 embedding 或与索引不匹配时走关键词检索（BM25）并在运行状态里如实标出；索引旁写 `index_meta.json` 绑定 embedding 模型与维度；`build_index.py --text-only`；先建口语化检索评测集（2026-10-12 新增，归入 P7 以复用范围守卫与快照） | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | planned |
 
@@ -653,19 +712,19 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S9-A12 | 前端 Skill 库区：成员只读列表、管理员启停与查看正文、MCP 计数卡片（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
 | P7-S9-A13 | 真实模型加载并遵循规程（需 `DEEPSEEK_API_KEY`，见未覆盖项） | 无 | untested |
 
-| P7-S8-A01 | 配置：`transport: streamable_http` 与 `url` / `allow_private_network` / `oauth` / `bearer_credential`；按 transport 互斥（混写 stdio 字段即 `MCP_CONFIG_INVALID`）；URL 加载期校验（只 https，私网开关才收 http，拒 userinfo / fragment）；这些字段 Web 管理层写不了 | `tests/test_mcp_http_config.py::test_transport_fields_are_mutually_exclusive`<br>`tests/test_mcp_http_config.py::test_url_is_validated_at_load_time`<br>`tests/test_mcp_http_config.py::test_web_layer_cannot_write_transport_fields` | planned |
-| P7-S8-A02 | 出口与 SSRF：每次建连解析并分类拒绝保留地址（`MCP_DESTINATION_FORBIDDEN`，零字节发出）、非常规 IPv4 写法与 IPv4-mapped IPv6、连接钉死校验过的 IP（防 DNS 重绑定）、3xx 不跟随、响应字节上限、Content-Type 校验 | `tests/test_mcp_http_transport.py::test_reserved_destinations_are_refused_before_sending`<br>`tests/test_mcp_http_transport.py::test_connection_is_pinned_to_the_checked_address`<br>`tests/test_mcp_http_transport.py::test_redirects_are_never_followed`<br>`tests/test_mcp_http_transport.py::test_response_limits_and_content_type` | planned |
-| P7-S8-A03 | 协议客户端：与 stdio 客户端同一外部接口；JSON 与 SSE 两种响应；`MCP-Session-Id` 回发、`MCP-Protocol-Version` 头、404 重建一次、关闭发 DELETE；server→client 请求回 MethodNotFound；新版无状态协议记 `MCP_PROTOCOL_UNSUPPORTED`；同一连接请求串行；工具调用不自动重发 | `tests/test_mcp_http_client.py::test_json_and_sse_responses`<br>`tests/test_mcp_http_client.py::test_session_header_and_expiry`<br>`tests/test_mcp_http_client.py::test_modern_only_server_is_identified`<br>`tests/test_mcp_http_client.py::test_tool_calls_are_never_replayed` | planned |
-| P7-S8-A04 | 治理：`ProviderKind.MCP_REMOTE`、`CallCategory.MCP_TOOL_CALL`、`PROVIDER_CALL_SITES` 7 → 8、静态扫描命中新出站模块（反证：挪到未登记模块即红）；每次远程请求经 `ProviderGateway`、工具调用零重试、usage 记未知 | `tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12`<br>`tests/test_mcp_http_client.py::test_remote_calls_go_through_the_gateway` | planned |
-| P7-S8-A05 | 静态 Bearer：`bearer_credential` 必须是本 server 声明的槽位、与 `oauth` 互斥；值只进 `Authorization` 头；缺值 `MCP_CREDENTIAL_MISSING` | `tests/test_mcp_http_client.py::test_bearer_slot_is_sent_only_as_a_header` | planned |
-| P7-S8-A06 | OAuth 发现：401 的 `resource_metadata` 优先、否则两个 well-known；授权服务器元数据按规范顺序试 RFC 8414 与 OIDC；`authorization_servers` 受 `allowed_issuers` 约束；缺 `S256` 拒绝继续 | `tests/test_mcp_oauth.py::test_protected_resource_metadata_discovery_order`<br>`tests/test_mcp_oauth.py::test_authorization_server_metadata_discovery_order`<br>`tests/test_mcp_oauth.py::test_pkce_support_is_required` | planned |
-| P7-S8-A07 | OAuth 流程：PKCE S256、一次性 state、`resource` 规范 URI 两处都带、`iss` 校验、端点只 https、注册信息按 issuer 存、refresh token 轮换、`insufficient_scope` 如实报出不自动升级 | `tests/test_mcp_oauth.py::test_authorization_request_parameters`<br>`tests/test_mcp_oauth.py::test_callback_rejects_bad_state_and_issuer`<br>`tests/test_mcp_oauth.py::test_refresh_rotation_and_expiry`<br>`tests/test_mcp_oauth.py::test_registration_is_bound_to_the_issuer` | planned |
-| P7-S8-A08 | 令牌保管与 Web：令牌只存凭据卷（0600、只写不读、不进备份）、只经 `Authorization` 头发给签发它的 server；授权 / 回调 / 撤销路由 `require_admin` + CSRF、回调只认服务端 state；`WEB_PUBLIC_BASE_URL` 未配不提供授权；审计不含令牌 / code / verifier / state | `tests/test_web_mcp_oauth.py::test_oauth_round_trip_is_admin_only`<br>`tests/test_web_mcp_oauth.py::test_tokens_never_leave_the_credential_volume` | planned |
-| P7-S8-A09 | 连接池：HTTP server 支持 `per_run` / `shared`，shared 复用 MCP 会话；指纹含令牌文件摘要（刷新不换、重新授权换）；会话 404 透明重建一次 | `tests/test_mcp_pool.py::test_http_server_sessions_are_pooled` | planned |
-| P7-S8-A10 | 导入：HTTP 条目生成 `streamable_http` 禁用提案、头里的值丢弃并提示改用槽位或 OAuth；旧 HTTP+SSE 仍不支持 | `tests/test_mcp_import.py::test_http_entries_become_disabled_proposals` | planned |
-| P7-S8-A11 | 面板：HTTP server 卡片显示传输、主机名、私网标记、授权状态；授权 / 撤销按钮；面板改不了 URL 与 oauth（前端由 node 测试覆盖，见未覆盖项） | `tests/test_web_mcp_admin.py::test_http_server_view_hides_url_path_and_tokens` | planned |
-| P7-S8-A12 | `mcp_http_p0`：会话 / runner / Web 三条路径经本地假 HTTP server 的暴露、跳过码、调用结果、SSRF 拦截零字节、令牌零泄漏、工具调用零重放；接进 `ci_gate.sh` 与入仓基线对比 | `gate:mcp_http_p0`<br>`tests/test_mcp_http_eval.py::test_mcp_http_p0_hard_metrics` | planned |
-| P7-S8-A13 | 快照：现有 16 个 profile 逐字不变、只有 `/versions/MCP_CONFIG_VERSION` 变化；新增 `session_http_mcp_fake`；`WEB_PUBLIC_BASE_URL` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S8-A01 | 配置：`transport: streamable_http` 与 `url` / `allow_private_network` / `oauth` / `bearer_credential`；按 transport 互斥（混写 stdio 字段即 `MCP_CONFIG_INVALID`）；URL 加载期校验（只 https，私网开关才收 http，拒 userinfo / fragment）；这些字段 Web 管理层写不了 | `tests/test_mcp_http_config.py::test_transport_fields_are_mutually_exclusive`<br>`tests/test_mcp_http_config.py::test_url_is_validated_at_load_time`<br>`tests/test_mcp_http_config.py::test_web_layer_cannot_write_transport_fields` | delivered |
+| P7-S8-A02 | 出口与 SSRF：每次建连解析并分类拒绝保留地址（`MCP_DESTINATION_FORBIDDEN`，零字节发出）、非常规 IPv4 写法与 IPv4-mapped IPv6、连接钉死校验过的 IP（防 DNS 重绑定）、3xx 不跟随、响应字节上限、Content-Type 校验 | `tests/test_mcp_http_transport.py::test_reserved_destinations_are_refused_before_sending`<br>`tests/test_mcp_http_transport.py::test_connection_is_pinned_to_the_checked_address`<br>`tests/test_mcp_http_transport.py::test_redirects_are_never_followed`<br>`tests/test_mcp_http_transport.py::test_response_limits_and_content_type` | delivered |
+| P7-S8-A03 | 协议客户端：与 stdio 客户端同一外部接口；JSON 与 SSE 两种响应；`MCP-Session-Id` 回发、`MCP-Protocol-Version` 头、404 重建一次、关闭发 DELETE；server→client 请求回 MethodNotFound；新版无状态协议记 `MCP_PROTOCOL_UNSUPPORTED`；同一连接请求串行；工具调用不自动重发 | `tests/test_mcp_http_client.py::test_json_and_sse_responses`<br>`tests/test_mcp_http_client.py::test_session_header_and_expiry`<br>`tests/test_mcp_http_client.py::test_modern_only_server_is_identified`<br>`tests/test_mcp_http_client.py::test_tool_calls_are_never_replayed` | delivered |
+| P7-S8-A04 | 治理：`ProviderKind.MCP_REMOTE`、`CallCategory.MCP_TOOL_CALL`、`PROVIDER_CALL_SITES` 7 → 8、静态扫描命中新出站模块（反证：挪到未登记模块即红）；每次远程请求经 `ProviderGateway`、工具调用零重试、usage 记未知 | `tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12`<br>`tests/test_mcp_http_client.py::test_remote_calls_go_through_the_gateway` | delivered |
+| P7-S8-A05 | 静态 Bearer：`bearer_credential` 必须是本 server 声明的槽位、与 `oauth` 互斥；值只进 `Authorization` 头；缺值 `MCP_CREDENTIAL_MISSING` | `tests/test_mcp_http_client.py::test_bearer_slot_is_sent_only_as_a_header` | delivered |
+| P7-S8-A06 | OAuth 发现：401 的 `resource_metadata` 优先、否则两个 well-known；授权服务器元数据按规范顺序试 RFC 8414 与 OIDC；`authorization_servers` 受 `allowed_issuers` 约束；缺 `S256` 拒绝继续 | `tests/test_mcp_oauth.py::test_protected_resource_metadata_discovery_order`<br>`tests/test_mcp_oauth.py::test_authorization_server_metadata_discovery_order`<br>`tests/test_mcp_oauth.py::test_pkce_support_is_required` | delivered |
+| P7-S8-A07 | OAuth 流程：PKCE S256、一次性 state、`resource` 规范 URI 两处都带、`iss` 校验、端点只 https、注册信息按 issuer 存、refresh token 轮换、`insufficient_scope` 如实报出不自动升级 | `tests/test_mcp_oauth.py::test_authorization_request_parameters`<br>`tests/test_mcp_oauth.py::test_callback_rejects_bad_state_and_issuer`<br>`tests/test_mcp_oauth.py::test_refresh_rotation_and_expiry`<br>`tests/test_mcp_oauth.py::test_registration_is_bound_to_the_issuer` | delivered |
+| P7-S8-A08 | 令牌保管与 Web：令牌只存凭据卷（0600、只写不读、不进备份）、只经 `Authorization` 头发给签发它的 server；授权 / 回调 / 撤销路由 `require_admin` + CSRF、回调只认服务端 state；`WEB_PUBLIC_BASE_URL` 未配不提供授权；审计不含令牌 / code / verifier / state | `tests/test_web_mcp_oauth.py::test_oauth_round_trip_is_admin_only`<br>`tests/test_web_mcp_oauth.py::test_tokens_never_leave_the_credential_volume` | delivered |
+| P7-S8-A09 | 连接池：HTTP server 支持 `per_run` / `shared`，shared 复用 MCP 会话；指纹含令牌文件摘要（刷新不换、重新授权换）；会话 404 透明重建一次 | `tests/test_mcp_pool.py::test_http_server_sessions_are_pooled` | delivered |
+| P7-S8-A10 | 导入：HTTP 条目生成 `streamable_http` 禁用提案、头里的值丢弃并提示改用槽位或 OAuth；旧 HTTP+SSE 仍不支持 | `tests/test_mcp_import.py::test_http_entries_become_disabled_proposals` | delivered |
+| P7-S8-A11 | 面板：HTTP server 卡片显示传输、主机名、私网标记、授权状态；授权 / 撤销按钮；面板改不了 URL 与 oauth（前端由 node 测试覆盖，见未覆盖项） | `tests/test_web_mcp_admin.py::test_http_server_view_hides_url_path_and_tokens` | delivered |
+| P7-S8-A12 | `mcp_http_p0`：会话 / runner / Web 三条路径经本地假 HTTP server 的暴露、跳过码、调用结果、SSRF 拦截零字节、令牌零泄漏、工具调用零重放；接进 `ci_gate.sh` 与入仓基线对比 | `gate:mcp_http_p0`<br>`tests/test_mcp_http_eval.py::test_mcp_http_p0_hard_metrics` | delivered |
+| P7-S8-A13 | 快照：现有 16 个 profile 逐字不变、只有 `/versions/MCP_CONFIG_VERSION` 变化；新增 `session_http_mcp_fake`；`WEB_PUBLIC_BASE_URL` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | delivered |
 | P7-S8-A14 | 真实 HTTP MCP server 与真实授权服务器（含企业 TLS / 代理）上的连通与授权（见未覆盖项） | 无 | untested |
 | P7-S8-A15 | 手动验收：浏览器里授权跳转、回调、工具出现、撤销后工具记 `MCP_OAUTH_REQUIRED`（见未覆盖项） | 无 | untested |
 
@@ -770,6 +829,10 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S8-streamable-http.md` | S8 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S9-skill-library.md` | S9 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | S10 执行 Prompt（含范围块） |
+| `src/water_agent/mcp/http_transport.py` + `src/water_agent/mcp/http_client.py` | S8 Streamable HTTP：唯一出站模块（URL 校验 / SSRF / 钉死 IP）与协议客户端 |
+| `src/water_agent/mcp/oauth.py` + `src/water_agent/mcp/oauth_store.py` | S8 OAuth 2.1 服务级授权与令牌保管 |
+| `src/water_agent/harness/mcp_http_eval.py` + `data/eval/mcp_http_p0.jsonl` | S8 评测集与 harness（入仓基线 `data/eval/mcp_http_p0_main.json`，假 server 见 `tests/fixtures/fake_mcp_http_server.py`） |
+| `docs/design/p7-step-8-decision.md` | S8 决策记录（实测事实、偏离、残余风险、快照 diff） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
 | `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |

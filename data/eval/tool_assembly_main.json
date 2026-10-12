@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S9 Step 6：新增 profile session_skills_builtin（开关 on、只有内置 4 个 skill，load_skill 以 intent 暴露）；PINNED_ENV_KEYS 钉住 WATER_AGENT_SKILLS / WATER_AGENT_SKILLS_DIR；现有 15 个 profile 不变",
+    "last_write_reason": "P7-S8 Step 10：新增 profile session_http_mcp_fake（fake Streamable HTTP MCP server：两个工具暴露、一个被 schema 子集拒绝）；现有 16 个 profile 逐字不变；WEB_PUBLIC_BASE_URL 加入 PINNED_ENV_KEYS",
     "python": "3.12.14"
   },
   "profiles": {
@@ -2024,6 +2024,381 @@
         }
       }
     },
+    "session_http_mcp_fake": {
+      "description": "fake Streamable HTTP MCP server（明文回环 + allow_private_network）：两个工具暴露、一个被 schema 子集拒绝",
+      "lifecycle": {
+        "app": {
+          "app_kwargs": [
+            "cache_service",
+            "checkpointer",
+            "exposure",
+            "model",
+            "prompt",
+            "request_context",
+            "tools",
+            "trace"
+          ],
+          "cache_service": null,
+          "chat_model_principal": null,
+          "checkpointer": "InMemorySaver",
+          "max_tool_turns": null,
+          "probes": {
+            "cite": {
+              "code": null,
+              "invalid_ids": [
+                "GB00000-0000 9.9.9"
+              ],
+              "registered": false
+            },
+            "mcp_echo": {
+              "mcp_snaphttp_echo_query": {
+                "code": "TOOL_ERROR",
+                "error": true,
+                "keys": [
+                  "code",
+                  "error",
+                  "message",
+                  "suggestions"
+                ]
+              }
+            },
+            "retrieve": {
+              "error": false,
+              "ids": [
+                "FIX 1.1.1",
+                "FIX 2.1.1",
+                "FIX 2.2.1"
+              ]
+            },
+            "retriever_chain": [
+              "RerankingRetriever",
+              "TriviumRetriever"
+            ]
+          },
+          "tools_bound_to_prompt_registry": true
+        },
+        "captures": 1,
+        "exception": null,
+        "mcp": [
+          {
+            "exposed": [
+              "mcp_snaphttp_echo_query",
+              "mcp_snaphttp_lookup_project"
+            ],
+            "manifest_hash_nonempty": true,
+            "skipped_servers": [],
+            "skipped_tools": [
+              [
+                "snaphttp",
+                "session_probe",
+                "MCP_NOT_IN_ALLOWLIST"
+              ],
+              [
+                "snaphttp",
+                "nested_schema_tool",
+                "MCP_UNSUPPORTED_SCHEMA"
+              ],
+              [
+                "snaphttp",
+                "unlisted_tool",
+                "MCP_NOT_IN_ALLOWLIST"
+              ]
+            ]
+          }
+        ],
+        "mcp_clients_alive_after_scope": 0,
+        "stack": [
+          "callback:MCPGatewayAssembly.close"
+        ],
+        "trace_record_calls": []
+      },
+      "side": "session",
+      "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "mcp:snaphttp",
+              "ambient",
+              [
+                "mcp_snaphttp_echo_query",
+                "mcp_snaphttp_lookup_project"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snaphttp_echo_query",
+                "mcp_snaphttp_lookup_project"
+              ],
+              "guide": {
+                "chars": 482,
+                "sha256": "8502095023edaf31"
+              },
+              "guide_chars": 482,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snaphttp",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3321,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "mcp_snaphttp_echo_query",
+                "mcp_snaphttp_lookup_project"
+              ],
+              "guide": {
+                "chars": 482,
+                "sha256": "8502095023edaf31"
+              },
+              "guide_chars": 482,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "mcp:snaphttp",
+                  "ambient"
+                ]
+              ],
+              "schema_chars": 3321,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [
+                [
+                  "mcp:snaphttp",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "44792caa716a3714"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snaphttp_echo_query",
+                "mcp_snaphttp_lookup_project"
+              ]
+            },
+            "materials": {
+              "dropped": [
+                [
+                  "mcp:snaphttp",
+                  "schema_budget"
+                ]
+              ],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 360,
+                "sha256": "44792caa716a3714"
+              },
+              "guide_chars": 360,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "mcp_snaphttp_echo_query",
+                "mcp_snaphttp_lookup_project"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
+        "model_tool_order": [
+          "calc_velocity",
+          "cite_clauses",
+          "material_stats",
+          "mcp_snaphttp_echo_query",
+          "mcp_snaphttp_lookup_project",
+          "retrieve_clauses"
+        ],
+        "principal": {
+          "auth_domain": "local",
+          "capabilities": [
+            "calculate",
+            "cite_clauses",
+            "embedding",
+            "export_to_allowed_dir",
+            "llm_inference",
+            "load_skill",
+            "material_stats",
+            "mcp_invoke",
+            "read_drawing",
+            "rerank",
+            "retrieve_clauses"
+          ],
+          "kind": "local_cli"
+        },
+        "registration_order": [
+          "retrieve_clauses",
+          "cite_clauses",
+          "calc_velocity",
+          "material_stats",
+          "mcp_snaphttp_echo_query",
+          "mcp_snaphttp_lookup_project"
+        ],
+        "registry_principal": {
+          "auth_domain": "local",
+          "capabilities": [
+            "calculate",
+            "cite_clauses",
+            "embedding",
+            "export_to_allowed_dir",
+            "llm_inference",
+            "load_skill",
+            "material_stats",
+            "mcp_invoke",
+            "read_drawing",
+            "rerank",
+            "retrieve_clauses"
+          ],
+          "kind": "local_cli"
+        },
+        "schema_chars_total": 4735,
+        "system_prompt": {
+          "chars": 1470,
+          "sha256": "16019d287d18d6f1"
+        },
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
+        "tools": {
+          "calc_velocity": {
+            "execute": "_execute",
+            "has_guard": false,
+            "schema_chars": 953,
+            "schema_sha256": "0309541c963ee650",
+            "timeout_seconds": 30.0
+          },
+          "cite_clauses": {
+            "execute": "build_cite_clauses_tool_with_context_check.<locals>.execute_with_check",
+            "has_guard": false,
+            "schema_chars": 576,
+            "schema_sha256": "56d52ff8c038205a",
+            "timeout_seconds": 30.0
+          },
+          "material_stats": {
+            "execute": "_execute",
+            "has_guard": false,
+            "schema_chars": 1412,
+            "schema_sha256": "0ca7ba1bd69ed8db",
+            "timeout_seconds": 30.0
+          },
+          "mcp_snaphttp_echo_query": {
+            "execute": "_make_execute.<locals>.execute",
+            "has_guard": false,
+            "schema_chars": 579,
+            "schema_sha256": "41ac723c08038e8d",
+            "timeout_seconds": 35.0
+          },
+          "mcp_snaphttp_lookup_project": {
+            "execute": "_make_execute.<locals>.execute",
+            "has_guard": false,
+            "schema_chars": 613,
+            "schema_sha256": "e8377e7e3b34b832",
+            "timeout_seconds": 35.0
+          },
+          "retrieve_clauses": {
+            "execute": "_make_execute.<locals>.execute",
+            "has_guard": false,
+            "schema_chars": 590,
+            "schema_sha256": "49d243f6cf6d66d3",
+            "timeout_seconds": 30.0
+          }
+        }
+      }
+    },
     "session_mcp_config_invalid": {
       "description": "MCP 配置文件损坏：必须响亮失败",
       "lifecycle": {
@@ -3770,7 +4145,7 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p7-s6-2026-10-07",
+    "MCP_CONFIG_VERSION": "p7-s8-2026-10-12",
     "PROMPT_TEMPLATE_VERSION": "p7-s9-skill-context-2026-10-09",
     "TOOL_POLICY_VERSION": "p7-step9-2026-10-09"
   }

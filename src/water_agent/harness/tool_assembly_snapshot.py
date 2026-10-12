@@ -56,6 +56,7 @@ from typing import Any, Literal
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BASELINE = REPO_ROOT / "data" / "eval" / "tool_assembly_main.json"
 FAKE_MCP_SERVER = REPO_ROOT / "tests" / "fixtures" / "fake_mcp_server.py"
+FAKE_MCP_HTTP_SERVER = REPO_ROOT / "tests" / "fixtures" / "fake_mcp_http_server.py"
 FIXTURE_CLAUSES = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 
 SNAPSHOT_FORMAT_VERSION = 1
@@ -77,6 +78,7 @@ PINNED_ENV_KEYS = (
     "WATER_AGENT_SKILLS",
     "WATER_AGENT_SKILLS_DIR",
     "WATER_AGENT_TOOL_EXPOSURE",
+    "WEB_PUBLIC_BASE_URL",
     "WEB_MOCK_GENERATOR",
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_API_KEY_FILE",
@@ -96,7 +98,7 @@ PINNED_ENV_KEYS = (
 _PLACEHOLDER_API_KEY = "sk-tool-assembly-snapshot-placeholder"
 
 DrawingMode = Literal["off", "arg", "env", "none"]
-McpMode = Literal["disabled", "empty", "fake", "confirm_skip", "ready_flag", "invalid"]
+McpMode = Literal["disabled", "empty", "fake", "http_fake", "confirm_skip", "ready_flag", "invalid"]
 
 
 class SnapshotHarnessError(RuntimeError):
@@ -176,6 +178,13 @@ PROFILES: tuple[Profile, ...] = (
         "session",
         "Skill 库打开（只有内置 skill）：多出 load_skill（intent，目录在工具描述里）",
         skills=True,
+    ),
+    Profile(
+        "session_http_mcp_fake",
+        "session",
+        "fake Streamable HTTP MCP server（明文回环 + allow_private_network）：两个工具暴露、一个被 schema 子集拒绝",
+        mcp="http_fake",
+        mcp_server_id="snaphttp",
     ),
     Profile(
         "session_mcp_register_fault",
@@ -313,6 +322,8 @@ class _PlaceholderChatModel:
 class _ProfileState:
     side: str
     captures: int = 0
+    #: ``http_fake`` profile 的假 HTTP MCP server 端口（由 ``_run_profile`` 起停）。
+    http_port: int | None = None
     trace_calls: list[dict[str, Any]] = field(default_factory=list)
     trace_calls_at_capture: list[dict[str, Any]] | None = None
     assemblies: list[Any] = field(default_factory=list)
@@ -529,7 +540,7 @@ def _prepare_drawings(directory: Path) -> Path:
     return directory
 
 
-def _write_mcp_config(path: Path, profile: Profile) -> Path:
+def _write_mcp_config(path: Path, profile: Profile, http_port: int | None = None) -> Path:
     from water_agent.mcp.config import MCP_CONFIG_VERSION
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -537,6 +548,18 @@ def _write_mcp_config(path: Path, profile: Profile) -> Path:
         path.write_text("{ 这不是 JSON", encoding="utf-8")
         return path
     servers: list[dict[str, Any]] = []
+    if profile.mcp == "http_fake":
+        if http_port is None:
+            raise SnapshotHarnessError("http_fake profile 需要先启动假 HTTP MCP server")
+        servers.append(
+            {
+                "server_id": profile.mcp_server_id,
+                "transport": "streamable_http",
+                "url": f"http://127.0.0.1:{http_port}/mcp",
+                "allow_private_network": True,
+                "allow": list(FAKE_MCP_ALLOW),
+            }
+        )
     if profile.mcp in {"fake", "confirm_skip", "ready_flag"}:
         if not FAKE_MCP_SERVER.is_file():
             raise SnapshotHarnessError(f"缺少 fake MCP server：{FAKE_MCP_SERVER}")
@@ -558,7 +581,7 @@ def _write_mcp_config(path: Path, profile: Profile) -> Path:
     return path
 
 
-def _apply_profile_environment(profile: Profile, workdir: Path) -> Path | None:
+def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int | None = None) -> Path | None:
     """按 profile 设置环境变量，返回要通过参数传入的图纸根（只有 drawing=arg 时非空）。"""
 
     for key in ("DRAWING_ROOT", "WATER_AGENT_MCP_CONFIG", "DEEPSEEK_API_KEY", "WATER_AGENT_SKILLS"):
@@ -572,7 +595,7 @@ def _apply_profile_environment(profile: Profile, workdir: Path) -> Path | None:
             drawing_arg = drawings
     if profile.mcp != "disabled":
         os.environ["WATER_AGENT_MCP_CONFIG"] = str(
-            _write_mcp_config(workdir / "mcp_servers.json", profile)
+            _write_mcp_config(workdir / "mcp_servers.json", profile, http_port)
         )
     if profile.web:
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
@@ -641,7 +664,7 @@ def _drive_session(profile: Profile, workdir: Path, state: _ProfileState) -> Non
 
     from water_agent.runtime.agentic import AgenticSession
 
-    drawing_arg = _apply_profile_environment(profile, workdir)
+    drawing_arg = _apply_profile_environment(profile, workdir, state.http_port)
     thread_id = f"snap-{profile.name}"
     args = _session_args(profile, workdir, drawing_arg)
     stack = _RecordingStack(state.stack_ops)
@@ -673,7 +696,7 @@ def _cleanup_runner_mcp_cache(runner_module: Any) -> None:
 def _drive_runner(profile: Profile, workdir: Path, state: _ProfileState) -> None:
     import water_agent.harness.runner as runner_module
 
-    _apply_profile_environment(profile, workdir)
+    _apply_profile_environment(profile, workdir, state.http_port)
     _cleanup_runner_mcp_cache(runner_module)
     unused_eval = workdir / "unused.jsonl"
     unused_eval.write_text("", encoding="utf-8")
@@ -728,6 +751,18 @@ def _error_view(error: BaseException | None) -> dict[str, Any] | None:
     return {"type": type(error).__name__, "code": getattr(error, "code", None)}
 
 
+def _start_fake_http_server() -> tuple[Any, int]:
+    """起假 HTTP MCP server（明文回环，不需要证书；进程内线程，不拉子进程）；返回 (句柄, 端口)。"""
+    if not FAKE_MCP_HTTP_SERVER.is_file():
+        raise SnapshotHarnessError(f"缺少 fake HTTP MCP server：{FAKE_MCP_HTTP_SERVER}")
+    from water_agent.harness.mcp_http_eval import fake_module
+
+    module = fake_module()
+    args = module.build_parser().parse_args(["--mode", "json", "--plain"])
+    running = module.start_servers(args)
+    return running, int(running.mcp_port)
+
+
 def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
     from water_agent.graphs import agent_rag
     from water_agent.mcp import wiring
@@ -770,6 +805,9 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
     driver: Callable[[Profile, Path, _ProfileState], None] = (
         _drive_session if profile.side == "session" else _drive_runner
     )
+    http_server: Any = None
+    if profile.mcp == "http_fake":
+        http_server, state.http_port = _start_fake_http_server()
     with ExitStack() as patches:
         patches.enter_context(_patched_bindings(original_build, capture))
         patches.enter_context(_patched_bindings(original_open, spy_open))
@@ -787,6 +825,8 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
                 _cleanup_runner_mcp_cache(runner_module)
             for assembly in state.assemblies:  # 防御：不管现状如何，快照本身不留子进程
                 assembly.close()
+            if http_server is not None:
+                http_server.stop()
 
     if state.error is None and state.captures != 1:
         raise SnapshotHarnessError(

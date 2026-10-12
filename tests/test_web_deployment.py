@@ -197,3 +197,12 @@ def test_operator_skills_volume_is_read_only() -> None:
     builtin = sorted((REPO_ROOT / "src" / "water_agent" / "skills" / "builtin").glob("*/SKILL.md"))
     assert len(builtin) == 4
     assert "!src/**" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+
+def test_public_base_url_is_passed_to_the_app_only() -> None:
+    """P7-S8-A08：回调地址的唯一来源 ``WEB_PUBLIC_BASE_URL`` 只传给 app 服务；缺省为空（面板不提供授权）。"""
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert "      WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}\n" in app_block
+    assert compose.count("\n      WEB_PUBLIC_BASE_URL:") == 1, "只有 app 服务拿到它"

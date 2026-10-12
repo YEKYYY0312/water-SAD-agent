@@ -102,6 +102,18 @@ def create_app(
 
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
 
+    # P7-S8：MCP OAuth 刷新被授权服务器拒绝时没有管理员请求在场，由这里接到结构化审计（只含 server_id / issuer / 原因码）
+    from water_agent.mcp.oauth import set_event_sink
+    from water_agent.webapp.auth.audit import audit_mcp_oauth_refresh_failed
+
+    def _oauth_event(event: str, server_id: str, fields: dict[str, str]) -> None:
+        if event == "refresh_failed":
+            audit_mcp_oauth_refresh_failed(
+                server_id=server_id, issuer=fields.get("issuer", ""), reason=fields.get("reason", "")
+            )
+
+    set_event_sink(_oauth_event)
+
     # No CORSMiddleware: the React bundle is served by this same app (see the
     # StaticFiles mount below), so browsers never issue a cross-origin preflight.
     # The previous 8001-origin exception existed only for the standalone
