@@ -224,3 +224,160 @@ test("panel is admin-only, write-only for credentials, and states what it cannot
   assert.ok(ownBlock.length > 0);
   assert.doesNotMatch(ownBlock, /#[0-9a-fA-F]{3,8}\b|rgb\(/);
 });
+
+// ---------------------------------------------------------------------------
+// P7-S8-A11：HTTP server 卡片与 OAuth 授权按钮
+// ---------------------------------------------------------------------------
+
+import {
+  authStatusLabel,
+  authorizeButtonLabel,
+  authorizeConfirmText,
+  oauthOutcomeMessage,
+  oauthStatusLabel,
+  parseOAuthOutcome,
+  stripOAuthOutcome,
+  transportLabel,
+} from "../src/mcpAdminState.ts";
+
+function oauthView(overrides = {}) {
+  return {
+    state: "none",
+    authorized: false,
+    expires_at: null,
+    scope: null,
+    issuer_host: "auth.example.invalid",
+    can_authorize: true,
+    unavailable_reason: null,
+    notice: "所有用户都会以该授权身份调用此 server；令牌只保存在服务端，任何接口都不会返回它",
+    ...overrides,
+  };
+}
+
+function remote(overrides = {}) {
+  return server({
+    server_id: "library",
+    transport: "streamable_http",
+    url_host: "mcp.example.invalid",
+    allow_private_network: false,
+    auth_kind: "oauth",
+    oauth: oauthView(),
+    command_name: "",
+    lifecycle: "shared",
+    ...overrides,
+  });
+}
+
+test("remote server card shows transport, host and an honest authorization state", () => {
+  assert.equal(transportLabel(remote()), "远程 Streamable HTTP");
+  assert.equal(transportLabel(server({ transport: "stdio" })), "本地进程（stdio）");
+
+  assert.equal(oauthStatusLabel(null), "未配置认证");
+  assert.equal(authStatusLabel(remote({ auth_kind: "none", oauth: null })), "未配置认证");
+  assert.match(authStatusLabel(remote({ auth_kind: "bearer", oauth: null })), /静态 Bearer/);
+  assert.equal(oauthStatusLabel(oauthView()), "未授权");
+  assert.match(
+    oauthStatusLabel(oauthView({ state: "authorized", authorized: true, expires_at: "2026-10-12T10:30:00+00:00" })),
+    /已授权.*auth\.example\.invalid.*2026-10-12 10:30 UTC.*自动刷新/,
+  );
+  assert.match(oauthStatusLabel(oauthView({ state: "authorized", authorized: true })), /^已授权/);
+  assert.match(oauthStatusLabel(oauthView({ state: "resource_changed" })), /授权失效：.*地址已变/);
+  assert.match(oauthStatusLabel(oauthView({ state: "issuer_not_allowed" })), /授权失效：.*allowed_issuers/);
+  assert.match(oauthStatusLabel(oauthView({ state: "expired" })), /授权失效：.*过期/);
+
+  // 状态与提示
+  assert.equal(serverTone(remote()), "not_configured", "未授权不是绿色");
+  assert.match(serverStatusMessage(remote()), /尚未授权.*不会暴露/);
+  const authorized = remote({ oauth: oauthView({ state: "authorized", authorized: true }) });
+  assert.equal(serverTone(authorized), "succeeded");
+  assert.match(serverStatusMessage(authorized), /放行 1 个工具/);
+  assert.deepEqual(serverTags(remote({ allow_private_network: true })), ["共享会话", "允许回环 / 私网目标"]);
+  assert.deepEqual(serverTags(server({ lifecycle: "shared" })), ["共享进程"]);
+  assert.match(serverStatusMessage(remote({ credentials: [{ name: "K", configured: false, updated_at: null }] })), /不会连接/);
+
+  // 新错误码有人话
+  assert.match(codeLabel("MCP_OAUTH_REQUIRED"), /授权/);
+  assert.match(codeLabel("MCP_DESTINATION_FORBIDDEN"), /被禁止/);
+  assert.match(codeLabel("MCP_PROTOCOL_UNSUPPORTED"), /2026-07-28/);
+  assert.match(mcpAdminErrorMessage("WEB_MCP_OAUTH_UNAVAILABLE", "x"), /WEB_PUBLIC_BASE_URL/);
+});
+
+test("authorize button asks the admin to confirm the shared identity; callback results come from the query string only", () => {
+  assert.equal(authorizeButtonLabel(oauthView()), "授权");
+  assert.equal(authorizeButtonLabel(oauthView({ state: "authorized", authorized: true })), "重新授权");
+  assert.equal(authorizeButtonLabel(oauthView({ state: "resource_changed" })), "重新授权");
+  const confirmText = authorizeConfirmText(oauthView(), "library");
+  assert.match(confirmText, /所有用户都会以该授权身份调用此 server/);
+  assert.match(confirmText, /auth\.example\.invalid.*「library」/s);
+
+  assert.deepEqual(parseOAuthOutcome("?mcp_oauth=authorized&server=library"), {
+    kind: "authorized", server: "library", code: null,
+  });
+  assert.deepEqual(parseOAuthOutcome("?mcp_oauth=failed&code=MCP_OAUTH_REQUIRED"), {
+    kind: "failed", server: null, code: "MCP_OAUTH_REQUIRED",
+  });
+  assert.equal(parseOAuthOutcome(""), null);
+  assert.equal(parseOAuthOutcome("?mcp_oauth=hacked"), null, "只认两个结果值");
+  assert.match(oauthOutcomeMessage(parseOAuthOutcome("?mcp_oauth=authorized&server=library")), /「library」授权完成/);
+  assert.match(oauthOutcomeMessage(parseOAuthOutcome("?mcp_oauth=failed&code=MCP_OAUTH_UNAVAILABLE")), /授权流程无法进行/);
+  assert.match(oauthOutcomeMessage(parseOAuthOutcome("?mcp_oauth=failed")), /未知原因/);
+  assert.equal(stripOAuthOutcome("?mcp_oauth=authorized&server=library&keep=1"), "?keep=1");
+  assert.equal(stripOAuthOutcome("?mcp_oauth=failed&code=X"), "");
+});
+
+test("oauth api calls: POST start / DELETE revoke carry CSRF and never send anything but the path", async () => {
+  globalThis.document = { cookie: "wa_csrf=csrf-token-2" };
+  try {
+    const { calls, fetchImpl } = recordingFetch([
+      {
+        status: 200,
+        body: {
+          version: "v1", ok: true,
+          data: { authorization_url: "https://auth.example.invalid/authorize?x=1", issuer: "https://auth.example.invalid", expires_at: "2026-10-12T10:00:00+00:00", notice: "n" },
+        },
+      },
+      { status: 200, body: { version: "v1", ok: true, data: { oauth: oauthView() } } },
+      { status: 409, body: { version: "v1", ok: false, error: { code: "WEB_MCP_OAUTH_UNAVAILABLE", message: "m" } } },
+    ]);
+    const api = new McpAdminApi(fetchImpl);
+    const started = await api.startOAuth("library");
+    assert.equal(started.authorization_url, "https://auth.example.invalid/authorize?x=1");
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[0].url, "/api/admin/mcp/servers/library/oauth/start");
+    assert.equal(calls[0].body, undefined);
+    assert.equal(calls[0].headers.get("X-CSRF-Token"), "csrf-token-2");
+    await api.revokeOAuth("library");
+    assert.equal(calls[1].method, "DELETE");
+    assert.equal(calls[1].url, "/api/admin/mcp/servers/library/oauth");
+    assert.equal(calls[1].headers.get("X-CSRF-Token"), "csrf-token-2");
+    await assert.rejects(api.startOAuth("library"), (error) => error.code === "WEB_MCP_OAUTH_UNAVAILABLE" && error.status === 409);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test("panel wires the authorize flow without ever holding a token or a URL it could edit", async () => {
+  const panel = await readFile(new URL("../src/McpAdminPanel.tsx", import.meta.url), "utf8");
+  const api = await readFile(new URL("../src/mcpAdminApi.ts", import.meta.url), "utf8");
+
+  // 授权前确认「所有用户共用该授权身份」；跳转整页；结果从查询串读完就清掉
+  assert.match(panel, /window\.confirm\(authorizeConfirmText\(oauth, serverId\)\)/);
+  assert.match(panel, /window\.location\.assign\(started\.authorization_url\)/);
+  assert.match(panel, /parseOAuthOutcome\(window\.location\.search\)/);
+  assert.match(panel, /window\.history\.replaceState/);
+  assert.match(panel, /<OAuthSection serverId=\{server\.server_id\}/);
+  assert.match(panel, /撤销授权/);
+
+  // 面板里没有任何输入 URL / issuer / client_id 的通道，也不存令牌：类型里没有这些字段
+  const oauthType = api.slice(api.indexOf("export type McpOAuthView"), api.indexOf("};", api.indexOf("export type McpOAuthView")));
+  assert.deepEqual(
+    [...oauthType.matchAll(/^\s+(\w+)\??:/gm)].map((match) => match[1]),
+    ["state", "authorized", "expires_at", "scope", "issuer_host", "can_authorize", "unavailable_reason", "notice"],
+  );
+  assert.doesNotMatch(panel, /access_token|refresh_token|client_id|client_secret|code_verifier/);
+  assert.doesNotMatch(panel, /updateServer\([^)]*\b(url|oauth|transport)\b/);
+
+  // 样式没有新增字面色值
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles.slice(styles.indexOf(".mcp-oauth") >= 0 ? styles.indexOf(".mcp-oauth") : 0, styles.indexOf(".mcp-oauth") >= 0 ? styles.indexOf(".mcp-oauth") + 400 : 0), /#[0-9a-fA-F]{3,8}\b|rgb\(/);
+});

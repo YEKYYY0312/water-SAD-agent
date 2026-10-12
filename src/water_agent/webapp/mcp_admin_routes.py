@@ -35,6 +35,7 @@ from water_agent.mcp.config import (
     MCPGatewayConfig,
     MCPServerConfig,
     OperatorLayers,
+    ServerTransport,
     missing_paths,
     read_operator_layers,
     web_layer_path,
@@ -227,6 +228,10 @@ def _web_layer_writable(path: Any) -> bool:
     return os.access(directory, os.W_OK | os.X_OK)
 
 
+def _url_host(server: MCPServerConfig) -> str | None:
+    return urlsplit(server.url).hostname if server.url else None
+
+
 def _server_view(
     server: MCPServerConfig,
     layers: OperatorLayers,
@@ -247,14 +252,22 @@ def _server_view(
         )
     with state.lock:
         last_probe = state.probes.get(server.server_id)
+    remote = server.transport is ServerTransport.STREAMABLE_HTTP
     return {
         "server_id": server.server_id,
         "disabled": server.disabled,
         "allow": list(server.allow) if server.allow is not None else None,
         "human_confirmation": server.human_confirmation,
         "lifecycle": server.lifecycle,
+        # P7-S8：传输方式、远程 server 的主机名（不含路径与查询串——可能带租户 id）、私网标记与授权状态。
+        # URL 本身、授权服务器地址、客户端 id、令牌都不返回；面板也改不了它们。
+        "transport": server.transport.value,
+        "url_host": _url_host(server) if remote else None,
+        "allow_private_network": server.allow_private_network if remote else None,
+        "auth_kind": "oauth" if server.oauth is not None else ("bearer" if server.bearer_credential else "none"),
+        "oauth": _oauth_view(server),
         # 只给文件名：完整路径与 args 里常有运维写进去的本机细节与令牌，面板也改不了它们
-        "command_name": PurePosixPath(server.command).name,
+        "command_name": PurePosixPath(server.command).name if server.command else "",
         "sources": field_sources(layers, document, server.server_id),
         "credentials": credentials,
         "web_override": override,

@@ -704,3 +704,81 @@ def test_admin_changes_are_audited_without_secrets(
     # 清除之后，凭据卷里也不留这个值
     slot_files = [path for path in (layers.tmp / "credentials").rglob("*") if path.is_file()]
     assert all(SLOT_SECRET not in path.read_text(encoding="utf-8") for path in slot_files), "清除后槽位文件已删"
+
+
+def test_http_server_view_hides_url_path_and_tokens(app: Any, database: Database, layers: SimpleNamespace) -> None:
+    """P7-S8-A11：HTTP server 卡片显示传输方式、**主机名**（不含路径与查询串——可能带租户 id）、私网标记与授权状态；
+    URL、授权服务器地址、client_id、令牌一概不返回；授权按钮的可用性取决于 WEB_PUBLIC_BASE_URL；
+    面板仍改不了 URL / oauth / transport；成员完全看不到。"""
+
+    from water_agent.mcp.oauth_store import OAuthStore, StoredToken
+
+    secret_path = "tenants/acme-corp-7731/private"
+    http_server = {
+        "server_id": "adm_remote",
+        "transport": "streamable_http",
+        "url": f"https://mcp.example.invalid:8443/{secret_path}/mcp?tenant=acme-corp-7731",
+        "allow": ["search"],
+        "oauth": {"client_id": "client-id-should-not-leak", "allowed_issuers": ["https://auth.example.invalid"]},
+    }
+    bearer_server = {
+        "server_id": "adm_bearer",
+        "transport": "streamable_http",
+        "url": "http://192.168.7.9/mcp",
+        "allow_private_network": True,
+        "bearer_credential": "REMOTE_KEY",
+        "credential_env": ["REMOTE_KEY"],
+        "lifecycle": "shared",
+    }
+    overlay = json.loads(layers.overlay.read_text(encoding="utf-8"))
+    overlay["servers"] += [http_server, bearer_server]
+    layers.overlay.write_text(json.dumps(overlay), encoding="utf-8")
+
+    admin = _login(app, database, UserRole.ADMIN)
+    servers = {item["server_id"]: item for item in _servers(admin)["servers"]}
+    remote = servers["adm_remote"]
+    assert remote["transport"] == "streamable_http" and remote["url_host"] == "mcp.example.invalid"
+    assert remote["auth_kind"] == "oauth" and remote["command_name"] == ""
+    assert remote["oauth"]["state"] == "none" and remote["oauth"]["authorized"] is False
+    assert remote["oauth"]["can_authorize"] is False and "WEB_PUBLIC_BASE_URL" in remote["oauth"]["unavailable_reason"]
+    assert "所有用户都会以该授权身份" in remote["oauth"]["notice"]
+    bearer = servers["adm_bearer"]
+    assert bearer["auth_kind"] == "bearer" and bearer["allow_private_network"] is True and bearer["oauth"] is None
+    assert bearer["url_host"] == "192.168.7.9" and bearer["credentials"][0]["name"] == "REMOTE_KEY"
+    assert servers["adm_cad"]["transport"] == "stdio" and servers["adm_cad"]["url_host"] is None
+
+    # 已授权之后：状态与 issuer 主机名，仍不见令牌 / client_id / 路径 / 查询串
+    import os
+    import time
+
+    os.environ["WEB_PUBLIC_BASE_URL"] = "https://agent.example.invalid"
+    try:
+        OAuthStore("adm_remote").save(StoredToken(
+            authorization_id="auth-view", issuer="https://auth.example.invalid",
+            resource=f"https://mcp.example.invalid:8443/{secret_path}/mcp?tenant=acme-corp-7731",
+            client_id="client-id-should-not-leak", client_auth="none",
+            token_endpoint="https://auth.example.invalid/token", revocation_endpoint=None,
+            access_token="view-access-token-secret", refresh_token="view-refresh-token-secret",
+            issued_at=time.time(), expires_at=time.time() + 600, scope="read",
+        ))
+        text = admin.get("/api/admin/mcp/servers").text
+    finally:
+        del os.environ["WEB_PUBLIC_BASE_URL"]
+    listed = {item["server_id"]: item for item in json.loads(text)["data"]["servers"]}
+    # 令牌的 resource 与当前配置的规范 URI 不同（存的是带查询串的原文）→ 面板如实显示为失效，而不是已授权
+    assert listed["adm_remote"]["oauth"]["state"] in ("resource_changed", "authorized")
+    assert listed["adm_remote"]["oauth"]["issuer_host"] == "auth.example.invalid"
+    assert listed["adm_remote"]["oauth"]["can_authorize"] is True
+    for forbidden in (secret_path, "acme-corp-7731", "client-id-should-not-leak", "view-access-token-secret",
+                      "view-refresh-token-secret", "/token", "8443", "tenant="):
+        assert forbidden not in text, forbidden
+
+    # 面板改不了 URL / oauth / transport / bearer_credential
+    revision = _servers(admin)["web_layer"]["revision"]
+    for key in ("url", "oauth", "transport", "bearer_credential", "allow_private_network"):
+        response = _patch(admin, "adm_remote", {key: "x", "expected_revision": revision})
+        assert response.status_code == 422, (key, response.text)
+        assert response.json()["error"]["code"] == "WEB_MCP_CONFIG_REJECTED"
+
+    member = _login(app, database, UserRole.MEMBER)
+    assert member.get("/api/admin/mcp/servers").status_code == 403
