@@ -1,0 +1,97 @@
+import { csrfToken, WorkspaceApiError, type ApiEnvelope } from "./workspaceApi.ts";
+
+/** skill 来自哪一级（P7-S9）：随包内置（仓库评审）或运维只读目录。 */
+export type SkillSource = "builtin" | "operator";
+
+/** 列表里的一条：没有正文、没有运维目录路径。status 是 "enabled" 或错误码（如 SKILL_DISABLED）。 */
+export type SkillView = {
+  name: string;
+  source: SkillSource;
+  version: string;
+  description: string;
+  triggers: string[];
+  requires_tools: string[];
+  status: string;
+};
+
+/** 未加载的 skill 只有名字与错误码：它们的 frontmatter 可能本身就是坏的，不能当可信文本展示。 */
+export type SkillUnavailable = { name: string; status: string };
+
+export type SkillListing = {
+  /** 开关 WATER_AGENT_SKILLS 是否打开（关闭时 run 里没有 load_skill）。 */
+  active: boolean;
+  /** 只决定显示不显示启停与正文入口；真正的判定在管理接口上。 */
+  can_manage: boolean;
+  notice: string;
+  /** Web 管理层的 revision；没配 WATER_AGENT_MCP_WEB_LAYER 时为 null（只能看不能改）。 */
+  revision: number | null;
+  web_layer_error: string | null;
+  skills: SkillView[];
+  unavailable: SkillUnavailable[];
+};
+
+export type SkillDetail = SkillView & { body: string; digest: string };
+
+/** 启停请求体：面板只能改 disabled。 */
+export type SkillPatch = { disabled: boolean; expected_revision: number };
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Skill 库的接口。列表给所有已改密的登录用户；正文与启停只给管理员（写接口带 CSRF）。
+ *
+ * 错误统一抛 WorkspaceApiError（带服务端错误码与 HTTP 状态）。
+ */
+export class SkillsApi {
+  private readonly fetchImpl: FetchLike;
+
+  constructor(fetchImpl?: FetchLike) {
+    this.fetchImpl = fetchImpl ?? ((input, init) => fetch(input, init));
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers = new Headers(init.headers);
+    if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (init.method && init.method !== "GET" && init.method !== "HEAD") {
+      const token = csrfToken();
+      if (token) headers.set("X-CSRF-Token", token);
+    }
+    let response: Response;
+    try {
+      response = await this.fetchImpl(path, { ...init, headers, credentials: "same-origin" });
+    } catch {
+      throw new WorkspaceApiError("WEB_REQUEST_FAILED", "请求没有发出去，请检查网络后重试", 0);
+    }
+    let envelope: ApiEnvelope<T> | null = null;
+    try {
+      envelope = (await response.json()) as ApiEnvelope<T>;
+    } catch {
+      envelope = null;
+    }
+    if (!response.ok || !envelope?.ok || envelope.data === undefined) {
+      throw new WorkspaceApiError(
+        envelope?.error?.code ?? "WEB_REQUEST_FAILED",
+        envelope?.error?.message ?? "请求未完成",
+        response.status,
+      );
+    }
+    return envelope.data;
+  }
+
+  listSkills(): Promise<SkillListing> {
+    return this.request("/api/skills");
+  }
+
+  getSkill(name: string): Promise<{ skill: SkillDetail }> {
+    return this.request(`/api/admin/skills/${encodeURIComponent(name)}`);
+  }
+
+  setDisabled(name: string, patch: SkillPatch): Promise<{ name: string; disabled: boolean; revision: number }> {
+    // 只发这两个键：面板改不了正文、来源或别的任何东西。
+    const body: SkillPatch = { disabled: patch.disabled, expected_revision: patch.expected_revision };
+    return this.request(`/api/admin/skills/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
+}

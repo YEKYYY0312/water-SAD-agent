@@ -86,6 +86,12 @@ from water_agent.runtime.governance.pipeline import (
     GuardrailPipeline,
     default_guardrail_pipeline,
 )
+from water_agent.skills.context import (
+    WARNING_SKILL_UNAVAILABLE,
+    loaded_skill_refs,
+    resolve_loaded,
+)
+from water_agent.skills.library import SkillLibrary
 
 if TYPE_CHECKING:
     from water_agent.graphs.confirmation import ConfirmationRuntime
@@ -227,6 +233,10 @@ class AgenticRAGState(TypedDict):
     confirmation_log: NotRequired[list[dict[str, Any]]]
     #: P7-S7 本轮已决定的确认次数（每轮上限见 ``MAX_CONFIRMATIONS_PER_TURN``），逐轮重置。
     confirmations_this_turn: NotRequired[int]
+    #: P7-S9 本 thread 加载过的规程（名字 / 来源 / 版本 / 摘要，**不含正文**），跨轮累积、不在
+    #: ``PER_TURN_RESET`` 里。它是 thread 消息里 ``load_skill`` 回执的投影（``skills.context``），供 Web 与
+    #: 评测观察；提示装配直接读回执、按当前 skill 库取正文。
+    loaded_skills: NotRequired[list[dict[str, str]]]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -573,6 +583,7 @@ def make_agent_loop(
     recursion_limit: int | None = None,
     exposure: ToolExposurePolicy | None = None,
     turn_contexts: Callable[[], dict[str, Any]] | None = None,
+    skill_library: SkillLibrary | None = None,
 ):
     """agent_loop 节点：重置预算计数后运行 react agent 子图；超预算转结构化错误。
 
@@ -686,6 +697,21 @@ def make_agent_loop(
         restored = {key: supplied.get(key) for key in stale}
         return restored, [key for key in stale if restored[key] is None]
 
+    def _project_loaded_skills(state: AgenticRAGState, result: dict[str, Any]) -> None:
+        """``loaded_skills`` = thread 消息里 ``load_skill`` 回执的投影（P7-S9）。加载过、但当前库里取不到或
+        正文已变的规程本轮不注入：记 ``skill_unavailable`` warning 与一条 trace（只有名字）。"""
+        assert skill_library is not None
+        messages = list(result.get("messages") or state.get("messages", []) or [])
+        refs = loaded_skill_refs(messages)
+        result["loaded_skills"] = [ref.to_state() for ref in refs]
+        _available, unavailable = resolve_loaded(skill_library, refs)
+        if unavailable:
+            warnings = list(result.get("warnings") or state.get("warnings", []) or [])
+            if WARNING_SKILL_UNAVAILABLE not in warnings:
+                warnings.append(WARNING_SKILL_UNAVAILABLE)
+                _record("skill_unavailable", {"skills": unavailable})
+            result["warnings"] = warnings
+
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
         query = state.get("query", "") or _first_human_text(state)
@@ -742,6 +768,8 @@ def make_agent_loop(
                     warnings.append(WARNING_TURN_CONTEXT_UNAVAILABLE)
                     _record("turn_context_unavailable", {"keys": lost})
                 result["warnings"] = warnings
+            if skill_library is not None:
+                _project_loaded_skills(state, result)
             return result
         except ToolBudgetExceeded as exc:
             return {
@@ -1307,6 +1335,7 @@ def build_agentic_app(
     cache_service: AnswerCacheService | None = None,
     exposure: ToolExposurePolicy | None = None,
     confirmation: ConfirmationRuntime | None = None,
+    skill_library: SkillLibrary | None = None,
 ):
     """构建 agentic RAG 外层图。
 
@@ -1374,6 +1403,7 @@ def build_agentic_app(
             recursion_limit=inner_recursion_limit(max_tool_turns),
             exposure=exposure,
             turn_contexts=confirmation.turn_contexts if confirmation is not None else None,
+            skill_library=skill_library,
         ),
     )
     graph.add_node("citation_validator", make_citation_validator(version_registry))

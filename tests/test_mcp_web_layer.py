@@ -368,3 +368,81 @@ def test_default_skeleton_and_model_layer_are_unchanged_by_the_third_layer() -> 
 
     with pytest.raises(ValueError):
         MCPGatewayConfig.model_validate({"revision": 1, "servers": []})
+
+
+def test_skill_toggles_share_the_layer_without_touching_servers(layers) -> None:
+    """P7-S9-A08 层文件的 ``skills`` 键只能写 name / disabled（+ 元数据），名字须 kebab-case、不得重复；
+    启用即删掉这条、没有停用记录时不写 ``skills`` 键；skill 启停不改变 MCP 合并结果，server 编辑与
+    整层恢复对 skills 的语义与 servers 相同（编辑保留、恢复清空）。"""
+
+    from water_agent.mcp.web_layer import disabled_skill_names, with_skill_toggle
+
+    _base, _overlay, web = layers
+    for bad in (
+        {"skills": {"calc-book-workflow": True}},
+        {"skills": ["calc-book-workflow"]},
+        {"skills": [{"name": "calc-book-workflow", "disabled": True, "body": "改写正文"}]},
+        {"skills": [{"name": "calc-book-workflow", "source": "operator"}]},
+        {"skills": [{"name": "Calc_Book", "disabled": True}]},
+        {"skills": [{"name": "calc-book-workflow", "disabled": "yes"}]},
+        {"skills": [{"name": "a-b", "disabled": True}, {"name": "a-b", "disabled": False}]},
+    ):
+        _write(web, {"revision": 1, **bad})
+        with pytest.raises(MCPError) as exc:
+            load_web_layer(web)
+        assert exc.value.code == "MCP_CONFIG_INVALID", bad
+        with pytest.raises(MCPError):
+            disabled_skill_names()
+    web.unlink()
+    assert disabled_skill_names() == ()
+
+    store = WebLayerStore(web)
+    operator = read_operator_layers()
+
+    def validate(candidate: WebLayerDocument) -> object:
+        return check_candidate(operator, candidate, web_path=web)
+
+    before = load_layered_gateway_config()
+    document = store.update(
+        lambda current: with_skill_toggle(current, "spec-conflict-handling", user_id="u1", disabled=True),
+        expected_revision=0,
+        validate=validate,
+    )
+    document = store.update(
+        lambda current: with_skill_toggle(current, "calc-book-workflow", user_id="u1", disabled=True),
+        expected_revision=1,
+        validate=validate,
+    )
+    assert document.disabled_skills() == ("calc-book-workflow", "spec-conflict-handling"), "按名字排序"
+    assert disabled_skill_names() == ("calc-book-workflow", "spec-conflict-handling")
+    assert load_layered_gateway_config() == before, "skill 启停不改变 MCP 有效配置"
+    on_disk = json.loads(web.read_text(encoding="utf-8"))
+    assert on_disk["skills"][0]["updated_by"] == "u1" and on_disk["servers"] == []
+
+    document = store.update(
+        lambda current: with_override(current, "beta", user_id="u2", disabled=True),
+        expected_revision=2,
+        validate=validate,
+    )
+    assert document.disabled_skills() == ("calc-book-workflow", "spec-conflict-handling")
+    document = store.update(
+        lambda current: without_override(current, "beta"), expected_revision=3, validate=validate
+    )
+    assert document.disabled_skills() == ("calc-book-workflow", "spec-conflict-handling")
+
+    for name in ("calc-book-workflow", "spec-conflict-handling"):
+        document = store.update(
+            lambda current, name=name: with_skill_toggle(current, name, user_id="u1", disabled=False),
+            expected_revision=document.revision,
+            validate=validate,
+        )
+    assert document.skills == ()
+    assert "skills" not in json.loads(web.read_text(encoding="utf-8"))
+
+    store.update(
+        lambda current: with_skill_toggle(current, "calc-book-workflow", user_id="u1", disabled=True),
+        expected_revision=document.revision,
+        validate=validate,
+    )
+    assert store.reset() is True
+    assert disabled_skill_names() == ()

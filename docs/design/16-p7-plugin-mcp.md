@@ -55,7 +55,7 @@
 | F1 | 生产面向模型的装配只有 `AgenticSession.__init__`（`runtime/agentic.py`）；调用方：CLI 单次、CLI 交互、Web `build_agentic_session`、harness mock-agentic | 快照 `session_*` profile | S2 收编 |
 | F2 | ~~`HarnessRunner._run_real_agentic_case` 手工重建注册表，与会话路径有 8 处差异~~ **S2 已统一**：两条路径都经 `assemble_tools`，§3.5 第 1–7 条按会话语义执行，第 8 条刻意保留 | `tests/test_p7_known_figures.py::test_runner_path_matches_session_semantics` | S2 已交付 |
 | F3 | 注册顺序决定提示词工具指引的顺序与截断；发给模型的工具按 `list_all_names()` 字母序 | 快照 `surface.registration_order` / `model_tool_order` | 不变量 |
-| F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期。**S4 之后**：注册集的数字不变（S4 不增减工具），但每轮实际发出的 schema 由暴露策略约束在 4500 以内（core 2125；最紧的"读图 + 材料"组合正好 4497，MCP 整组让位） | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters`<br>`tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | S4 已约束发送面 |
+| F4 | 5 个本地工具 schema 共 **4497** 字符，离 4500 上限只剩 **3**（`read_drawing` 单独 956）；此前文档里的 4370/130 已过期。**S4 之后**：注册集的数字不变（S4 不增减工具），但每轮实际发出的 schema 由暴露策略约束在 4500 以内（core 2125；最紧的"读图 + 材料"组合正好 4497，MCP 整组让位）。**S9 之后**：4497 只数这 5 个本地工具；`load_skill` 只在开关 on 且有已启用 skill 时注册（内置 4 份目录 717 字符），与 MCP 同按 intent 暴露，最紧组合下整组让位 | `tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters`<br>`tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | S4 已约束发送面 |
 | F5 | ~~工具指引 800 字预算已截掉 `read_drawing`（"省略 1 行"）；两个 MCP 工具时截掉 2 行、schema 4724 字符~~ **S4 已修（intent 策略）**：指引只列本轮开放的工具（工具名 + 描述首句）并附"本轮未开放"行，两项预算整组裁决，`tool_exposure_p0` 36/36 无截断。`full` 回滚开关下仍是原样截断 | `tests/test_p7_known_figures.py::test_exposed_tools_always_fit_the_tool_guide` | S4 已交付 |
 | F6 | ~~MCP 工具已暴露，缓存服务的 `mcp_server_manifest` 仍恒为 `""`~~ **S3 已修**：`AgenticSession` 构造缓存服务时传入 `mcp_assembly.manifest_hash` | `tests/test_p7_known_figures.py::test_mcp_manifest_reaches_the_cache_service` | S3 已交付 |
 | F7 | ~~`requires_human_confirmation` 只在装配期检查，执行期不查；`confirmation_handler_ready=true` 时这类工具直接暴露并可调用~~ **S1 已修**：`confirmation_handler_ready=true` 在加载期即 `MCP_CONFIG_INVALID`；运行时绑定要求确认的工具没有凭证一律 `tool.confirmation_required` 拒绝。**S7 接通**（§3.7）：确认门是否可用由入口决定，只有 Web 会话工厂接线——这类工具在 Web 下暴露为 `return_direct` 延迟工具，执行须经外层 `confirmation_gate` 在人工批准后签发的一次性凭证；CLI / runner 仍整台 `MCP_CONFIRMATION_UNAVAILABLE` | `tests/test_p7_known_figures.py::test_confirmation_gate_is_enforced` | S1 + S7 已交付 |
@@ -63,7 +63,7 @@
 | F9 | ~~`env_file` 相对路径按 cwd 解析；缺失时被 `open_bridge` 吞成跳过~~ **S3 已修**：相对路径按定义它的那一层配置文件所在目录解析，`env_file` / `cwd` 缺失在加载期即 `MCP_CONFIG_INVALID` | `tests/test_mcp_layered_config.py::test_env_file_and_cwd_resolved_and_checked_at_load` | S3 已交付 |
 | F10 | ~~入仓 `data/mcp_servers.json` 写死个人机器路径、`allow` 与上游不符~~ **S3 已修**：入仓默认层改为空骨架，autocad 配置挪到 `data/mcp_servers.example.json`（占位路径、不进镜像） | `tests/test_mcp_wiring.py::TestConfigWiring::test_default_config_is_empty_skeleton` | S3 已交付 |
 | F11 | 两条测试按源码文本断言装配位置：`tests/test_read_drawing_tool.py`（**S2 已改为 AST 判定真实调用**）、`tests/test_web_runs.py`（`build_agentic_session` 字面量，Web 不在 P7 范围内，保留） | `tests/test_read_drawing_tool.py::TestWiring::test_cli_registers_tool_only_when_root_available` | S2 前者已交付 |
-| F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}` | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
+| F12 | inventory 静态扫描只认 `tools/` 下 `ToolSpec(\n name="…"` 的写法；覆盖率锁死 `{7, 7, 5, 5}`（**S9 后** `{7, 7, 6, 6}`：新增只读的 `load_skill`，远程出口仍是 7） | `tests/test_governance_contracts.py` | 不变量 P7-I05 |
 | F13 | ~~runner 的 `mcp_assembly` / `mcp_assembly_error` trace 事件尝试写入但从未落盘~~ S2 删除这两次调用；**S3 改为先开 trace 再写装配摘要**（会话与 runner 都是），事件确实落盘 | `tests/test_p7_known_figures.py::test_no_assembly_trace_calls_that_never_land` | S3 已交付 |
 | F14 | worktree 里不设 `PYTHONPATH=src` 时，pytest 与 harness 导入的是**主检出**的代码（editable install）；`ci_gate.sh` 此前不设 PYTHONPATH | `tests/test_import_guard.py::test_conftest_rejects_a_foreign_water_agent` | S0 H0 已修 |
 | F15 | ~~MCP 子进程继承 agent 的工作目录，模型能借相对路径参数读 agent 自己的文件~~ **S3 已修**：未配 `cwd` 时每次连接新建空临时目录作为子进程工作目录，连接关闭（含启动失败）即删除。不是沙箱：server 进程照样能读进程用户能读的一切 | `tests/test_mcp_layered_config.py::test_child_runs_in_isolated_or_configured_cwd` | S3 已交付 |
@@ -259,6 +259,47 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 - **生效时机**：下一个 run——Web 每个 run 都重新 `load_mcp_gateway()`，连接池按单台 server 指纹换新进程；正在跑的
   run 不受影响。
 
+### 3.9 Skill 库（S9）
+
+实现：`src/water_agent/skills/`、`src/water_agent/tools/load_skill.py`、`src/water_agent/plugins/builtin.py::SkillsPlugin`、
+`src/water_agent/webapp/skill_routes.py`、`web/app/src/SkillLibraryPanel.tsx`；评测 `src/water_agent/harness/skill_eval.py` +
+`data/eval/skill_p0.jsonl`；决策记录 `docs/design/p7-step-9-decision.md`；威胁模型 T12。
+
+- **格式**：`<root>/<name>/SKILL.md`，YAML frontmatter（白名单 `name` / `description` / `version` / `triggers` /
+  `requires_tools`，`extra="forbid"`）+ Markdown 正文；`name` 是 kebab-case 且与目录名一致；描述 ≤ 300、正文 ≤ 6000 字符、
+  文件 ≤ 64 KiB、triggers ≤ 12 个 × 24 字、requires_tools ≤ 8 个；只扫根目录的直接子目录，指向根目录之外的符号链接不加载。
+- **两级来源**：随包内置（`skills/builtin/`，仓库评审，package-data 分发）+ 运维只读目录（`WATER_AGENT_SKILLS_DIR`）。
+  同名时内置优先，运维那份记 `SKILL_SHADOWED`；目录设了却不存在 / 不是目录 → `SKILL_LIBRARY_INVALID` 装配期失败；
+  单个坏 skill 只记错误码（`SKILL_INVALID` / `SKILL_UNSAFE` / `SKILL_CONFLICTS_IRON_RULE` / `SKILL_TOOL_UNAVAILABLE`），其余照常。
+  不扫描项目 / 用户目录、上传文件或 MCP 资源。
+- **装配期安检**（`skills/safety.py::check_skill`，顺序固定）：描述与正文过 `detect_injection`（命中即 `SKILL_UNSAFE`，
+  不脱敏放行）→ 五条铁律否定式改写规则（不调计算工具、自行估算数值、不声明引用、不检索、编造规范号；
+  `SKILL_CONFLICTS_IRON_RULE`）→ `requires_tools` 按**本次装配里先于 skills 的插件实际贡献的工具**核对。
+  规则是确定性正则，与 P2.5 护栏同一局限：必然存在未覆盖的改写变体。
+- **开关**：`WATER_AGENT_SKILLS=off|on`（代码缺省 off，取值非法装配期失败；Web compose 设 on）；off 或没有已启用 skill 时
+  插件 `skipped`、不注册 `load_skill`，系统提示与工具逐字同 S7。
+- **`load_skill`**：`ToolSpec` 在 `tools/`，能力 `LOAD_SKILL`（只读，进默认能力集与 Web 成员能力集）；参数 `skill` 是目录名
+  `enum`（不是 `name`——与 `ToolRegistry.invoke(name, **args)` 的位置参数冲突）；目录写在工具描述里（≤ 900 字符，超出按字母序
+  从末尾截掉并记 `SKILL_CATALOG_FULL`）；只回回执（名字 / 来源 / 版本 / 摘要），不回正文。skills 组排在 `mcp_gateway` 之后，
+  intent 暴露（各 skill 的 triggers ∪ `SKILL_FIXED_KEYWORDS`），sticky；最紧组合下整组让位并记 dropped。
+- **正文注入**：动态段 `skill_context`（工具指引之后，6000 字预算，超出整份丢弃最早加载的并写明）只从本次装配的
+  `SkillLibrary` 取正文、以 `SYSTEM_POLICY` 信封包装；"加载过哪些"只认 thread 里 `load_skill` 的成功回执，state 键
+  `loaded_skills` 只存名字 / 来源 / 版本 / 摘要，正文从不进 checkpoint；skill 被删 / 改（摘要变化）/ 停用 / 未过安检后不再
+  注入并记 `skill_unavailable`；正文里形似 `<skill_content` 的文本改成全角尖括号。`INSTRUCTION_BEARING_SOURCES` 不变。
+- **缓存键**：新失效因子 `skill_library_digest`（全部已启用 skill 的 name + 来源 + 摘要；用全量库而非本轮加载集合）；
+  没有 skill 时为空串，键与加字段前逐字相同。
+- **面板与 API**：`GET /api/skills`（已改密用户：名称 / 来源 / 版本 / 描述 / triggers / requires_tools / 状态，外加
+  `can_manage`；未加载的只给名字与错误码；不含正文与运维目录路径）、`GET /api/admin/skills/{name}`（`require_admin`，正文与
+  摘要，只读）、`PATCH /api/admin/skills/{name}`（`require_admin` + CSRF，只认 `{"disabled": bool, "expected_revision": int}`）。
+  启停写进 S6 Web 管理层的新顶层键 `skills`（每条只有 `name` / `disabled` + 元数据，同一份文件、同一套 revision / 文件锁；
+  启用即删条目，没有停用记录时不写该键）；会话与 runner 装配时读停用列表（`disabled_skill_names()`），层文件坏即
+  `MCP_CONFIG_INVALID` 响亮失败。审计 `skill.updated` 只记名字与动作。面板不能新增、编辑或上传 skill。设置页 Skill 库区下方
+  复用能力端点的计数展示 MCP（不新增 MCP 列表接口）。
+- **部署**：compose 给 app 挂 `app_skills:/etc/water-agent/skills:ro`，在 `/var/lib/water-agent` 之外、不随备份流转；空卷照常启动。
+- **评测**：`skill_p0`（26 条：目录与暴露 9 / 注入与来源 7 / 停用 · 删除 · 遮蔽 5 / 铁律 5），十项硬指标，接进
+  `scripts/ci_gate.sh` 与入仓基线 `data/eval/skill_p0_main.json`（`scripts/compare_skill_p0.py`）。脚本模型，不证明真实模型
+  的加载与遵循（P7-S9-A13）。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -268,7 +309,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | P7-I01 | src 里构造面向模型的 `ToolRegistry(` 只在 `plugins/assembly.py`；内部注册表白名单写死并附理由（`mcp/memory_adapter.py`、`runtime/governance/scenarios.py`、`harness/memory_eval.py`、探针 `harness/local_model_compat.py`），白名单条目不再对应真实代码同样判失败；用 AST 判定 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I02 | `tool_spec_to_base_tool(` 只在 `plugins/assembly.py` 与上述探针里调用 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I03 | `runtime/agentic.py` 与 `harness/runner.py` 都调用 `assemble_tools` | `tests/test_plugin_invariants.py` | delivered |
-| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway")` | `tests/test_plugin_invariants.py` | delivered |
+| P7-I04 | 内置插件顺序 `BUILTIN_PLUGIN_ORDER == ("clauses", "hydraulics", "materials", "drawing", "mcp_gateway", "skills")`（P7-S9 末尾追加 `skills`：它按先于它的插件贡献的工具核对 `requires_tools`） | `tests/test_plugin_invariants.py` | delivered |
 | P7-I05 | `plugins/` 里不出现 `ToolSpec(` 调用；`ToolSpec` 定义留在 `tools/`（F12 的扫描前提） | `tests/test_plugin_invariants.py` | delivered |
 | P7-I06 | 插件能追加给主体的能力只限 `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | `plugins/assembly.py` + `tests/test_tool_plugins.py` | delivered |
 | P7-I07 | 只有 `runtime/agentic.py` 与 `harness/runner.py` 调用 `build_agentic_app`（装配快照捕获点的前提） | `tests/test_plugin_invariants.py` | delivered |
@@ -288,7 +329,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S6 | Step E1 | Web 扩展面板：第三层配置 Web 管理层（只改启停 / allow）、运维声明的凭据槽位（值只写不读）、导入 `mcpServers` 只生成禁用的待审提案、探测、审计 | `docs/execution-prompts/P7-S6-mcp-admin-panel.md` | delivered |
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
 | S8 | Step D（二） | Streamable HTTP 传输：`NETWORK_FETCH` 能力决策 + 出站清单 7 → 8（2026-10-06 从 S5 拆出） | 开工前另写 | planned |
-| S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | planned |
+| S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | delivered |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -588,17 +629,17 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 
 | ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S9-A01 | 格式与加载：`<root>/<name>/SKILL.md` 单层、frontmatter 白名单、名字与目录一致、长度上限、符号链接不逃逸；两级来源合并、同名内置优先（`SKILL_SHADOWED`）；单个坏 skill 只记错误码；`WATER_AGENT_SKILLS_DIR` 设了却不可读响亮失败 | `tests/test_skill_loader.py::test_skill_manifest_is_strict`<br>`tests/test_skill_loader.py::test_two_sources_builtin_wins`<br>`tests/test_skill_loader.py::test_bad_skill_is_skipped_not_fatal` | planned |
-| P7-S9-A02 | 安检：注入命中 `SKILL_UNSAFE`（不脱敏放行）、铁律否定式改写 `SKILL_CONFLICTS_IRON_RULE`、`requires_tools` 缺失 `SKILL_TOOL_UNAVAILABLE` | `tests/test_skill_safety.py::test_unsafe_skills_are_not_loaded`<br>`tests/test_skill_safety.py::test_iron_rule_conflicts_are_rejected` | planned |
-| P7-S9-A03 | `load_skill` 工具与能力：`ToolSpec` 在 `tools/`、`LOAD_SKILL` 进 `TOOL_CAPABILITIES`、默认能力集与 Web 成员能力集；开关 `WATER_AGENT_SKILLS` 缺省 off，off 或没有已启用 skill 时插件 skipped、不注册工具；开关取值非法装配期失败 | `tests/test_load_skill_tool.py::test_load_skill_is_governed_and_locally_granted`<br>`tests/test_load_skill_tool.py::test_switch_off_or_no_skills_means_no_tool` | planned |
-| P7-S9-A04 | 暴露：skills 组 intent（triggers ∪ 固定词表）、sticky；目录 schema ≤ 900（超出按字母序截断并记 `SKILL_CATALOG_FULL`）；最紧组合下整组让位并记 dropped | `tests/test_load_skill_tool.py::test_catalog_fits_and_skills_group_yields_under_budget` | planned |
-| P7-S9-A05 | 正文注入：`skill_context` 段只来自 `SkillLibrary`、以 `SYSTEM_POLICY` 信封包装；checkpoint 只存名字与摘要；skill 被删 / 停用 / 摘要变化后不再注入并记 `skill_unavailable`；段为空不渲染 | `tests/test_skill_prompting.py::test_loaded_skill_becomes_system_policy_segment`<br>`tests/test_skill_prompting.py::test_removed_or_changed_skill_is_not_injected` | planned |
-| P7-S9-A06 | 缓存键：`skill_library_digest` 变化 → miss；没有 skill 时与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss` | planned |
-| P7-S9-A07 | 首批内置 skill：4 份全部过安检、`requires_tools` 都在默认装配里、正文不含规范号与带单位数值 | `tests/test_builtin_skills.py::test_builtin_skills_pass_safety_and_carry_no_numbers` | planned |
-| P7-S9-A08 | 面板与 API：成员可读列表（不含正文与运维路径）、正文与启停只给管理员（启停写进 Web 管理层 `skills` 键，revision / 锁 / 整份校验同 S6）、写接口 CSRF、审计；停用后下一个 run 不在目录里；S6 的 `servers` 改动不受影响 | `tests/test_web_skills.py::test_skill_listing_is_read_only_for_members`<br>`tests/test_web_skills.py::test_admin_can_disable_a_skill_for_the_next_run` | planned |
-| P7-S9-A09 | 部署：`WATER_AGENT_SKILLS_DIR` 指向只读挂载的 `app_skills` 卷，不在备份范围；内置 skill 随包分发 | `tests/test_web_deployment.py::test_operator_skills_volume_is_read_only` | planned |
-| P7-S9-A10 | `skill_p0`：目录与暴露、正文注入与来源、停用 / 不安全 / 遮蔽 / 删除不注入、加载规程后数值仍只来自计算工具且引用仍过校验器；接进 `ci_gate.sh` 与入仓基线对比 | `gate:skill_p0`<br>`tests/test_skill_eval.py::test_skill_p0_hard_metrics` | planned |
-| P7-S9-A11 | 快照：现有 15 个 profile 除主体能力集多 `load_skill` 外逐字不变（范围块 `frozen_json` 冻结其余全部片段），新增 `session_skills_builtin`；`WATER_AGENT_SKILLS` / `WATER_AGENT_SKILLS_DIR` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S9-A01 | 格式与加载：`<root>/<name>/SKILL.md` 单层、frontmatter 白名单、名字与目录一致、长度上限、符号链接不逃逸；两级来源合并、同名内置优先（`SKILL_SHADOWED`）；单个坏 skill 只记错误码；`WATER_AGENT_SKILLS_DIR` 设了却不可读响亮失败 | `tests/test_skill_loader.py::test_skill_manifest_is_strict`<br>`tests/test_skill_loader.py::test_two_sources_builtin_wins`<br>`tests/test_skill_loader.py::test_bad_skill_is_skipped_not_fatal` | delivered |
+| P7-S9-A02 | 安检：注入命中 `SKILL_UNSAFE`（不脱敏放行）、铁律否定式改写 `SKILL_CONFLICTS_IRON_RULE`、`requires_tools` 缺失 `SKILL_TOOL_UNAVAILABLE` | `tests/test_skill_safety.py::test_unsafe_skills_are_not_loaded`<br>`tests/test_skill_safety.py::test_iron_rule_conflicts_are_rejected` | delivered |
+| P7-S9-A03 | `load_skill` 工具与能力：`ToolSpec` 在 `tools/`、`LOAD_SKILL` 进 `TOOL_CAPABILITIES`、默认能力集与 Web 成员能力集；开关 `WATER_AGENT_SKILLS` 缺省 off，off 或没有已启用 skill 时插件 skipped、不注册工具；开关取值非法装配期失败 | `tests/test_load_skill_tool.py::test_load_skill_is_governed_and_locally_granted`<br>`tests/test_load_skill_tool.py::test_switch_off_or_no_skills_means_no_tool` | delivered |
+| P7-S9-A04 | 暴露：skills 组 intent（triggers ∪ 固定词表）、sticky；目录 schema ≤ 900（超出按字母序截断并记 `SKILL_CATALOG_FULL`）；最紧组合下整组让位并记 dropped | `tests/test_load_skill_tool.py::test_catalog_fits_and_skills_group_yields_under_budget` | delivered |
+| P7-S9-A05 | 正文注入：`skill_context` 段只来自 `SkillLibrary`、以 `SYSTEM_POLICY` 信封包装；checkpoint 只存名字与摘要；skill 被删 / 停用 / 摘要变化后不再注入并记 `skill_unavailable`；段为空不渲染 | `tests/test_skill_prompting.py::test_loaded_skill_becomes_system_policy_segment`<br>`tests/test_skill_prompting.py::test_removed_or_changed_skill_is_not_injected` | delivered |
+| P7-S9-A06 | 缓存键：`skill_library_digest` 变化 → miss；没有 skill 时与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss` | delivered |
+| P7-S9-A07 | 首批内置 skill：4 份全部过安检、`requires_tools` 都在默认装配里、正文不含规范号与带单位数值 | `tests/test_builtin_skills.py::test_builtin_skills_pass_safety_and_carry_no_numbers` | delivered |
+| P7-S9-A08 | 面板与 API：成员可读列表（不含正文与运维路径）、正文与启停只给管理员（启停写进 Web 管理层 `skills` 键，revision / 锁 / 整份校验同 S6）、写接口 CSRF、审计；停用后下一个 run 不在目录里；S6 的 `servers` 改动不受影响 | `tests/test_web_skills.py::test_skill_listing_is_read_only_for_members`<br>`tests/test_web_skills.py::test_admin_can_disable_a_skill_for_the_next_run` | delivered |
+| P7-S9-A09 | 部署：`WATER_AGENT_SKILLS_DIR` 指向只读挂载的 `app_skills` 卷，不在备份范围；内置 skill 随包分发 | `tests/test_web_deployment.py::test_operator_skills_volume_is_read_only` | delivered |
+| P7-S9-A10 | `skill_p0`：目录与暴露、正文注入与来源、停用 / 不安全 / 遮蔽 / 删除不注入、加载规程后数值仍只来自计算工具且引用仍过校验器；接进 `ci_gate.sh` 与入仓基线对比 | `gate:skill_p0`<br>`tests/test_skill_eval.py::test_skill_p0_hard_metrics` | delivered |
+| P7-S9-A11 | 快照：现有 15 个 profile 除主体能力集多 `load_skill` 外逐字不变（范围块 `frozen_json` 冻结其余全部片段），新增 `session_skills_builtin`；`WATER_AGENT_SKILLS` / `WATER_AGENT_SKILLS_DIR` 被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | delivered |
 | P7-S9-A12 | 前端 Skill 库区：成员只读列表、管理员启停与查看正文、MCP 计数卡片（由 `web/app/tests/` 的 node 测试覆盖，见未覆盖项） | 无 | untested |
 | P7-S9-A13 | 真实模型加载并遵循规程（需 `DEEPSEEK_API_KEY`，见未覆盖项） | 无 | untested |
 
@@ -688,6 +729,9 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
 | `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |
 | `src/water_agent/webapp/mcp_admin_routes.py` + `web/app/src/McpAdminPanel.tsx` | S6 管理 API 与设置页 MCP 扩展区 |
+| `src/water_agent/skills/` + `src/water_agent/tools/load_skill.py` | S9 Skill 格式、加载、安检、两级来源、正文注入 |
+| `src/water_agent/webapp/skill_routes.py` + `web/app/src/SkillLibraryPanel.tsx` | S9 Skill 库 API 与设置页 Skill 库区 |
+| `src/water_agent/harness/skill_eval.py` + `data/eval/skill_p0.jsonl` | S9 评测集与 harness（入仓基线 `data/eval/skill_p0_main.json`） |
 | `src/water_agent/harness/tool_exposure_eval.py` + `data/eval/tool_exposure_p0.jsonl` | S4 评测集与 harness（入仓基线 `data/eval/tool_exposure_p0_main.json`） |
 | `src/water_agent/harness/tool_assembly_snapshot.py` | H1 装配快照 |
 | `data/eval/tool_assembly_main.json` | H1 基线 |

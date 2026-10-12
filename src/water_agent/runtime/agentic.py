@@ -38,6 +38,7 @@ from water_agent.graphs.confirmation import (
 )
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.mcp.pool import McpLease
+from water_agent.mcp.web_layer import disabled_skill_names
 from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -46,6 +47,7 @@ from water_agent.plugins import (
     DrawingContribution,
     McpContribution,
     McpGatewayPlugin,
+    SkillsContribution,
     assemble_tools,
     builtin_plugins,
 )
@@ -247,10 +249,11 @@ def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=N
 
 
 def _build_cache_service(
-    args: argparse.Namespace, *, mcp_server_manifest: str = ""
+    args: argparse.Namespace, *, mcp_server_manifest: str = "", skill_library_digest: str = ""
 ) -> AnswerCacheService:
     """``mcp_server_manifest`` 进缓存键（P7-S3，F6）：MCP server 清单 / 白名单 / 命令任一变化，
-    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。"""
+    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。
+    ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
     return AnswerCacheService(
         embedding_model="qwen3.7-text-embedding",
@@ -260,6 +263,7 @@ def _build_cache_service(
         reranker=reranker,
         version_registry=get_version_registry(),
         mcp_server_manifest=mcp_server_manifest,
+        skill_library_digest=skill_library_digest,
     )
 
 
@@ -522,13 +526,15 @@ class AgenticSession:
             ),
             base_principal=self.request_context.principal,
             trace=self.recorder,
-            plugins=builtin_plugins(mcp=mcp_plugin),
+            plugins=builtin_plugins(mcp=mcp_plugin, skills_disabled=disabled_skill_names()),
         )
         self.request_context = self.request_context.model_copy(
             update={"principal": assembly.principal}
         )
         self.mcp_assembly = assembly.contribution(McpContribution).assembly
         self.drawing_root_status = assembly.contribution(DrawingContribution).resolution
+        #: P7-S9：本次装配的 skill 库（开关 off 时为空库）。提示装配与外层图共用这一个实例。
+        self.skill_library = assembly.contribution(SkillsContribution).library
         self.mcp_tool_names = assembly.registered("mcp_gateway")
         registry = assembly.registry
         tools = assembly.tools
@@ -554,6 +560,10 @@ class AgenticSession:
             if confirmation
             else {}
         )
+        # P7-S9：只在库里有已启用的 skill 时才交给图（开关 off 时 build_agentic_app 的入参与此前逐字相同，
+        # 装配快照的 app_kwargs 被冻结）
+        if self.skill_library.enabled:
+            confirmation_kwargs["skill_library"] = self.skill_library
         self.projection = RuntimeContextProjection()
         self.config = {"configurable": {"thread_id": self.thread_id}}
         saver = checkpointer if checkpointer is not None else build_cli_checkpointer(args.session_dir, stack)
@@ -561,13 +571,17 @@ class AgenticSession:
             model=self.model,
             tools=tools,
             checkpointer=saver,
-            prompt=PromptAssembler(tool_registry=registry, exposure=assembly.exposure),
+            prompt=PromptAssembler(
+                tool_registry=registry, exposure=assembly.exposure, skill_library=self.skill_library
+            ),
             trace=self.recorder,
             request_context=self.request_context,
             exposure=assembly.exposure,
             cache_service=(
                 _build_cache_service(
-                    args, mcp_server_manifest=self.mcp_assembly.manifest_hash
+                    args,
+                    mcp_server_manifest=self.mcp_assembly.manifest_hash,
+                    skill_library_digest=self.skill_library.digest(),
                 )
                 if not args.mock_generator
                 else None
@@ -596,6 +610,11 @@ class AgenticSession:
         if self.mcp_assembly.has_activity:
             self.recorder.record(
                 node="mcp", event="mcp_assembly", data=self.mcp_assembly.trace_summary()
+            )
+        if self.skill_library.active:
+            # P7-S9：只有名字、来源与错误码（不含正文、不含运维目录路径）；开关 off 时不写
+            self.recorder.record(
+                node="skills", event="skill_library", query="", data=self.skill_library.trace_summary()
             )
 
     async def aask(

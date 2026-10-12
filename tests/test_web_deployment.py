@@ -167,3 +167,33 @@ def test_production_proxy_requires_a_domain_and_sets_http_boundaries() -> None:
     assert "max_size 16MB" in caddyfile
     assert "Content-Security-Policy" in caddyfile
     assert "Strict-Transport-Security" in caddyfile
+
+
+def test_operator_skills_volume_is_read_only() -> None:
+    """P7-S9-A09 运维 skill 目录是只读挂载的 ``app_skills`` 卷，不在备份范围（在 ``/var/lib/water-agent`` 之外）；
+    开关与目录变量都只设在 app 服务上；内置 skill 随包分发（package-data），镜像里不靠 ``data/``。"""
+
+    import tomllib
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert '      WATER_AGENT_SKILLS: "on"\n' in app_block
+    assert "      WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills\n" in app_block
+    assert "      - app_skills:/etc/water-agent/skills:ro\n" in app_block, "必须只读挂载"
+    assert "\n  app_skills:\n" in compose, "named volume 必须在顶层 volumes 注册"
+    # 只有 app 拿到：冒烟与一次性服务不开 skill
+    assert compose.count("WATER_AGENT_SKILLS:") == 1 and compose.count("app_skills:/") == 1
+
+    # 不在备份范围：备份打包的是 /var/lib/water-agent 整体
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认 skill 卷仍不在其中"
+    assert not "/etc/water-agent/skills".startswith("/var/lib/water-agent")
+
+    # 内置 skill 随包分发；.dockerignore 收 src/，镜像里有这几份文件
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+    assert package_data["water_agent.skills"] == ["builtin/*/SKILL.md"]
+    builtin = sorted((REPO_ROOT / "src" / "water_agent" / "skills" / "builtin").glob("*/SKILL.md"))
+    assert len(builtin) == 4
+    assert "!src/**" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
