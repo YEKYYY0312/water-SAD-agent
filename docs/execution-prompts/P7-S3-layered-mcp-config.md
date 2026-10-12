@@ -231,10 +231,6 @@
       "contains": "\"provider_call_sites\": 7"
     },
     {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"tools_guardrail_validated\": 5"
-    },
-    {
       "node": "tests/test_tool_policy.py::TestConfirmationGate::test_confirmation_required_tool_blocked_at_call_time",
       "contains": "assert blocked.decision.rule_id == \"tool.confirmation_required\""
     },

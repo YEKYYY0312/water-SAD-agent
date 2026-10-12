@@ -12,7 +12,7 @@
 
 ## 0. 相对规格的修订与本步决定（以本文为准）
 
-> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
+> **2026-10-09 修订（开工后读码发现，用户确认）**：① `tests/test_tool_policy.py::TestToolPolicy::test_every_inventoried_tool_capability_is_granted_locally` 要求每个登记工具的能力都在 `DEFAULT_LOCAL_CAPABILITIES` 里——原写法"`LOAD_SKILL` 由插件授予、不进默认集"与它冲突；用户决定 **`LOAD_SKILL` 进默认能力集与 Web 成员能力集**，代价是现有快照里每个 profile 的主体能力集多一项（**只有**主体能力变化，工具 / 指引 / 暴露 / 系统提示仍逐字不变），`GRANTABLE_CAPABILITIES` 与 P7-I06 不改；② 补上已确认的特性开关 `WATER_AGENT_SKILLS=off|on`（代码缺省 `off`，Web compose 设 `on`）；③ 范围块补 `tests/test_tool_policy.py` 等遗漏文件、冻结范围改为"除主体能力外全部冻结"；⑤ 冻结范围里的 `/profiles/*/…` 会把本步必须新增的 `session_skills_builtin` 也算成"被改动"，改为按名字模式只冻结现有 15 个 profile（`session_[!s]*` 与 `runner_*`；现有会话侧 profile 没有以 `session_s` 开头的）。④ `skills/loader.py` 直接 `import yaml`，PyYAML 此前只是 langchain-core 的传递依赖，须在 `pyproject.toml` 显式声明并同步 `uv.lock`（已在 allow）。下表与后文已按修订改写。
 
 S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不复用）。用户的两个决定：**skill 正文要能当指令用**、**来源分两级（仓库内置 + 运维目录）**；首批写 3–5 个领域 skill。下面是读码后定下的做法，规格在本 Prompt 的同一个 PR 里同步：
 
@@ -172,6 +172,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "tests/test_web_mcp_admin.py",
     "tests/test_tool_policy.py",
     "tests/test_upload_retrieval.py",
+    "tests/test_dxf_upload.py",
     "tests/test_p7_known_figures.py",
     "tests/test_tool_assembly_snapshot.py",
     "docs/design/p7-step-9-decision.md",
@@ -249,26 +250,46 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
       "path": "data/eval/tool_assembly_main.json",
       "pointers": [
         "/versions/MCP_CONFIG_VERSION",
-        "/profiles/*/description",
-        "/profiles/*/side",
-        "/profiles/*/surface/tools",
-        "/profiles/*/surface/registration_order",
-        "/profiles/*/surface/model_tool_order",
-        "/profiles/*/surface/schema_chars_total",
-        "/profiles/*/surface/tool_guide",
-        "/profiles/*/surface/system_prompt",
-        "/profiles/*/surface/exposure",
-        "/profiles/*/lifecycle/captures",
-        "/profiles/*/lifecycle/exception",
-        "/profiles/*/lifecycle/mcp",
-        "/profiles/*/lifecycle/mcp_clients_alive_after_scope",
-        "/profiles/*/lifecycle/stack",
-        "/profiles/*/lifecycle/trace_record_calls",
-        "/profiles/*/lifecycle/app/app_kwargs",
-        "/profiles/*/lifecycle/app/cache_service",
-        "/profiles/*/lifecycle/app/checkpointer",
-        "/profiles/*/lifecycle/app/max_tool_turns",
-        "/profiles/*/lifecycle/app/probes",
+        "/profiles/session_[!s]*/description",
+        "/profiles/runner_*/description",
+        "/profiles/session_[!s]*/side",
+        "/profiles/runner_*/side",
+        "/profiles/session_[!s]*/surface/tools",
+        "/profiles/runner_*/surface/tools",
+        "/profiles/session_[!s]*/surface/registration_order",
+        "/profiles/runner_*/surface/registration_order",
+        "/profiles/session_[!s]*/surface/model_tool_order",
+        "/profiles/runner_*/surface/model_tool_order",
+        "/profiles/session_[!s]*/surface/schema_chars_total",
+        "/profiles/runner_*/surface/schema_chars_total",
+        "/profiles/session_[!s]*/surface/tool_guide",
+        "/profiles/runner_*/surface/tool_guide",
+        "/profiles/session_[!s]*/surface/system_prompt",
+        "/profiles/runner_*/surface/system_prompt",
+        "/profiles/session_[!s]*/surface/exposure",
+        "/profiles/runner_*/surface/exposure",
+        "/profiles/session_[!s]*/lifecycle/captures",
+        "/profiles/runner_*/lifecycle/captures",
+        "/profiles/session_[!s]*/lifecycle/exception",
+        "/profiles/runner_*/lifecycle/exception",
+        "/profiles/session_[!s]*/lifecycle/mcp",
+        "/profiles/runner_*/lifecycle/mcp",
+        "/profiles/session_[!s]*/lifecycle/mcp_clients_alive_after_scope",
+        "/profiles/runner_*/lifecycle/mcp_clients_alive_after_scope",
+        "/profiles/session_[!s]*/lifecycle/stack",
+        "/profiles/runner_*/lifecycle/stack",
+        "/profiles/session_[!s]*/lifecycle/trace_record_calls",
+        "/profiles/runner_*/lifecycle/trace_record_calls",
+        "/profiles/session_[!s]*/lifecycle/app/app_kwargs",
+        "/profiles/runner_*/lifecycle/app/app_kwargs",
+        "/profiles/session_[!s]*/lifecycle/app/cache_service",
+        "/profiles/runner_*/lifecycle/app/cache_service",
+        "/profiles/session_[!s]*/lifecycle/app/checkpointer",
+        "/profiles/runner_*/lifecycle/app/checkpointer",
+        "/profiles/session_[!s]*/lifecycle/app/max_tool_turns",
+        "/profiles/runner_*/lifecycle/app/max_tool_turns",
+        "/profiles/session_[!s]*/lifecycle/app/probes",
+        "/profiles/runner_*/lifecycle/app/probes",
         "/profiles/runner_mcp_config_invalid/surface",
         "/profiles/runner_mcp_config_invalid/lifecycle/app",
         "/profiles/runner_mcp_register_fault/surface",
@@ -279,7 +300,8 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
         "/profiles/session_mcp_ready_flag/lifecycle/app",
         "/profiles/session_mcp_register_fault/surface",
         "/profiles/session_mcp_register_fault/lifecycle/app",
-        "/profiles/*/lifecycle/app/tools_bound_to_prompt_registry"
+        "/profiles/session_[!s]*/lifecycle/app/tools_bound_to_prompt_registry",
+        "/profiles/runner_*/lifecycle/app/tools_bound_to_prompt_registry"
       ]
     }
   ]
@@ -292,7 +314,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 - 信任：`INSTRUCTION_BEARING_SOURCES == {SYSTEM_POLICY}`。
 - 出站清单 `provider_call_sites: 7`（skill 不新增远程调用）。
 - S1 / S3：确认门无凭证拒绝；覆盖层不能写 `confirmation_handler_ready` 或未知键（S9 不给覆盖层加任何键）。
-- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`（规格 §4 同步写明原因）；`tests/test_upload_retrieval.py::test_prompt_template_version_was_bumped_for_the_new_segment` 的版本字面量随 `PROMPT_TEMPLATE_VERSION` 递进。`GRANTABLE_CAPABILITIES` / P7-I06 **不改**。
+- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`（规格 §4 同步写明原因）；`tests/test_upload_retrieval.py::test_prompt_template_version_was_bumped_for_the_new_segment` 的版本字面量随 `PROMPT_TEMPLATE_VERSION` 递进。`tests/test_dxf_upload.py::test_tool_schema_budget_and_governance_counts_are_untouched`（P5-S50「不给模型开放新工具」）锁的是同一组覆盖率数字，`"tools"` / `"tools_guardrail_validated"` 同样 5 → 6，`provider_call_sites` 不变。`GRANTABLE_CAPABILITIES` / P7-I06 **不改**。
 
 ## 7. 停止条件
 
