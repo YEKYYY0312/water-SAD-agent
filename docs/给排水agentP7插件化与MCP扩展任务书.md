@@ -152,6 +152,7 @@ F1–F14 的事实表在 `docs/design/16-p7-plugin-mcp.md` §2，每条数字都
 | S7 | Step E2 | HITL 确认门（外层图 interrupt、waiting 态、批准 / 拒绝 API、审计、前端卡片）。执行 Prompt：`docs/execution-prompts/P7-S7-hitl-confirmation.md` | 内层 react agent 无 checkpointer，确认门必须在外层图；一次性执行凭证；只有 Web 入口接线 |
 | S8 | Step D（二） | Streamable HTTP 传输 + OAuth 2.1 服务级授权 + 静态 Bearer 槽位（2026-10-06 从 S5 拆出）。执行 Prompt：`docs/execution-prompts/P7-S8-streamable-http.md` | 出口由运维写死的 URL 决定、`NETWORK_FETCH` 不放宽（远程工具仍持 `MCP_INVOKE`）；连接期 SSRF 校验 + 钉死 IP + 不跟随重定向；出站清单 7→8 并经 `ProviderGateway`、工具调用零重试；协议以 2025-11-25 为主、2026-07-28 只识别；令牌只写不读；`mcp_http_p0` 先冻结 |
 | S9 | Step F | Skill 库：仓库内置 + 运维只读目录两级 `SKILL.md`，`load_skill` 按需加载、正文以 `SYSTEM_POLICY` 分片进动态段，设置页只读 Skill 库（管理员可启停）（2026-10-09 新增）。执行 Prompt：`docs/execution-prompts/P7-S9-skill-library.md` | 不新增 `SourceTag`、不改 `INSTRUCTION_BEARING_SOURCES`；信任扩张登记威胁模型 T12；预算不上调；`skill_p0` 先冻结 |
+| S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式（2026-10-12 新增）。执行 Prompt：`docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | 端点解析单一来源、端点改了不回落旧 Key；非缺省对话端点兼容性硬门槛（缺省免检）；不新增 `ProviderKind` / 出站模块；embedding 与索引不匹配不得静默向量检索；关键词模式必须可见；先建口语化检索评测集；现有 16 个快照 profile 逐字不变 |
 
 ---
 
