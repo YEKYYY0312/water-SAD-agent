@@ -519,6 +519,8 @@ class ProviderKind(str, Enum):
     BAILIAN_RERANK = "bailian_rerank"
     #: P5-S52：CAD 导出 PDF 的视觉审阅（百炼 Qwen-VL，OpenAI 兼容端点）。
     BAILIAN_VISION = "bailian_vision"
+    #: P7-S8：远程 MCP server（Streamable HTTP）与其 OAuth 授权服务器。出口只由运维配置的 URL 决定。
+    MCP_REMOTE = "mcp_remote"
 
 
 class CallCategory(str, Enum):
@@ -532,6 +534,8 @@ class CallCategory(str, Enum):
     EMBEDDING_INGEST = "embedding_ingest"
     RERANK = "rerank"
     VISION_REVIEW = "vision_review"
+    #: P7-S8：对远程 MCP server 的一次 HTTP 交换（initialize / tools/list / tools/call / 授权端点……）。
+    MCP_TOOL_CALL = "mcp_tool_call"
 
 
 class ProviderCall(BaseModel):

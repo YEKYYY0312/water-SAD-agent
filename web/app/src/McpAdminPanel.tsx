@@ -5,6 +5,7 @@ import {
   type McpCredentialSlot,
   type McpImportPreview,
   type McpListing,
+  type McpOAuthView,
   type McpOrphan,
   type McpProbe,
   type McpServerView,
@@ -12,17 +13,24 @@ import {
 import {
   MCP_ADMIN_NOTICE,
   PROPOSAL_FILENAME,
+  authStatusLabel,
+  authorizeButtonLabel,
+  authorizeConfirmText,
   codeLabel,
   layerLabel,
   mcpAdminErrorMessage,
+  oauthOutcomeMessage,
+  parseOAuthOutcome,
   probeSummary,
   sameAllow,
   serverStatusMessage,
   serverTags,
   serverTone,
   sourceSummary,
+  stripOAuthOutcome,
   toggleAllowItem,
   toolChoices,
+  transportLabel,
   validateImportText,
   validateToolName,
 } from "./mcpAdminState";
@@ -131,6 +139,71 @@ function SlotForm({
   );
 }
 
+/**
+ * 远程 server 的服务级授权（P7-S8）。授权属于这台 server 的**部署**，所有用户的 run 共用——点「授权」前必须让
+ * 管理员确认这一点。令牌只在服务端，这里只有状态；面板改不了 URL 与 oauth 配置（运维在部署覆盖层写）。
+ */
+function OAuthSection({
+  serverId,
+  oauth,
+  writable,
+  onChanged,
+}: {
+  serverId: string;
+  oauth: McpOAuthView;
+  writable: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ErrorInfo | null>(null);
+
+  const authorize = async () => {
+    if (!window.confirm(authorizeConfirmText(oauth, serverId))) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const started = await api.startOAuth(serverId);
+      // 整页跳转到授权服务器；回调 303 回应用首页，由面板读取结果
+      window.location.assign(started.authorization_url);
+    } catch (caught) {
+      setError(errorInfo(caught));
+      setBusy(false);
+    }
+  };
+
+  const revoke = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.revokeOAuth(serverId);
+      await onChanged();
+    } catch (caught) {
+      setError(errorInfo(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="mcp-oauth" aria-label="OAuth 授权">
+      <h3>OAuth 授权</h3>
+      <p className="field-hint">{oauth.notice}</p>
+      {!oauth.can_authorize && oauth.unavailable_reason && <p className="field-hint">{oauth.unavailable_reason}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="button-secondary" onClick={authorize} disabled={busy || !writable || !oauth.can_authorize}>
+          {authorizeButtonLabel(oauth)}
+        </button>
+        {oauth.state !== "none" && (
+          <button type="button" className="button-danger" onClick={revoke} disabled={busy || !writable}>
+            撤销授权
+          </button>
+        )}
+      </div>
+      <PanelError error={error} />
+    </section>
+  );
+}
+
 function ServerCard({
   server,
   revision,
@@ -198,10 +271,25 @@ function ServerCard({
         <CapabilityStatus label={server.server_id} status={serverTone(server)} message={serverStatusMessage(server)} />
       </div>
       <dl className="mcp-meta">
-        <dt>命令</dt>
-        <dd>
-          <code>{server.command_name}</code>（{layerLabel(server.sources.command)}）
-        </dd>
+        <dt>传输</dt>
+        <dd>{transportLabel(server)}</dd>
+        {server.transport === "stdio" ? (
+          <>
+            <dt>命令</dt>
+            <dd>
+              <code>{server.command_name}</code>（{layerLabel(server.sources.command)}）
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>主机</dt>
+            <dd>
+              <code>{server.url_host}</code>（地址的其余部分只有运维能看能改）
+            </dd>
+            <dt>认证</dt>
+            <dd>{authStatusLabel(server)}</dd>
+          </>
+        )}
         <dt>来源</dt>
         <dd>{sourceSummary(server)}</dd>
         {serverTags(server).length > 0 && (
@@ -279,6 +367,10 @@ function ServerCard({
         </div>
         <p className="field-hint">放行不是授权：放行的工具照样经过 schema 子集、描述安检、确认门与执行期护栏。</p>
       </section>
+
+      {server.oauth && (
+        <OAuthSection serverId={server.server_id} oauth={server.oauth} writable={writable} onChanged={onChanged} />
+      )}
 
       {server.credentials.length > 0 && (
         <section className="mcp-slots" aria-label="凭据槽位">
@@ -447,6 +539,16 @@ export function McpAdminPanel() {
   const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<ErrorInfo | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [outcome, setOutcome] = useState<string | null>(null);
+
+  // 授权回调 303 回到首页时，查询串里带着结果（只有结果、server id 与稳定错误码）；读完就从地址栏去掉。
+  useEffect(() => {
+    const result = parseOAuthOutcome(window.location.search);
+    if (!result) return;
+    setOutcome(oauthOutcomeMessage(result));
+    const rest = stripOAuthOutcome(window.location.search);
+    window.history.replaceState(null, "", `${window.location.pathname}${rest}${window.location.hash}`);
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -490,6 +592,11 @@ export function McpAdminPanel() {
         <h2 id="mcp-admin-heading">MCP 扩展</h2>
       </div>
       <p className="muted-copy">{listing?.notice ?? MCP_ADMIN_NOTICE}</p>
+      {outcome && (
+        <p className="field-hint" role="status">
+          {outcome}
+        </p>
+      )}
 
       <PanelError error={error} />
       {listing === null && !error && <p className="muted-copy">正在读取 MCP 配置…</p>}

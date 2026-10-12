@@ -89,6 +89,11 @@ services:
       # 启停记录写在上面那份 Web 管理层里。
       WATER_AGENT_SKILLS: "on"
       WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills
+      # MCP 远程 server 的 OAuth 授权（P7-S8）：授权服务器把管理员的浏览器带回的回调地址是
+      # <WEB_PUBLIC_BASE_URL>/api/admin/mcp/oauth/callback（要在授权服务器上预先注册、精确匹配）。
+      # 必须是 https://（本机调试允许 http://localhost）；不设 = 面板不提供「授权」按钮，不从请求的
+      # Host 头推导。域名与 Caddy 的 WEB_DOMAIN 一致时通常写 https://$WEB_DOMAIN。
+      WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}
     secrets:
       - postgres_password
       - deepseek_api_key

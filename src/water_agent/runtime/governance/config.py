@@ -28,7 +28,8 @@ from water_agent.runtime.governance.contracts import (
 )
 
 #: 配置版本。**改任何阈值都要改它**（trace 用它回溯裁定依据）。
-GOVERNANCE_CONFIG_VERSION = "p5-step50-2026-09-29"
+#: P7-S8 新增 ``MCP_REMOTE`` 画像（工具调用零重试），递进。
+GOVERNANCE_CONFIG_VERSION = "p7-s8-2026-10-12"
 
 
 class RetryPolicy(BaseModel):
@@ -202,6 +203,16 @@ class GovernanceConfig(BaseModel):
             ProviderKind.BAILIAN_VISION: ProviderProfile(
                 timeout_seconds=120.0,
                 retry=RetryPolicy(max_attempts=2),
+            ),
+            # P7-S8 远程 MCP：**max_attempts=1——工具调用不重试**（MCP 工具可能有副作用，重放即重复执行；
+            # 超时 / 连接中断后远端状态未知，交给模型和人判断）。超时由 server 配置的
+            # ``call_timeout_seconds`` / ``startup_timeout_seconds`` 逐次决定，这里的值只是画像默认。
+            # 熔断按单台 server 计（``ProviderCall.model`` = ``mcp:<server_id>``）；限流额度是失控保护：
+            # 一个 run 的 initialize / 通知 / tools/list / DELETE 都算请求，放宽到每分钟 1200。
+            ProviderKind.MCP_REMOTE: ProviderProfile(
+                timeout_seconds=30.0,
+                retry=RetryPolicy(max_attempts=1),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=1200),
             ),
         }
     )

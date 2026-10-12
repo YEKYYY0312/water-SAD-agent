@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -474,8 +475,44 @@ class TestInventoryCoverage:
             "water_agent/generation/chat_model.py",
             "water_agent/embedding.py",
             "water_agent/retrieval/rerank.py",
+            # P7-S8：MCP 远程出口（标准库 http.client 的连接子类）
+            "water_agent/mcp/http_transport.py",
         ):
             assert module in found
+
+    def test_unregistered_http_egress_module_is_detected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P7-S8-A04 反证：把出站代码挪到一个未登记的模块，静态扫描立即发现——不靠人记得改清单。
+
+        同时证明新增的 ``http.client.HTTPS?Connection`` 特征是真的在起作用：只开 ``http.client`` 连接、不含任何旧特征的
+        模块，在这一步之前扫描是看不见的。
+        """
+        from water_agent.runtime.governance import inventory
+
+        package = tmp_path / "water_agent"
+        (package / "mcp").mkdir(parents=True)
+        (package / "mcp" / "rogue_transport.py").write_text(
+            "import http.client\n\ndef send(host):\n    return http.client.HTTPSConnection(host)\n",
+            encoding="utf-8",
+        )
+        (package / "mcp" / "http_transport.py").write_text(
+            "import http.client\n\nclass _PinnedHTTPSConnection(http.client.HTTPSConnection):\n    pass\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(inventory, "PACKAGE_ROOT", package)
+        assert inventory.scan_remote_egress_modules() == frozenset(
+            {"water_agent/mcp/rogue_transport.py", "water_agent/mcp/http_transport.py"}
+        )
+        assert inventory.ungoverned_egress_modules() == frozenset({"water_agent/mcp/rogue_transport.py"})
+
+    def test_mcp_remote_site_is_registered_with_its_own_provider(self) -> None:
+        site = call_site("mcp_streamable_http")
+        assert site.provider is ProviderKind.MCP_REMOTE
+        assert site.egress_module == "water_agent/mcp/http_transport.py"
+        assert site.required_capability is Capability.MCP_INVOKE
+        assert site.governed is True and site.cache_eligible is False
+        assert "max_attempts=1" in site.current_retry
 
     def test_consolidated_chat_sites_no_longer_open_own_connections(self) -> None:
         """docgen 润色与 judge 不得再自建 provider 连接（Step 12 收敛的可测断言）。"""
@@ -524,10 +561,13 @@ class TestInventoryCoverage:
 
         P7-S9 后工具数由 5 变 6（新增只读的 `load_skill`，按名取 skill 库里的规程）。**远程出口仍是
         7** —— skill 正文来自随包分发的内置目录或运维只读目录，不新增任何 provider 调用点。
+
+        P7-S8-A04：P7-S8 后远程出口由 7 变 8：MCP Streamable HTTP 与其 OAuth 授权端点（``mcp_streamable_http``，
+        唯一出站模块 ``mcp/http_transport.py``）——登记进清单、经 gateway、静态扫描能命中它。
         """
         assert governance_coverage() == {
-            "provider_call_sites": 7,
-            "provider_governed": 7,
+            "provider_call_sites": 8,
+            "provider_governed": 8,
             "tools": 6,
             "tools_guardrail_validated": 6,
         }

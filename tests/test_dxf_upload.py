@@ -296,8 +296,9 @@ def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
     from water_agent.runtime.governance.inventory import governance_coverage
 
     assert governance_coverage() == {
-        "provider_call_sites": 7,
-        "provider_governed": 7,
+        # P7-S8：MCP 远程出口（mcp_streamable_http）使远程出口由 7 变 8；工具数不变
+        "provider_call_sites": 8,
+        "provider_governed": 8,
         "tools": 6,
         "tools_guardrail_validated": 6,
     }

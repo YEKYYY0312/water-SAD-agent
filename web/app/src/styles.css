@@ -345,7 +345,7 @@ code { font-family: var(--mono); font-size: .92em; }
 
 /* ---------- MCP 扩展（P7-S6）：复用设置页卡片，只补元数据、工具列表与凭据槽位 ---------- */
 .mcp-admin { display: grid; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
-.mcp-server-card, .mcp-allow, .mcp-slots { display: grid; gap: .65rem; }
+.mcp-server-card, .mcp-allow, .mcp-slots, .mcp-oauth { display: grid; gap: .65rem; }
 .mcp-server-card h3, .mcp-admin .settings-card h3 { font-size: .92rem; font-weight: 600; }
 .mcp-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; font-size: .84rem; }
 .mcp-meta dt { color: var(--muted); }

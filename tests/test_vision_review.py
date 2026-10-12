@@ -205,4 +205,5 @@ def test_vision_call_site_is_registered_and_governed() -> None:
     site = call_site("bailian_vision_pdf_review")
     assert site.egress_module == "water_agent/vision.py"
     assert site.governed and not site.cache_eligible
-    assert len(PROVIDER_CALL_SITES) == 7
+    # P7-S8 新增 MCP 远程出口（mcp_streamable_http）：7 → 8；这里只关心视觉出口仍登记在册
+    assert len(PROVIDER_CALL_SITES) == 8

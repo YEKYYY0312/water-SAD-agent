@@ -165,6 +165,28 @@ def audit_mcp_server_probed(*, actor_user_id: str, server_id: str, status: str) 
     _emit("mcp.server_probed", {"actor_user_id": actor_user_id, "server_id": server_id, "status": status})
 
 
+def audit_mcp_oauth_authorized(*, actor_user_id: str, server_id: str, issuer: str, scope: str | None) -> None:
+    """P7-S8：管理员完成了一次服务级授权。**永不记令牌、授权码、verifier、state**。"""
+    _emit(
+        "mcp.oauth_authorized",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "issuer": issuer, "scope": scope or ""},
+    )
+
+
+def audit_mcp_oauth_revoked(*, actor_user_id: str, server_id: str) -> None:
+    _emit("mcp.oauth_revoked", {"actor_user_id": actor_user_id, "server_id": server_id})
+
+
+def audit_mcp_oauth_failed(*, actor_user_id: str, server_id: str, code: str) -> None:
+    """授权流程在回调或发起阶段失败：只记稳定错误码。"""
+    _emit("mcp.oauth_failed", {"actor_user_id": actor_user_id, "server_id": server_id, "code": code})
+
+
+def audit_mcp_oauth_refresh_failed(*, server_id: str, issuer: str, reason: str) -> None:
+    """刷新令牌被授权服务器拒绝（令牌已清除，需重新授权）。没有管理员请求在场，所以没有 actor。"""
+    _emit("mcp.oauth_refresh_failed", {"server_id": server_id, "issuer": issuer, "reason": reason})
+
+
 def audit_skill_updated(*, actor_user_id: str, name: str, disabled: bool, revision: int) -> None:
     """P7-S9：管理员停用 / 启用一个 skill。只记名字与动作，不记正文。"""
     _emit(
