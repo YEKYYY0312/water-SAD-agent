@@ -60,7 +60,7 @@ def test_exposed_tools_always_fit_the_tool_guide(profiles: dict[str, Any]) -> No
             assert probe["guide"]["chars"] <= 800, (name, label)
             assert {"retrieve_clauses", "cite_clauses", "calc_velocity"} <= set(probe["exposed"])
             checked += 1
-    assert checked == 40  # 10 个装配成功的 profile × 4 条探针
+    assert checked == 44  # 11 个装配成功的 profile × 4 条探针（P7-S9 新增 session_skills_builtin）
 
     drawing = profiles["session_drawing_arg"]["surface"]
     both = drawing["exposure"]["probes"]["drawing_materials"]

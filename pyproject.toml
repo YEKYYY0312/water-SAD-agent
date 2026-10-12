@@ -36,6 +36,9 @@ dependencies = [
     "fastapi>=0.141,<0.142",
     "uvicorn>=0.52,<0.53",
     "argon2-cffi>=23.1,<24",
+    # P7-S9：SKILL.md 的 YAML frontmatter（safe_load）。此前只是 langchain-core 的传递依赖，
+    # skills 包直接 import 它，必须显式声明——上游哪天去掉这条依赖，镜像就会在装配期 ImportError。
+    "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +53,8 @@ where = ["src"]
 # P6-S1：建筑类型规则表随包分发（几何规划读它，不读仓库路径）。
 [tool.setuptools.package-data]
 "water_agent.drawing" = ["*.json"]
+# P7-S9：内置 skill 随包分发（skill 库读包内路径，不读仓库 data/）。
+"water_agent.skills" = ["builtin/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

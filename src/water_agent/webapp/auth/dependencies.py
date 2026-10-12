@@ -27,6 +27,7 @@ _MEMBER_CAPABILITIES: frozenset[Capability] = frozenset(
         Capability.CALCULATE,
         Capability.MATERIAL_STATS,
         Capability.READ_DRAWING,
+        Capability.LOAD_SKILL,
         Capability.EXPORT_TO_ALLOWED_DIR,
         Capability.LLM_INFERENCE,
         Capability.EMBEDDING,
