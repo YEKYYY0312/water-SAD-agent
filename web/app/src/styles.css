@@ -365,6 +365,15 @@ code { font-family: var(--mono); font-size: .92em; }
 .mcp-import-result { display: grid; gap: .6rem; }
 .mcp-import-result .mcp-tool-list li { display: grid; justify-content: stretch; gap: .2rem; }
 
+/* ---------- Skill 库（P7-S9）：复用设置页卡片与 MCP 区的元数据版式，只补正文区 ---------- */
+.skill-library { display: grid; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.skill-card { display: grid; gap: .55rem; }
+.skill-card h3, .skill-library .settings-card h3 { font-size: .92rem; font-weight: 600; }
+.skill-description { color: var(--ink-soft); font-size: .86rem; line-height: 1.6; overflow-wrap: anywhere; }
+.skill-meta-row { display: contents; }
+.skill-body { max-height: 22rem; margin: 0; padding: .6rem .75rem; overflow: auto; border-radius: var(--r-item); background: var(--surface); font: .78rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-unavailable, .skill-mcp-counts { display: grid; gap: .55rem; }
+
 /* ---------- 生成图纸（P6-S1）：复用设置页的版式，只补表单错误与结果区 ---------- */
 .drawing-panel { width: min(72rem, 100%); }
 .drawing-form .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

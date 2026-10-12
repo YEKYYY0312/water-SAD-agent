@@ -123,8 +123,9 @@ class DrawingPlugin:
 
 
 #: Skill 目录何时开放（P7-S9）：问题点名规程 / 流程，或命中任一已启用 skill 的 ``triggers``（装配时并入）。
+#: "流程"单列：问法常是"按计算书流程来"——"按流程"不是它的子串，只靠被停用的那份 skill 的 triggers 才命中。
 SKILL_FIXED_KEYWORDS: tuple[str, ...] = (
-    "按规程", "按流程", "按步骤", "规程", "操作规程", "load_skill", "skill",
+    "按规程", "按流程", "按步骤", "规程", "流程", "操作规程", "load_skill", "skill",
 )
 
 
