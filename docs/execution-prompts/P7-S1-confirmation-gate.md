@@ -149,10 +149,6 @@
     {
       "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
       "contains": "\"provider_call_sites\": 7"
-    },
-    {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"tools_guardrail_validated\": 5"
     }
   ],
   "frozen_json": [

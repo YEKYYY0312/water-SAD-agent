@@ -172,6 +172,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
     "tests/test_web_mcp_admin.py",
     "tests/test_tool_policy.py",
     "tests/test_upload_retrieval.py",
+    "tests/test_dxf_upload.py",
     "tests/test_p7_known_figures.py",
     "tests/test_tool_assembly_snapshot.py",
     "docs/design/p7-step-9-decision.md",
@@ -313,7 +314,7 @@ S9 是 2026-10-09 新增的一步（S8 Streamable HTTP 仍未开工，编号不�
 - 信任：`INSTRUCTION_BEARING_SOURCES == {SYSTEM_POLICY}`。
 - 出站清单 `provider_call_sites: 7`（skill 不新增远程调用）。
 - S1 / S3：确认门无凭证拒绝；覆盖层不能写 `confirmation_handler_ready` 或未知键（S9 不给覆盖层加任何键）。
-- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`（规格 §4 同步写明原因）；`tests/test_upload_retrieval.py::test_prompt_template_version_was_bumped_for_the_new_segment` 的版本字面量随 `PROMPT_TEMPLATE_VERSION` 递进。`GRANTABLE_CAPABILITIES` / P7-I06 **不改**。
+- **会变的锁定数字**（本步唯一允许改的）：`test_all_provider_sites_governed_after_step12` 里的 `"tools": 5` / `"tools_guardrail_validated": 5` → 6（docstring 记一行原因）；P7-I04 的 `BUILTIN_PLUGIN_ORDER` 末尾加 `"skills"`（规格 §4 同步写明原因）；`tests/test_upload_retrieval.py::test_prompt_template_version_was_bumped_for_the_new_segment` 的版本字面量随 `PROMPT_TEMPLATE_VERSION` 递进。`tests/test_dxf_upload.py::test_tool_schema_budget_and_governance_counts_are_untouched`（P5-S50「不给模型开放新工具」）锁的是同一组覆盖率数字，`"tools"` / `"tools_guardrail_validated"` 同样 5 → 6，`provider_call_sites` 不变。`GRANTABLE_CAPABILITIES` / P7-I06 **不改**。
 
 ## 7. 停止条件
 
