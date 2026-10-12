@@ -44,7 +44,6 @@ import json
 import os
 import platform
 import re
-import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterator, Sequence
@@ -752,31 +751,16 @@ def _error_view(error: BaseException | None) -> dict[str, Any] | None:
     return {"type": type(error).__name__, "code": getattr(error, "code", None)}
 
 
-def _start_fake_http_server() -> tuple[subprocess.Popen[str], int]:
-    """起假 HTTP MCP server（明文回环，不需要证书）；返回 (进程, 端口)。"""
+def _start_fake_http_server() -> tuple[Any, int]:
+    """起假 HTTP MCP server（明文回环，不需要证书；进程内线程，不拉子进程）；返回 (句柄, 端口)。"""
     if not FAKE_MCP_HTTP_SERVER.is_file():
         raise SnapshotHarnessError(f"缺少 fake HTTP MCP server：{FAKE_MCP_HTTP_SERVER}")
-    process = subprocess.Popen(
-        [sys.executable, str(FAKE_MCP_HTTP_SERVER), "--mode", "json", "--plain"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    assert process.stdout is not None
-    line = process.stdout.readline()
-    if not line:
-        _stop_process(process)
-        raise SnapshotHarnessError("假 HTTP MCP server 没有启动")
-    return process, int(json.loads(line)["mcp_port"])
+    from water_agent.harness.mcp_http_eval import fake_module
 
-
-def _stop_process(process: subprocess.Popen[str]) -> None:
-    process.terminate()
-    try:
-        process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        process.kill()
-    for stream in (process.stdout, process.stderr):
-        if stream is not None:
-            stream.close()
+    module = fake_module()
+    args = module.build_parser().parse_args(["--mode", "json", "--plain"])
+    running = module.start_servers(args)
+    return running, int(running.mcp_port)
 
 
 def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
@@ -821,7 +805,7 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
     driver: Callable[[Profile, Path, _ProfileState], None] = (
         _drive_session if profile.side == "session" else _drive_runner
     )
-    http_server: subprocess.Popen[str] | None = None
+    http_server: Any = None
     if profile.mcp == "http_fake":
         http_server, state.http_port = _start_fake_http_server()
     with ExitStack() as patches:
@@ -842,7 +826,7 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
             for assembly in state.assemblies:  # 防御：不管现状如何，快照本身不留子进程
                 assembly.close()
             if http_server is not None:
-                _stop_process(http_server)
+                http_server.stop()
 
     if state.error is None and state.captures != 1:
         raise SnapshotHarnessError(

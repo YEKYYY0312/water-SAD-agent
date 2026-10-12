@@ -630,9 +630,16 @@ class McpHandler(BaseHandler):
             self.wfile.flush()
 
 
+class QuietServer(ThreadingHTTPServer):
+    """客户端中途断开（超时 / 取消）是评测里的正常情形：不往 stderr 打堆栈。"""
+
+    def handle_error(self, request: object, client_address: object) -> None:  # noqa: ARG002
+        pass
+
+
 def serve(handler: type[BaseHandler], state: State, *, tls: ssl.SSLContext | None) -> ThreadingHTTPServer:
     handler_cls = type("Bound" + handler.__name__, (handler,), {"state": state})
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    server = QuietServer(("127.0.0.1", 0), handler_cls)
     server.daemon_threads = True
     if tls is not None:
         server.socket = tls.wrap_socket(server.socket, server_side=True)
@@ -640,7 +647,7 @@ def serve(handler: type[BaseHandler], state: State, *, tls: ssl.SSLContext | Non
     return server
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--make-cert", default="")
     parser.add_argument("--mode", default="json")
@@ -653,16 +660,31 @@ def main() -> int:
     parser.add_argument("--root-metadata-only", action="store_true")
     parser.add_argument("--dynamic-registration", action="store_true")
     parser.add_argument("--oauth-only-rfc8414", action="store_true")
-    args = parser.parse_args()
-    if args.make_cert:
-        generate_certificate(args.make_cert)
-        return 0
+    return parser
+
+
+class Running:
+    """已启动的两个监听（MCP 资源服务器 + 授权服务器）。进程内使用时靠 :meth:`stop` 收尾。"""
+
+    def __init__(self, state: State, mcp: ThreadingHTTPServer, auth: ThreadingHTTPServer) -> None:
+        self.state = state
+        self._servers = (mcp, auth)
+        self.mcp_port = int(mcp.server_address[1])
+        self.auth_port = int(auth.server_address[1])
+
+    def stop(self) -> None:
+        for server in self._servers:
+            server.shutdown()
+            server.server_close()
+
+
+def start_servers(args: argparse.Namespace) -> Running:
+    """按参数起两个监听并返回句柄（命令行入口与进程内使用共用；评测 harness 在进程内用它，不再拉子进程）。"""
     state = State(args)
     tls = None
     if not args.plain:
         if not args.cert_dir:
-            print("需要 --cert-dir（或 --plain）", file=sys.stderr)
-            return 2
+            raise SystemExit("需要 --cert-dir（或 --plain）")
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.load_cert_chain(os.path.join(args.cert_dir, "cert.pem"), os.path.join(args.cert_dir, "key.pem"))
     scheme = "http" if args.plain else "https"
@@ -672,7 +694,16 @@ def main() -> int:
     state.auth_origin = f"{scheme}://127.0.0.1:{auth.server_address[1]}"
     state.remember_secret(args.bearer_token if args.mode == "bearer" else None)
     state.remember_secret(PREREGISTERED_CLIENT_SECRET)
-    print(json.dumps({"mcp_port": mcp.server_address[1], "auth_port": auth.server_address[1]}), flush=True)
+    return Running(state, mcp, auth)
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.make_cert:
+        generate_certificate(args.make_cert)
+        return 0
+    running = start_servers(args)
+    print(json.dumps({"mcp_port": running.mcp_port, "auth_port": running.auth_port}), flush=True)
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
