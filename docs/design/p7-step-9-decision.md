@@ -133,7 +133,8 @@ COMPOSE_PROJECT_NAME=p7s9 VENV=$VENV bash scripts/ci_gate.sh
   2. `tests/test_check_step_scope.py::test_repo_scope_blocks_are_usable`：任务书与 S1–S7 执行 Prompt 的 protect 仍要求 `"tools_guardrail_validated": 5`；
   3. `tests/test_web_deployment_overlay.py::test_image_check_skips_structurally_instead_of_failing`：`'not built locally' in 'docker daemon unreachable'`——本机 Docker daemon 没起；main `1e5e086` 上同样失败，与本步无关。
   1、2 是 S9 的计数变化本身引起的，按 §0.2 第 3 行处理（PR #38 + 本 commit 改 `test_dxf_upload.py`）。
-- **第二次**：见 PR 描述（贴原文）。
+- **第二次**（rebase 到 PR #38 之后的 `211d081`）：exit 1，唯一失败仍是 `test_image_check_skips_structurally_instead_of_failing`（本机 Docker daemon 没起，与本步无关）；其余全部通过——pytest 3526 passed / 31 skipped（排除该条）+ ruff + mypy + rag_p0 12/12 + calc_p0 28/28 + docgen_p0 11/11 + material_p0 10/10 + governance_p0 32/32 + agentic_p0 21/21 + tool_exposure_p0 36/36 + skill_p0 26/26 + drawing_p0 + drawing_gen_p0 + multi_agent_p0 + memory_p0（§13.2 十二项）+ 基线对比。
+- PR #38 自身的 CI：`python-gate` 前两次各红一条与文档改动无关的时序用例（多 Agent CLI 间歇失败——修复 PR #25 未合入；上传解析事件循环用例 `/health/live` 0.44 s），第三次全绿。
 
 ---
 
