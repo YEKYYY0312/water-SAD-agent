@@ -38,8 +38,11 @@
   属后续步骤（§6 分步交付 Step 24）。本步只做**客户端**。
 - **不做 HTTP/SSE transport**：只支持 stdio（`command + args` 子进程）。
   远程 MCP 端点（`http(s)://`）需网络出口，且要新开 `NETWORK_FETCH` 类能力，
-  属后续 blocked 待办。
-- **不做 OAuth/外部认证**：`Principal.authenticated()` 仍是"无调用方"占位。
+  属后续 blocked 待办。**→ P7-S8 已解除（只对 Streamable HTTP）**：出口由运维写死的 URL 决定、远程工具仍持
+  `MCP_INVOKE`、`NETWORK_FETCH` 仍在危险集不授予任何主体，见 `docs/design/16-p7-plugin-mcp.md` §3.10；
+  已废弃的 HTTP+SSE（2024-11-05）仍不做。
+- **不做 OAuth/外部认证**（**→ P7-S8 已解除 OAuth 2.1 服务级授权**：管理员授权一次、所有用户的 run 共用该身份，
+  见规格 §3.10；仍不做按终端用户的委托授权）：`Principal.authenticated()` 仍是"无调用方"占位。
   本步所有主体仍走 `Principal.local(thread_id, capabilities=...)`；server 自己的
   凭据由配置的 `env`/`env_file` **显式给值**注入，**不默认转发本机任何其他
   环境变量**。
@@ -126,7 +129,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
   真实 server 写进部署覆盖层；`data/mcp_servers.example.json` 是写覆盖层的参考（占位路径，
   不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
-  - `version`（`p7-s6-2026-10-07`；加载时不比对）；
+  - `version`（`p7-s8-2026-10-12`；加载时不比对）；
   - `confirmation_handler_ready`：历史字段，配置里只接受 `False`（`true` 加载期 `MCP_CONFIG_INVALID`）。
     P7-S7 起确认门是否可用由**入口**决定，不由配置声明：只有 Web 会话工厂接了确认门
     （`open_gateway_sessions` / `McpConnectionPool.lease` 的 `confirmation_ready=True`），CLI 与评测 runner 没有；
