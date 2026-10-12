@@ -622,6 +622,7 @@ class OAuthStatus:
     expires_at: float | None = None
     scope: str | None = None
     issuer: str | None = None
+    server_id: str = ""
 
 
 def _token_problem(server: MCPServerConfig, token: StoredToken) -> str | None:
@@ -635,18 +636,19 @@ def _token_problem(server: MCPServerConfig, token: StoredToken) -> str | None:
 
 
 def authorization_status(server: MCPServerConfig) -> OAuthStatus:
+    sid = server.server_id
     if server.oauth is None or server.transport is not ServerTransport.STREAMABLE_HTTP:
-        return OAuthStatus(False, False, "none")
-    token = OAuthStore(server.server_id).load()
+        return OAuthStatus(False, False, "none", server_id=sid)
+    token = OAuthStore(sid).load()
     if token is None:
-        return OAuthStatus(True, False, "none")
+        return OAuthStatus(True, False, "none", server_id=sid)
     problem = _token_problem(server, token)
     if problem is not None:
-        return OAuthStatus(True, False, problem, token.expires_at, token.scope, token.issuer)
+        return OAuthStatus(True, False, problem, token.expires_at, token.scope, token.issuer, sid)
     left = token.seconds_left(_now())
     if left is not None and left <= 0 and not token.refresh_token:
-        return OAuthStatus(True, False, "expired", token.expires_at, token.scope, token.issuer)
-    return OAuthStatus(True, True, "authorized", token.expires_at, token.scope, token.issuer)
+        return OAuthStatus(True, False, "expired", token.expires_at, token.scope, token.issuer, sid)
+    return OAuthStatus(True, True, "authorized", token.expires_at, token.scope, token.issuer, sid)
 
 
 def _sanitized_error(response: _Response) -> str:
