@@ -1,4 +1,4 @@
-import type { McpLayer, McpProbe, McpServerView } from "./mcpAdminApi.ts";
+import type { McpLayer, McpOAuthView, McpProbe, McpServerView } from "./mcpAdminApi.ts";
 
 /** 面板上的固定说明（与后端 NOTICE 同义；后端没给时用它）。 */
 export const MCP_ADMIN_NOTICE =
@@ -47,6 +47,11 @@ const CODE_LABELS: Record<string, string> = {
   MCP_CREDENTIAL_MISSING: "凭据槽位还没填值",
   MCP_SERVER_DISABLED: "已停用",
   MCP_CONFIG_INVALID: "配置无法加载",
+  MCP_DESTINATION_FORBIDDEN: "目标地址被禁止（回环 / 私有 / 云元数据等）",
+  MCP_PROTOCOL_UNSUPPORTED: "server 只支持无状态协议 2026-07-28，本网关未实现",
+  MCP_OAUTH_REQUIRED: "需要（重新）授权",
+  MCP_OAUTH_UNAVAILABLE: "授权流程无法进行",
+  MCP_OAUTH_INSUFFICIENT_SCOPE: "令牌 scope 不足",
 };
 
 export function codeLabel(code: string | null): string {
@@ -62,6 +67,8 @@ const ERROR_COPY: Record<string, string> = {
   WEB_MCP_PROBE_BUSY: "这台 server 正在探测中，请稍候。",
   WEB_MCP_ADMIN_STORE_UNAVAILABLE: "Web 管理层不可写：需运维挂载 app_mcp_admin 卷并设置 WATER_AGENT_MCP_WEB_LAYER。",
   WEB_CREDENTIAL_STORE_UNAVAILABLE: "凭据存储不可写：需运维挂载 app_credentials 卷。",
+  WEB_MCP_OAUTH_UNAVAILABLE: "现在无法发起授权：请看下面的原因（常见：运维还没配置 WEB_PUBLIC_BASE_URL）。",
+  WEB_MCP_OAUTH_FAILED: "和授权服务器的通信没有完成，请稍后重试。",
   AUTH_CSRF_INVALID: "登录状态已失效，请刷新页面后重试。",
   WEB_REQUEST_FAILED: "请求没有完成，请检查网络后重试。",
 };
@@ -132,6 +139,7 @@ export function serverTone(server: McpServerView): string {
   if (server.disabled) return "not_configured";
   if (server.path_problems.length) return "failed";
   if (server.credentials.some((slot) => !slot.configured)) return "not_configured";
+  if (server.oauth && !server.oauth.authorized) return "not_configured";
   return "succeeded";
 }
 
@@ -141,7 +149,10 @@ export function serverStatusMessage(server: McpServerView): string {
     return `部署配置里的 ${server.path_problems.join("、")} 不存在：停用它，或由运维修复`;
   }
   const missing = server.credentials.filter((slot) => !slot.configured).map((slot) => slot.name);
-  if (missing.length) return `凭据槽位还没填值：${missing.join("、")}；填好前不会启动`;
+  if (missing.length) {
+    return `凭据槽位还没填值：${missing.join("、")}；填好前不会${server.transport === "streamable_http" ? "连接" : "启动"}`;
+  }
+  if (server.oauth && !server.oauth.authorized) return "尚未授权：管理员授权前，这台 server 的工具不会暴露";
   if (server.allow === null) return "已启用，白名单为空（全拒）：不暴露任何工具";
   return `已启用，放行 ${server.allow.length} 个工具`;
 }
@@ -149,11 +160,75 @@ export function serverStatusMessage(server: McpServerView): string {
 export function serverTags(server: McpServerView): string[] {
   const tags: string[] = [];
   if (server.human_confirmation) tags.push("每次执行需人工确认");
-  if (server.lifecycle === "shared") tags.push("共享进程");
+  if (server.lifecycle === "shared") tags.push(server.transport === "streamable_http" ? "共享会话" : "共享进程");
+  if (server.allow_private_network) tags.push("允许回环 / 私网目标");
   if (server.web_override) tags.push("Web 管理层已改动");
   return tags;
 }
 
 export function sourceSummary(server: McpServerView): string {
   return `启停来自${layerLabel(server.sources.disabled)}，白名单来自${layerLabel(server.sources.allow)}`;
+}
+
+const TRANSPORT_LABELS: Record<string, string> = { stdio: "本地进程（stdio）", streamable_http: "远程 Streamable HTTP" };
+
+export function transportLabel(server: McpServerView): string {
+  return TRANSPORT_LABELS[server.transport] ?? server.transport;
+}
+
+/** 授权失效的原因 → 一句话。 */
+const OAUTH_PROBLEMS: Record<string, string> = {
+  expired: "访问令牌已过期且无法刷新",
+  resource_changed: "这台 server 的地址已变，原令牌不会再发给它",
+  issuer_not_allowed: "原授权服务器已不在 allowed_issuers 里",
+};
+
+/** 认证方式 / 授权状态：未配置 / 静态 Bearer / 未授权 / 已授权至 X / 授权失效。 */
+export function authStatusLabel(server: McpServerView): string {
+  if (server.auth_kind === "none") return "未配置认证";
+  if (server.auth_kind === "bearer") return "静态 Bearer（值在凭据槽位）";
+  return oauthStatusLabel(server.oauth);
+}
+
+export function oauthStatusLabel(oauth: McpOAuthView | null): string {
+  if (!oauth) return "未配置认证";
+  if (oauth.authorized) {
+    const until = oauth.expires_at ? `（令牌到期 ${oauth.expires_at.slice(0, 16).replace("T", " ")} UTC，到期前自动刷新）` : "";
+    return `已授权${oauth.issuer_host ? `（授权服务器 ${oauth.issuer_host}）` : ""}${until}`;
+  }
+  if (oauth.state === "none") return "未授权";
+  return `授权失效：${OAUTH_PROBLEMS[oauth.state] ?? oauth.state}`;
+}
+
+/** 授权按钮文案：已有授权（含失效）时叫「重新授权」。 */
+export function authorizeButtonLabel(oauth: McpOAuthView): string {
+  return oauth.state === "none" ? "授权" : "重新授权";
+}
+
+/** 点「授权」前的确认文案：必须让管理员明白这是部署级授权。 */
+export function authorizeConfirmText(oauth: McpOAuthView, serverId: string): string {
+  return `${oauth.notice}。\n\n将在新页面打开 ${oauth.issuer_host ?? "授权服务器"} 的授权页面为「${serverId}」授权，继续吗？`;
+}
+
+export type OAuthOutcome = { kind: "authorized" | "failed"; server: string | null; code: string | null };
+
+/** 授权回调 303 回来时首页查询串里的结果（只有结果、server id 与稳定错误码）。读不出来返回 null。 */
+export function parseOAuthOutcome(search: string): OAuthOutcome | null {
+  const params = new URLSearchParams(search);
+  const kind = params.get("mcp_oauth");
+  if (kind !== "authorized" && kind !== "failed") return null;
+  return { kind, server: params.get("server"), code: params.get("code") };
+}
+
+export function oauthOutcomeMessage(outcome: OAuthOutcome): string {
+  if (outcome.kind === "authorized") return `「${outcome.server ?? "该 server"}」授权完成。`;
+  return `授权没有完成：${outcome.code ? codeLabel(outcome.code) : "未知原因"}。请重新发起授权。`;
+}
+
+/** 处理完结果后把 mcp_oauth / server / code 从地址栏去掉（其余参数保留）。 */
+export function stripOAuthOutcome(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of ["mcp_oauth", "server", "code"]) params.delete(key);
+  const rest = params.toString();
+  return rest ? `?${rest}` : "";
 }
