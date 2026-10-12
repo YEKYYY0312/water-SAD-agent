@@ -330,6 +330,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
 | S8 | Step D（二） | Streamable HTTP 传输（以 2025-11-25 会话制为主，2026-07-28 无状态只识别）+ OAuth 2.1 服务级授权（预注册 / 动态注册 + PKCE + `resource` + `iss` 校验）+ 静态 Bearer 槽位；出口由运维写死的 URL 决定、连接期 SSRF 校验与钉死 IP、不跟随重定向；远程工具仍持 `MCP_INVOKE`，`NETWORK_FETCH` 不放宽；出站清单 7 → 8（2026-10-06 从 S5 拆出，2026-10-12 写执行 Prompt） | `docs/execution-prompts/P7-S8-streamable-http.md` | planned |
 | S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | delivered |
+| S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式：对话与 embedding 端点 / 模型 / Key 由运维或管理员配置（缺省仍是 DeepSeek + 百炼，已有部署零变化）；非缺省对话端点必须有通过的兼容性报告才能装配（硬门槛，缺省免检）；`WATER_AGENT_RETRIEVAL_MODE=auto` 下没配 embedding 或与索引不匹配时走关键词检索（BM25）并在运行状态里如实标出；索引旁写 `index_meta.json` 绑定 embedding 模型与维度；`build_index.py --text-only`；先建口语化检索评测集（2026-10-12 新增，归入 P7 以复用范围守卫与快照） | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | planned |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -360,6 +361,7 @@ S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
   签发它的那台 server。**协议以 2025-11-25 为主**（initialize + `MCP-Session-Id` + `MCP-Protocol-Version`，JSON
   与 SSE 两种响应），2026-07-28 无状态协议只识别为 `MCP_PROTOCOL_UNSUPPORTED`，不回落到已废弃的 HTTP+SSE。
   URL / oauth / transport 只能写在运维两层，Web 管理层可写键不变。
+- **S10**（2026-10-12 新增）：用户要"对话模型换成任意 OpenAI 兼容端点、只填一个 LLM API 也能用 RAG"。写执行 Prompt 时定下（用户决定，理由见 Prompt §0）：端点解析单一来源 `generation/endpoints.py`，CLI / Web / runner / docgen / judge / 探针全部经它；端点改了就不回落旧 Key（密钥只发给所属服务商）；非缺省对话端点必须有精确匹配端点 + 模型、全部通过的兼容性报告（复用 P5 Step 46 探针的检查集，硬门槛，缺省 DeepSeek 免检）；**不新增 `ProviderKind`、不改名**（`DEEPSEEK_CHAT` 语义扩为"OpenAI 兼容对话端点"），出站清单数量不变；缓存键加 `model_endpoint_digest`（空串不进键）；embedding 端点对称可配，索引旁 `index_meta.json` 记录 embedding 模型与维度，不匹配拒绝向量检索；检索模式 `auto|hybrid|text`，`auto` 下缺 embedding 走关键词检索且**必须可见**（不得宣称语义检索）；rerank 与视觉审阅仍是百炼、可选。实测：纯关键词在 rag_p1 上 Recall@5 98.28%（问法与条文同构、偏乐观），口语化问法有漏召回——质量证据以新建的 `retrieval_colloquial_p0` 为准。
 - **S6**：导入 `mcpServers` 会带来 `command` / `args`，面板不能写它们，只能生成"已禁用的待审提案"，
   由运维离线应用。2026-10-07 写执行 Prompt 时定下（理由见 Prompt §0）：面板的改动写进第三层配置
   **Web 管理层**（`WATER_AGENT_MCP_WEB_LAYER` 指向的文件，合并在部署覆盖层之后，只能写 `server_id` /
@@ -667,6 +669,19 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S8-A14 | 真实 HTTP MCP server 与真实授权服务器（含企业 TLS / 代理）上的连通与授权（见未覆盖项） | 无 | untested |
 | P7-S8-A15 | 手动验收：浏览器里授权跳转、回调、工具出现、撤销后工具记 `MCP_OAUTH_REQUIRED`（见未覆盖项） | 无 | untested |
 
+| P7-S10-A01 | 端点解析：`resolve_chat_endpoint` / `resolve_embedding_endpoint` 是唯一来源，CLI / Web / runner / docgen / judge / 探针都经它；缺省 = 现状；端点改了不回落旧 Key；与 `LOCAL_MODEL_*` 同时启用即配置错误 | `tests/test_llm_endpoints.py::test_all_entry_points_share_one_resolution`<br>`tests/test_llm_endpoints.py::test_key_is_never_sent_to_another_provider`<br>`tests/test_llm_endpoints.py::test_defaults_are_unchanged` | planned |
+| P7-S10-A02 | 兼容性硬门槛：非缺省对话端点没有精确匹配、全部 passed 的报告即装配期拒绝、Web 424 `WEB_MODEL_NOT_VERIFIED`；缺省免检；改端点或模型即作废报告；探针报告不含 Key | `tests/test_endpoint_compatibility.py::test_unverified_endpoint_is_refused`<br>`tests/test_endpoint_compatibility.py::test_report_must_match_endpoint_and_model`<br>`tests/test_endpoint_compatibility.py::test_probe_report_has_no_secrets` | planned |
+| P7-S10-A03 | 治理与缓存：不新增 `ProviderKind`、出站清单数量不变；超时 / 价格覆盖（价格只软预警）；`model_endpoint_digest` 变化即 miss、空串与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss`<br>`tests/test_llm_endpoints.py::test_price_override_is_not_a_hard_cap` | planned |
+| P7-S10-A04 | embedding 端点与索引绑定：任意 OpenAI 兼容 embedding 端点；`index_meta.json` 记录模型与维度；不匹配 → `RETRIEVAL_EMBEDDING_MISMATCH`（auto 降级到关键词并标出、hybrid 强制即失败）；缺 meta 的旧索引按百炼缺省处理 | `tests/test_embedding_endpoint.py::test_mismatched_embedding_never_searches_vectors`<br>`tests/test_embedding_endpoint.py::test_legacy_index_without_meta` | planned |
+| P7-S10-A05 | 检索模式：`auto` 缺 embedding → text（不调 embedding）、`hybrid` 强制、`text` 强制；`retrieval_mode` / `_reason` 进运行状态、trace 与 Web 结果；Web 预检只在强制 hybrid 时要求 embedding | `tests/test_retrieval_mode.py::test_auto_falls_back_to_text_visibly`<br>`tests/test_retrieval_mode.py::test_text_mode_makes_no_embedding_calls`<br>`tests/test_web_runs.py::test_embedding_key_is_optional_in_auto_mode` | planned |
+| P7-S10-A06 | 纯关键词建库：`build_index.py --text-only` 零 embedding 调用、不要求 Key；产出的索引 auto 下走 text、hybrid 强制失败 | `tests/test_build_index_text_only.py::test_text_only_index_needs_no_key` | planned |
+| P7-S10-A07 | 口语化检索评测 `retrieval_colloquial_p0`：先冻结；text 与 hybrid 两种模式的 Recall@1/5、MRR 与字面重合率；text 模式接进 `ci_gate.sh` 与入仓基线对比；hybrid 需 Key（见未覆盖项） | `gate:retrieval_colloquial_p0`<br>`tests/test_retrieval_mode_eval.py::test_colloquial_set_is_frozen_and_measured` | planned |
+| P7-S10-A08 | Web 面板：对话端点与模型的读写（管理员 + CSRF、只接受 https 与列明的本机例外、运维 env 设了即只读）、Key 槽位只写不读、兼容性状态与"运行检查"（同时只一个）、检索模式显示、审计不含 Key | `tests/test_web_llm_endpoint.py::test_endpoint_settings_are_admin_only_and_validated`<br>`tests/test_web_llm_endpoint.py::test_changing_endpoint_invalidates_compatibility` | planned |
+| P7-S10-A09 | 部署与冒烟：compose 透传新变量（缺省为空 = 现状）；冒烟断言 `retrieval_mode` 字段与配置一致 | `tests/test_web_deployment.py::test_endpoint_variables_are_passed_through`<br>`tests/test_container_smoke.py::test_probe_reports_retrieval_mode` | planned |
+| P7-S10-A10 | 快照：现有 16 个 profile 逐字不变、三个版本号不变；新增 `session_endpoint_custom`；新变量被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S10-A11 | 非 DeepSeek 端点上的真实作答质量（`rag_p1 --variant real`）与 hybrid 模式在口语化集上的实测（需对话 / 百炼 Key，见未覆盖项） | 无 | untested |
+| P7-S10-A12 | 手动验收：只配一个对话 Key 时带引用作答且显示关键词模式；换端点未验证即 424；改 embedding 模型未重建索引即显示不匹配（见未覆盖项） | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
@@ -677,6 +692,8 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 - **P7-S0-A14**：它锁的是 S0 时的缺陷现状（manifest 不进缓存服务）。S3 修复后由 **P7-S3-A07** 承担；本行保留为历史记录，不再有对应测试。
 - **P7-S4-A13**：`tool_exposure_p0` 只证明"该开的工具开了、写进了指引、没超预算"，不证明真实模型拿到工具后选得对。
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
+- **P7-S10-A11**：需要非 DeepSeek 的对话端点 Key 与百炼 Key、网络；离线门禁只跑 text 模式。没有 Key 时记为 blocked，**不得**声称换模型后作答质量不变，也不得声称关键词模式与混合检索等效。
+- **P7-S10-A12**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A05 / A08（HTTP 往返）与前端 node 测试。
 - **P7-S8-A14**：本机与 CI 都没有真实的 HTTP MCP server 与授权服务器；`mcp_http_p0` 只对本地假 server 与假授权服务器验证协议与治理语义，**不得**声称已接通任何真实远程 MCP 或企业单点登录。
 - **P7-S8-A15**：需要本机 Web 栈、浏览器与可回调的 `WEB_PUBLIC_BASE_URL`，CI 上没有；自动化覆盖在 A08（HTTP 往返，测试直接带 state 调回调）与前端 node 测试。
 - **P7-S9-A12**：前端测试是 `web/app/tests/skills.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不是追溯检查能识别的 pytest 节点。
@@ -752,6 +769,7 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | S7 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S8-streamable-http.md` | S8 执行 Prompt（含范围块） |
 | `docs/execution-prompts/P7-S9-skill-library.md` | S9 执行 Prompt（含范围块） |
+| `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | S10 执行 Prompt（含范围块） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
 | `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |
