@@ -38,6 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from water_agent.mcp.credentials import read_slot, validate_slot_name
 from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCP_CREDENTIAL_MISSING, MCPError
+from water_agent.mcp.http_transport import parse_server_url
 
 #: 配置版本。**改任何字段语义都要改它**（与治理配置同纪律）。``version`` 是写进配置文件的
 #: 元数据、加载时不比对，旧配置照常有效。
@@ -46,7 +47,9 @@ from water_agent.mcp.errors import MCP_CONFIG_INVALID, MCP_CREDENTIAL_MISSING, M
 #: 目录解析，递进。
 #: P7-S5 新增 ``lifecycle``（``per_run`` / ``shared``），递进。
 #: P7-S6 新增第三层 Web 管理层（``WATER_AGENT_MCP_WEB_LAYER``）与 ``credential_env`` 凭据槽位，递进。
-MCP_CONFIG_VERSION = "p7-s6-2026-10-07"
+#: P7-S8 新增 ``transport: streamable_http`` 与 ``url`` / ``allow_private_network`` / ``oauth`` /
+#: ``bearer_credential``，``command`` 改为按传输方式必填，递进。
+MCP_CONFIG_VERSION = "p7-s8-2026-10-12"
 
 #: 配置文件位置覆盖环境变量。
 ENV_MCP_CONFIG = "WATER_AGENT_MCP_CONFIG"
@@ -97,9 +100,78 @@ def check_allow_items(value: tuple[str, ...] | None) -> tuple[str, ...] | None:
 
 
 class ServerTransport(str, Enum):
-    """传输方式。本步只支持 stdio；HTTP/SSE 是 blocked 待办（规格 §7.3）。"""
+    """传输方式：本地 stdio 子进程，或 Streamable HTTP（P7-S8，2025-11-25 会话制）。
+
+    已废弃的 HTTP+SSE（2024-11-05）与 2026-07-28 的无状态协议不在此列（后者只识别、不实现）。
+    """
 
     STDIO = "stdio"
+    STREAMABLE_HTTP = "streamable_http"
+
+
+class MCPOAuthConfig(BaseModel):
+    """一台 HTTP server 的 OAuth 2.1 服务级授权配置（P7-S8）。
+
+    **服务级**：管理员在 Web 扩展面板授权一次，令牌属于这台 server 的部署、所有用户的 run 共用。
+    只能写在仓库默认层 / 部署覆盖层（授权服务器白名单决定令牌请求会被引向哪里，与 ``url`` 同级）。
+    客户端注册只支持两种：预注册（``client_id``）与动态注册（``dynamic_registration``）；不做 Client
+    ID Metadata Documents（需要对外托管 HTTPS 元数据文档）。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    client_id: str | None = Field(default=None, min_length=1, max_length=256)
+    #: 客户端密钥所在的凭据槽位名（必须同时出现在 server 的 ``credential_env`` 里）；值由管理员在面板填写。
+    client_secret_credential: str | None = None
+    token_endpoint_auth_method: Literal["none", "client_secret_basic", "client_secret_post"] = "none"
+    #: 授权服务器元数据有 ``registration_endpoint`` 时用 RFC 7591 动态注册（注册为公共客户端）。
+    dynamic_registration: bool = False
+    #: 受保护资源元数据里 ``authorization_servers`` 的第一项必须在这里；没配则只接受第一项并记录。
+    allowed_issuers: tuple[str, ...] = ()
+    #: 运维显式要求的 scope（``WWW-Authenticate`` 的 ``scope`` 与 ``scopes_supported`` 都没有时使用）。
+    scopes: tuple[str, ...] = ()
+
+    @field_validator("client_secret_credential")
+    @classmethod
+    def _validate_secret_slot(cls, value: str | None) -> str | None:
+        return None if value is None else validate_slot_name(value)
+
+    @field_validator("allowed_issuers")
+    @classmethod
+    def _validate_issuers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for issuer in value:
+            parsed = parse_server_url(issuer, allow_private_network=False)
+            if parsed.query:
+                raise ValueError(f"allowed_issuers 项 {issuer!r} 不得含查询串")
+            normalized.append(parsed.geturl().rstrip("/"))
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("allowed_issuers 重复")
+        return tuple(normalized)
+
+    @field_validator("scopes")
+    @classmethod
+    def _validate_scopes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for scope in value:
+            if not scope or any(ch.isspace() or ord(ch) < 0x21 or ord(ch) > 0x7E for ch in scope):
+                raise ValueError(f"scope {scope!r} 必须是不含空白的可见 ASCII")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_registration(self) -> MCPOAuthConfig:
+        if (self.client_id is None) == (not self.dynamic_registration):
+            raise ValueError("oauth 必须二选一：预注册（client_id）或动态注册（dynamic_registration=true）")
+        if self.dynamic_registration:
+            if self.client_secret_credential is not None or self.token_endpoint_auth_method != "none":
+                raise ValueError("动态注册的客户端是公共客户端：不能配置 client_secret_credential，认证方式只能是 none")
+        elif self.token_endpoint_auth_method == "none":
+            if self.client_secret_credential is not None:
+                raise ValueError("token_endpoint_auth_method=none 时不能配置 client_secret_credential")
+        elif self.client_secret_credential is None:
+            raise ValueError(
+                f"token_endpoint_auth_method={self.token_endpoint_auth_method} 需要 client_secret_credential"
+            )
+        return self
 
 
 class MCPServerConfig(BaseModel):
@@ -113,7 +185,9 @@ class MCPServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     server_id: str = Field(description="server 命名空间 id（本地工具名前缀来源）")
-    command: str = Field(min_length=1, description="可执行文件（配置可写 list，加载时归一化为 str+args）")
+    #: 可执行文件（配置可写 list，加载时归一化为 str+args）。``transport=stdio`` 时必填，HTTP 时必须为空
+    #: （缺省 ``""`` 表示"没有"：stdio 客户端按 ``str`` 使用它，类型保持 ``str``，不让 HTTP 的缺省值污染 stdio 路径）。
+    command: str = ""
     args: tuple[str, ...] = Field(default=())
     transport: ServerTransport = ServerTransport.STDIO
     #: 内联环境变量（key=value，覆盖 env_file 的同名项）。显式给值才进子进程。
@@ -149,6 +223,15 @@ class MCPServerConfig(BaseModel):
     #: 不与内联 ``env`` 重名，不能是加载器 / 解释器会执行的变量。有槽位没填值的 server 连接前跳过
     #: （``MCP_CREDENTIAL_MISSING``）。
     credential_env: tuple[str, ...] = ()
+    #: Streamable HTTP 的 MCP endpoint（P7-S8）。**出口就是它**：只能由运维写在仓库默认层 / 部署覆盖层，
+    #: 模型输入、远端响应与 Web 管理层都改变不了。``transport=streamable_http`` 时必填，stdio 时必须为空。
+    url: str | None = None
+    #: 允许回环 / 私有网段的目标与明文 ``http://``（本机 / 局域网调试）。链路本地与云元数据地址永远拒绝。
+    allow_private_network: bool = False
+    #: OAuth 2.1 服务级授权（HTTP 专用）。与 ``bearer_credential`` 互斥。
+    oauth: MCPOAuthConfig | None = None
+    #: 静态 Bearer：引用本 server ``credential_env`` 里的一个槽位，值作为 ``Authorization: Bearer`` 发出。
+    bearer_credential: str | None = None
 
     @field_validator("server_id")
     @classmethod
@@ -163,6 +246,8 @@ class MCPServerConfig(BaseModel):
     @field_validator("command")
     @classmethod
     def _validate_command(cls, value: str | list[str]) -> str:
+        if value == "":
+            return ""  # 没配：是否合法由传输方式决定（见 _validate_transport_shape）
         # 归一化：list 形式取首元素作为 command（args 由 model_validator 处理）
         if isinstance(value, list):
             if not value:
@@ -216,12 +301,70 @@ class MCPServerConfig(BaseModel):
             raise ValueError(f"credential_env 重复：{duplicates}")
         return value
 
+    @field_validator("url")
+    @classmethod
+    def _validate_url_shape(cls, value: str | None) -> str | None:
+        # 与 allow_private_network 相关的部分（http://）在 model_validator 里判；这里先按最严格口径过一遍形状
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("url 不得为空")
+        return value
+
+    @field_validator("bearer_credential")
+    @classmethod
+    def _validate_bearer_slot(cls, value: str | None) -> str | None:
+        return None if value is None else validate_slot_name(value)
+
     @model_validator(mode="after")
     def _credential_env_disjoint_from_env(self) -> MCPServerConfig:
         overlap = sorted(set(self.credential_env) & set(self.env))
         if overlap:
             raise ValueError(
                 f"credential_env 与内联 env 重名：{overlap}（同一个变量只能有一个来源）"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_transport_shape(self) -> MCPServerConfig:
+        """按传输方式判定字段：混写即错，不静默忽略（P7-S8）。"""
+        if self.transport is ServerTransport.STDIO:
+            if not self.command:
+                raise ValueError("transport=stdio 必须配置 command")
+            for name in ("url", "oauth", "bearer_credential"):
+                if getattr(self, name) is not None:
+                    raise ValueError(f"transport=stdio 不能配置 {name}（HTTP 专用）")
+            if self.allow_private_network:
+                raise ValueError("transport=stdio 不能配置 allow_private_network（HTTP 专用）")
+            return self
+        # streamable_http
+        if self.url is None:
+            raise ValueError("transport=streamable_http 必须配置 url")
+        for name in ("command", "env_file", "cwd"):
+            if getattr(self, name) not in (None, ""):
+                raise ValueError(f"transport=streamable_http 不能配置 {name}（stdio 专用）")
+        if self.args or self.env:
+            raise ValueError("transport=streamable_http 不能配置 args / env（stdio 专用）")
+        parsed = parse_server_url(self.url, allow_private_network=self.allow_private_network)
+        object.__setattr__(self, "url", parsed.geturl())
+        if self.oauth is not None and self.bearer_credential is not None:
+            raise ValueError("oauth 与 bearer_credential 互斥：一台 server 只能有一种认证方式")
+        referenced = {
+            name
+            for name in (
+                self.bearer_credential,
+                self.oauth.client_secret_credential if self.oauth is not None else None,
+            )
+            if name is not None
+        }
+        undeclared = sorted(referenced - set(self.credential_env))
+        if undeclared:
+            raise ValueError(f"槽位 {undeclared} 必须先在本 server 的 credential_env 里声明")
+        unused = sorted(set(self.credential_env) - referenced)
+        if unused:
+            raise ValueError(
+                f"HTTP server 的凭据槽位 {unused} 没有被 bearer_credential 或 oauth.client_secret_credential "
+                "引用（HTTP 的槽位不会注入任何环境变量）"
             )
         return self
 
@@ -283,7 +426,8 @@ class MCPGatewayConfig(BaseModel):
         return self
 
     def enabled_servers(self) -> tuple[MCPServerConfig, ...]:
-        return tuple(server for server in self.servers if server.transport is ServerTransport.STDIO)
+        """本网关支持的传输方式的 server（stdio 与 Streamable HTTP）。"""
+        return tuple(self.servers)
 
 
 def default_config_path(*, repo_root: Path | None = None) -> Path:
@@ -625,6 +769,8 @@ def child_env(config: MCPServerConfig, *, env_file_dir: Path | str | None = None
     - 内联 ``env`` 与 env_file 的同名 key 以**内联**为准（单一真源）。
     - 本机其他变量（含 API Key）一律不进入子进程（最小权限，规格 §3）。
     """
+    if config.transport is not ServerTransport.STDIO:
+        raise MCPError(MCP_CONFIG_INVALID, f"server {config.server_id!r} 不是 stdio server，没有子进程环境")
     child_env_vars: dict[str, str] = {}
     for name in DEFAULT_ENV_PASSTHROUGH:
         value = os.environ.get(name)
@@ -670,6 +816,7 @@ __all__ = [
     "MCP_CONFIG_VERSION",
     "WEB_LAYER_SERVER_KEYS",
     "MCPGatewayConfig",
+    "MCPOAuthConfig",
     "MCPServerConfig",
     "OperatorLayers",
     "ServerTransport",
