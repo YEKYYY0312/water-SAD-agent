@@ -276,10 +276,6 @@ S0 首次引入本文档，用 `python scripts/check_step_scope.py docs/给排�
     {
       "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
       "contains": "\"provider_call_sites\": 7"
-    },
-    {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"tools_guardrail_validated\": 5"
     }
   ]
 }

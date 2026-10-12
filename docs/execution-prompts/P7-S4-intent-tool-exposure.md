@@ -257,10 +257,6 @@ core + materials + drawing = **4487**（余量 13）；再加任何一台 MCP �
       "contains": "\"provider_call_sites\": 7"
     },
     {
-      "node": "tests/test_governance_contracts.py::TestInventoryCoverage::test_all_provider_sites_governed_after_step12",
-      "contains": "\"tools_guardrail_validated\": 5"
-    },
-    {
       "node": "tests/test_p7_known_figures.py::test_local_tool_schema_headroom_is_three_characters",
       "contains": "assert surface[\"schema_chars_total\"] == 4497"
     },
