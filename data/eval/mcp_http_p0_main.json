@@ -1,0 +1,1905 @@
+{
+  "suite": "mcp_http_p0",
+  "generated_by": "water_agent.harness.mcp_http_eval",
+  "report_format": 1,
+  "mechanism": "present",
+  "dataset": "data/eval/mcp_http_p0.jsonl",
+  "dataset_sha256": "6ff40278a9a5c34108e5073da2d929157fd894af2ff54db047cca449662b743f",
+  "total": 44,
+  "passed": 44,
+  "metrics": {
+    "expected_exposure_rate": 1.0,
+    "skip_code_match_rate": 1.0,
+    "call_result_match_rate": 1.0,
+    "forbidden_destination_block_rate": 1.0,
+    "token_leak_count": 0,
+    "tool_call_replay_count": 0,
+    "egress_ungoverned_count": 0,
+    "harness_error_count": 0
+  },
+  "hard_targets": {
+    "expected_exposure_rate": 1.0,
+    "skip_code_match_rate": 1.0,
+    "call_result_match_rate": 1.0,
+    "forbidden_destination_block_rate": 1.0,
+    "token_leak_count": 0,
+    "tool_call_replay_count": 0,
+    "egress_ungoverned_count": 0,
+    "harness_error_count": 0
+  },
+  "hard_violations": [],
+  "ok": true,
+  "cases": [
+    {
+      "id": "http-json-basic",
+      "category": "transport",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-sse-basic",
+      "category": "transport",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-allow-empty",
+      "category": "transport",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "echo_query": "MCP_NOT_IN_ALLOWLIST",
+            "lookup_project": "MCP_NOT_IN_ALLOWLIST",
+            "session_probe": "MCP_NOT_IN_ALLOWLIST",
+            "nested_schema_tool": "MCP_NOT_IN_ALLOWLIST",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-disabled",
+      "category": "transport",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 0,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_SERVER_DISABLED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-poisoned-description",
+      "category": "transport",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "echo_query": "MCP_DESCRIPTION_UNSAFE",
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-session-expire-rebuild",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "calls_in_session": 1,
+                "initialize_count": 1
+              }
+            },
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "calls_in_session": 1,
+                "initialize_count": 2
+              }
+            }
+          ],
+          "checks": {
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-bad-content-type",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_PROTOCOL_ERROR"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-flood-response",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_RESPONSE_TOO_LARGE"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-redirect-not-followed",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 1,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_PROTOCOL_ERROR"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-server-request-refused",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 6,
+      "governed_calls": 6,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-modern-only-server",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 1,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_PROTOCOL_UNSUPPORTED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-call-timeout-no-replay",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": false,
+              "code": "TOOL_ERROR",
+              "message": "工具 'mcp_httpfake_echo_query' 执行失败：MCP 调用超时：server 'httpfake'：等待响应头超时",
+              "structured_content": {}
+            }
+          ],
+          "checks": {
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-stream-cut-no-replay",
+      "category": "protocol",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": false,
+              "code": "TOOL_ERROR",
+              "message": "工具 'mcp_httpfake_echo_query' 执行失败：MCP server 连接失败：server 'httpfake'：事件流在收到响应前结束（连接中断）",
+              "structured_content": {}
+            }
+          ],
+          "checks": {
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-ssrf-loopback-denied",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": true,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_DESTINATION_FORBIDDEN"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-ssrf-metadata-address",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": true,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_DESTINATION_FORBIDDEN"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-ssrf-dns-to-private",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": true,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_DESTINATION_FORBIDDEN"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-ssrf-mixed-answers",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": true,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_DESTINATION_FORBIDDEN"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-ssrf-rebinding-pinned",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 1,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_DESTINATION_FORBIDDEN"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-config-http-scheme",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 0,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {},
+          "config_error": "MCP_CONFIG_INVALID",
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-config-userinfo",
+      "category": "ssrf",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 0,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {},
+          "config_error": "MCP_CONFIG_INVALID",
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-bearer-ok",
+      "category": "bearer",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-bearer-slot-empty",
+      "category": "bearer",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 0,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_CREDENTIAL_MISSING"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-bearer-rejected",
+      "category": "bearer",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 1,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_CONNECT_FAILED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-unauthorized",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 1,
+      "governed_calls": 1,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "oauth": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-authorized-call",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-discovery-fallback-path",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 8,
+      "governed_calls": 8,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-discovery-fallback-root",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-no-pkce",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-bad-iss",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-state-mismatch",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-token-refresh-rotation",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 21,
+      "governed_calls": 21,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "a"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 2,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "b"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 3,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "c"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-refresh-fails",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 10,
+      "governed_calls": 11,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 2,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "oauth": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-insufficient-scope",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": false,
+              "code": "TOOL_ERROR",
+              "message": "工具 'mcp_httpfake_echo_query' 执行失败：MCP 访问令牌 scope 不足：server 'httpfake' 要求 scope：mcp:read mcp:write。本网关不自动升级授权——请管理员确认后重新授权并授予该 scope",
+              "structured_content": {}
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-foreign-issuer",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 3,
+      "governed_calls": 3,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-dynamic-registration",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 10,
+      "governed_calls": 10,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-client-secret-basic",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-oauth-revoke",
+      "category": "oauth",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 11,
+      "governed_calls": 11,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 2,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_OAUTH_REQUIRED"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "skip": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-confirmation-session-refused",
+      "category": "confirmation",
+      "entry": "session",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 0,
+      "governed_calls": 0,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [],
+          "skips": {
+            "*": "MCP_CONFIRMATION_UNAVAILABLE"
+          },
+          "config_error": null,
+          "connection": null,
+          "calls": [],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-confirmation-web-exposed",
+      "category": "confirmation",
+      "entry": "web",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 4,
+      "governed_calls": 4,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [],
+          "checks": {
+            "exposure": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-runner-basic",
+      "category": "entry",
+      "entry": "runner",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "skip": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-runner-oauth",
+      "category": "entry",
+      "entry": "runner",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-web-basic",
+      "category": "entry",
+      "entry": "web",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "per_run",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-web-shared-reuse",
+      "category": "entry",
+      "entry": "web",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 5,
+      "governed_calls": 5,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "shared_new",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "calls_in_session": 1,
+                "initialize_count": 1
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 2,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "shared_reused",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "calls_in_session": 2,
+                "initialize_count": 1
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "http-web-oauth-shared",
+      "category": "entry",
+      "entry": "web",
+      "passed": true,
+      "error": null,
+      "failures": [],
+      "forbidden_destination": null,
+      "token_leaks": 0,
+      "tool_call_replays": 0,
+      "egress_ungoverned": 0,
+      "wire_requests": 9,
+      "governed_calls": 9,
+      "runs": [
+        {
+          "run": 1,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "shared_new",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "管径"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "oauth": true,
+            "exposure": true,
+            "call": true
+          },
+          "failures": []
+        },
+        {
+          "run": 2,
+          "exposed": [
+            "echo_query",
+            "lookup_project",
+            "session_probe"
+          ],
+          "skips": {
+            "nested_schema_tool": "MCP_UNSUPPORTED_SCHEMA",
+            "unlisted_tool": "MCP_NOT_IN_ALLOWLIST"
+          },
+          "config_error": null,
+          "connection": "shared_reused",
+          "calls": [
+            {
+              "ok": true,
+              "code": null,
+              "message": "",
+              "structured_content": {
+                "echo": {
+                  "query": "again"
+                }
+              }
+            }
+          ],
+          "checks": {
+            "exposure": true,
+            "call": true,
+            "server": true
+          },
+          "failures": []
+        }
+      ]
+    }
+  ]
+}

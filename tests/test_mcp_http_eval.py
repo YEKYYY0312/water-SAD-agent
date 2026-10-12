@@ -6,15 +6,18 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import http.client
 import json
+import os
 import ssl
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
@@ -321,3 +324,100 @@ def test_network_spy_records_connects_and_fakes_dns() -> None:
     assert spy.lookups["x.test"] == 2
     assert socket.getaddrinfo is not None  # 退出后已还原
     time.sleep(0)
+
+
+# ---------------------------------------------------------------------------
+# 完整评测与门禁对比（A12）
+# ---------------------------------------------------------------------------
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+COMPARE = REPO_ROOT / "scripts" / "compare_mcp_http_p0.py"
+BASELINE = REPO_ROOT / "data" / "eval" / "mcp_http_p0_main.json"
+
+
+@pytest.fixture(scope="module")
+def head() -> dict[str, Any]:
+    for key in ("WATER_AGENT_MCP_OVERLAY", "WATER_AGENT_MCP_CONFIG", "WATER_AGENT_MCP_WEB_LAYER",
+                "WATER_AGENT_TOOL_EXPOSURE", "WATER_AGENT_SKILLS", "WATER_AGENT_SKILLS_DIR", "WEB_PUBLIC_BASE_URL"):
+        assert key not in os.environ, f"{key} 会让 harness 读到宿主配置"
+    report, problems = ev.run(DATASET)
+    assert problems == [] and report is not None
+    return report
+
+
+def _compare(tmp_path: Path, head_report: dict[str, Any], base: dict[str, Any] | None) -> tuple[int, dict[str, Any]]:
+    head_path = tmp_path / "head.json"
+    head_path.write_text(json.dumps(head_report, ensure_ascii=False), encoding="utf-8")
+    argv = [sys.executable, str(COMPARE), "--head", str(head_path)]
+    if base is not None:
+        base_path = tmp_path / "base.json"
+        base_path.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+        argv += ["--base", str(base_path)]
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
+    done = subprocess.run(argv, capture_output=True, text=True, check=False, env=env)
+    return done.returncode, json.loads(done.stdout or done.stderr)
+
+
+def test_mcp_http_p0_hard_metrics(head: dict[str, Any], tmp_path: Path) -> None:
+    """P7-S8-A12：会话 / runner / Web 三条路径经本地假 HTTP server 与假授权服务器——44 条全过、八项硬指标全部达标
+    （SSRF 拦截零字节、令牌零泄漏、工具调用零重放、每个出站请求都有网关账）；入仓基线是同一数据集上的 present 报告，
+    逐字可复现；比较器拒绝手改指标、absent 机制、用例消失、PASS_TO_PASS 回退与数据集变化。"""
+
+    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+    assert head["mechanism"] == "present"
+    assert head["passed"] == head["total"] == 44
+    assert head["hard_violations"] == [], head["hard_violations"]
+    assert head["metrics"] == {
+        "expected_exposure_rate": 1.0,
+        "skip_code_match_rate": 1.0,
+        "call_result_match_rate": 1.0,
+        "forbidden_destination_block_rate": 1.0,
+        "token_leak_count": 0,
+        "tool_call_replay_count": 0,
+        "egress_ungoverned_count": 0,
+        "harness_error_count": 0,
+    }
+    assert {case["entry"] for case in head["cases"]} == {"session", "web", "runner"}
+    assert ev.metrics_from_case_dicts(head["cases"]) == head["metrics"]
+    assert baseline["generated_by"] == ev.GENERATED_BY and baseline["mechanism"] == "present"
+    assert baseline["dataset_sha256"] == hashlib.sha256(DATASET.read_bytes()).hexdigest()
+    assert baseline == head
+
+    code, result = _compare(tmp_path, head, baseline)
+    assert code == 0 and result["violations"] == [], result
+
+    tampered = copy.deepcopy(baseline)
+    tampered["metrics"]["token_leak_count"] = 0
+    tampered["cases"][-1]["token_leaks"] = 3
+    code, result = _compare(tmp_path, tampered, baseline)
+    assert code == 1 and any("疑似手改" in item for item in result["violations"])
+
+    absent = copy.deepcopy(baseline)
+    absent["mechanism"] = "absent"
+    code, result = _compare(tmp_path, absent, baseline)
+    assert code == 1 and any("只认 present" in item for item in result["violations"])
+
+    dropped = copy.deepcopy(baseline)
+    dropped["cases"] = dropped["cases"][1:]
+    dropped["total"] = len(dropped["cases"])
+    dropped["passed"] = sum(1 for case in dropped["cases"] if case["passed"])
+    dropped["metrics"] = ev.metrics_from_case_dicts(dropped["cases"])
+    code, result = _compare(tmp_path, dropped, baseline)
+    assert code == 1 and any("消失" in item for item in result["violations"])
+
+    regressed = copy.deepcopy(baseline)
+    victim = next(case for case in regressed["cases"] if case["category"] == "oauth")
+    victim["passed"] = False
+    victim["token_leaks"] = 2
+    regressed["passed"] -= 1
+    regressed["metrics"] = ev.metrics_from_case_dicts(regressed["cases"])
+    code, result = _compare(tmp_path, regressed, baseline)
+    assert code == 1
+    assert any("PASS_TO_PASS" in item for item in result["violations"])
+    assert any("token_leak_count" in item for item in result["violations"])
+
+    moved = copy.deepcopy(baseline)
+    moved["dataset_sha256"] = "0" * 64
+    code, result = _compare(tmp_path, moved, baseline)
+    assert code == 1 and any("数据集与基线不同" in item for item in result["violations"])
