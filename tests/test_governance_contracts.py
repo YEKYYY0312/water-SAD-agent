@@ -562,7 +562,7 @@ class TestInventoryCoverage:
         P7-S9 后工具数由 5 变 6（新增只读的 `load_skill`，按名取 skill 库里的规程）。**远程出口仍是
         7** —— skill 正文来自随包分发的内置目录或运维只读目录，不新增任何 provider 调用点。
 
-        P7-S8 后远程出口由 7 变 8：MCP Streamable HTTP 与其 OAuth 授权端点（``mcp_streamable_http``，
+        P7-S8-A04：P7-S8 后远程出口由 7 变 8：MCP Streamable HTTP 与其 OAuth 授权端点（``mcp_streamable_http``，
         唯一出站模块 ``mcp/http_transport.py``）——登记进清单、经 gateway、静态扫描能命中它。
         """
         assert governance_coverage() == {

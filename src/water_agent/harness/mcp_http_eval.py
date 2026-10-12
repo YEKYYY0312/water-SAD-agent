@@ -699,6 +699,16 @@ def _ordered_call_results(model: ScriptedChatModel, run: RunSpec) -> list[dict[s
     return ordered
 
 
+#: 每次运行都会变的结构化字段（会话号摘要）：不进报告，使入仓基线可逐字复现。
+_VOLATILE_FIELDS = frozenset({"session"})
+
+
+def _stable_fields(structured: Any) -> dict[str, Any]:
+    if not isinstance(structured, dict):
+        return {}
+    return {key: value for key, value in structured.items() if key not in _VOLATILE_FIELDS}
+
+
 def _normalize_call(payload: dict[str, Any]) -> dict[str, Any]:
     ok = payload.get("ok")
     if ok is None:
@@ -707,8 +717,7 @@ def _normalize_call(payload: dict[str, Any]) -> dict[str, Any]:
         "ok": bool(ok),
         "code": payload.get("code"),
         "message": str(payload.get("message", ""))[:300],
-        "structured_content": payload.get("structured_content") if isinstance(payload.get("structured_content"), dict) else {},
-        "content_text": str(payload.get("content_text", ""))[:300],
+        "structured_content": _stable_fields(payload.get("structured_content")),
     }
 
 

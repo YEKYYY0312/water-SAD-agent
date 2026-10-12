@@ -570,3 +570,30 @@ def test_bearer_value_never_appears_in_the_url_or_errors(scripted: Callable[...,
     request = server.requests[0]
     assert request["headers"]["Authorization"] == f"Bearer {secret}"
     assert secret not in request["path"]
+
+
+def test_bridged_descriptions_name_the_transport(
+    fake: Callable[..., Fake], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """桥接层与传输无关，只在工具描述里如实写明来源：stdio 保持原文（不动既有快照），HTTP 写 Streamable HTTP。"""
+
+    from water_agent.mcp.bridge import open_bridge
+    from water_agent.mcp.config import MCPGatewayConfig
+
+    server = fake("json")
+    # open_bridge 用系统默认信任库建连（和生产一致）：让它信任假 server 的自签证书
+    monkeypatch.setenv("SSL_CERT_FILE", str(server.tmp / "tls" / "cert.pem"))
+    config = server_config(server.url, allow=["echo_query"])
+    session = open_bridge(config, MCPGatewayConfig(servers=(config,)))
+    try:
+        assert session.client is not None and session.result.exposed_names == ("mcp_httpfake_echo_query",)
+        assert "Streamable HTTP 集成" in session.result.tools[0].description
+    finally:
+        session.close()
+    stdio = MCPServerConfig.model_validate({"server_id": "stdiofake", "command": sys.executable, "args": [
+        str(Path(__file__).resolve().parent / "fixtures" / "fake_mcp_server.py"), "--mode", "ok"], "allow": ["echo_query"]})
+    stdio_session = open_bridge(stdio, MCPGatewayConfig(servers=(stdio,)))
+    try:
+        assert "（stdio 集成，能力 mcp_invoke）" in stdio_session.result.tools[0].description
+    finally:
+        stdio_session.close()
