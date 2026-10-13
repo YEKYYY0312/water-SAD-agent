@@ -199,8 +199,8 @@ def retrieval_problem(args: argparse.Namespace | None = None) -> tuple[str, str]
             resolve_retrieval_plan(db_path, setting=setting, dimensions=index_dimensions(db_path))
     except EmbeddingMismatchError as exc:
         return exc.code, f"Retrieval embedding does not match the index: {exc.reason}"
-    except ValueError:
-        return None  # 选索引本身出错：交给装配响亮失败（与此前一致）
+    except Exception:  # noqa: BLE001 — 选索引 / 只读打开索引出错：预检不替装配下结论，交给装配响亮失败
+        return None
     return None
 
 
