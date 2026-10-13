@@ -19,6 +19,7 @@ embedding 预检都踩过的坑。
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -120,6 +121,15 @@ class ChatEndpoint:
     @property
     def host(self) -> str:
         return endpoint_host(self.base_url)
+
+    @property
+    def cache_digest(self) -> str:
+        """回答缓存键的端点因子：缺省 DeepSeek 端点为空串（与历史键同键），其余为 base_url 的摘要。"""
+
+        normalized = normalize_base_url(self.base_url)
+        if normalized == DEFAULT_CHAT_BASE_URL and self.source != SOURCE_LOCAL_MODEL:
+            return ""
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
     def api_key(self, *, getenv: Getenv = os.getenv) -> str | None:
         if self.api_key_literal is not None:
