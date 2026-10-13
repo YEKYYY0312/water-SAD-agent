@@ -124,7 +124,14 @@ function SkillCard({
  * 面板不能新增、编辑或上传 skill：内置的走仓库评审，其余只能由运维放进只读目录。启停写进 Web 管理层，
  * 从下一个 run 生效。下方的 MCP 计数来自能力端点（server 清单只在管理员的 MCP 扩展区）。
  */
-export function SkillLibraryPanel({ capabilities }: { capabilities: SystemCapabilities | null }) {
+export function SkillLibraryPanel({
+  capabilities,
+  onOpenMcp,
+}: {
+  capabilities: SystemCapabilities | null;
+  /** 切到设置里的 MCP 扩展页（它们是并列的子页，不再在同一页里滚动过去）。 */
+  onOpenMcp?: () => void;
+}) {
   const [listing, setListing] = useState<SkillListing | null>(null);
   const [error, setError] = useState<ErrorInfo | null>(null);
 
@@ -140,10 +147,6 @@ export function SkillLibraryPanel({ capabilities }: { capabilities: SystemCapabi
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  const jumpToMcp = () => {
-    document.getElementById("mcp-admin-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
 
   return (
     <section className="skill-library" aria-labelledby="skill-library-heading">
@@ -194,10 +197,10 @@ export function SkillLibraryPanel({ capabilities }: { capabilities: SystemCapabi
             </div>
           ))}
         </dl>
-        {listing?.can_manage ? (
+        {listing?.can_manage && onOpenMcp ? (
           <div className="dialog-actions mcp-actions">
-            <button type="button" className="quiet-button" onClick={jumpToMcp}>
-              查看 MCP 扩展区
+            <button type="button" className="quiet-button" onClick={onOpenMcp}>
+              查看 MCP 扩展
             </button>
           </div>
         ) : (
