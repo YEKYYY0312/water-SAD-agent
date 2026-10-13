@@ -13,6 +13,7 @@ from water_agent.harness import retrieval_mode_eval as rme
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET = rme.DEFAULT_DATASET
 RAG_P1 = REPO_ROOT / "data" / "eval" / "rag_p1.jsonl"
+BASELINE = REPO_ROOT / "data" / "eval" / "retrieval_colloquial_p0_main.json"
 #: S10 Step 1 冻结时的数据集摘要。有意修改必须同时重新固化入仓基线并在决策记录写明原因。
 FROZEN_SHA256 = "704d82d8b2601b4c47e409e0d1a3994ebc725b888e667be6f807c1389491bd56"
 
@@ -50,6 +51,7 @@ def test_colloquial_set_is_frozen_and_measured(text_report: dict) -> None:
     )
 
     assert text_report["status"] == "ok"
+    assert text_report["mechanism"] == "present", "S10 Step 6 起 text 模式是生产路径"
     assert text_report["index_source"] == "curated_text_only_build"
     assert text_report["embedding_calls"] == 0
     assert text_report["total"] == len(cases)
@@ -83,3 +85,62 @@ def test_hybrid_mode_skips_structurally_without_key_or_index(
     assert problems == [] and report is not None
     assert report["status"] == "skipped"
     assert report["requires"] == ["retrieval_index"]
+
+
+def _compare(head: dict, base: dict | None) -> dict:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "compare_retrieval_colloquial_p0",
+        REPO_ROOT / "scripts" / "compare_retrieval_colloquial_p0.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.compare_reports(head, base)
+
+
+def test_colloquial_baseline_comparator(text_report: dict) -> None:
+    """P7-S10-A07 入仓基线是同一数据集、同一语料上的 text 模式 present 报告，HEAD 与之对比通过；比较器拒绝
+    手改指标、absent 机制、非 text 模式、发生 embedding 调用、数据集变化、用例消失与 PASS_TO_PASS 回退。"""
+
+    import copy
+
+    base = json.loads(BASELINE.read_text(encoding="utf-8"))
+    assert base["mechanism"] == "present" and base["mode"] == "text"
+    assert base["dataset_sha256"] == FROZEN_SHA256
+    result = _compare(text_report, base)
+    assert result["passed"], result["violations"]
+
+    def broken(**changes: object) -> dict:
+        report = copy.deepcopy(base)
+        report.update(changes)
+        return report
+
+    hand_edited = copy.deepcopy(base)
+    hand_edited["metrics"]["retriever"]["recall_at_5"] = 1.0
+    for head in (
+        hand_edited,
+        broken(mechanism="absent"),
+        broken(mode="hybrid"),
+        broken(embedding_calls=3),
+        broken(dataset_sha256="0" * 64),
+    ):
+        assert not _compare(head, base)["passed"]
+
+    shrunk = copy.deepcopy(base)
+    shrunk["cases"] = shrunk["cases"][1:]
+    shrunk["metrics"] = rme.metrics_from_case_dicts(shrunk["cases"])
+    shrunk["total"] = len(shrunk["cases"])
+    shrunk["passed"] = sum(1 for case in shrunk["cases"] if case["passed"])
+    assert any("消失" in item for item in _compare(shrunk, base)["violations"])
+
+    regressed = copy.deepcopy(base)
+    case = next(case for case in regressed["cases"] if case["passed"])
+    case["passed"] = False
+    case["retriever"] = {"retrieved": [], "rank": None}
+    regressed["metrics"] = rme.metrics_from_case_dicts(regressed["cases"])
+    regressed["passed"] -= 1
+    violations = _compare(regressed, base)["violations"]
+    assert any("PASS_TO_PASS" in item for item in violations)
+    assert any("变差" in item for item in violations)
