@@ -308,3 +308,29 @@ test("history keeps a failed answer's status so the unverified banner survives a
   const merged = mergeHistory(history, false);
   assert.deepEqual(merged.filter((m) => m.role === "agent").map((m) => m.status), ["failed", "succeeded", "succeeded"]);
 });
+
+import { retrievalModeView } from "../src/workspaceState.ts";
+
+test("P7-S10 keyword retrieval is labelled honestly, never as semantic retrieval", () => {
+  const state = applyRunEvent(emptyRunState(), event("finalize", {
+    status: "succeeded",
+    answer: "回答",
+    citations: [],
+    retrieval_mode: "text",
+    retrieval_mode_reason: "embedding_not_configured",
+  }, "5"));
+  assert.deepEqual(state.retrieval, { mode: "text", reason: "embedding_not_configured" });
+  const view = retrievalModeView(state.retrieval);
+  assert.equal(view.label, "检索：关键词模式（未配置向量模型）");
+  assert.match(view.warning, /未配置向量模型时，口语化问法可能检索不到/);
+  assert.doesNotMatch(view.label + view.warning, /语义检索/);
+
+  const mismatch = retrievalModeView({ mode: "text", reason: "embedding_mismatch" });
+  assert.equal(mismatch.label, "检索：关键词模式（向量模型与索引不匹配）");
+  assert.match(mismatch.warning, /重建索引/);
+  const hybrid = retrievalModeView({ mode: "hybrid", reason: "embedding_matched" });
+  assert.equal(hybrid.tone, "succeeded");
+  assert.equal(hybrid.warning, null);
+  assert.equal(retrievalModeView(null), null);
+  assert.equal(applyRunEvent(emptyRunState(), event("finalize", { status: "succeeded" }, "6")).retrieval, null);
+});
