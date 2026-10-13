@@ -167,6 +167,9 @@ embedding 端点可配置之后（`WATER_AGENT_EMBEDDING_BASE_URL` / `WATER_AGEN
 - 往已有索引里追加时，元数据与本次模型 / 维度不一致即拒绝（一份索引混两种模型的向量就是损坏）；元数据在入库**之前**写出，
   中途失败的库同样记着它的向量来源。
 - `data/indexes/` 整目录不入库（`.gitignore`），元数据随索引一起由 `build_index.py` 产出、随镜像分发（`.dockerignore` 整目录放行）。
+- **纯关键词建库** `scripts/build_index.py --text-only`：不调 embedding、不要求任何 Key，向量写零向量（维度 `--dimensions`，缺省 512），
+  元数据写 `"embedding_model": null, "retrieval_modes": ["text"]`。这种索引在 `WATER_AGENT_RETRIEVAL_MODE=auto` 下永远走关键词检索、强制
+  `hybrid` 即 `RETRIEVAL_EMBEDDING_MISMATCH`；纯关键词条目不能写进带向量的索引。它不是"本地 embedding 兜底"（那个仍然禁止），是不做 embedding。
 
 ## 10. 验证门禁
 
