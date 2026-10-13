@@ -303,6 +303,12 @@ def _build_cache_service(
     旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。
     ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
+    # P7-S10：对话端点进缓存键（缺省 DeepSeek 为空串，与历史键同键）
+    endpoint = resolve_chat_endpoint(
+        base_url=getattr(args, "base_url", None),
+        model=getattr(args, "model", None),
+        api_key_env=getattr(args, "api_key_env", None),
+    )
     return AnswerCacheService(
         embedding_model="qwen3.7-text-embedding",
         dimensions=getattr(args, "dimensions", None) or 512,
@@ -312,6 +318,7 @@ def _build_cache_service(
         version_registry=get_version_registry(),
         mcp_server_manifest=mcp_server_manifest,
         skill_library_digest=skill_library_digest,
+        model_endpoint_digest=endpoint.cache_digest,
     )
 
 
