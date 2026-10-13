@@ -302,7 +302,13 @@ class RealPolishTransport:
         # 返回的是 GovernedChatModel：经 ProviderGateway 限流/预算/重试/熔断/对账。
         # 缺 Key 仍在此响亮失败（由 run_quality_polish 结构化为 blocked）。
         from water_agent.generation.chat_model import build_chat_model
+        from water_agent.generation.compatibility import require_verified_endpoint
+        from water_agent.generation.endpoints import resolve_chat_endpoint
 
+        # 换对话模型的硬门槛（P7-S10）：润色的产物会进交付文档，非缺省端点同样要有通过的兼容性报告
+        require_verified_endpoint(
+            resolve_chat_endpoint(base_url=self.base_url, model=self.model, api_key_env=self.api_key_env)
+        )
         self._llm = build_chat_model(
             model=self.model,
             base_url=self.base_url,

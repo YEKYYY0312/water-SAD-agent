@@ -43,6 +43,7 @@ from water_agent.domain.models import (
 )
 from water_agent.domain.state import default_state
 from water_agent.generation.chat_model import build_chat_model
+from water_agent.generation.compatibility import require_verified_endpoint
 from water_agent.generation.cost import estimate_deepseek_cost
 from water_agent.generation.endpoints import (
     DEFAULT_CHAT_API_KEY,
@@ -278,6 +279,7 @@ class HarnessRunner:
         assembler = PromptAssembler()
         sys_content = assembler.assemble_prompt().content
         system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        require_verified_endpoint(self._chat_endpoint)
         return build_llm_generator(
             model=self.model,
             base_url=self.base_url,
@@ -286,6 +288,8 @@ class HarnessRunner:
 
     def _build_real_chat_model(self):
         """构建真实 chat model（ChatOpenAI/DeepSeek function calling，agentic 图用）。"""
+        # 非缺省端点没有通过的兼容性报告即 RealComponentsError（有 Key 但建不起来，exit 3，不是 SKIP）
+        require_verified_endpoint(self._chat_endpoint)
         return build_chat_model(model=self.model, base_url=self.base_url, api_key_env=self.api_key_env)
 
     def _ensure_real_components(self):

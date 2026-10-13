@@ -23,6 +23,11 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
 from water_agent.generation.chat_model import build_chat_model
+from water_agent.generation.compatibility import (
+    PROBE_HINT,
+    endpoint_verification,
+    require_verified_endpoint,
+)
 from water_agent.generation.endpoints import (
     EndpointConfigError,
     chat_env_configured,
@@ -94,6 +99,8 @@ DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 
 #: 预检：对话模型没配齐（缺 Key / 端点配置不成立 / 本地模型缺证据）。
 CHAT_MODEL_NOT_CONFIGURED = "WEB_MODEL_NOT_CONFIGURED"
+#: 预检：非缺省对话端点没有通过的兼容性报告（P7-S10 硬门槛，缺省 DeepSeek 免检）。
+CHAT_MODEL_NOT_VERIFIED = "WEB_MODEL_NOT_VERIFIED"
 
 
 def chat_model_problem(
@@ -118,7 +125,14 @@ def chat_model_problem(
         return CHAT_MODEL_NOT_CONFIGURED, f"Real agent model is not configured: {exc}"
     missing = endpoint.missing_key(getenv=environment)
     if missing is None:
-        return None
+        verification = endpoint_verification(endpoint, getenv=environment)
+        if verification.usable:
+            return None
+        unverified = (
+            f"Chat endpoint {endpoint.host} / model {endpoint.model} is not verified "
+            f"({verification.reason}); {PROBE_HINT}"
+        )
+        return CHAT_MODEL_NOT_VERIFIED, unverified
     if endpoint.is_default:
         return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
     detail = (
@@ -509,6 +523,9 @@ class AgenticSession:
                 model=getattr(args, "model", None),
                 api_key_env=getattr(args, "api_key_env", None),
             )
+            # 换对话模型的硬门槛（P7-S10）：非缺省端点没有通过的兼容性报告就不装配（铁律②依赖模型真的
+            # 用 function calling 调 cite_clauses）；缺省 DeepSeek 免检
+            require_verified_endpoint(endpoint)
             try:
                 self.model = build_chat_model(
                     model=endpoint.model,
