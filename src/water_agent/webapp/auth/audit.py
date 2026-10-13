@@ -211,6 +211,14 @@ def audit_llm_compatibility_checked(*, actor_user_id: str, host: str, model: str
     )
 
 
+def audit_llm_models_listed(*, actor_user_id: str, host: str, result: str, count: int) -> None:
+    """设置面板「获取模型」：只记主机名、结果码与条数，**不记 Key、不记完整 URL、不记模型名列表**。"""
+    _emit(
+        "settings.llm_models_listed",
+        {"actor_user_id": actor_user_id, "host": host, "result": result, "count": count},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------

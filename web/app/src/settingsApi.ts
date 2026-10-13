@@ -1,4 +1,4 @@
-import { csrfToken } from "./workspaceApi";
+import { csrfToken } from "./workspaceApi.ts";
 
 export type CredentialSource = "env" | "secret_file" | "volume" | "none";
 
@@ -122,6 +122,16 @@ export class LlmEndpointApi {
       method: "PUT",
       body: JSON.stringify({ base_url: baseUrl, model }),
     });
+  }
+
+  /**
+   * 用表单里尚未保存的 base_url（和可选的 Key）取模型列表。`apiKey` 缺省时服务端用已存的 Key，前端拿不到已存的值。
+   * 失败抛 SettingsApiError，code 是稳定码（WEB_LLM_MODELS_*），message 是可直接展示的中文说明。
+   */
+  listModels(baseUrl: string, apiKey?: string): Promise<{ models: string[] }> {
+    const body: { base_url: string; api_key?: string } = { base_url: baseUrl };
+    if (apiKey) body.api_key = apiKey;
+    return this.request("/api/settings/llm-endpoint/models", { method: "POST", body: JSON.stringify(body) });
   }
 
   /** 会对当前对话端点发出少量计费请求；202 后轮询 get()。 */

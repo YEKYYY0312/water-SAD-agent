@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,6 +35,7 @@ from water_agent.config.credentials import (
     delete_credential,
     write_credential,
 )
+from water_agent.generation.chat_model import ModelListError, list_models
 from water_agent.generation.compatibility import (
     PANEL_REPORT_FILE,
     CompatibilityReport,
@@ -53,6 +55,7 @@ from water_agent.generation.local_model import local_model_configured
 from water_agent.webapp.auth.audit import (
     audit_llm_compatibility_checked,
     audit_llm_endpoint_updated,
+    audit_llm_models_listed,
 )
 from water_agent.webapp.auth.csrf import validate_csrf
 from water_agent.webapp.auth.dependencies import require_admin, require_password_changed
@@ -68,6 +71,10 @@ _ERROR_STATUS: dict[str, int] = {
     "WEB_LLM_ENDPOINT_INVALID": 422,
     "WEB_LLM_ENDPOINT_MANAGED": 409,
     "WEB_LLM_COMPATIBILITY_RUNNING": 409,
+    "WEB_LLM_MODELS_UNAUTHORIZED": 422,
+    "WEB_LLM_MODELS_UNSUPPORTED": 422,
+    "WEB_LLM_MODELS_DESTINATION_FORBIDDEN": 422,
+    "WEB_LLM_MODELS_UNREACHABLE": 502,
 }
 
 
@@ -171,6 +178,14 @@ class EndpointRequest(BaseModel):
     # 只有两个短字符串（JSON 请求体最坏每字符 12 字节，不加长文本字段）
     base_url: str = Field(min_length=1, max_length=512)
     model: str = Field(min_length=1, max_length=200)
+
+
+class ModelsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = Field(min_length=1, max_length=512)
+    # 表单里刚填、尚未保存的 Key；缺省则用服务端已存的有效 Key（前端永远拿不到已存的值）。只用于这一次调用。
+    api_key: str | None = Field(default=None, max_length=4096)
 
 
 class _CompatibilityCheck:
@@ -358,3 +373,29 @@ async def run_llm_compatibility(auth: tuple = Depends(require_admin)) -> JSONRes
         content={"version": _API_VERSION, "ok": True, "data": {"check": {"running": True}}},
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.post("/api/settings/llm-endpoint/models", dependencies=[Depends(validate_csrf)])
+async def fetch_llm_models(body: ModelsRequest, auth: tuple = Depends(require_admin)) -> JSONResponse:
+    """用表单里**尚未保存**的 base_url（+ 可选 Key）取模型列表，供面板下拉选择。
+
+    只读操作，部署锁定（env / 本地模型）时同样允许。出站走 ``list_models``（解析后校验目的地址、钉死 IP、
+    不跟随重定向、响应有上限）。响应只含模型 id；Key 与完整 URL 不进响应、审计与日志。
+    """
+
+    user, _principal = auth
+    typed = (body.api_key or "").strip()
+    try:
+        key = typed or (resolve_chat_endpoint(base_url=body.base_url, model="model-list").api_key() or "")
+    except EndpointConfigError as exc:
+        return _error("WEB_LLM_ENDPOINT_INVALID", str(exc))
+    host = ""
+    try:
+        host = endpoint_host(body.base_url.strip())
+        # 阻塞式网络 IO：放进线程池，免得拖住事件循环
+        models = await run_in_threadpool(list_models, body.base_url, key)
+    except ModelListError as exc:
+        audit_llm_models_listed(actor_user_id=str(user.user_id), host=host, result=exc.code, count=0)
+        return _error(exc.code, exc.message)
+    audit_llm_models_listed(actor_user_id=str(user.user_id), host=host, result="ok", count=len(models))
+    return _ok({"models": models})

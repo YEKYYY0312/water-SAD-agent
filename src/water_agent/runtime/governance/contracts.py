@@ -536,6 +536,8 @@ class CallCategory(str, Enum):
     VISION_REVIEW = "vision_review"
     #: P7-S8：对远程 MCP server 的一次 HTTP 交换（initialize / tools/list / tools/call / 授权端点……）。
     MCP_TOOL_CALL = "mcp_tool_call"
+    #: 设置面板「获取模型」：对用户填写的对话端点发一次 ``GET {base_url}/models``（管理员触发，不含用户问题）。
+    MODEL_LIST = "model_list"
 
 
 class ProviderCall(BaseModel):
