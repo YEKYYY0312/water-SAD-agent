@@ -277,3 +277,91 @@ def test_endpoint_url_is_validated_and_local_model_is_exclusive(
         ep.resolve_chat_endpoint()
     with pytest.raises(ep.EndpointConfigError):
         create_app(static_dir=Path("/nonexistent-static"))
+
+
+def test_price_override_is_not_a_hard_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """P7-S10-A03 不新增 ``ProviderKind``、出站清单数量不变（换端点仍是 ``DEEPSEEK_CHAT`` 那四个调用点）；
+    运维可覆盖对话端点超时（``WATER_AGENT_LLM_TIMEOUT_SECONDS``）与价格（``WATER_AGENT_LLM_PRICE``，挂在当前
+    对话模型名上、``confirmed=False``）：价格只用于成本估算，成本远超任何额度也不拒绝；写错即响亮失败。
+    回答缓存键带上对话端点摘要（缺省 DeepSeek 为空串）。"""
+
+    from water_agent.runtime.agentic import _build_cache_service
+    from water_agent.runtime.governance.binding import local_request_context
+    from water_agent.runtime.governance.config import GovernanceConfig, ModelPrice
+    from water_agent.runtime.governance.contracts import (
+        CallCategory,
+        Capability,
+        ProviderCall,
+        ProviderKind,
+    )
+    from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
+    from water_agent.runtime.governance.inventory import PROVIDER_CALL_SITES
+
+    assert [kind.value for kind in ProviderKind] == [
+        "deepseek_chat",
+        "bailian_embedding",
+        "bailian_rerank",
+        "bailian_vision",
+        "mcp_remote",
+    ]
+    assert len(PROVIDER_CALL_SITES) == 8
+    assert sorted(
+        site.site_id for site in PROVIDER_CALL_SITES if site.provider is ProviderKind.DEEPSEEK_CHAT
+    ) == [
+        "deepseek_chat_agentic_loop",
+        "deepseek_chat_docgen_polish",
+        "deepseek_chat_judge",
+        "deepseek_chat_legacy_rag",
+    ]
+
+    default = GovernanceConfig()
+    assert default.profile_for(ProviderKind.DEEPSEEK_CHAT).timeout_seconds == 60.0
+    assert default.price_for("other-model") is None
+    assert _build_cache_service(_session_args(tmp_path))._model_endpoint_digest == ""
+
+    monkeypatch.setenv(ep.CHAT_BASE_URL_ENV, "https://llm.other-provider.example/v1")
+    monkeypatch.setenv(ep.CHAT_MODEL_ENV, "other-model")
+    monkeypatch.setenv("WATER_AGENT_LLM_PRICE", "1.5, 3, 0.5")
+    monkeypatch.setenv("WATER_AGENT_LLM_TIMEOUT_SECONDS", "90")
+    config = GovernanceConfig()
+    assert config.profile_for(ProviderKind.DEEPSEEK_CHAT).timeout_seconds == 90.0
+    price = config.price_for("other-model")
+    assert price == ModelPrice(
+        input_per_1m=1.5, output_per_1m=3.0, cached_input_per_1m=0.5, confirmed=False
+    )
+    assert config.budget.daily_cost_cap_usd is None
+    digest = _build_cache_service(_session_args(tmp_path))._model_endpoint_digest
+    assert digest and digest == ep.resolve_chat_endpoint().cache_digest
+
+    gateway = ProviderGateway(config=config)
+    ctx = local_request_context(thread_id="price-override")
+    call = ProviderCall(
+        provider=ProviderKind.DEEPSEEK_CHAT,
+        category=CallCategory.AGENTIC_LOOP,
+        model="other-model",
+        temperature=0.0,
+        estimated_input_tokens=10,
+        required_capability=Capability.LLM_INFERENCE,
+    )
+    for _ in range(3):
+        result = gateway.call(
+            ctx,
+            call,
+            lambda: ("ok", ProviderUsage.of(input_tokens=200_000, output_tokens=100_000)),
+        )
+        assert result.value == "ok"
+        assert result.usage_record.cost_usd == price.estimate_usd(200_000, 100_000)
+
+    for name, bad in (
+        ("WATER_AGENT_LLM_PRICE", "1.5"),
+        ("WATER_AGENT_LLM_PRICE", "a,b"),
+        ("WATER_AGENT_LLM_PRICE", "-1,2"),
+        ("WATER_AGENT_LLM_TIMEOUT_SECONDS", "0"),
+        ("WATER_AGENT_LLM_TIMEOUT_SECONDS", "601"),
+        ("WATER_AGENT_LLM_TIMEOUT_SECONDS", "slow"),
+    ):
+        monkeypatch.setenv(name, bad)
+        with pytest.raises(ValueError):
+            GovernanceConfig()
+        monkeypatch.setenv("WATER_AGENT_LLM_PRICE", "1.5,3")
+        monkeypatch.setenv("WATER_AGENT_LLM_TIMEOUT_SECONDS", "90")
