@@ -5,14 +5,21 @@ import { SkillLibraryPanel } from "./SkillLibraryPanel";
 import { LlmEndpointApi, SettingsApi, SettingsApiError, type CredentialStatus, type LlmEndpointView } from "./settingsApi";
 import {
   COMPATIBILITY_BILLING_NOTE,
+  clampSection,
   compatibilityView,
   credentialRows,
+  endpointKeySlot,
   endpointSourceLabel,
+  initialSettingsSection,
   lockedReasonMessage,
+  modelChoices,
   modelReadinessMessage,
   modelReadinessTone,
+  validateBaseUrlInput,
   validateCredentialInput,
   validateEndpointInput,
+  visibleSections,
+  type SettingsSection,
 } from "./settingsState";
 import type { SystemCapabilities } from "./workspaceApi";
 import { CapabilityStatus } from "./workspaceInspector";
@@ -140,12 +147,20 @@ function CredentialCard({
 
 /**
  * 对话模型端点（P7-S10）：任意 OpenAI 兼容端点。改端点就决定了用户问题与检索条文发往哪里，所以只有管理员能改、
- * 只收 https、改了必须重新运行兼容性检查（硬门槛，缺省 DeepSeek 免检）。Key 不在这里填，填在下方的密钥槽位。
+ * 只收 https、改了必须重新运行兼容性检查（硬门槛，缺省 DeepSeek 免检）。
+ *
+ * 一张卡片里按填写顺序走完：地址 → 密钥 → 获取模型 → 选模型 → 保存。「获取模型」用表单里**尚未保存**的地址和密钥
+ * 请求服务端（服务端代为访问端点的 /models，并拒绝内网与云元数据地址）；端点没有 /models 时退回手动输入。
  */
 function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
   const [view, setView] = useState<LlmEndpointView | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [models, setModels] = useState<string[] | null>(null);
+  const [manual, setManual] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [modelsError, setModelsError] = useState<{ code: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
   const [saved, setSaved] = useState(false);
@@ -187,6 +202,37 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
   const compatibility = compatibilityView(view.compatibility?.status);
   const locked = lockedReasonMessage(view.locked_reason);
   const failing = Object.entries(view.compatibility?.report?.checks ?? {}).filter(([, status]) => status !== "passed");
+  const slot = endpointKeySlot(baseUrl);
+  const keyConfigured = view.api_key?.name === slot && view.api_key.configured;
+
+  // 地址或密钥变了，之前取到的列表就不再可信（它是对另一个端点/另一把 Key 取的）
+  const resetModels = () => {
+    setModels(null);
+    setManual(false);
+    setModelsError(null);
+  };
+
+  const fetchModels = async () => {
+    const complaint = validateBaseUrlInput(baseUrl);
+    if (complaint) {
+      setModelsError({ code: "WEB_LLM_ENDPOINT_INVALID", message: complaint });
+      return;
+    }
+    setFetching(true);
+    setModelsError(null);
+    try {
+      const result = await endpointApi.listModels(baseUrl.trim(), apiKey.trim() || undefined);
+      setModels(result.models);
+      setManual(false);
+      // 当前模型不在列表里就换成列表第一项，免得下拉显示一个并不存在的值
+      if (!result.models.includes(model.trim())) setModel(result.models[0] ?? model);
+    } catch (caught) {
+      setModels(null);
+      setModelsError(errorInfo(caught));
+    } finally {
+      setFetching(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -195,12 +241,42 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
       setError({ code: "WEB_LLM_ENDPOINT_INVALID", message: complaint });
       return;
     }
+    const typedKey = apiKey.trim();
+    if (typedKey) {
+      const keyComplaint = validateCredentialInput(typedKey);
+      if (keyComplaint) {
+        setError({ code: "WEB_CREDENTIAL_INVALID", message: keyComplaint });
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
     setSaved(false);
     try {
-      setView(await endpointApi.put(baseUrl.trim(), model.trim()));
+      // 先存端点（校验更严，失败时不留下孤立的密钥），再存密钥
+      const next = await endpointApi.put(baseUrl.trim(), model.trim());
+      if (typedKey) {
+        await api.putCredential(slot, typedKey);
+        // 立刻丢弃输入：值已落盘，留在 DOM 里只会增加被旁人看到的机会
+        setApiKey("");
+      }
+      setView(typedKey ? await endpointApi.get() : next);
       setSaved(true);
+      onChanged();
+    } catch (caught) {
+      setError(errorInfo(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearKey = async () => {
+    if (!view.api_key) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteCredential(view.api_key.name);
+      await reload();
       onChanged();
     } catch (caught) {
       setError(errorInfo(caught));
@@ -220,6 +296,9 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
     }
   };
 
+  const disabled = busy || running;
+  const choices = models ? modelChoices(models, model) : [];
+
   return (
     <form className="settings-card dialog-form" onSubmit={submit}>
       <div className="settings-card-head">
@@ -235,19 +314,88 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
       {view.editable && (
         <>
           <label>
-            base_url
-            <input value={baseUrl} spellCheck={false} placeholder="https://api.example.com/v1" onChange={(event) => setBaseUrl(event.target.value)} disabled={busy || running} />
+            接口地址（base_url）
+            <input
+              value={baseUrl}
+              spellCheck={false}
+              placeholder="https://api.example.com/v1"
+              onChange={(event) => {
+                setBaseUrl(event.target.value);
+                resetModels();
+              }}
+              disabled={disabled}
+            />
           </label>
+          <p className="field-hint">只接受 https://（本机 http://localhost、http://127.0.0.1 例外）。填到 /v1 这一级，不要带 /chat/completions。</p>
+
           <label>
-            模型
-            <input value={model} spellCheck={false} placeholder="deepseek-chat" onChange={(event) => setModel(event.target.value)} disabled={busy || running} />
+            {keyConfigured ? "替换 API Key" : "API Key"}
+            <input
+              type="password"
+              value={apiKey}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={keyConfigured ? "留空则沿用已保存的 Key" : "sk-…"}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                resetModels();
+              }}
+              disabled={disabled}
+            />
           </label>
-          <p className="field-hint">只接受 https://（本机 http://localhost、http://127.0.0.1 例外）。改了端点或模型，旧的兼容性报告即作废。</p>
+          <p className="field-hint">
+            保存到 <code>{slot}</code>，只写不读。{keyConfigured ? "该槽位已配置。" : "该槽位尚未配置。"}
+          </p>
+
+          <div className="model-picker">
+            <div className="model-picker-head">
+              <span>模型</span>
+              <button type="button" className="button-secondary" onClick={fetchModels} disabled={disabled || fetching || !baseUrl.trim()}>
+                {fetching ? "正在获取…" : models ? "重新获取模型" : "获取模型"}
+              </button>
+            </div>
+            {models && !manual ? (
+              <select
+                aria-label="模型"
+                value={model}
+                onChange={(event) => {
+                  if (event.target.value === MANUAL_OPTION) setManual(true);
+                  else setModel(event.target.value);
+                }}
+                disabled={disabled}
+              >
+                {choices.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value={MANUAL_OPTION}>其他（手动输入）…</option>
+              </select>
+            ) : (
+              <input
+                aria-label="模型"
+                value={model}
+                spellCheck={false}
+                placeholder="deepseek-chat"
+                onChange={(event) => setModel(event.target.value)}
+                disabled={disabled}
+              />
+            )}
+            {models && manual && (
+              <button type="button" className="quiet-button" onClick={() => setManual(false)}>
+                从列表选择
+              </button>
+            )}
+            {models && !manual && <p className="field-hint">从 {models.length} 个模型中选择；列表里没有的用「其他（手动输入）」。</p>}
+            <PanelError error={modelsError} />
+            {modelsError && <p className="field-hint">获取失败不影响使用：直接在上面手动输入模型名即可。</p>}
+          </div>
+          <p className="field-hint">改了端点或模型，旧的兼容性报告即作废。</p>
         </>
       )}
-      {view.api_key && (
+      {!view.editable && view.api_key && (
         <p className="field-hint">
-          这个端点用 <code>{view.api_key.name}</code>：{view.api_key.configured ? "已配置" : "未配置（在下方密钥槽位填写）"}
+          这个端点用 <code>{view.api_key.name}</code>：{view.api_key.configured ? "已配置" : "未配置"}
         </p>
       )}
       {view.compatibility?.report?.checked_at && (
@@ -258,12 +406,17 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
       {saved && <div className="workspace-feedback feedback-info" role="status">已保存。{compatibility.tone === "succeeded" ? "" : "运行兼容性检查通过后才能提问。"}</div>}
       {view.can_manage && (
         <div className="dialog-actions">
+          {view.api_key?.configured && view.editable && (
+            <button type="button" className="button-danger" onClick={clearKey} disabled={disabled}>
+              清除 Key
+            </button>
+          )}
           <button type="button" className="quiet-button" onClick={runCheck} disabled={running || busy}>
             {running ? "检查进行中…" : "运行兼容性检查"}
           </button>
           {view.editable && (
-            <button type="submit" className="button-primary" disabled={busy || running}>
-              {busy ? "正在保存…" : "保存端点"}
+            <button type="submit" className="button-primary" disabled={disabled}>
+              {busy ? "正在保存…" : "保存"}
             </button>
           )}
         </div>
@@ -273,7 +426,11 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-export function SettingsPanel({
+const MANUAL_OPTION = "__manual__";
+const CHAT_KEY_SLOTS = new Set(["DEEPSEEK_API_KEY", "WATER_AGENT_LLM_API_KEY"]);
+
+/** 「模型与密钥」页：真实模型就绪度、对话端点（地址 + Key + 获取模型）、其余密钥。 */
+function ModelSettingsPage({
   capabilities,
   onCapabilitiesChanged,
   onBack,
@@ -284,6 +441,8 @@ export function SettingsPanel({
 }) {
   const [statuses, setStatuses] = useState<CredentialStatus[] | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
+  // 对话端点可编辑时，两把对话 Key 由端点卡片填写，下面的列表不再重复出同槽位的卡片
+  const [endpointOwnsChatKeys, setEndpointOwnsChatKeys] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -299,6 +458,19 @@ export function SettingsPanel({
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    let alive = true;
+    void endpointApi
+      .get()
+      .then((view) => {
+        if (alive) setEndpointOwnsChatKeys(view.editable);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [statuses]);
+
   const save = async (name: string, value: string) => {
     await api.putCredential(name, value);
     await reload();
@@ -312,19 +484,19 @@ export function SettingsPanel({
     onCapabilitiesChanged();
   };
 
+  const changed = () => {
+    onCapabilitiesChanged();
+    void reload();
+  };
+
   const realLlm = capabilities ? capabilities.real_llm : null;
-  const rows = statuses ? credentialRows(statuses) : [];
+  const rows = (statuses ? credentialRows(statuses) : []).filter(
+    (row) => !(endpointOwnsChatKeys && CHAT_KEY_SLOTS.has(row.name)),
+  );
 
   return (
-    <section className="settings-panel" aria-labelledby="settings-heading">
-      <div className="settings-heading-row">
-        <h2 id="settings-heading">模型与密钥</h2>
-        {onBack && (
-          <button type="button" className="quiet-button" onClick={onBack}>
-            返回会话
-          </button>
-        )}
-      </div>
+    <div className="settings-page-body">
+      <h2 id="models-heading">模型与密钥</h2>
 
       <div className="settings-readiness">
         <CapabilityStatus
@@ -352,27 +524,93 @@ export function SettingsPanel({
       )}
 
       <div className="settings-card-list">
-        <LlmEndpointCard onChanged={onCapabilitiesChanged} />
+        <LlmEndpointCard onChanged={changed} />
       </div>
 
       {rows.length > 0 && (
-        <div className="settings-card-list">
-          {rows.map((row) => (
-            <CredentialCard key={row.name} row={row} onSave={save} onClear={clear} onBack={onBack} />
-          ))}
-        </div>
+        <>
+          <h3 className="settings-subheading">其他密钥</h3>
+          <div className="settings-card-list">
+            {rows.map((row) => (
+              <CredentialCard key={row.name} row={row} onSave={save} onClear={clear} onBack={onBack} />
+            ))}
+          </div>
+        </>
       )}
 
       <p className="muted-copy settings-footnote">
         密钥只写不读：本页只能看到「是否已配置、来自哪一层、何时更新」，任何接口都不会
         回传密钥内容。要确认填对了，回到会话发一条消息。
       </p>
+    </div>
+  );
+}
 
-      {/* 所有登录用户可看；启停与正文只给管理员（P7-S9） */}
-      <SkillLibraryPanel capabilities={capabilities} />
+export function SettingsPanel({
+  capabilities,
+  onCapabilitiesChanged,
+  onBack,
+}: {
+  capabilities: SystemCapabilities | null;
+  onCapabilitiesChanged: () => void;
+  onBack?: () => void;
+}) {
+  // 授权回调回到首页时直接停在 MCP 扩展（结果提示在那一页）；其余从「模型与密钥」开始
+  const [requested, setRequested] = useState<SettingsSection>(() => initialSettingsSection(window.location.search));
+  // 副栏是否显示 MCP：只有管理员需要（读接口对非管理员 403 时那一页本来就整块不渲染）
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
-      {/* 只有管理员看得到：读接口 403 时整块不渲染（P7-S6） */}
-      <McpAdminPanel />
+  useEffect(() => {
+    let alive = true;
+    void endpointApi
+      .get()
+      .then((view) => {
+        if (alive) setIsAdmin(view.can_manage);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const section = clampSection(requested, isAdmin);
+
+  return (
+    <section className="settings-panel" aria-labelledby="settings-heading">
+      <div className="settings-heading-row">
+        <h1 id="settings-heading">设置</h1>
+        {onBack && (
+          <button type="button" className="quiet-button" onClick={onBack}>
+            返回会话
+          </button>
+        )}
+      </div>
+
+      <div className="settings-layout">
+        <nav className="settings-subnav" aria-label="设置分类">
+          {visibleSections(isAdmin).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="nav-row"
+              aria-pressed={section === item.id}
+              onClick={() => setRequested(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-page">
+          {section === "models" && (
+            <ModelSettingsPage capabilities={capabilities} onCapabilitiesChanged={onCapabilitiesChanged} onBack={onBack} />
+          )}
+          {/* 所有登录用户可看；启停与正文只给管理员（P7-S9） */}
+          {section === "skills" && <SkillLibraryPanel capabilities={capabilities} onOpenMcp={() => setRequested("mcp")} />}
+          {/* 只有管理员看得到：读接口 403 时整块不渲染（P7-S6） */}
+          {section === "mcp" && <McpAdminPanel />}
+        </div>
+      </div>
     </section>
   );
 }
