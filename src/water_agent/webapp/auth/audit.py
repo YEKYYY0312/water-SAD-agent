@@ -195,6 +195,22 @@ def audit_skill_updated(*, actor_user_id: str, name: str, disabled: bool, revisi
     )
 
 
+def audit_llm_endpoint_updated(*, actor_user_id: str, host: str, model: str, changed: bool) -> None:
+    """P7-S10：管理员在设置面板改了对话端点。只记主机名与模型名，**不记 Key、不记完整 URL**。"""
+    _emit(
+        "settings.llm_endpoint_updated",
+        {"actor_user_id": actor_user_id, "host": host, "model": model, "changed": changed},
+    )
+
+
+def audit_llm_compatibility_checked(*, actor_user_id: str, host: str, model: str, result: str) -> None:
+    """P7-S10：管理员运行了对话端点兼容性检查。只记主机名、模型名与结果码。"""
+    _emit(
+        "settings.llm_compatibility_checked",
+        {"actor_user_id": actor_user_id, "host": host, "model": model, "result": result},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------

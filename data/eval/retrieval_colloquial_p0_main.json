@@ -1,0 +1,1793 @@
+{
+  "suite": "retrieval_colloquial_p0",
+  "generated_by": "water_agent.harness.retrieval_mode_eval",
+  "report_format": 1,
+  "mode": "text",
+  "mechanism": "present",
+  "dataset": "data/eval/retrieval_colloquial_p0.jsonl",
+  "dataset_sha256": "704d82d8b2601b4c47e409e0d1a3994ebc725b888e667be6f807c1389491bd56",
+  "corpus_sha256": "033061fbb30540f97602085661b888ebae0d119e055fce6780285be56d4feec9",
+  "top_k": 5,
+  "recall_top_k": 20,
+  "low_overlap_threshold": 0.3,
+  "status": "ok",
+  "index_source": "curated_text_only_build",
+  "embedding_calls": 0,
+  "total": 54,
+  "passed": 25,
+  "metrics": {
+    "retriever": {
+      "recall_at_1": 0.2593,
+      "recall_at_3": 0.4074,
+      "recall_at_5": 0.463,
+      "mrr": 0.3278,
+      "by_phrasing": {
+        "colloquial": {
+          "queries": 38,
+          "recall_at_5": 0.3158
+        },
+        "paraphrase": {
+          "queries": 16,
+          "recall_at_5": 0.8125
+        }
+      }
+    },
+    "local_rerank": {
+      "recall_at_1": 0.3148,
+      "recall_at_3": 0.4444,
+      "recall_at_5": 0.5185,
+      "mrr": 0.387,
+      "by_phrasing": {
+        "colloquial": {
+          "queries": 38,
+          "recall_at_5": 0.3684
+        },
+        "paraphrase": {
+          "queries": 16,
+          "recall_at_5": 0.875
+        }
+      }
+    },
+    "overlap": {
+      "median": 0.1716,
+      "mean": 0.1979,
+      "min": 0.0,
+      "max": 0.5,
+      "low_count": 42,
+      "low_share": 0.7778
+    },
+    "max_common_run": 5,
+    "harness_error_count": 0
+  },
+  "ok": true,
+  "cases": [
+    {
+      "id": "rcq-p0-001",
+      "query": "城市要找一处地方取自来水，挑河水还是地下水，主要看哪些方面？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.1.2"
+      ],
+      "overlap": 0.1538,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.2.1",
+          "GB50318-2017 4.1.4",
+          "GB50013-2018 5.1.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.1.3",
+          "GB50318-2017 4.1.4"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-002",
+      "query": "打井抽地下水，井位放在城里哪一块比较合适？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.2.1"
+      ],
+      "overlap": 0.1667,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.12.1",
+          "GB50014-2021 5.3.14",
+          "GB50014-2021 4.1.13",
+          "GB50013-2018 9.6.2",
+          "GB50014-2021 4.1.18"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.3.14",
+          "GB50013-2018 9.6.2",
+          "GB50014-2021 7.12.1",
+          "GB50013-2018 9.9.47",
+          "GB50014-2021 4.1.13"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-003",
+      "query": "埋在河滩底下收水的那种带孔管子，水在里面该跑多快，管子最小得多粗？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.2.15"
+      ],
+      "overlap": 0.0357,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 9.4.41",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 10.7.7",
+          "GB50013-2018 5.3.9"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 10.7.7",
+          "GB50013-2018 9.4.41",
+          "GB50013-2018 5.3.9"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-004",
+      "query": "地下那层含水的沙层只有薄薄几米，打深井、挖大口井还是埋收水管更合适？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.2.2"
+      ],
+      "overlap": 0.2333,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.12"
+        ],
+        "rank": 3
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.12",
+          "GB50013-2018 5.2.9"
+        ],
+        "rank": 2
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-005",
+      "query": "地下水的井怎么防止地表脏水顺着井壁灌下去？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.2.3"
+      ],
+      "overlap": 0.2632,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 10.8.2",
+          "GB50013-2018 11.2.3",
+          "GB50014-2021 8.4.3",
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.1.3"
+        ],
+        "rank": 4
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 10.8.2",
+          "GB50013-2018 11.2.3",
+          "GB50014-2021 8.4.3",
+          "GB50013-2018 5.1.3"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-006",
+      "query": "管井井口用黏土封口，往下至少要封几米？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50013-2018 5.2.6"
+      ],
+      "overlap": 0.375,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.25",
+          "GB50013-2018 9.5.3"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.25",
+          "GB50013-2018 9.5.3"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-007",
+      "query": "在江边建自来水的进水口，位置上要躲开哪些东西？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50013-2018 5.3.1"
+      ],
+      "overlap": 0.15,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.6.38",
+          "GB50013-2018 6.3.2",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 9.12.26"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.6.38",
+          "GB50013-2018 6.3.2",
+          "GB50014-2021 5.7.1",
+          "GB50013-2018 9.13.2",
+          "GB50014-2021 5.7.3"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-008",
+      "query": "感潮河段取原水时，用来存淡水躲咸潮的水库容量怎么确定？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50013-2018 5.3.2"
+      ],
+      "overlap": 0.4583,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.1.4",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.3.11"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.1.4"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-009",
+      "query": "新开发的片区，下雨的水和家里排的脏水要不要分两套管子走？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.1.2"
+      ],
+      "overlap": 0.04,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 9.10.24",
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.13.11"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 9.10.24",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.13.11"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-010",
+      "query": "碰上比设计标准还大的特大暴雨，城市排水这边要做哪些兜底准备？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.2.5"
+      ],
+      "overlap": 0.037,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 4.1.4"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 4.1.4"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-011",
+      "query": "污水厂沉下来的那些泥巴，是不是得跟厂子一块儿把处理的地方建好？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.3.10"
+      ],
+      "overlap": 0.1429,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 7.12.5",
+          "GB50014-2021 7.1.1",
+          "GB50013-2018 10.6.1"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.12.5",
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 7.1.1",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 7.12.3"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-012",
+      "query": "水处理过程中换下来的膜、废滤料这些垃圾该怎么收拾？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.3.11"
+      ],
+      "overlap": 0.4091,
+      "max_common_run": 5,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 8.1.10",
+          "GB50013-2018 12.3.1",
+          "GB50014-2021 7.10.1"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 8.1.10",
+          "GB50013-2018 12.3.1",
+          "GB50014-2021 3.3.11"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-013",
+      "query": "工厂往市政下水道里排水，有哪些底线不能碰？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.3.3"
+      ],
+      "overlap": 0.1667,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 7.6.9",
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 5.12.1"
+        ],
+        "rank": 3
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 7.6.9",
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 5.12.1"
+        ],
+        "rank": 4
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-014",
+      "query": "污水到底要处理到多干净，是凭什么来定的？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 3.3.7"
+      ],
+      "overlap": 0.1176,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 10.1.3",
+          "GB50014-2021 7.13.11",
+          "GB50013-2018 10.7.2",
+          "GB50014-2021 7.1.9",
+          "GB50014-2021 7.3.2"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.1.9",
+          "GB50013-2018 10.1.3",
+          "GB50014-2021 7.3.2",
+          "GB50014-2021 7.1.1",
+          "GB50013-2018 10.7.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-015",
+      "query": "估算居民排出来的脏水量，能不能直接拿用水量打个折？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 4.1.14"
+      ],
+      "overlap": 0.0476,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 11.2.1",
+          "GB50013-2018 10.1.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 10.1.3",
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 10.7.1"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-016",
+      "query": "截污设施上游那段雨污混在一起的管子，流量是哪几块加起来的？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 4.1.22"
+      ],
+      "overlap": 0.0385,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 9.4.15"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 6.2.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-017",
+      "query": "截流倍数在截下来送污水厂那段管子的流量里怎么用？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 4.1.23"
+      ],
+      "overlap": 0.2727,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50014-2021 6.2.3",
+          "GB50014-2021 5.14.3",
+          "GB50318-2017 6.2.2",
+          "GB50014-2021 5.8.1"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50014-2021 6.2.3",
+          "GB50014-2021 5.14.3",
+          "GB50014-2021 7.1.4",
+          "GB50318-2017 6.2.2"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-018",
+      "query": "内涝防治标准取规定范围上限的是哪些城市？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 4.1.4"
+      ],
+      "overlap": 0.3889,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 9.9.16",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 8.9.2"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 8.9.2",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 9.9.16"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-019",
+      "query": "一个片区地面硬化太多、下雨几乎不往下渗，规划上有什么要求？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 4.1.8"
+      ],
+      "overlap": 0.08,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 6.1.7"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 6.1.7",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 5.12.1"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-020",
+      "query": "手上没有实测数据，城市污水里BOD、悬浮物这些浓度按多少取？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 4.2.1"
+      ],
+      "overlap": 0.0769,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.11.1",
+          "GB50014-2021 7.13.1",
+          "GB50318-2017 4.1.4",
+          "GB50318-2017 4.2.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.11.1",
+          "GB50318-2017 4.2.3",
+          "GB50014-2021 7.13.1"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-021",
+      "query": "排水管道的粗细是按现在的水量定，还是按以后发展的水量定？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.1.1"
+      ],
+      "overlap": 0.3333,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.2.3",
+          "GB50013-2018 5.3.8",
+          "GB50013-2018 6.6.9",
+          "GB50014-2021 5.15.4"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.2.3",
+          "GB50013-2018 6.6.9",
+          "GB50013-2018 7.4.12",
+          "GB50014-2021 5.2.9"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-022",
+      "query": "下雨走的管子和雨污混流的管子之间，能不能接根管子打通？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.1.14"
+      ],
+      "overlap": 0.1429,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.4.2",
+          "GB50013-2018 9.13.3",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.2.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.4.2",
+          "GB50013-2018 9.13.3",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.1.14"
+        ],
+        "rank": 5
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-023",
+      "query": "排水主管一般沿着地势高的地方走还是低洼的地方走？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.1.2"
+      ],
+      "overlap": 0.2105,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.10.1",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 10.6.1",
+          "GB50318-2017 4.1.4"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.10.1",
+          "GB50318-2017 4.1.4",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 10.6.1"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-024",
+      "query": "排水管选水泥管还是塑料管，要考虑哪些因素？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.1.4"
+      ],
+      "overlap": 0.2778,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.3",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.4.15",
+          "GB50014-2021 5.2.1"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.2.3",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.2.1",
+          "GB50013-2018 7.2.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-025",
+      "query": "排水管做成圆管还是方的箱涵，怎么拿主意？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.1.6"
+      ],
+      "overlap": 0.1765,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.2.10",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 5.3.5",
+          "GB50013-2018 7.5.5"
+        ],
+        "rank": 3
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 7.2.10",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 5.3.5",
+          "GB50013-2018 7.5.5"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-026",
+      "query": "下穿立交的道路排水要排哪几类水？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.10.1"
+      ],
+      "overlap": 0.4286,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.5"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.4"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-027",
+      "query": "穿越河道的倒虹吸管，根数和管径下限分别是多少？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.11.1"
+      ],
+      "overlap": 0.3,
+      "max_common_run": 5,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50013-2018 5.3.20",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 7.4.11",
+          "GB50014-2021 5.11.4"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50014-2021 5.11.4",
+          "GB50013-2018 5.3.20",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 7.4.11"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-028",
+      "query": "地势太平、管子埋不下去的时候，能不能直接挖沟排雨水？沟底最窄多少？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.13.1"
+      ],
+      "overlap": 0.0357,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 6.1.9",
+          "GB50014-2021 7.2.18",
+          "GB50013-2018 10.6.3",
+          "GB50318-2017 5.1.3",
+          "GB50014-2021 5.14.8"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 6.1.9",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.14.8",
+          "GB50318-2017 5.1.3"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-029",
+      "query": "植草沟坡度陡到多少就得在沟里加挡水堰？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.13.6"
+      ],
+      "overlap": 0.2353,
+      "max_common_run": 5,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 7.13.11"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 5.12.1"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-030",
+      "query": "老城区雨污合流，一下雨就往河里冒脏水，建蓄水池要注意什么？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.14.3"
+      ],
+      "overlap": 0.04,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.12.9",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 4.1.2",
+          "GB50014-2021 6.3.2",
+          "GB50014-2021 3.2.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.12.9",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 6.3.2",
+          "GB50014-2021 4.1.2",
+          "GB50014-2021 6.2.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-031",
+      "query": "为了削掉暴雨洪峰修的蓄水池，放在地面上还是埋地下？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.14.5"
+      ],
+      "overlap": 0.1364,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 7.2.24",
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 6.4.13",
+          "GB50014-2021 4.1.13"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 7.5.12",
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 7.2.24",
+          "GB50014-2021 6.4.13",
+          "GB50013-2018 7.6.9"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-032",
+      "query": "敞开式调蓄水体岸边的防跌落措施，什么水深条件下必须设？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.14.7"
+      ],
+      "overlap": 0.3333,
+      "max_common_run": 5,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 6.5.3",
+          "GB50014-2021 8.8.5"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.2",
+          "GB50013-2018 7.6.1",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 8.8.5"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-033",
+      "query": "排水管跟别的地下管线、楼房基础挨得很近，要注意什么？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.15.1"
+      ],
+      "overlap": 0.2273,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.1"
+        ],
+        "rank": 4
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.1"
+        ],
+        "rank": 4
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-034",
+      "query": "排水管里过多少水，是拿什么乘什么算出来的？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.2.1"
+      ],
+      "overlap": 0.1176,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 9.4.15",
+          "GB50013-2018 10.6.3",
+          "GB50014-2021 6.4.4",
+          "GB50013-2018 10.1.7",
+          "GB50013-2018 9.12.30"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 9.4.15",
+          "GB50014-2021 6.4.4",
+          "GB50013-2018 9.12.30",
+          "GB50013-2018 10.6.3",
+          "GB50015-2019 3.7.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-035",
+      "query": "泵后的排水压力管，流速一般按多少控制？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.2.9"
+      ],
+      "overlap": 0.3125,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.3.12",
+          "GB50013-2018 11.3.2"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.4.17",
+          "GB50013-2018 12.3.4",
+          "GB50014-2021 5.3.12"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-036",
+      "query": "长距离输送的排水管，哪些地方要考虑排气，防止气阻？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.3.11"
+      ],
+      "overlap": 0.381,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.1.10",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50013-2018 7.3.1",
+          "GB50013-2018 7.3.2"
+        ],
+        "rank": 2
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.1.10",
+          "GB50013-2018 7.5.12",
+          "GB50013-2018 7.3.1"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-037",
+      "query": "检查井底下要不要留个坑让泥沙沉下去，一般挖多深？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.4.16"
+      ],
+      "overlap": 0.0952,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50013-2018 5.2.21",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.2.14",
+          "GB50014-2021 5.4.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50013-2018 5.2.21",
+          "GB50014-2021 5.4.9",
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 5.2.14"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-038",
+      "query": "污水检查井底部导流槽的顶面跟管径是什么比例关系？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.4.6"
+      ],
+      "overlap": 0.3182,
+      "max_common_run": 5,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.16",
+          "GB50014-2021 5.4.7"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.4.16"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-039",
+      "query": "跌水井单次跌落高度的上限和进水管径有什么关系？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.5.2"
+      ],
+      "overlap": 0.3333,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.5.1",
+          "GB50013-2018 7.5.10"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.3",
+          "GB50013-2018 7.5.10",
+          "GB50014-2021 5.4.17"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-040",
+      "query": "截流井用槽式好还是堰式好？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50014-2021 5.8.3"
+      ],
+      "overlap": 0.5,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-041",
+      "query": "河水涨起来会倒灌进截污的井，溢流口该定多高？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50014-2021 5.8.4"
+      ],
+      "overlap": 0.1579,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 5.8.4",
+          "GB50013-2018 7.6.9",
+          "GB50013-2018 9.5.55",
+          "GB50013-2018 10.3.5"
+        ],
+        "rank": 2
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 5.8.4",
+          "GB50013-2018 7.6.9",
+          "GB50013-2018 9.5.55",
+          "GB50013-2018 10.3.5"
+        ],
+        "rank": 2
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-042",
+      "query": "生活给水和消防给水管网能否直连，防回流怎么做？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50015-2019 3.3.1"
+      ],
+      "overlap": 0.2105,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 7.1.13"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50015-2019 3.3.1"
+        ],
+        "rank": 5
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-043",
+      "query": "算一栋住宅楼高峰时自来水的用量，要准备哪些参数，比如每户几个人、几个龙头？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50015-2019 3.7.1"
+      ],
+      "overlap": 0.0645,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 9.1.5",
+          "GB50013-2018 9.10.11",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 9.10.24",
+          "GB50015-2019 3.7.1"
+        ],
+        "rank": 5
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 9.1.5",
+          "GB50013-2018 9.10.11",
+          "GB50013-2018 9.13.2",
+          "GB50015-2019 3.7.1",
+          "GB50013-2018 9.10.24"
+        ],
+        "rank": 4
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-044",
+      "query": "楼里的自来水管选多粗，一般怎么定？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50015-2019 3.7.2"
+      ],
+      "overlap": 0.0714,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 7.1.7",
+          "GB50013-2018 5.2.10",
+          "GB50013-2018 7.5.8",
+          "GB50014-2021 3.3.5"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 7.1.7",
+          "GB50013-2018 5.2.10",
+          "GB50013-2018 7.5.8",
+          "GB50014-2021 3.3.5"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-045",
+      "query": "建筑生活给水管的经济流速范围是多少，上限多少？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50015-2019 3.7.3"
+      ],
+      "overlap": 0.2632,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50014-2021 5.15.4",
+          "GB50015-2019 3.7.2",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-046",
+      "query": "大家同时拧开龙头那一瞬间的用水量，设计里指的是什么、怎么理解？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50015-2019 3.7.4"
+      ],
+      "overlap": 0.0741,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.14",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 11.1.4"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 7.1.3"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-047",
+      "query": "楼里的下水管为什么要往屋顶伸一根透气的管子？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50015-2019 4.7.1"
+      ],
+      "overlap": 0.0,
+      "max_common_run": 1,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 9.9.37",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 4.1.4"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 9.9.37",
+          "GB50014-2021 5.10.4",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 7.2.18"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-048",
+      "query": "做城市排水规划，规划年限定到哪一年比较合适？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 3.1.2"
+      ],
+      "overlap": 0.2222,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1",
+          "GB50318-2017 5.5.1",
+          "GB50318-2017 3.4.1"
+        ],
+        "rank": 1
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1",
+          "GB50014-2021 5.1.1",
+          "GB50318-2017 5.5.1"
+        ],
+        "rank": 1
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-049",
+      "query": "一个城市选雨污分流还是合流，规划时要考虑哪些情况？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 3.3.1"
+      ],
+      "overlap": 0.0909,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 11.2.2",
+          "GB50014-2021 6.2.2",
+          "GB50013-2018 11.2.1",
+          "GB50014-2021 5.1.7",
+          "GB50014-2021 5.4.2"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 11.2.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50013-2018 11.1.4",
+          "GB50014-2021 6.2.2"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-050",
+      "query": "排水管一般埋在马路的哪一侧，快车道下面行不行？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 3.5.3"
+      ],
+      "overlap": 0.2,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.15.3"
+        ],
+        "rank": 4
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.3"
+        ],
+        "rank": 2
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-051",
+      "query": "排水管的出口通到河里，河水顶回来怎么办？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 3.6.3"
+      ],
+      "overlap": 0.1176,
+      "max_common_run": 3,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50013-2018 9.12.30",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 9.5.40",
+          "GB50013-2018 9.12.30",
+          "GB50013-2018 5.3.11"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50013-2018 9.12.30",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 9.5.40",
+          "GB50013-2018 9.12.30",
+          "GB50014-2021 5.9.1"
+        ],
+        "rank": null
+      },
+      "passed": false
+    },
+    {
+      "id": "rcq-p0-052",
+      "query": "排水泵站上游要不要设事故排放口？",
+      "phrasing": "paraphrase",
+      "gold": [
+        "GB50318-2017 3.6.5"
+      ],
+      "overlap": 0.2857,
+      "max_common_run": 4,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 7.6.40",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 10.1.8"
+        ],
+        "rank": 4
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 7.6.40",
+          "GB50014-2021 6.3.4"
+        ],
+        "rank": 3
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-053",
+      "query": "污水厂是建一个大的集中处理好，还是分散建几个小的？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 4.1.2"
+      ],
+      "overlap": 0.1818,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15"
+        ],
+        "rank": 3
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15"
+        ],
+        "rank": 3
+      },
+      "passed": true
+    },
+    {
+      "id": "rcq-p0-054",
+      "query": "铺污水收集管的时候，怎么借着地形少挖深一点？",
+      "phrasing": "colloquial",
+      "gold": [
+        "GB50318-2017 4.1.4"
+      ],
+      "overlap": 0.1579,
+      "max_common_run": 2,
+      "error": null,
+      "retriever": {
+        "retrieved": [
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 3.3.1",
+          "GB50318-2017 3.5.2",
+          "GB50014-2021 3.3.6",
+          "GB50014-2021 5.10.2"
+        ],
+        "rank": null
+      },
+      "local_rerank": {
+        "retrieved": [
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 3.3.1",
+          "GB50318-2017 3.5.2",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.4"
+        ],
+        "rank": 5
+      },
+      "passed": false
+    }
+  ]
+}

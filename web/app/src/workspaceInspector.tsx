@@ -1,5 +1,5 @@
 import type { DrawingCapability, SystemCapabilities, TraceSnapshot } from "./workspaceApi";
-import type { CalculationCard, CitationCard, ToolCard, WorkspaceRunState } from "./workspaceState";
+import { retrievalModeView, type CalculationCard, type CitationCard, type RetrievalModeCard, type ToolCard, type WorkspaceRunState } from "./workspaceState";
 import { Icon } from "./icons";
 import { StatusMark } from "./workspaceComponents";
 
@@ -9,6 +9,13 @@ function ToolList({ tools }: { tools: ToolCard[] }) {
 
 function CitationList({ citations }: { citations: CitationCard[] }) {
   return <section className="inspector-section" aria-labelledby="citations-heading"><h3 id="citations-heading">已校验引用</h3>{citations.length === 0 ? <p className="muted-copy">回答完成后，这里列出通过校验的条款号。</p> : <div className="citation-list">{citations.map((citation) => <div className="citation-row" key={citation.source_id}><code>{citation.source_id}</code><small>已校验</small></div>)}</div>}</section>;
+}
+
+function RetrievalMode({ retrieval }: { retrieval: RetrievalModeCard | null }) {
+  const view = retrievalModeView(retrieval);
+  if (!view) return null;
+  // 不复用 CapabilityStatus：它的右侧徽标是"未配置 / 可用"，套在"向量模型与索引不匹配"上会说错
+  return <section className="inspector-section" aria-labelledby="retrieval-heading"><h3 id="retrieval-heading">检索方式</h3><div className="capability-list"><div className="capability-row"><StatusMark status={view.tone} /><div><strong>{view.label}</strong><p>{view.warning ?? "按向量与关键词综合排序。"}</p></div></div></div></section>;
 }
 
 function CalculationList({ calculations }: { calculations: CalculationCard[] }) {
@@ -52,6 +59,7 @@ export function Inspector({
       </div>
       <ToolList tools={run.tools} />
       <CitationList citations={run.citations} />
+      <RetrievalMode retrieval={run.retrieval} />
       <CalculationList calculations={run.calculations} />
       <TraceList trace={run.trace} />
       <section className="inspector-section" aria-labelledby="capabilities-heading"><h3 id="capabilities-heading">能力状态</h3><div className="capability-list"><CapabilityStatus label="P3 DXF 图纸" status={drawing?.status || "unavailable"} message={drawing?.message || "能力状态不可用"} /><CapabilityStatus label="P3 DWG 直读" status={drawing?.dwg.status || "blocked"} message={drawing?.dwg.message || "DWG 直读 blocked"} /><CapabilityStatus label="P4 真实 MCP" status={capabilities?.mcp.status || "unavailable"} message={capabilities?.mcp.message || "能力状态不可用"} /></div></section>

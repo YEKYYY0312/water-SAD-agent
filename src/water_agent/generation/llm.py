@@ -1,14 +1,13 @@
-"""OpenAI 兼容 LLM 生成器（DeepSeek 官方 Claude 兼容接口）。
+"""OpenAI 兼容 LLM 生成器（legacy RAG 路径的 ``/chat/completions``）。
 
-默认走 DeepSeek 官方 API：base_url=https://api.deepseek.com，model=deepseek-chat。
-base_url / api_key / model 均可覆盖，便于接入任意 Claude 兼容服务。
+缺省走 DeepSeek 官方 API：base_url=https://api.deepseek.com，model=deepseek-chat。端点 / 模型 / Key
+没显式给出时取 ``generation/endpoints.py::resolve_chat_endpoint()``（P7-S10，与 agentic 路径同一来源）。
 
 引用只取自检索上下文，绝不编造来源；未配置 api_key 或构造即校验。
 """
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from water_agent.domain.models import Citation, GeneratedAnswer, RetrievedClause
 from water_agent.generation.base import Generator
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.ingestion.version_registry import split_spec_id
 from water_agent.runtime.governance.binding import default_gateway, local_request_context
 from water_agent.runtime.governance.contracts import (
@@ -31,8 +35,8 @@ from water_agent.runtime.governance.contracts import (
 from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
 from water_agent.runtime.governance.pipeline import default_guardrail_pipeline
 
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_MODEL = DEFAULT_CHAT_MODEL
 DEFAULT_MAX_CITATIONS = 5
 DEFAULT_SYSTEM_PROMPT = (
     "你是给排水专业标准助手。请依据提供的检索条款回答问题，仅能引用出现在检索结果里的条款，"
@@ -293,17 +297,22 @@ def _clause_to_citation(clause: RetrievedClause) -> Citation:
 def build_llm_generator(
     *,
     api_key: str | None = None,
-    model: str = DEFAULT_MODEL,
-    base_url: str = DEFAULT_BASE_URL,
+    model: str | None = None,
+    base_url: str | None = None,
     transport: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     system_prompt: str | None = None,
     gateway: ProviderGateway | None = None,
     request_context: RequestContext | None = None,
 ) -> LLMGenerator:
-    key = api_key if api_key is not None else os.environ.get("DEEPSEEK_API_KEY", "")
+    # 与 build_chat_model 同一解析（端点 / 模型 / Key 名，Key 三层解析）：此前这里直读
+    # os.environ["DEEPSEEK_API_KEY"]，配在 _FILE 或凭据卷里的 Key 只有 agentic 路径认。
+    endpoint = resolve_chat_endpoint(base_url=base_url, model=model)
+    key = api_key if api_key is not None else (endpoint.api_key() or "")
     prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
     return LLMGenerator(
-        LLMConfig(api_key=key, model=model, base_url=base_url, system_prompt=prompt),
+        LLMConfig(
+            api_key=key, model=endpoint.model, base_url=endpoint.base_url, system_prompt=prompt
+        ),
         transport=transport,
         gateway=gateway,
         request_context=request_context,

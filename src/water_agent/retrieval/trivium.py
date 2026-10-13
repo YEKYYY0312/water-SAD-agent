@@ -30,6 +30,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,164 @@ DEFAULT_INDEX_NAME = "qwen3.7__512__curated.db"
 
 class TriviumRetrievalError(RuntimeError):
     """真实 TriviumDB 检索失败时抛出。"""
+
+
+#: 稳定错误码：当前 embedding 配置与索引建库时的不一致（P7-S10）。
+RETRIEVAL_EMBEDDING_MISMATCH = "RETRIEVAL_EMBEDDING_MISMATCH"
+
+
+class EmbeddingMismatchError(TriviumRetrievalError):
+    """当前 embedding 模型 / 维度与索引建库时的不一致，或索引根本没有向量：拒绝做向量检索。
+
+    换了 embedding 模型还用旧向量，检索会**静默**变差且没有任何报错——这是 P7-S10 最危险的失败模式，
+    所以这里必须响亮。
+    """
+
+    code = RETRIEVAL_EMBEDDING_MISMATCH
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"{RETRIEVAL_EMBEDDING_MISMATCH}: {reason}")
+
+
+# ---------------------------------------------------------------------------
+# 索引元数据：建库时的 embedding 模型与维度（P7-S10）
+# ---------------------------------------------------------------------------
+
+INDEX_META_FORMAT = 1
+INDEX_META_ABSENT = "absent"
+INDEX_META_PRESENT = "present"
+INDEX_META_INVALID = "invalid"
+INDEX_META_NONE = "none"
+MODE_HYBRID = "hybrid"
+MODE_TEXT = "text"
+
+#: 检索模式设置（P7-S10）：``auto`` = embedding 已配置且与索引匹配 → ``hybrid``，否则 ``text``；
+#: ``hybrid`` = 强制混合（缺 embedding 或不匹配即失败）；``text`` = 强制关键词（BM25，不调用任何 embedding）。
+RETRIEVAL_MODE_ENV = "WATER_AGENT_RETRIEVAL_MODE"
+MODE_AUTO = "auto"
+RETRIEVAL_MODE_SETTINGS = (MODE_AUTO, MODE_HYBRID, MODE_TEXT)
+#: ``retrieval_mode_reason`` 的取值。text 模式**不是**语义检索，运行状态与界面必须如实标出原因。
+REASON_FORCED = "forced"
+REASON_EMBEDDING_NOT_CONFIGURED = "embedding_not_configured"
+REASON_EMBEDDING_MISMATCH = "embedding_mismatch"
+REASON_EMBEDDING_MATCHED = "embedding_matched"
+REASON_FIXTURE = "fixture"
+
+
+def retrieval_mode_setting(
+    explicit: str | None = None, *, getenv: Callable[[str], str | None] = os.environ.get
+) -> str:
+    """检索模式设置：调用方显式给出 > ``WATER_AGENT_RETRIEVAL_MODE`` > ``auto``。取值不对即响亮失败。"""
+
+    raw = (explicit or getenv(RETRIEVAL_MODE_ENV) or MODE_AUTO).strip().lower()
+    if raw not in RETRIEVAL_MODE_SETTINGS:
+        raise ValueError(f"{RETRIEVAL_MODE_ENV} 只能是 {'|'.join(RETRIEVAL_MODE_SETTINGS)}，得到 {raw!r}")
+    return raw
+
+
+def index_dimensions(db_path: str | Path) -> int:
+    """库的实际维度（只读打开，不调用 embedding）。"""
+
+    import triviumdb
+
+    probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
+    try:
+        return int(probe.dim())
+    finally:
+        probe.close()
+
+
+class IndexMetaError(ValueError):
+    """``<db>.index_meta.json`` 存在但读不出 / 字段不对：不知道向量是谁产的，就不能拿它做向量检索。"""
+
+
+@dataclass(frozen=True, slots=True)
+class IndexMeta:
+    """索引旁 ``<db>.index_meta.json`` 的内容（``status=absent`` 时是旧索引的缺省假设）。"""
+
+    embedding_model: str | None
+    embedding_host: str | None
+    dimensions: int
+    index_version: str
+    retrieval_modes: tuple[str, ...]
+    status: str
+
+    @property
+    def has_vectors(self) -> bool:
+        return MODE_HYBRID in self.retrieval_modes and self.embedding_model is not None
+
+
+def index_meta_path(db_path: str | Path) -> Path:
+    return Path(str(db_path) + ".index_meta.json")
+
+
+def read_index_meta(db_path: str | Path, *, dimensions: int) -> IndexMeta:
+    """读索引元数据。文件不存在 = P7-S10 之前建的旧索引：按百炼缺省模型（qwen3.7-text-embedding）对待。
+
+    ``dimensions`` 是库的实际维度（``triviumdb.dim()``），旧索引的元数据假设用它。
+    """
+
+    from water_agent.generation.endpoints import (
+        DEFAULT_EMBEDDING_BASE_URL,
+        DEFAULT_EMBEDDING_MODEL,
+        endpoint_host,
+    )
+
+    path = index_meta_path(db_path)
+    if not path.exists():
+        return IndexMeta(
+            embedding_model=DEFAULT_EMBEDDING_MODEL,
+            embedding_host=endpoint_host(DEFAULT_EMBEDDING_BASE_URL),
+            dimensions=dimensions,
+            index_version=f"{DEFAULT_EMBEDDING_MODEL}__{dimensions}__curated-v1",
+            retrieval_modes=(MODE_HYBRID, MODE_TEXT),
+            status=INDEX_META_ABSENT,
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("format") != INDEX_META_FORMAT:
+            raise ValueError("unknown index_meta format")
+        modes = tuple(str(mode) for mode in payload["retrieval_modes"])
+        model = payload.get("embedding_model")
+        meta = IndexMeta(
+            embedding_model=str(model) if model else None,
+            embedding_host=str(payload["embedding_host"]) if payload.get("embedding_host") else None,
+            dimensions=int(payload["dimensions"]),
+            index_version=str(payload["index_version"]),
+            retrieval_modes=modes,
+            status=INDEX_META_PRESENT,
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise IndexMetaError(f"{path.name} 读不出或字段不对：{exc}") from exc
+    if not meta.retrieval_modes or not set(meta.retrieval_modes) <= {MODE_HYBRID, MODE_TEXT}:
+        raise IndexMetaError(f"{path.name} 的 retrieval_modes 不合法：{list(meta.retrieval_modes)}")
+    return meta
+
+
+def embedding_mismatch(meta: IndexMeta, *, model: str, dimensions: int) -> str | None:
+    """当前 embedding 配置能不能对这份索引做向量检索；不能时返回原因（模型或维度不一致、没有向量）。"""
+
+    if not meta.has_vectors:
+        return "索引是纯关键词索引（build_index.py --text-only），没有向量"
+    if meta.embedding_model != model:
+        return f"索引用 {meta.embedding_model} 建库，当前配置的 embedding 模型是 {model}（换模型必须重建索引）"
+    if meta.dimensions != dimensions:
+        return f"索引维度 {meta.dimensions}，当前 embedding 维度 {dimensions}"
+    return None
+
+
+def ensure_embedding_matches(db_path: str | Path, *, model: str, dimensions: int) -> IndexMeta:
+    """向量检索的前置检查：索引元数据读不出、或与当前 embedding 配置不一致即 :class:`EmbeddingMismatchError`。"""
+
+    try:
+        meta = read_index_meta(db_path, dimensions=dimensions)
+    except IndexMetaError as exc:
+        raise EmbeddingMismatchError(str(exc)) from exc
+    reason = embedding_mismatch(meta, model=model, dimensions=dimensions)
+    if reason is not None:
+        raise EmbeddingMismatchError(reason)
+    return meta
 
 
 class IndexSelectionError(RuntimeError):
@@ -222,10 +381,21 @@ class TriviumRetriever(Retriever):
         embedding_fn: Callable[[str], list[float]] | None = None,
         hybrid_alpha: float = DEFAULT_HYBRID_ALPHA,
         dim: int | None = None,
+        retrieval_mode: str = MODE_HYBRID,
+        retrieval_mode_reason: str = "",
+        retrieval_mode_detail: str | None = None,
     ) -> None:
+        if retrieval_mode not in (MODE_HYBRID, MODE_TEXT):
+            raise ValueError(f"retrieval_mode 只能是 hybrid|text，得到 {retrieval_mode!r}")
         self.db_path = Path(db_path) if db_path is not None else None
+        #: text 模式（P7-S10）：关键词检索（BM25），``search_hybrid(零向量, hybrid_alpha=0.0)``，
+        #: **一次 embedding 都不调用**（含维度探测）。
+        self._retrieval_mode = retrieval_mode
+        self._retrieval_mode_reason = retrieval_mode_reason
+        #: auto 因 embedding 与索引不匹配而降级时的具体原因（模型名 / 维度，不含 Key）
+        self._retrieval_mode_detail = retrieval_mode_detail
         self._embedding_fn = embedding_fn or mock_embed
-        self._hybrid_alpha = hybrid_alpha
+        self._hybrid_alpha = 0.0 if retrieval_mode == MODE_TEXT else hybrid_alpha
         self._fallback = InMemoryRetriever(fallback_clauses or _default_fixture_clauses())
         self._parent_store: dict[str, Chunk] = parent_store or self._load_parent_store()
         self._db = None
@@ -236,11 +406,14 @@ class TriviumRetriever(Retriever):
         self._fallback_kind: str = "fixture" if self.db_path is None or not self.db_path.exists() else "none"
         self._fallback_reason: str = "db path missing" if self.db_path is None else ("db path not found" if not self.db_path.exists() else "")
         self._used_fallback = self._fallback_kind != "none"
+        open_dim = dim
         if self.db_path is not None and self.db_path.exists():
             try:
                 import triviumdb
 
-                open_dim = dim
+                if open_dim is None and retrieval_mode == MODE_TEXT:
+                    # text 模式不碰 embedding：维度直接读库
+                    open_dim = index_dimensions(self.db_path)
                 # 未显式指定时，用 query 向量实际维度推断（写读一致）
                 if open_dim is None:
                     try:
@@ -275,6 +448,8 @@ class TriviumRetriever(Retriever):
                 self._fallback_kind = "fixture"
                 self._fallback_reason = f"real db open failed: {exc}"
                 self._used_fallback = True
+        self._index_meta = self._index_meta_status(dim)
+        self._dim = open_dim if self._db is not None else dim
         self._text_index_ready = False
         self._text_indexed_nodes = 0
         if self._db is not None:
@@ -287,6 +462,16 @@ class TriviumRetriever(Retriever):
                 self._rebuild_text_index()
                 if self._text_index_ready:
                     self._text_index_source = "rebuilt"
+
+    def _index_meta_status(self, dim: int | None) -> str:
+        """索引旁有没有 ``index_meta.json``、读不读得出（只报状态；匹配与否由装配方判定）。"""
+
+        if self._db is None or self.db_path is None:
+            return INDEX_META_NONE
+        try:
+            return read_index_meta(self.db_path, dimensions=dim or 0).status
+        except IndexMetaError:
+            return INDEX_META_INVALID
 
     @property
     def fallback_kind(self) -> str:
@@ -366,6 +551,24 @@ class TriviumRetriever(Retriever):
             "text_index_source": self._text_index_source,
             "access_mode": self._access_mode,
             "db_opened": self._db_opened,
+            "index_meta": self._index_meta,
+            **self.retrieval_mode_status,
+        }
+
+    @property
+    def retrieval_mode_status(self) -> dict[str, str | None]:
+        """本检索器**实际**在用的检索模式与原因。没有真实索引（fixture 兜底）时是 fixture 语料上的关键词匹配。"""
+
+        if self._db is None:
+            return {
+                "retrieval_mode": MODE_TEXT,
+                "retrieval_mode_reason": REASON_FIXTURE,
+                "retrieval_mode_detail": None,
+            }
+        return {
+            "retrieval_mode": self._retrieval_mode,
+            "retrieval_mode_reason": self._retrieval_mode_reason,
+            "retrieval_mode_detail": self._retrieval_mode_detail,
         }
 
     def _enrich_with_parent(self, clause: RetrievedClause, payload: dict) -> RetrievedClause:
@@ -400,11 +603,15 @@ class TriviumRetriever(Retriever):
             raise TriviumRetrievalError(
                 f"text index not ready for db={self.db_path}: {self._db_error or 'unknown'}"
             )
-        try:
-            qvec = self._embedding_fn(query)
-        except Exception as exc:
-            self._db_error = str(exc)
-            raise TriviumRetrievalError(f"embedding failed for query={query!r}: {exc}") from exc
+        if self._retrieval_mode == MODE_TEXT:
+            # 关键词模式：零向量 + hybrid_alpha=0.0，排序只来自文本索引（BM25），不调用 embedding
+            qvec = [0.0] * int(self._dim or 0)
+        else:
+            try:
+                qvec = self._embedding_fn(query)
+            except Exception as exc:
+                self._db_error = str(exc)
+                raise TriviumRetrievalError(f"embedding failed for query={query!r}: {exc}") from exc
 
         try:
             hits = self._db.search_hybrid(qvec, query, top_k=top_k, hybrid_alpha=self._hybrid_alpha)
