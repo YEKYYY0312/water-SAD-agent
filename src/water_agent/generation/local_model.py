@@ -8,12 +8,15 @@ existing 4500-token tool-schema ceiling.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from water_agent.generation.compatibility import (
+    MAX_TOOL_SCHEMA_TOKENS,
+    CompatibilityReport,
+    read_report,
+)
 
 LOCAL_MODEL_ENABLED = "LOCAL_MODEL_ENABLED"
 LOCAL_MODEL_BASE_URL = "LOCAL_MODEL_BASE_URL"
@@ -22,7 +25,6 @@ LOCAL_MODEL_COMPATIBILITY_REPORT = "LOCAL_MODEL_COMPATIBILITY_REPORT"
 LOCAL_MODEL_DEFAULT_BASE_URL = "http://local-model:11434/v1"
 LOCAL_MODEL_DEFAULT_NAME = "qwen3:8b"
 LOCAL_MODEL_DEFAULT_API_KEY = "ollama"
-MAX_TOOL_SCHEMA_TOKENS = 4500
 
 COMPATIBILITY_CHECKS = (
     "function_calling",
@@ -35,28 +37,16 @@ COMPATIBILITY_CHECKS = (
 )
 
 
-class LocalModelCompatibilityReport(BaseModel):
-    """Machine-readable evidence; this is not an assertion that tests ran."""
+class LocalModelCompatibilityReport(CompatibilityReport):
+    """Machine-readable evidence; this is not an assertion that tests ran.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    version: str = Field(min_length=1)
-    status: Literal["compatible", "blocked", "incomplete"]
-    model: str = Field(min_length=1)
-    endpoint: str = Field(min_length=1)
-    checks: dict[str, Literal["passed", "failed", "blocked", "skipped"]]
-    schema_tokens: int = Field(ge=0)
-    evidence: dict[str, Any] = Field(default_factory=dict)
+    报告模型与判定在 ``generation/compatibility.py``（P7-S10 抽出，远程端点共用）；本地路径的检查集仍是
+    上面这七项，语义不变。
+    """
 
     @property
     def is_compatible(self) -> bool:
-        return (
-            self.status == "compatible"
-            and set(self.checks) == set(COMPATIBILITY_CHECKS)
-            and all(self.checks[name] == "passed" for name in COMPATIBILITY_CHECKS)
-            and self.schema_tokens < MAX_TOOL_SCHEMA_TOKENS
-            and self.evidence.get("probe_version") == self.version
-        )
+        return self.passes(COMPATIBILITY_CHECKS)
 
 
 def _truthy(value: str | None) -> bool:
@@ -81,11 +71,7 @@ def _report_path(environment=os.getenv) -> Path | None:
 def read_compatibility_report(path: str | Path) -> LocalModelCompatibilityReport | None:
     """Read evidence without printing its contents or treating bad data as proof."""
 
-    try:
-        payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
-        return LocalModelCompatibilityReport.model_validate(payload)
-    except (OSError, json.JSONDecodeError, ValidationError, TypeError, ValueError):
-        return None
+    return read_report(path, LocalModelCompatibilityReport)
 
 
 def local_model_ready(environment=os.getenv) -> bool:
@@ -97,9 +83,9 @@ def local_model_ready(environment=os.getenv) -> bool:
     report = read_compatibility_report(report_path) if report_path is not None else None
     if report is None or not report.is_compatible:
         return False
-    endpoint = (environment(LOCAL_MODEL_BASE_URL) or LOCAL_MODEL_DEFAULT_BASE_URL).rstrip("/")
+    endpoint = environment(LOCAL_MODEL_BASE_URL) or LOCAL_MODEL_DEFAULT_BASE_URL
     model = environment(LOCAL_MODEL_NAME) or LOCAL_MODEL_DEFAULT_NAME
-    return report.endpoint.rstrip("/") == endpoint and report.model == model
+    return report.matches(endpoint=endpoint, model=model)
 
 
 def local_model_settings(environment=os.getenv) -> dict[str, Any]:
