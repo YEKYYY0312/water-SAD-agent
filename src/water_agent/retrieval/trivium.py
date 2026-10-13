@@ -30,6 +30,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,129 @@ DEFAULT_INDEX_NAME = "qwen3.7__512__curated.db"
 
 class TriviumRetrievalError(RuntimeError):
     """真实 TriviumDB 检索失败时抛出。"""
+
+
+#: 稳定错误码：当前 embedding 配置与索引建库时的不一致（P7-S10）。
+RETRIEVAL_EMBEDDING_MISMATCH = "RETRIEVAL_EMBEDDING_MISMATCH"
+
+
+class EmbeddingMismatchError(TriviumRetrievalError):
+    """当前 embedding 模型 / 维度与索引建库时的不一致，或索引根本没有向量：拒绝做向量检索。
+
+    换了 embedding 模型还用旧向量，检索会**静默**变差且没有任何报错——这是 P7-S10 最危险的失败模式，
+    所以这里必须响亮。
+    """
+
+    code = RETRIEVAL_EMBEDDING_MISMATCH
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"{RETRIEVAL_EMBEDDING_MISMATCH}: {reason}")
+
+
+# ---------------------------------------------------------------------------
+# 索引元数据：建库时的 embedding 模型与维度（P7-S10）
+# ---------------------------------------------------------------------------
+
+INDEX_META_FORMAT = 1
+INDEX_META_ABSENT = "absent"
+INDEX_META_PRESENT = "present"
+INDEX_META_INVALID = "invalid"
+INDEX_META_NONE = "none"
+MODE_HYBRID = "hybrid"
+MODE_TEXT = "text"
+
+
+class IndexMetaError(ValueError):
+    """``<db>.index_meta.json`` 存在但读不出 / 字段不对：不知道向量是谁产的，就不能拿它做向量检索。"""
+
+
+@dataclass(frozen=True, slots=True)
+class IndexMeta:
+    """索引旁 ``<db>.index_meta.json`` 的内容（``status=absent`` 时是旧索引的缺省假设）。"""
+
+    embedding_model: str | None
+    embedding_host: str | None
+    dimensions: int
+    index_version: str
+    retrieval_modes: tuple[str, ...]
+    status: str
+
+    @property
+    def has_vectors(self) -> bool:
+        return MODE_HYBRID in self.retrieval_modes and self.embedding_model is not None
+
+
+def index_meta_path(db_path: str | Path) -> Path:
+    return Path(str(db_path) + ".index_meta.json")
+
+
+def read_index_meta(db_path: str | Path, *, dimensions: int) -> IndexMeta:
+    """读索引元数据。文件不存在 = P7-S10 之前建的旧索引：按百炼缺省模型（qwen3.7-text-embedding）对待。
+
+    ``dimensions`` 是库的实际维度（``triviumdb.dim()``），旧索引的元数据假设用它。
+    """
+
+    from water_agent.generation.endpoints import (
+        DEFAULT_EMBEDDING_BASE_URL,
+        DEFAULT_EMBEDDING_MODEL,
+        endpoint_host,
+    )
+
+    path = index_meta_path(db_path)
+    if not path.exists():
+        return IndexMeta(
+            embedding_model=DEFAULT_EMBEDDING_MODEL,
+            embedding_host=endpoint_host(DEFAULT_EMBEDDING_BASE_URL),
+            dimensions=dimensions,
+            index_version=f"{DEFAULT_EMBEDDING_MODEL}__{dimensions}__curated-v1",
+            retrieval_modes=(MODE_HYBRID, MODE_TEXT),
+            status=INDEX_META_ABSENT,
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("format") != INDEX_META_FORMAT:
+            raise ValueError("unknown index_meta format")
+        modes = tuple(str(mode) for mode in payload["retrieval_modes"])
+        model = payload.get("embedding_model")
+        meta = IndexMeta(
+            embedding_model=str(model) if model else None,
+            embedding_host=str(payload["embedding_host"]) if payload.get("embedding_host") else None,
+            dimensions=int(payload["dimensions"]),
+            index_version=str(payload["index_version"]),
+            retrieval_modes=modes,
+            status=INDEX_META_PRESENT,
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise IndexMetaError(f"{path.name} 读不出或字段不对：{exc}") from exc
+    if not meta.retrieval_modes or not set(meta.retrieval_modes) <= {MODE_HYBRID, MODE_TEXT}:
+        raise IndexMetaError(f"{path.name} 的 retrieval_modes 不合法：{list(meta.retrieval_modes)}")
+    return meta
+
+
+def embedding_mismatch(meta: IndexMeta, *, model: str, dimensions: int) -> str | None:
+    """当前 embedding 配置能不能对这份索引做向量检索；不能时返回原因（模型或维度不一致、没有向量）。"""
+
+    if not meta.has_vectors:
+        return "索引是纯关键词索引（build_index.py --text-only），没有向量"
+    if meta.embedding_model != model:
+        return f"索引用 {meta.embedding_model} 建库，当前配置的 embedding 模型是 {model}（换模型必须重建索引）"
+    if meta.dimensions != dimensions:
+        return f"索引维度 {meta.dimensions}，当前 embedding 维度 {dimensions}"
+    return None
+
+
+def ensure_embedding_matches(db_path: str | Path, *, model: str, dimensions: int) -> IndexMeta:
+    """向量检索的前置检查：索引元数据读不出、或与当前 embedding 配置不一致即 :class:`EmbeddingMismatchError`。"""
+
+    try:
+        meta = read_index_meta(db_path, dimensions=dimensions)
+    except IndexMetaError as exc:
+        raise EmbeddingMismatchError(str(exc)) from exc
+    reason = embedding_mismatch(meta, model=model, dimensions=dimensions)
+    if reason is not None:
+        raise EmbeddingMismatchError(reason)
+    return meta
 
 
 class IndexSelectionError(RuntimeError):
@@ -275,6 +399,7 @@ class TriviumRetriever(Retriever):
                 self._fallback_kind = "fixture"
                 self._fallback_reason = f"real db open failed: {exc}"
                 self._used_fallback = True
+        self._index_meta = self._index_meta_status(dim)
         self._text_index_ready = False
         self._text_indexed_nodes = 0
         if self._db is not None:
@@ -287,6 +412,16 @@ class TriviumRetriever(Retriever):
                 self._rebuild_text_index()
                 if self._text_index_ready:
                     self._text_index_source = "rebuilt"
+
+    def _index_meta_status(self, dim: int | None) -> str:
+        """索引旁有没有 ``index_meta.json``、读不读得出（只报状态；匹配与否由装配方判定）。"""
+
+        if self._db is None or self.db_path is None:
+            return INDEX_META_NONE
+        try:
+            return read_index_meta(self.db_path, dimensions=dim or 0).status
+        except IndexMetaError:
+            return INDEX_META_INVALID
 
     @property
     def fallback_kind(self) -> str:
@@ -366,6 +501,7 @@ class TriviumRetriever(Retriever):
             "text_index_source": self._text_index_source,
             "access_mode": self._access_mode,
             "db_opened": self._db_opened,
+            "index_meta": self._index_meta,
         }
 
     def _enrich_with_parent(self, clause: RetrievedClause, payload: dict) -> RetrievedClause:
