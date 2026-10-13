@@ -261,6 +261,45 @@ class TestCliJsonContract:
         assert {c["source_id"] for c in payload["citations"]} <= MINI_SOURCE_IDS
 
 
+def test_probe_reports_retrieval_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S10-A09 冒烟的 agentic 探针断言 ``retrieval_mode`` 出现在运行状态里且与本部署的配置一致：期望值在
+    冒烟进程内按同一套规则（``resolve_retrieval_plan``）独立算出——auto 且没有 embedding Key 时是关键词检索，
+    强制 text / hybrid 各自如实报出；子进程报的与之不一致即判失败（配置没透传到位）。"""
+
+    for name in (
+        "DASHSCOPE_API_KEY",
+        "DASHSCOPE_API_KEY_FILE",
+        "WATER_AGENT_EMBEDDING_API_KEY",
+        "WATER_AGENT_EMBEDDING_BASE_URL",
+        "WATER_AGENT_EMBEDDING_MODEL",
+        "WATER_AGENT_RETRIEVAL_MODE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    assert "agentic_run_reports_retrieval_mode" in inspect.getsource(smoke.main)
+    db = _build_mini_index(tmp_path / "index")
+    run = TestCliJsonContract._run
+
+    payload = run(tmp_path / "auto", capsys, "--db-path", str(db))
+    assert smoke.expected_retrieval_mode(db) == ("text", "embedding_not_configured")
+    assert smoke._retrieval_mode_check(payload) == (
+        True,
+        "reported=('text', 'embedding_not_configured') expected=('text', 'embedding_not_configured')",
+    )
+    for setting, expected in (("text", ("text", "forced")), ("hybrid", ("hybrid", "forced"))):
+        monkeypatch.setenv("WATER_AGENT_RETRIEVAL_MODE", setting)
+        payload = run(tmp_path / setting, capsys, "--db-path", str(db))
+        assert smoke._retrieval_mode_check(payload)[0] is True, setting
+        status = payload["retriever_runtime_status"]
+        assert (status["retrieval_mode"], status["retrieval_mode_reason"]) == expected
+    payload["retriever_runtime_status"]["retrieval_mode"] = "text"
+    ok, detail = smoke._retrieval_mode_check(payload)
+    assert ok is False and "expected=('hybrid', 'forced')" in detail
+    assert smoke._retrieval_mode_check({"retriever_runtime_status": {}})[0] is False
+
+
 class TestCheckpointerDegradation:
     """镜像内 ``/app/data`` 只读且不收 ``data/sessions``，建会话库这一步会失败。"""
 

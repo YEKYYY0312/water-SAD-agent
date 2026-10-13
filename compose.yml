@@ -94,6 +94,21 @@ services:
       # 必须是 https://（本机调试允许 http://localhost）；不设 = 面板不提供「授权」按钮，不从请求的
       # Host 头推导。域名与 Caddy 的 WEB_DOMAIN 一致时通常写 https://$WEB_DOMAIN。
       WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}
+      # 对话模型端点（P7-S10，任意 OpenAI 兼容端点）。都空 = 缺省 DeepSeek（现状）。非缺省端点必须有通过的
+      # 兼容性报告才能提问：WATER_AGENT_LLM_COMPATIBILITY_REPORT 指向它，或在设置面板运行兼容性检查（报告写进
+      # app_credentials 卷）。Key 不经环境变量传（会出现在 `docker compose config` 里）：端点改到别家后在设置面板
+      # 填 WATER_AGENT_LLM_API_KEY（只写不读）；DeepSeek 的 Key 不会发给别的服务商。
+      WATER_AGENT_LLM_BASE_URL: ${WATER_AGENT_LLM_BASE_URL:-}
+      WATER_AGENT_LLM_MODEL: ${WATER_AGENT_LLM_MODEL:-}
+      WATER_AGENT_LLM_COMPATIBILITY_REPORT: ${WATER_AGENT_LLM_COMPATIBILITY_REPORT:-}
+      WATER_AGENT_LLM_TIMEOUT_SECONDS: ${WATER_AGENT_LLM_TIMEOUT_SECONDS:-}
+      WATER_AGENT_LLM_PRICE: ${WATER_AGENT_LLM_PRICE:-}
+      # embedding 端点（缺省百炼 qwen3.7-text-embedding）：换 embedding 模型必须重建索引（index_meta.json 校验）。
+      WATER_AGENT_EMBEDDING_BASE_URL: ${WATER_AGENT_EMBEDDING_BASE_URL:-}
+      WATER_AGENT_EMBEDDING_MODEL: ${WATER_AGENT_EMBEDDING_MODEL:-}
+      # 检索模式 auto|hybrid|text（空 = auto）：auto 下没配 embedding 或与索引不匹配时走关键词检索（BM25，
+      # 不是语义检索，界面如实标出）；hybrid 强制混合检索，缺 embedding 即拒绝提问。
+      WATER_AGENT_RETRIEVAL_MODE: ${WATER_AGENT_RETRIEVAL_MODE:-}
     secrets:
       - postgres_password
       - deepseek_api_key
@@ -151,6 +166,10 @@ services:
       # _run_agentic_probe），运行收尾要写 trace。这里指向下面的 tmpfs：
       # 根文件系统只读，app 的 app_traces 卷也不该被冒烟写脏。
       WATER_AGENT_TRACE_DIR: /tmp/water-agent-traces
+      # 冒烟的 agentic 探针按与 app 相同的检索模式配置判定（P7-S10），并断言运行状态里的 retrieval_mode 与之一致
+      WATER_AGENT_RETRIEVAL_MODE: ${WATER_AGENT_RETRIEVAL_MODE:-}
+      WATER_AGENT_EMBEDDING_BASE_URL: ${WATER_AGENT_EMBEDDING_BASE_URL:-}
+      WATER_AGENT_EMBEDDING_MODEL: ${WATER_AGENT_EMBEDDING_MODEL:-}
     depends_on:
       app:
         condition: service_healthy

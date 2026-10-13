@@ -244,6 +244,26 @@ def _run_agentic_probe() -> tuple[dict, str]:
     return payload, ""
 
 
+def expected_retrieval_mode(index_path: Path) -> tuple[str, str]:
+    """探针那次 agentic run 应当用哪种检索（P7-S10）：与装配同一套规则（``resolve_retrieval_plan``）。
+
+    探针带 ``--mock-generator``：判定为 hybrid 时用伪向量（不要 Key），所以强制 hybrid 时就是 hybrid；auto 下
+    冒烟容器里通常没有 embedding Key → text。这里在冒烟进程内独立算一遍，子进程报出来的不一致就说明配置没
+    透传到位。返回 ``(mode, reason)``。
+    """
+
+    from water_agent.retrieval.trivium import MODE_HYBRID, index_dimensions, retrieval_mode_setting
+    from water_agent.runtime.agentic import resolve_retrieval_plan
+
+    setting = retrieval_mode_setting()
+    if setting == MODE_HYBRID:
+        return MODE_HYBRID, "forced"
+    mode, reason, _detail = resolve_retrieval_plan(
+        index_path, setting=setting, dimensions=index_dimensions(index_path)
+    )
+    return mode, reason
+
+
 #: 冒烟出图用的最小请求（2 层 × 2 户）：只证链路，不证图纸质量。
 DRAWING_REQUEST = {
     "system_type": "给水",
@@ -255,6 +275,19 @@ DRAWING_REQUEST = {
     "flow_rate_lps": 2.0,
     "pressure_mpa": 0.3,
 }
+
+
+def _retrieval_mode_check(agentic: dict) -> tuple[bool, str]:
+    runtime = agentic.get("retriever_runtime_status") or {}
+    reported = (runtime.get("retrieval_mode"), runtime.get("retrieval_mode_reason"))
+    db_path = agentic.get("db_path")
+    if not db_path:
+        return False, f"no index in the agentic payload; reported={reported}"
+    try:
+        expected = expected_retrieval_mode(Path(db_path))
+    except Exception as exc:  # noqa: BLE001 — 冒烟把任何异常都写进 detail
+        return False, f"expected mode could not be determined: {_short(exc)}; reported={reported}"
+    return reported == expected, f"reported={reported} expected={expected}"
 
 
 def _drawing_roundtrip(client: Client) -> tuple[bool, str]:
@@ -548,6 +581,11 @@ def main() -> int:
         "agentic_run_cited_the_corpus",
         bool(citations),
         f"citations={len(citations)}",
+    )
+    # P7-S10：检索模式任何时候都如实出现在运行状态里，且与本部署的配置一致（text 是关键词检索）
+    record(
+        "agentic_run_reports_retrieval_mode",
+        *_retrieval_mode_check(agentic),
     )
 
     ok = all(check["status"] == "PASS" for check in checks)
