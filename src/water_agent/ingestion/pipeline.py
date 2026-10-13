@@ -13,11 +13,18 @@ TriviumDB 0.8.2 没有按业务键查询 payload 的原生 API（`get(id)` 仅�
 ----------
 父块（chapter/section/subsection）写入 `<db_path>.parents.json`，
 `TriviumRetriever` 在未显式传入 `parent_store` 时自动加载，实现跨进程回填。
+
+索引元数据（P7-S10）
+--------------------
+建库时把 embedding 模型、embedding 端点主机名、维度、``index_version`` 与可用的检索模式写进
+`<db_path>.index_meta.json`（:func:`write_index_meta`，由 ``scripts/build_index.py`` 调用）。检索侧据此判定
+当前 embedding 配置能不能对这份索引做向量检索（``retrieval/trivium.py``）；没有这个文件的旧索引按百炼缺省
+模型对待。
 """
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -176,6 +183,102 @@ def _settle_text_sidecars(db_path: str | Path, *, restore: bool) -> None:
 def _manifest_path(db_path: str | Path) -> Path:
     db = Path(db_path)
     return db.with_suffix(db.suffix + ".manifest.json")
+
+
+def write_index_meta(
+    db_path: str | Path,
+    *,
+    embedding_model: str | None,
+    embedding_base_url: str | None,
+    dimensions: int,
+    index_version: str,
+    retrieval_modes: Sequence[str],
+) -> Path:
+    """写 ``<db_path>.index_meta.json``（原子替换）。``embedding_model=None`` 表示纯关键词索引（没有向量）。
+
+    只记主机名，不记完整 base_url：路径与查询串里可能有运维不想扩散的东西，判定也只用模型与维度。
+    """
+
+    from water_agent.generation.endpoints import endpoint_host
+    from water_agent.retrieval.trivium import INDEX_META_FORMAT, index_meta_path
+
+    target = index_meta_path(db_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "format": INDEX_META_FORMAT,
+        "embedding_model": embedding_model,
+        "embedding_host": endpoint_host(embedding_base_url) if embedding_base_url else None,
+        "dimensions": dimensions,
+        "index_version": index_version,
+        "retrieval_modes": list(retrieval_modes),
+    }
+    temporary = target.with_name(f"{target.name}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
+#: 纯关键词索引（P7-S10，``build_index.py --text-only``）的向量维度缺省值：向量全为零，维度只是库的形状要求。
+TEXT_ONLY_DEFAULT_DIMENSIONS = 512
+
+
+def text_only_index_version(dimensions: int) -> str:
+    return f"text-only__{dimensions}__curated-v1"
+
+
+class TextOnlyEmbedding:
+    """纯关键词建库的占位 provider：**不做 embedding**，只给库的形状（维度）与元数据，向量写零向量。
+
+    它不是"本地 embedding 兜底"（那个仍然禁止）：这种索引的 ``index_meta.json`` 写 ``retrieval_modes: ["text"]``，
+    检索侧在 ``auto`` 下永远走关键词检索、强制 ``hybrid`` 即 ``RETRIEVAL_EMBEDDING_MISMATCH``。
+    """
+
+    def __init__(self, dimensions: int = TEXT_ONLY_DEFAULT_DIMENSIONS) -> None:
+        if not 0 < dimensions <= 8192:
+            raise ValueError("dimensions must be in (0, 8192]")
+        self.config = type(
+            "TextOnlyEmbeddingConfig",
+            (),
+            {
+                "model": None,
+                "dimensions": dimensions,
+                "index_version": text_only_index_version(dimensions),
+                "fallback_enabled": False,
+                "base_url": None,
+            },
+        )()
+
+    def embed(self, text: str) -> list[float]:
+        return [0.0] * int(self.config.dimensions)
+
+
+def write_text_only_index_meta(db_path: str | Path, *, dimensions: int) -> Path:
+    """纯关键词索引的元数据：没有 embedding 模型、只有 ``text`` 一种检索模式。"""
+
+    return write_index_meta(
+        db_path,
+        embedding_model=None,
+        embedding_base_url=None,
+        dimensions=dimensions,
+        index_version=text_only_index_version(dimensions),
+        retrieval_modes=("text",),
+    )
+
+
+def build_text_only_index(
+    clause_files: Sequence[str | Path], db_path: str | Path, *, dimensions: int = TEXT_ONLY_DEFAULT_DIMENSIONS
+) -> list[dict]:
+    """从受控语料建一份纯关键词索引（零 embedding 调用）；任一文件失败即抛 :class:`IngestError`。
+
+    ``scripts/build_index.py --text-only`` 与检索模式评测 harness 共用这一个实现（元数据先于入库写出）。
+    """
+
+    provider = TextOnlyEmbedding(dimensions)
+    write_text_only_index_meta(db_path, dimensions=dimensions)
+    return [
+        ingest_to_trivium(path, db_path, embedding_provider=provider, curated=True)
+        for path in clause_files
+    ]
 
 
 def save_parent_store(parent_store: dict[str, Chunk], db_path: str | Path) -> Path:

@@ -143,6 +143,34 @@ python -m water_agent.harness.runner data/eval/rag_p0.jsonl --fixture-path data/
 - DB 存在但 manifest 不存在：`updated`
 - 任意 `insert/upsert/index_text/flush` 失败：`failed`，并抛出含 `source_file/chunk_id/operation/error` 的 `IngestError`
 
+### 9.1 索引元数据 `<db_path>.index_meta.json`（P7-S10）
+
+embedding 端点可配置之后（`WATER_AGENT_EMBEDDING_BASE_URL` / `WATER_AGENT_EMBEDDING_MODEL` / `WATER_AGENT_EMBEDDING_API_KEY`，
+缺省百炼 `MODEL_NAME`），"换了模型还用旧向量"会让检索**静默**变差、没有任何报错。所以 `scripts/build_index.py`
+建库时把这份索引的 embedding 来源写在旁边：
+
+```json
+{
+  "format": 1,
+  "embedding_model": "MODEL_NAME",
+  "embedding_host": "dashscope.aliyuncs.com",
+  "dimensions": 512,
+  "index_version": "MODEL_NAME-text-embedding__512__curated-v1",
+  "retrieval_modes": ["hybrid", "text"]
+}
+```
+
+- 只记主机名，不记完整 base_url；判定只用模型与维度（`retrieval/trivium.py::embedding_mismatch`）。
+- 检索侧打开索引时比对当前 embedding 配置：模型或维度不一致、`retrieval_modes` 不含 `hybrid`（纯关键词索引）、元数据读不出
+  → 拒绝向量检索（`RETRIEVAL_EMBEDDING_MISMATCH`）。
+- **没有这个文件的旧索引**按百炼缺省模型（`MODEL_NAME`、库的实际维度）对待，运行状态写 `index_meta=absent`（向后兼容）。
+- 往已有索引里追加时，元数据与本次模型 / 维度不一致即拒绝（一份索引混两种模型的向量就是损坏）；元数据在入库**之前**写出，
+  中途失败的库同样记着它的向量来源。
+- `data/indexes/` 整目录不入库（`.gitignore`），元数据随索引一起由 `build_index.py` 产出、随镜像分发（`.dockerignore` 整目录放行）。
+- **纯关键词建库** `scripts/build_index.py --text-only`：不调 embedding、不要求任何 Key，向量写零向量（维度 `--dimensions`，缺省 512），
+  元数据写 `"embedding_model": null, "retrieval_modes": ["text"]`。这种索引在 `WATER_AGENT_RETRIEVAL_MODE=auto` 下永远走关键词检索、强制
+  `hybrid` 即 `RETRIEVAL_EMBEDDING_MISMATCH`；纯关键词条目不能写进带向量的索引。它不是"本地 embedding 兜底"（那个仍然禁止），是不做 embedding。
+
 ## 10. 验证门禁
 
 - `test_chunker.py`: 不跨条/不跨章/超长拆分保留 article/表格单块/窗口 overlap/ID 稳定/ fixture 父子链完整

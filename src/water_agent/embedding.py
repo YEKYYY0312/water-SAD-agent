@@ -1,7 +1,12 @@
-"""阿里云百炼 Embedding Provider（OpenAI compatible-mode）。
+"""OpenAI 兼容 Embedding Provider（缺省阿里云百炼 compatible-mode）。
 
-默认只提供显式远程调用能力，不提供本地 embedding 兜底。
-真实调用需要用户配置 ``DASHSCOPE_API_KEY``；本模块不在导入或构造时发起网络请求。
+默认只提供显式远程调用能力，不提供本地 embedding 兜底。本模块不在导入或构造时发起网络请求。
+
+P7-S10：端点 / 模型 / Key 由 ``generation/endpoints.py::resolve_embedding_endpoint`` 决定（运维
+``WATER_AGENT_EMBEDDING_BASE_URL`` / ``WATER_AGENT_EMBEDDING_MODEL`` / ``WATER_AGENT_EMBEDDING_API_KEY``；缺省百炼
+``qwen3.7-text-embedding`` + ``DASHSCOPE_API_KEY``，端点改了就不回落旧 Key）。维度由索引决定。**换 embedding 模型
+必须重建索引**：索引旁的 ``index_meta.json`` 记着建库时的模型与维度，不一致时检索拒绝做向量检索
+（``retrieval/trivium.py``）。类名保留（``BailianEmbeddingProvider``），出站模块与治理口径不变。
 
 P2.5（Step 12）：远程调用经 ``ProviderGateway`` —— 限流、预算预留、有界重试
 （仅瞬时错误）、429 退避、熔断与 usage 对账统一在 gateway 内完成。
@@ -17,6 +22,12 @@ from typing import Any
 from urllib import request
 
 from water_agent.config.credentials import resolve_secret
+from water_agent.generation.endpoints import (
+    DEFAULT_EMBEDDING_API_KEY,
+    DEFAULT_EMBEDDING_BASE_URL,
+    DEFAULT_EMBEDDING_MODEL,
+    resolve_embedding_endpoint,
+)
 from water_agent.runtime.governance.binding import (
     gateway_for_profile_overrides,
     local_request_context,
@@ -35,10 +46,19 @@ from water_agent.runtime.governance.contracts import (
 )
 from water_agent.runtime.governance.gateway import ProviderGateway, ProviderUsage
 
-DEFAULT_MODEL = "qwen3.7-text-embedding"
+DEFAULT_MODEL = DEFAULT_EMBEDDING_MODEL
 DEFAULT_DIMENSIONS = 512
 DEFAULT_INDEX_VERSION = "qwen3.7-text-embedding__512__curated-v1"
-DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEFAULT_BASE_URL = DEFAULT_EMBEDDING_BASE_URL
+#: 缺省模型（qwen3.7-text-embedding）支持的维度；其余模型的维度由服务商决定，只要求是正整数。
+QWEN_DIMENSIONS = frozenset({256, 512, 768, 1024})
+MAX_DIMENSIONS = 8192
+
+
+def index_version_for(model: str, dimensions: int) -> str:
+    """索引版本与 embedding 模型、维度强绑定（对任意模型成立）：``<model>__<dim>__curated-v1``。"""
+
+    return f"{model}__{dimensions}__curated-v1"
 
 # P2.5 Step 12：瞬时错误判定与重试已统一由 ProviderGateway._classify_error 承担。
 # 原 _is_transient_embed_error / TRANSIENT_HTTP_CODES 已删除（避免两套判定漂移，
@@ -57,21 +77,25 @@ class BailianEmbeddingConfig:
     timeout_seconds: float = 60.0
     max_retries: int = 6
     retry_backoff_seconds: float = 1.0
+    #: 凭据名（只用于报错时指明缺哪一把；值在 ``api_key``）。
+    api_key_name: str = DEFAULT_EMBEDDING_API_KEY
 
     def __post_init__(self) -> None:
         if not self.api_key.strip():
-            raise ValueError("DASHSCOPE_API_KEY must not be empty")
-        if self.dimensions not in {256, 512, 768, 1024}:
+            raise ValueError(f"{self.api_key_name} must not be empty")
+        if self.model == DEFAULT_MODEL and self.dimensions not in QWEN_DIMENSIONS:
             raise ValueError("dimensions must be one of 256, 512, 768, 1024")
+        if not 0 < self.dimensions <= MAX_DIMENSIONS:
+            raise ValueError(f"dimensions must be in (0, {MAX_DIMENSIONS}]")
         if self.fallback_enabled:
             raise ValueError("automatic local embedding fallback is disabled")
-        expected = f"{self.model}__{self.dimensions}__curated-v1"
+        expected = index_version_for(self.model, self.dimensions)
         if self.index_version != expected:
             raise ValueError(f"index_version must be {expected}")
 
 
 class BailianEmbeddingProvider:
-    """百炼 embedding。P2.5 起远程调用经 ``ProviderGateway``（限流/预算/重试/熔断）。
+    """OpenAI 兼容 embedding（缺省百炼）。P2.5 起远程调用经 ``ProviderGateway``（限流/预算/重试/熔断）。
 
     ``gateway``/``request_context`` 均可选；为 ``None`` 时取进程级默认 gateway 与
     本地主体上下文 —— **不存在"不传 gateway 即绕过治理"的路径**（规格 §1.2）。
@@ -166,7 +190,7 @@ class BailianEmbeddingProvider:
             embeddings = output["embeddings"]
             if embeddings and isinstance(embeddings[0], dict) and isinstance(embeddings[0].get("embedding"), list):
                 return [float(value) for value in embeddings[0]["embedding"]]
-        raise ValueError("Bailian embedding response does not contain a vector")
+        raise ValueError("embedding response does not contain a vector")
 
     def embed(self, text: str) -> list[float]:
         """向量化一段文本。
@@ -253,15 +277,19 @@ def build_embedding_provider(
     request_context: RequestContext | None = None,
     gateway: ProviderGateway | None = None,
 ) -> BailianEmbeddingProvider:
-    # 与对话模型同一解析顺序（env → _FILE → 凭据卷）：直读 os.environ 时，面板清掉
-    # 注入值或进程从未回填（CLI），这里就与 embedding_configured() 的预检分叉。
-    key = api_key if api_key is not None else (resolve_secret("DASHSCOPE_API_KEY") or "")
+    # 端点 / 模型 / Key 名与预检同一来源（resolve_embedding_endpoint）；Key 与对话模型同一解析顺序
+    # （env → _FILE → 凭据卷）：直读 os.environ 时，面板清掉注入值或进程从未回填（CLI），这里就与
+    # embedding_configured() 的预检分叉。
+    endpoint = resolve_embedding_endpoint()
+    key = api_key if api_key is not None else (resolve_secret(endpoint.api_key_name) or "")
     return BailianEmbeddingProvider(
         BailianEmbeddingConfig(
             api_key=key,
-            model=DEFAULT_MODEL,
+            model=endpoint.model,
             dimensions=dimensions,
-            index_version=f"{DEFAULT_MODEL}__{dimensions}__curated-v1",
+            index_version=index_version_for(endpoint.model, dimensions),
+            base_url=endpoint.base_url,
+            api_key_name=endpoint.api_key_name,
         ),
         request_context=request_context,
         gateway=gateway,
