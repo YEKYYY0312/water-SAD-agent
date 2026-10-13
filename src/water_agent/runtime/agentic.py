@@ -77,6 +77,7 @@ from water_agent.retrieval.trivium import DEFAULT_INDEX_DIR as TRIVIUM_INDEX_DIR
 from water_agent.retrieval.trivium import (
     IndexSelectionError,
     TriviumRetriever,
+    ensure_embedding_matches,
     resolve_index_path,
 )
 from water_agent.runtime.cancellation import RunCancelled, cancellation_scope
@@ -172,9 +173,14 @@ def embedding_configured(environment: Callable[[str], str | None] = os.getenv) -
     而分叉——否则会重演 chat model 那个「预检放行、真跑报错」的老问题。
     """
 
-    from water_agent.config.credentials import resolve_secret
+    from water_agent.generation.endpoints import EndpointConfigError, resolve_embedding_endpoint
 
-    return resolve_secret("DASHSCOPE_API_KEY", getenv=environment) is not None
+    # 端点 / Key 名与 build_embedding_provider 同一来源（P7-S10：端点改了就不回落 DASHSCOPE_API_KEY）
+    try:
+        endpoint = resolve_embedding_endpoint(getenv=environment)
+    except EndpointConfigError:
+        return False
+    return endpoint.missing_key(getenv=environment) is None
 
 
 def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:
@@ -265,6 +271,8 @@ def _build_retriever(
             db_path, request_context=request_context, gateway=gateway
         )
         dim = detected if dim is None else dim
+        # 换 embedding 模型必须重建索引（P7-S10）：模型或维度与 index_meta.json 不一致即拒绝向量检索
+        ensure_embedding_matches(db_path, model=provider.config.model, dimensions=dim)  # type: ignore[attr-defined]
         embedding_fn = provider.embed  # type: ignore[attr-defined]
         fallback_kind = "none"
         fallback_reason = "real db"
@@ -309,8 +317,11 @@ def _build_cache_service(
         model=getattr(args, "model", None),
         api_key_env=getattr(args, "api_key_env", None),
     )
+    from water_agent.generation.endpoints import resolve_embedding_endpoint
+
     return AnswerCacheService(
-        embedding_model="qwen3.7-text-embedding",
+        # 语料 / 索引版本因子：embedding 模型取解析结果（缺省 qwen3.7-text-embedding，与历史键同键）
+        embedding_model=resolve_embedding_endpoint().model,
         dimensions=getattr(args, "dimensions", None) or 512,
         top_k=getattr(args, "top_k", 5),
         recall_top_k=getattr(args, "recall_top_k", 20),
