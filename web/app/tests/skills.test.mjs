@@ -156,9 +156,10 @@ test("panel shows the list to everyone, admin controls only to admins, and no wa
   const settings = await readFile(new URL("../src/SettingsPanel.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  assert.match(settings, /<SkillLibraryPanel capabilities=\{capabilities\} \/>/);
-  // Skill 库在 MCP 扩展区之前（计数卡片的"查看 MCP 扩展区"往下跳）
+  assert.match(settings, /<SkillLibraryPanel capabilities=\{capabilities\} onOpenMcp=\{\(\) => setRequested\("mcp"\)\} \/>/);
+  // Skill 库与 MCP 扩展是并列的子页；计数卡片的"查看 MCP 扩展"切到 MCP 子页，不再滚动
   assert.ok(settings.indexOf("<SkillLibraryPanel") < settings.indexOf("<McpAdminPanel"));
+  assert.doesNotMatch(panel, /scrollIntoView/);
 
   // 启停与查看正文只在 can_manage 时渲染；正文按纯文本显示
   assert.match(panel, /\{listing\.can_manage && \(\n\s+<div className="dialog-actions mcp-actions">/);

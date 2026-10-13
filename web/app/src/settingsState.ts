@@ -1,3 +1,4 @@
+import { parseOAuthOutcome } from "./mcpAdminState.ts";
 import type { CompatibilityStatus, CredentialSource, CredentialStatus, LlmEndpointView } from "./settingsApi";
 
 /** 与后端 config/credentials.py 的 MIN_CREDENTIAL_LENGTH 保持一致。 */
@@ -113,6 +114,16 @@ const MODEL_NAME = /^[A-Za-z0-9._:/@+-]{1,200}$/;
 
 /** 端点输入校验（与后端同规则，后端仍是唯一判定）。通过返回 null。 */
 export function validateEndpointInput(baseUrl: string, model: string): string | null {
+  return validateBaseUrlInput(baseUrl) ?? validateModelInput(model);
+}
+
+export function validateModelInput(model: string): string | null {
+  if (!MODEL_NAME.test(model.trim())) return "模型名只能含字母、数字与 . _ : / @ + -，长度 1–200";
+  return null;
+}
+
+/** 只校验 base_url（「获取模型」在选定模型之前就要用）。通过返回 null。 */
+export function validateBaseUrlInput(baseUrl: string): string | null {
   const trimmed = baseUrl.trim();
   let parsed: URL;
   try {
@@ -126,8 +137,25 @@ export function validateEndpointInput(baseUrl: string, model: string): string | 
     return "base_url 只接受 https://（本机 http://localhost、http://127.0.0.1 与 http://local-model 例外）";
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "base_url 只接受 https://";
-  if (!MODEL_NAME.test(model.trim())) return "模型名只能含字母、数字与 . _ : / @ + -，长度 1–200";
   return null;
+}
+
+/** 与后端 generation/endpoints.py 的 DEFAULT_CHAT_BASE_URL 一致。 */
+const DEFAULT_CHAT_BASE_URL = "https://api.deepseek.com";
+
+/**
+ * 在对话端点卡片里填的 Key 要写进哪个凭据槽位：端点仍是缺省 DeepSeek 写旧的 DEEPSEEK_API_KEY，
+ * 其余写专用槽位——与后端 `_key_name` 的回落规则一致（密钥只发给所属服务商）。
+ */
+export function endpointKeySlot(baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, "").toLowerCase();
+  return normalized === DEFAULT_CHAT_BASE_URL ? "DEEPSEEK_API_KEY" : "WATER_AGENT_LLM_API_KEY";
+}
+
+/** 下拉里的选项：取到的列表，加上当前已选的模型（它不在列表里也不能丢）。 */
+export function modelChoices(models: string[], current: string): string[] {
+  const trimmed = current.trim();
+  return trimmed && !models.includes(trimmed) ? [trimmed, ...models] : models;
 }
 
 const SOURCE_TEXT: Record<string, string> = {
@@ -156,3 +184,38 @@ export function compatibilityView(status: CompatibilityStatus | undefined): { to
 }
 
 export const COMPATIBILITY_BILLING_NOTE = "运行检查会对当前对话端点发出约五次计费请求。";
+
+
+// ---------------------------------------------------------------------------
+// 设置页副栏
+// ---------------------------------------------------------------------------
+
+export type SettingsSection = "models" | "skills" | "mcp";
+
+export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; adminOnly: boolean }[] = [
+  { id: "models", label: "模型与密钥", adminOnly: false },
+  { id: "skills", label: "Skill 库", adminOnly: false },
+  { id: "mcp", label: "MCP 扩展", adminOnly: true },
+];
+
+/**
+ * 副栏里看得到的分类。`isAdmin` 为 null（还不知道）时先按"可能是管理员"显示，
+ * 读到明确的非管理员再收起——MCP 扩展区对非管理员本来就整块不渲染，留着只会是一个空页。
+ */
+export function visibleSections(isAdmin: boolean | null): typeof SETTINGS_SECTIONS {
+  return SETTINGS_SECTIONS.filter((section) => !section.adminOnly || isAdmin !== false);
+}
+
+/** 当前分类被收起（权限变化）时退回第一项。 */
+export function clampSection(section: SettingsSection, isAdmin: boolean | null): SettingsSection {
+  return visibleSections(isAdmin).some((item) => item.id === section) ? section : "models";
+}
+
+/** MCP 授权回调 303 回首页时地址栏带着结果：此时设置页应直接停在 MCP 扩展，否则结果提示没有地方显示。 */
+export function oauthReturnedToSettings(search: string): boolean {
+  return parseOAuthOutcome(search) !== null;
+}
+
+export function initialSettingsSection(search: string): SettingsSection {
+  return oauthReturnedToSettings(search) ? "mcp" : "models";
+}

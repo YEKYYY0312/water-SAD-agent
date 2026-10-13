@@ -59,6 +59,36 @@ class FakeOpenAIServer:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def do_GET(self) -> None:
+                key = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+                with server._lock:
+                    server.received_keys.append(key)
+                    server.requests.append({"path": self.path, "method": "GET"})
+                if not self.path.endswith("/models") or "no_models" in server.modes:
+                    self._json(404, {"error": {"message": "not found"}})
+                    return
+                if key != server.api_key:
+                    self._json(
+                        401, {"error": {"message": "invalid api key", "code": "invalid_api_key"}}
+                    )
+                    return
+                if "models_junk" in server.modes:
+                    body = b"<html>not json</html>"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                names = sorted(server.models) + ["bad name!", "x" * 300]
+                if "models_ollama" in server.modes:
+                    self._json(200, {"models": [{"name": name, "size": 1} for name in names]})
+                else:
+                    self._json(
+                        200,
+                        {"object": "list", "data": [{"id": name, "object": "model"} for name in names]},
+                    )
+
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}")
