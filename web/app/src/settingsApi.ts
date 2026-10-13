@@ -75,3 +75,57 @@ export class SettingsApi {
     });
   }
 }
+
+/** P7-S10：对话模型端点（成员只看到主机名与模型名，管理员多一个完整 base_url）。 */
+export type LlmEndpointSource = "default" | "env" | "panel" | "local_model" | "explicit";
+export type CompatibilityStatus = "default_exempt" | "verified" | "unverified";
+
+export type LlmEndpointView = {
+  endpoint: {
+    host: string;
+    model: string;
+    source: LlmEndpointSource;
+    is_default: boolean;
+    base_url?: string;
+  } | null;
+  editable: boolean;
+  locked_reason: "deployment" | "local_model" | null;
+  can_manage: boolean;
+  api_key: { name: string; configured: boolean } | null;
+  compatibility: {
+    status: CompatibilityStatus;
+    reason: string;
+    report: { status: string; checks: Record<string, string>; probe_version: string; checked_at: string | null } | null;
+  } | null;
+  check: { running: boolean; last: { status: string; finished_at?: string; requires?: string[]; error?: string } | null };
+  error: { code: string; message: string } | null;
+};
+
+export class LlmEndpointApi {
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers = new Headers(init.headers);
+    if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (init.method && init.method !== "GET" && init.method !== "HEAD") {
+      const token = csrfToken();
+      if (token) headers.set("X-CSRF-Token", token);
+    }
+    const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
+    return decode<T>(response);
+  }
+
+  get(): Promise<LlmEndpointView> {
+    return this.request("/api/settings/llm-endpoint");
+  }
+
+  put(baseUrl: string, model: string): Promise<LlmEndpointView> {
+    return this.request("/api/settings/llm-endpoint", {
+      method: "PUT",
+      body: JSON.stringify({ base_url: baseUrl, model }),
+    });
+  }
+
+  /** 会对当前对话端点发出少量计费请求；202 后轮询 get()。 */
+  runCompatibility(): Promise<{ check: { running: boolean } }> {
+    return this.request("/api/settings/llm-endpoint/compatibility", { method: "POST" });
+  }
+}
