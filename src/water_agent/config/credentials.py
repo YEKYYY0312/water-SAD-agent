@@ -28,9 +28,15 @@ from pathlib import Path
 
 # env 变量名 → 凭据卷内的文件名。这张表同时是白名单：不在表内的名字一律
 # 拒绝，因此落盘文件名永不来自调用方输入，无需再做路径穿越校验。
+#
+# P7-S10：``WATER_AGENT_LLM_API_KEY`` / ``WATER_AGENT_EMBEDDING_API_KEY`` 是 OpenAI 兼容对话 / embedding
+# 端点的专用 Key（端点由 generation/endpoints.py 解析）。端点仍是 DeepSeek / 百炼时它们未配置会回落
+# 到前两把；端点改到别家就不回落——密钥只发给它所属的服务商。
 CREDENTIALS: Mapping[str, str] = {
     "DEEPSEEK_API_KEY": "deepseek_api_key",
     "DASHSCOPE_API_KEY": "dashscope_api_key",
+    "WATER_AGENT_LLM_API_KEY": "water_agent_llm_api_key",
+    "WATER_AGENT_EMBEDDING_API_KEY": "water_agent_embedding_api_key",
 }
 
 # 凭据卷挂载点。它刻意不在 /var/lib/water-agent 之下：scripts/backup.sh 打包

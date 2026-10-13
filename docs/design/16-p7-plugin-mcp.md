@@ -70,6 +70,8 @@
 | F17 | ~~`MCPStdioClient._request` 不是并发安全的：各请求共用一个 inbox，读到别人的响应时当成通知存起来继续等，真正的请求方只能超时（server 乱序应答时必然发生；同一 run 内并行调用同一台 server 的两个工具即可触发）~~ **S5 已修**：同一连接上的请求串行，等锁计入 deadline。fake server 按到达顺序应答时 `queue.Queue` 的 FIFO 恰好掩盖了它，复现需乱序应答 | `tests/test_mcp_pool.py::test_concurrent_calls_on_one_client_get_their_own_responses` | S5 已交付 |
 | F16 | ~~配置没法指定 MCP server 的工作目录，autocad-mcp 启动即崩~~ **S3 已修**：新增 `cwd` 字段；本机覆盖层指向 autocad-mcp 仓库后暴露 `mcp_autocad_mcp_read_dwg`（手动验收，只证明能连上） | `tests/test_mcp_layered_config.py::test_child_runs_in_isolated_or_configured_cwd` | S3 已交付 |
 | F18 | S8 读码发现：出站静态扫描的特征不含标准库 `http.client`，新增一个只开 `http.client` 连接的模块**扫描看不见**（反证：挪到未登记模块也不红）；且 starlette 的 `HTTPConnection`（入站请求视图）会让宽松的 `HTTPS?Connection(` 特征误报 | `tests/test_governance_contracts.py::TestInventoryCoverage::test_unregistered_http_egress_module_is_detected` | S8 已修（特征限定为 `http.client.HTTPS?Connection`） |
+| F20 | S10 读码发现：协议层本来就是 OpenAI 兼容，写死的是配置——Web 会话工厂固定 `MODEL_NAME` / `https://api.deepseek.com` / `DEEPSEEK_API_KEY`，"模型已配置"只看 `DEEPSEEK_API_KEY`，embedding 固定 `MODEL_NAME` 且建库必须调百炼；**S10 已改**：端点 / 模型 / Key 名唯一来源 `generation/endpoints.py`，缺省仍是 DeepSeek + 百炼 | `tests/test_llm_endpoints.py::test_defaults_are_unchanged`<br>`tests/test_llm_endpoints.py::test_all_entry_points_share_one_resolution` | S10 已交付 |
+| F21 | S10 实测：TriviumDB 的 `search_hybrid` 对**近乎同分**的条目排序不固定（同一进程两次调用、或跨进程都可能互换；返回的分数按名次换算、末位有并行求和的浮点抖动），所以关键词检索的前 5 条在尾部会变。`retrieval_colloquial_p0` 与 `rag_p1` 各连跑 10 次：全部指标、逐条命中与 gold 名次完全稳定，只有非 gold 的尾部条目变化。比较器因此不比检索到的列表 | `tests/test_retrieval_mode_eval.py::test_colloquial_baseline_comparator` | 记录（库行为，不在本仓库修） |
 | F19 | S8 读码发现：`ProviderGateway._classify_error` 对非 HTTP 异常一律判永久错误，并把 `executor` 抛出的异常包成 `GovernanceError`——远程 MCP 的 `MCPError` 码若不还原，调用方只看到 `PROVIDER_UNAVAILABLE`；`RunCancelled` 是 `Exception` 子类，也会被包成永久错误 | `tests/test_mcp_http_client.py::test_tool_calls_are_never_replayed`、`::test_cancellation_propagates_out_of_the_event_stream` | S8 已处理（`run_governed` 还原原因；取消用 `BaseException` 哨兵穿过 gateway） |
 
 ---
@@ -359,6 +361,46 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
   接进 `scripts/ci_gate.sh` 与入仓基线 `data/eval/mcp_http_p0_main.json`（`scripts/compare_mcp_http_p0.py`，报告逐字可复现）。
   只对本地假 server 与假授权服务器验证，不证明任何真实远程 MCP 或企业单点登录（P7-S8-A14 / A15）。
 
+### 3.11 OpenAI 兼容端点与检索模式（S10）
+
+S10 让对话模型与 embedding 都可以换成任意 OpenAI 兼容端点，并让"只配一个对话 Key"的部署也能用 RAG（检索走关键词模式）。
+权威决定见 `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` §0，实测与偏离见 `docs/design/p7-step-10-decision.md`。
+
+- **端点解析单一来源** `generation/endpoints.py`：`resolve_chat_endpoint()` 优先级 显式参数（CLI `--model` / `--base-url` /
+  `--api-key-env`）> 运维 `WATER_AGENT_LLM_BASE_URL` / `WATER_AGENT_LLM_MODEL` > 设置面板写的 `<凭据卷>/llm_endpoint.json` > 缺省
+  DeepSeek；`resolve_embedding_endpoint()` 对称（`WATER_AGENT_EMBEDDING_*`，缺省百炼 `MODEL_NAME`）。CLI / Web / runner /
+  legacy 生成器 / docgen 润色 / judge / 探针 / 预检全部经它（`build_chat_model` 只是构造器）。base_url 只收 http(s)、拒 userinfo 与
+  fragment；只解析，不发请求。
+- **密钥只发给所属服务商**：专用 Key `WATER_AGENT_LLM_API_KEY` / `WATER_AGENT_EMBEDDING_API_KEY`（进凭据白名单，env > `_FILE` >
+  凭据卷）未配置时，只有端点仍是 DeepSeek / 百炼才回落 `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY`；端点改到别家就不回落，预检写明缺
+  哪一项。`LOCAL_MODEL_*`（P5 Step 46）保留且语义不变，与 `WATER_AGENT_LLM_*` 同时启用即配置错误（Web 启动期失败）。
+- **兼容性硬门槛** `generation/compatibility.py`：非缺省对话端点（`base_url` 或 `model` 与 DeepSeek 缺省值不同）必须有一份端点 +
+  模型精确匹配、探针版本一致（`ENDPOINT_PROBE_VERSION`）、恰好七项全部 passed 的报告（`WATER_AGENT_LLM_COMPATIBILITY_REPORT`，或面板
+  "运行兼容性检查"写进凭据卷的那份）才允许装配——会话、CLI legacy、runner 真实组件、docgen 润色在装配期拒绝，Web 预检 424
+  `WEB_MODEL_NOT_VERIFIED`。**缺省 DeepSeek 端点免检是唯一例外**。检查集：`function_calling` / `structured_citations` /
+  `programmatic_calculation` / `tool_schema_budget`（与本地模型探针同一实现）+ `streaming_usage` / `error_handling` /
+  `cancellation_timeout`（真实测量）；离线的 `memory_p0` 不在远程端点的检查集里。探针 `harness/endpoint_compat.py`（会产生约五次计费
+  调用；不重试；报告 0600，不含 Key 与请求原文；无 Key 结构化 SKIP）。judge 是评测工具，不设门槛。
+- **治理与缓存**：不新增 `ProviderKind`、出站清单仍是 8——`DEEPSEEK_CHAT` / `BAILIAN_EMBEDDING` 与对应调用点名字保留、语义扩为"OpenAI
+  兼容对话 / embedding 端点"；`WATER_AGENT_LLM_TIMEOUT_SECONDS` 覆盖对话画像超时、`WATER_AGENT_LLM_PRICE` 挂在当前模型名上
+  （`confirmed=False`，不做硬拒绝）；回答缓存键加 `model_endpoint_digest`（缺省为空串，与历史键同键）；`GOVERNANCE_CONFIG_VERSION`
+  → `p7-s10-2026-10-13`。
+- **索引与 embedding 绑定**：`scripts/build_index.py` 建库时写 `<db>.index_meta.json`（模型、端点主机名、维度、`index_version`、
+  `retrieval_modes`，入库前写出），往别的模型建的索引里追加即拒绝；检索装配比对当前 embedding 配置，模型或维度不一致、纯关键词索引、
+  元数据读不出 → 不做向量检索（`RETRIEVAL_EMBEDDING_MISMATCH`）。没有元数据的旧索引按百炼缺省模型对待，运行状态写 `index_meta=absent`。
+- **检索模式** `WATER_AGENT_RETRIEVAL_MODE=auto|hybrid|text`（缺省 auto）：auto 下 embedding 已配置且与索引匹配走混合检索，否则走关键词
+  检索（BM25，`search_hybrid(零向量, hybrid_alpha=0)`，**一次 embedding 都不调用**）；hybrid 强制（缺 embedding / 不匹配即失败）；text
+  强制。会话与 runner 共用 `runtime/agentic.py::build_index_retriever`。`runtime_status` 的 `retrieval_mode` / `retrieval_mode_reason` /
+  `retrieval_mode_detail` / `index_meta` 进 trace（`retrieval_mode` 事件）、会话结果、Web 结果投影、CLI 与 runner 输出，前端检查面板如实
+  标出关键词模式；关键词检索的回答缓存键与混合检索不同。Web 预检的语义从"必须有 embedding"变为"必须能检索"：只在强制 hybrid 时
+  424。`build_index.py --text-only` 不调 embedding、不要求 Key。
+- **Web 面板**：`GET/PUT /api/settings/llm-endpoint`、`POST /api/settings/llm-endpoint/compatibility`——成员只看主机名与模型名；管理员 +
+  CSRF 才能写，只收 https（`http://localhost` / `127.0.0.1` / `local-model` 例外）；运维 env 设了或本地模型启用即只读；改端点或模型即
+  作废面板写的兼容报告；检查同一时间只一个；审计只记主机名、模型名与结果码。
+- **评测** `retrieval_colloquial_p0`（54 条，与 rag_p1 同一批 gold 条款的口语化 / 同义改写问法，Step 1 冻结）：text 模式接进
+  `ci_gate.sh` 与入仓基线（`scripts/compare_retrieval_colloquial_p0.py`）；hybrid 需要百炼 Key，不进门禁。**text 模式口语化 Recall@5
+  只有 46.30%**（rag_p1 上 98.28%），只配对话 Key 时口语化问法召回明显不足，面板与决策记录如实写明。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -389,7 +431,7 @@ def assemble_tools(ctx: AssemblyContext, *, base_principal: Principal,
 | S7 | Step E2 | HITL 确认门：需确认的工具在内层以 `return_direct` 延迟工具停下、外层 `confirmation_gate` interrupt、一次性执行凭证、`waiting_confirmation` 态、批准/拒绝 API、`confirmation_log` 审计、前端确认卡片（只有 Web 入口接线） | `docs/execution-prompts/P7-S7-hitl-confirmation.md` | delivered |
 | S8 | Step D（二） | Streamable HTTP 传输（以 2025-11-25 会话制为主，2026-07-28 无状态只识别）+ OAuth 2.1 服务级授权（预注册 / 动态注册 + PKCE + `resource` + `iss` 校验）+ 静态 Bearer 槽位；出口由运维写死的 URL 决定、连接期 SSRF 校验与钉死 IP、不跟随重定向；远程工具仍持 `MCP_INVOKE`，`NETWORK_FETCH` 不放宽；出站清单 7 → 8（2026-10-06 从 S5 拆出，2026-10-12 写执行 Prompt） | `docs/execution-prompts/P7-S8-streamable-http.md` | delivered |
 | S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | delivered |
-| S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式：对话与 embedding 端点 / 模型 / Key 由运维或管理员配置（缺省仍是 DeepSeek + 百炼，已有部署零变化）；非缺省对话端点必须有通过的兼容性报告才能装配（硬门槛，缺省免检）；`WATER_AGENT_RETRIEVAL_MODE=auto` 下没配 embedding 或与索引不匹配时走关键词检索（BM25）并在运行状态里如实标出；索引旁写 `index_meta.json` 绑定 embedding 模型与维度；`build_index.py --text-only`；先建口语化检索评测集（2026-10-12 新增，归入 P7 以复用范围守卫与快照） | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | planned |
+| S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式（交付见 §3.11）：对话与 embedding 端点 / 模型 / Key 由运维或管理员配置（缺省仍是 DeepSeek + 百炼，已有部署零变化）；非缺省对话端点必须有通过的兼容性报告才能装配（硬门槛，缺省免检）；`WATER_AGENT_RETRIEVAL_MODE=auto` 下没配 embedding 或与索引不匹配时走关键词检索（BM25）并在运行状态里如实标出；索引旁写 `index_meta.json` 绑定 embedding 模型与维度；`build_index.py --text-only`；先建口语化检索评测集（2026-10-12 新增，归入 P7 以复用范围守卫与快照） | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | delivered |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -728,16 +770,16 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S8-A14 | 真实 HTTP MCP server 与真实授权服务器（含企业 TLS / 代理）上的连通与授权（见未覆盖项） | 无 | untested |
 | P7-S8-A15 | 手动验收：浏览器里授权跳转、回调、工具出现、撤销后工具记 `MCP_OAUTH_REQUIRED`（见未覆盖项） | 无 | untested |
 
-| P7-S10-A01 | 端点解析：`resolve_chat_endpoint` / `resolve_embedding_endpoint` 是唯一来源，CLI / Web / runner / docgen / judge / 探针都经它；缺省 = 现状；端点改了不回落旧 Key；与 `LOCAL_MODEL_*` 同时启用即配置错误 | `tests/test_llm_endpoints.py::test_all_entry_points_share_one_resolution`<br>`tests/test_llm_endpoints.py::test_key_is_never_sent_to_another_provider`<br>`tests/test_llm_endpoints.py::test_defaults_are_unchanged` | planned |
-| P7-S10-A02 | 兼容性硬门槛：非缺省对话端点没有精确匹配、全部 passed 的报告即装配期拒绝、Web 424 `WEB_MODEL_NOT_VERIFIED`；缺省免检；改端点或模型即作废报告；探针报告不含 Key | `tests/test_endpoint_compatibility.py::test_unverified_endpoint_is_refused`<br>`tests/test_endpoint_compatibility.py::test_report_must_match_endpoint_and_model`<br>`tests/test_endpoint_compatibility.py::test_probe_report_has_no_secrets` | planned |
-| P7-S10-A03 | 治理与缓存：不新增 `ProviderKind`、出站清单数量不变；超时 / 价格覆盖（价格只软预警）；`model_endpoint_digest` 变化即 miss、空串与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss`<br>`tests/test_llm_endpoints.py::test_price_override_is_not_a_hard_cap` | planned |
-| P7-S10-A04 | embedding 端点与索引绑定：任意 OpenAI 兼容 embedding 端点；`index_meta.json` 记录模型与维度；不匹配 → `RETRIEVAL_EMBEDDING_MISMATCH`（auto 降级到关键词并标出、hybrid 强制即失败）；缺 meta 的旧索引按百炼缺省处理 | `tests/test_embedding_endpoint.py::test_mismatched_embedding_never_searches_vectors`<br>`tests/test_embedding_endpoint.py::test_legacy_index_without_meta` | planned |
-| P7-S10-A05 | 检索模式：`auto` 缺 embedding → text（不调 embedding）、`hybrid` 强制、`text` 强制；`retrieval_mode` / `_reason` 进运行状态、trace 与 Web 结果；Web 预检只在强制 hybrid 时要求 embedding | `tests/test_retrieval_mode.py::test_auto_falls_back_to_text_visibly`<br>`tests/test_retrieval_mode.py::test_text_mode_makes_no_embedding_calls`<br>`tests/test_web_runs.py::test_embedding_key_is_optional_in_auto_mode` | planned |
-| P7-S10-A06 | 纯关键词建库：`build_index.py --text-only` 零 embedding 调用、不要求 Key；产出的索引 auto 下走 text、hybrid 强制失败 | `tests/test_build_index_text_only.py::test_text_only_index_needs_no_key` | planned |
-| P7-S10-A07 | 口语化检索评测 `retrieval_colloquial_p0`：先冻结；text 与 hybrid 两种模式的 Recall@1/5、MRR 与字面重合率；text 模式接进 `ci_gate.sh` 与入仓基线对比；hybrid 需 Key（见未覆盖项） | `gate:retrieval_colloquial_p0`<br>`tests/test_retrieval_mode_eval.py::test_colloquial_set_is_frozen_and_measured` | planned |
-| P7-S10-A08 | Web 面板：对话端点与模型的读写（管理员 + CSRF、只接受 https 与列明的本机例外、运维 env 设了即只读）、Key 槽位只写不读、兼容性状态与"运行检查"（同时只一个）、检索模式显示、审计不含 Key | `tests/test_web_llm_endpoint.py::test_endpoint_settings_are_admin_only_and_validated`<br>`tests/test_web_llm_endpoint.py::test_changing_endpoint_invalidates_compatibility` | planned |
-| P7-S10-A09 | 部署与冒烟：compose 透传新变量（缺省为空 = 现状）；冒烟断言 `retrieval_mode` 字段与配置一致 | `tests/test_web_deployment.py::test_endpoint_variables_are_passed_through`<br>`tests/test_container_smoke.py::test_probe_reports_retrieval_mode` | planned |
-| P7-S10-A10 | 快照：现有 16 个 profile 逐字不变、三个版本号不变；新增 `session_endpoint_custom`；新变量被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic` | planned |
+| P7-S10-A01 | 端点解析：`resolve_chat_endpoint` / `resolve_embedding_endpoint` 是唯一来源，CLI / Web / runner / docgen / judge / 探针都经它；缺省 = 现状；端点改了不回落旧 Key；与 `LOCAL_MODEL_*` 同时启用即配置错误 | `tests/test_llm_endpoints.py::test_all_entry_points_share_one_resolution`<br>`tests/test_llm_endpoints.py::test_key_is_never_sent_to_another_provider`<br>`tests/test_llm_endpoints.py::test_defaults_are_unchanged`<br>`tests/test_llm_endpoints.py::test_endpoint_url_is_validated_and_local_model_is_exclusive` | delivered |
+| P7-S10-A02 | 兼容性硬门槛：非缺省对话端点没有精确匹配、全部 passed 的报告即装配期拒绝、Web 424 `WEB_MODEL_NOT_VERIFIED`；缺省免检；改端点或模型即作废报告；探针报告不含 Key | `tests/test_endpoint_compatibility.py::test_unverified_endpoint_is_refused`<br>`tests/test_endpoint_compatibility.py::test_report_must_match_endpoint_and_model`<br>`tests/test_endpoint_compatibility.py::test_probe_report_has_no_secrets` | delivered |
+| P7-S10-A03 | 治理与缓存：不新增 `ProviderKind`、出站清单数量不变；超时 / 价格覆盖（价格只软预警）；`model_endpoint_digest` 变化即 miss、空串与历史键同键 | `tests/test_answer_cache.py::TestInvalidationFactors::test_each_factor_change_causes_miss`<br>`tests/test_llm_endpoints.py::test_price_override_is_not_a_hard_cap` | delivered |
+| P7-S10-A04 | embedding 端点与索引绑定：任意 OpenAI 兼容 embedding 端点；`index_meta.json` 记录模型与维度；不匹配 → `RETRIEVAL_EMBEDDING_MISMATCH`（auto 降级到关键词并标出、hybrid 强制即失败）；缺 meta 的旧索引按百炼缺省处理 | `tests/test_embedding_endpoint.py::test_mismatched_embedding_never_searches_vectors`<br>`tests/test_embedding_endpoint.py::test_legacy_index_without_meta`<br>`tests/test_embedding_endpoint.py::test_any_openai_compatible_embedding_endpoint` | delivered |
+| P7-S10-A05 | 检索模式：`auto` 缺 embedding → text（不调 embedding）、`hybrid` 强制、`text` 强制；`retrieval_mode` / `_reason` 进运行状态、trace 与 Web 结果；Web 预检只在强制 hybrid 时要求 embedding | `tests/test_retrieval_mode.py::test_auto_falls_back_to_text_visibly`<br>`tests/test_retrieval_mode.py::test_text_mode_makes_no_embedding_calls`<br>`tests/test_web_runs.py::test_embedding_key_is_optional_in_auto_mode` | delivered |
+| P7-S10-A06 | 纯关键词建库：`build_index.py --text-only` 零 embedding 调用、不要求 Key；产出的索引 auto 下走 text、hybrid 强制失败 | `tests/test_build_index_text_only.py::test_text_only_index_needs_no_key` | delivered |
+| P7-S10-A07 | 口语化检索评测 `retrieval_colloquial_p0`：先冻结；text 与 hybrid 两种模式的 Recall@1/5、MRR 与字面重合率；text 模式接进 `ci_gate.sh` 与入仓基线对比；hybrid 需 Key（见未覆盖项） | `gate:retrieval_colloquial_p0`<br>`tests/test_retrieval_mode_eval.py::test_colloquial_set_is_frozen_and_measured`<br>`tests/test_retrieval_mode_eval.py::test_colloquial_baseline_comparator` | delivered |
+| P7-S10-A08 | Web 面板：对话端点与模型的读写（管理员 + CSRF、只接受 https 与列明的本机例外、运维 env 设了即只读）、Key 槽位只写不读、兼容性状态与"运行检查"（同时只一个）、检索模式显示、审计不含 Key | `tests/test_web_llm_endpoint.py::test_endpoint_settings_are_admin_only_and_validated`<br>`tests/test_web_llm_endpoint.py::test_changing_endpoint_invalidates_compatibility` | delivered |
+| P7-S10-A09 | 部署与冒烟：compose 透传新变量（缺省为空 = 现状）；冒烟断言 `retrieval_mode` 字段与配置一致 | `tests/test_web_deployment.py::test_endpoint_variables_are_passed_through`<br>`tests/test_container_smoke.py::test_probe_reports_retrieval_mode` | delivered |
+| P7-S10-A10 | 快照：现有 17 个 profile（S8 先合入，多 `session_http_mcp_fake`）逐字不变、三个版本号不变；新增 `session_endpoint_custom`（chat model 指向配置的端点与模型、兼容状态 verified）；新变量被钉住 | `tests/test_tool_assembly_snapshot.py::test_snapshot_matches_baseline`<br>`tests/test_tool_assembly_snapshot.py::test_snapshot_is_hermetic_and_deterministic`<br>`tests/test_tool_assembly_snapshot.py::test_endpoint_profile_is_added_and_the_existing_ones_are_untouched` | delivered |
 | P7-S10-A11 | 非 DeepSeek 端点上的真实作答质量（`rag_p1 --variant real`）与 hybrid 模式在口语化集上的实测（需对话 / 百炼 Key，见未覆盖项） | 无 | untested |
 | P7-S10-A12 | 手动验收：只配一个对话 Key 时带引用作答且显示关键词模式；换端点未验证即 424；改 embedding 模型未重建索引即显示不匹配（见未覆盖项） | 无 | untested |
 
@@ -833,6 +875,10 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | `src/water_agent/mcp/oauth.py` + `src/water_agent/mcp/oauth_store.py` | S8 OAuth 2.1 服务级授权与令牌保管 |
 | `src/water_agent/harness/mcp_http_eval.py` + `data/eval/mcp_http_p0.jsonl` | S8 评测集与 harness（入仓基线 `data/eval/mcp_http_p0_main.json`，假 server 见 `tests/fixtures/fake_mcp_http_server.py`） |
 | `docs/design/p7-step-8-decision.md` | S8 决策记录（实测事实、偏离、残余风险、快照 diff） |
+| `src/water_agent/generation/endpoints.py` + `src/water_agent/generation/compatibility.py` | S10 对话 / embedding 端点解析唯一来源（含面板端点）、兼容性证据与装配门槛 |
+| `src/water_agent/harness/endpoint_compat.py` | S10 远程 OpenAI 兼容端点兼容性探针（测试用假端点见 `tests/fixtures/endpoint_compat/`） |
+| `src/water_agent/harness/retrieval_mode_eval.py` + `data/eval/retrieval_colloquial_p0.jsonl` | S10 检索模式评测与口语化检索集（入仓基线 `data/eval/retrieval_colloquial_p0_main.json`） |
+| `docs/design/p7-step-10-decision.md` | S10 决策记录（两种检索模式的指标对照、偏离、残余风险、快照 diff） |
 | `src/water_agent/plugins/exposure.py` | S4 按意图暴露策略 |
 | `src/water_agent/graphs/confirmation.py` | S7 外层人工确认门（请求 / 挂起 / 凭证执行 / 审计） |
 | `src/water_agent/mcp/web_layer.py` + `src/water_agent/mcp/credentials.py` + `src/water_agent/mcp/importer.py` | S6 Web 管理层、凭据槽位、导入预览 |

@@ -54,8 +54,8 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
-    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 当前代码的装配快照与入仓基线
-    逐字段一致（S8 新增 ``session_http_mcp_fake``，其余 16 个 profile 不变）；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
+    """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 / P7-S10-A10 当前代码的装配快照与入仓基线
+    逐字段一致（S8 新增 ``session_http_mcp_fake``，其余 16 个 profile 不变；S10 新增 ``session_endpoint_custom``，其余 17 个不变）；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
     （其余 profile 开关 off，只有主体能力集多了 ``load_skill``）。"""
 
     lines = snap.diff_snapshots(baseline, head)
@@ -73,7 +73,7 @@ def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any
 def test_snapshot_is_hermetic_and_deterministic(
     head: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S0-A04 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
+    """P7-S0-A04 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 / P7-S10-A10 环境变量被污染时再采一次，结果与第一次完全相同，且环境原样恢复。
 
     ``WATER_AGENT_MCP_WEB_LAYER`` 指向一份损坏的层文件：没被快照钉住的话，带 MCP 的 profile 全会
     变成 ``MCP_CONFIG_INVALID``。``WATER_AGENT_SKILLS=on`` 与一个放了运维 skill 的目录：没被钉住的话，
@@ -102,6 +102,14 @@ def test_snapshot_is_hermetic_and_deterministic(
         "WATER_AGENT_SKILLS_DIR": str(operator_skills),
         # P7-S8-A13：授权回调地址的来源也被钉住——污染值不能让任何 profile 的装配发生变化
         "WEB_PUBLIC_BASE_URL": "https://polluted.example.invalid",
+        # P7-S10-A10：对话 / embedding 端点、兼容报告与检索模式同样被钉住
+        "WATER_AGENT_LLM_BASE_URL": "https://polluted-llm.example.invalid/v1",
+        "WATER_AGENT_LLM_MODEL": "polluted-model",
+        "WATER_AGENT_LLM_API_KEY": "sk-polluted-llm-0000",
+        "WATER_AGENT_LLM_COMPATIBILITY_REPORT": str(tmp_path / "missing-report.json"),
+        "WATER_AGENT_LLM_PRICE": "not,a,price",
+        "WATER_AGENT_EMBEDDING_MODEL": "polluted-embedding",
+        "WATER_AGENT_RETRIEVAL_MODE": "text",
     }
     for key, value in polluted.items():
         monkeypatch.setenv(key, value)
@@ -308,8 +316,47 @@ def test_http_mcp_profile_is_added_and_the_existing_ones_are_untouched(
     assert profile["lifecycle"]["mcp_clients_alive_after_scope"] == 0, "会话收尾后 HTTP 会话已关闭"
     assert profile["surface"]["tools"]["mcp_snaphttp_echo_query"]["schema_chars"] > 0
 
-    existing = {name for name in baseline["profiles"] if name != "session_http_mcp_fake"}
+    existing = {
+        name for name in baseline["profiles"] if name not in {"session_http_mcp_fake", "session_endpoint_custom"}
+    }
     assert len(existing) == 16
     for name in existing:
         assert head["profiles"][name] == baseline["profiles"][name], name
     assert "WEB_PUBLIC_BASE_URL" in snap.PINNED_ENV_KEYS
+
+
+def test_endpoint_profile_is_added_and_the_existing_ones_are_untouched(
+    head: dict[str, Any], baseline: dict[str, Any]
+) -> None:
+    """P7-S10-A10 新增 ``session_endpoint_custom``：非缺省 OpenAI 兼容对话端点 + 一份精确匹配的测试兼容报告，
+    真生成器装配不抛错，chat model（``GovernedChatModel``）指向配置的端点与模型、兼容状态 verified；模型可见面
+    与 mock 缺省 profile 相同（换端点不改工具与提示）；其余 17 个 profile 与基线逐字相同；新变量都被钉住。"""
+
+    profile = head["profiles"]["session_endpoint_custom"]
+    assert profile["side"] == "session"
+    assert profile["lifecycle"]["exception"] is None
+    assert profile["lifecycle"]["chat_model_endpoint"] == {
+        "wrapper": "GovernedChatModel",
+        "base_url": snap.CUSTOM_ENDPOINT_BASE_URL,
+        "model": snap.CUSTOM_ENDPOINT_MODEL,
+        "compatibility": "verified",
+    }
+    assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
+    others = {name for name in baseline["profiles"] if name != "session_endpoint_custom"}
+    assert len(others) == 17
+    for name in others:
+        assert head["profiles"][name] == baseline["profiles"][name], name
+        assert "chat_model_endpoint" not in head["profiles"][name]["lifecycle"], name
+    for key in (
+        "WATER_AGENT_LLM_BASE_URL",
+        "WATER_AGENT_LLM_MODEL",
+        "WATER_AGENT_LLM_API_KEY",
+        "WATER_AGENT_LLM_COMPATIBILITY_REPORT",
+        "WATER_AGENT_LLM_TIMEOUT_SECONDS",
+        "WATER_AGENT_LLM_PRICE",
+        "WATER_AGENT_EMBEDDING_BASE_URL",
+        "WATER_AGENT_EMBEDDING_MODEL",
+        "WATER_AGENT_EMBEDDING_API_KEY",
+        "WATER_AGENT_RETRIEVAL_MODE",
+    ):
+        assert key in snap.PINNED_ENV_KEYS, key
