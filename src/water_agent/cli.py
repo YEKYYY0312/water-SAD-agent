@@ -316,6 +316,12 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
     if payload.get("retriever_runtime_status"):
         status = payload["retriever_runtime_status"]
         print(f"检索运行态: kind={status.get('fallback_kind')} reason={status.get('fallback_reason')} db_error={status.get('db_error')}")
+        mode = status.get("retrieval_mode")
+        if mode == "text":
+            # P7-S10：关键词模式如实标出，不得说成语义检索
+            print(f"检索模式: 关键词模式（{status.get('retrieval_mode_reason')}；不是语义检索）")
+        elif mode:
+            print(f"检索模式: 混合检索（{status.get('retrieval_mode_reason')}）")
     elif payload["retriever_fallback"]:
         print("检索: fixture 回落（未使用真实 TriviumDB 索引）")
     if payload["errors"]:
