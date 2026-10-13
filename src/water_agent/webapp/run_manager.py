@@ -1061,6 +1061,8 @@ class RunManager:
 
     @staticmethod
     def _result_payload(result: dict[str, Any], *, handle: _RunHandle | None = None) -> dict[str, Any]:
+        runtime = result.get("retriever_runtime_status")
+        runtime = runtime if isinstance(runtime, dict) else {}
         return {
             "status": str(result.get("status") or "failed"),
             "answer": _safe_text(result.get("answer", "")),
@@ -1072,6 +1074,9 @@ class RunManager:
             "errors": [_safe_text(item, limit=1000) for item in result.get("errors", [])],
             "warnings": [_safe_text(item, limit=1000) for item in result.get("warnings", [])],
             "calculations": list(handle.calculations) if handle is not None else [],
+            # P7-S10：本次实际用的检索模式（hybrid / text）与原因；text 是关键词检索，界面据此如实标出
+            "retrieval_mode": runtime.get("retrieval_mode"),
+            "retrieval_mode_reason": runtime.get("retrieval_mode_reason"),
         }
 
     @staticmethod

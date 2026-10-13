@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import re
 import sys
 import time
@@ -233,50 +232,58 @@ class HarnessRunner:
     # ── 真实组件装配 ────────────────────────────────────────────────
 
     def _probe_real_skip(self) -> str | None:
-        """检测真实质量层运行前置条件，返回跳过原因（None=可运行）。"""
-        dashscope = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+        """检测真实质量层运行前置条件，返回跳过原因（None=可运行）。
+
+        P7-S10：embedding Key 只在**强制** ``WATER_AGENT_RETRIEVAL_MODE=hybrid`` 时是前置条件；``auto`` 下没配
+        embedding 时真实评测走关键词检索（与 CLI / Web 同一规则），报告与 stderr 如实标出检索模式。
+        """
+        from water_agent.generation.endpoints import resolve_embedding_endpoint
+        from water_agent.retrieval.trivium import MODE_HYBRID, retrieval_mode_setting
+
         missing: list[str] = []
         if self._chat_endpoint.missing_key():
             missing.append(self.api_key_env)
-        if not dashscope:
-            missing.append("DASHSCOPE_API_KEY")
+        embedding_key = resolve_embedding_endpoint().missing_key()
+        if retrieval_mode_setting() == MODE_HYBRID and embedding_key:
+            missing.append(embedding_key)
         if missing:
-            return f"SKIP: 缺少 API Key: {', '.join(missing)}。真实质量层需配置 DASHSCOPE_API_KEY（embedding）与 {self.api_key_env}（LLM）。"
+            return (
+                f"SKIP: 缺少 API Key: {', '.join(missing)}。真实质量层需配置 {self.api_key_env}（LLM）；"
+                "强制 hybrid 检索时还需要 embedding Key。"
+            )
         index = _pick_index(self.db_path)
         if index is None:
             return "SKIP: 无 TriviumDB 索引（data/indexes/ 下无可用的 .db 文件）。"
         return None
 
     def _build_real_retriever(self) -> TriviumRetriever:
-        """构建真实 TriviumDB 检索器（需 DASHSCOPE_API_KEY 与索引）。"""
-        import triviumdb
-
-        from water_agent.embedding import build_embedding_provider
+        """构建真实 TriviumDB 检索器：与会话装配同一个构造函数（检索模式规则只有一份，P7-S10）。"""
+        from water_agent.retrieval.trivium import retrieval_mode_setting
+        from water_agent.runtime.agentic import build_index_retriever
 
         index = _pick_index(self.db_path)
         assert index is not None, "real retriever requires an index"
-        dim = self.dimensions
-        if dim is None:
-            # 只读打开：探测只需要 dim()，read_write 会要求索引可写（见
-            # TriviumRetriever 的说明），在只读挂载的索引上会无谓失败。
-            probe = triviumdb.TriviumDB(str(index), access_mode="read_only")
-            try:
-                dim = int(probe.dim())
-            finally:
-                probe.close()
-        dim = dim or DEFAULT_DB_DIMENSIONS
-        provider = build_embedding_provider(dimensions=dim)
-        # 与会话装配同一道检查（P7-S10）：embedding 模型 / 维度与索引不一致即拒绝向量检索
-        from water_agent.retrieval.trivium import ensure_embedding_matches
-
-        ensure_embedding_matches(index, model=provider.config.model, dimensions=dim)
-        return TriviumRetriever(
-            db_path=index,
-            embedding_fn=provider.embed,
+        retriever = build_index_retriever(
+            Path(index),
+            setting=retrieval_mode_setting(),
+            dimensions=self.dimensions,
             hybrid_alpha=self.hybrid_alpha,
-            dim=dim,
             fallback_clauses=self._clauses,
         )
+        status = retriever.runtime_status
+        if status.get("retrieval_mode") != "hybrid":
+            print(
+                json.dumps(
+                    {
+                        "warning": "真实评测的检索是关键词模式（不是语义检索）",
+                        "retrieval_mode": status.get("retrieval_mode"),
+                        "retrieval_mode_reason": status.get("retrieval_mode_reason"),
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+        return retriever
 
     def _build_real_generator(self):
         """构建真实 LLM 生成器（需 DEEPSEEK_API_KEY）。"""
@@ -1243,6 +1250,12 @@ def main(argv: list[str] | None = None) -> int:
         "report_path": str(report_path),
         "load_issues": load_issues,
     }
+    # P7-S10：真实评测用了哪种检索如实写出（关键词模式的分数不能当成混合检索的分数）
+    real_retriever = runner._real_retriever
+    status = getattr(real_retriever, "runtime_status", None) if real_retriever is not None else None
+    if isinstance(status, dict):
+        output["retrieval_mode"] = status.get("retrieval_mode")
+        output["retrieval_mode_reason"] = status.get("retrieval_mode_reason")
     # SKIP 全量时添加标记
     if report.skipped == report.total and report.skipped > 0:
         output["skipped_all"] = True

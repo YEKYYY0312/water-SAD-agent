@@ -201,8 +201,19 @@ class TestCliJsonContract:
         return json.loads(out[out.index("{") : out.rindex("}") + 1])
 
     def test_explicit_db_path_reports_a_non_fallback_retriever(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # 冒烟容器里没有 embedding Key：检索模式按 auto 判定（P7-S10），本机设了的变量不能左右结论
+        for name in (
+            "DASHSCOPE_API_KEY",
+            "DASHSCOPE_API_KEY_FILE",
+            "WATER_AGENT_EMBEDDING_API_KEY",
+            "WATER_AGENT_EMBEDDING_BASE_URL",
+            "WATER_AGENT_EMBEDDING_MODEL",
+            "WATER_AGENT_RETRIEVAL_MODE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
         db = _build_mini_index(tmp_path / "index")
 
         payload = self._run(tmp_path, capsys, "--db-path", str(db))
@@ -220,9 +231,12 @@ class TestCliJsonContract:
         # 走 persisted 时 ``text_indexed_nodes`` 按设计保持 0（"本进程没重建过"），
         # 不代表没有文本索引——冒烟的 detail 因此报 source/access_mode 而不是它。
         assert runtime["text_indexed_nodes"] == 0
-        # ``fallback_kind == "mock"`` 指的是 embedding 是假的，语料是真的——别把
-        # 探针改成断言 kind == "none"，那会连"假模型 + 真索引"这个组合一起否掉。
-        assert runtime["fallback_kind"] == "mock"
+        # P7-S10：没配 embedding（auto）时假模型 + 真索引走关键词检索，一次 embedding 都不调用（连伪向量
+        # 都不用），所以 ``fallback_kind`` 是 "none"——语料是真的、检索模式如实报 text。配了 embedding 时
+        # 假模型才用伪向量走混合检索（``fallback_kind == "mock"``，见 test_retrieval_mode.py）。
+        assert runtime["retrieval_mode"] == "text"
+        assert runtime["retrieval_mode_reason"] == "embedding_not_configured"
+        assert runtime["fallback_kind"] == "none"
         assert runtime["db_error"] is None
         assert payload["citations"], "mock 模型会引用首条命中，没引用说明检索没结果"
         assert {c["source_id"] for c in payload["citations"]} <= MINI_SOURCE_IDS
