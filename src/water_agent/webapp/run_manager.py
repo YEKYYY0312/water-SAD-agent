@@ -268,9 +268,8 @@ class WebAgenticSessionFactory:
     def _args(self) -> argparse.Namespace:
         if self.agent_args is not None:
             return argparse.Namespace(**vars(self.agent_args))
-        from water_agent.generation.local_model import local_model_configured, local_model_settings
-
-        local_settings = local_model_settings() if local_model_configured() else {}
+        # 对话端点 / 模型 / Key 名不在这里写死（P7-S10）：None 交给 resolve_chat_endpoint，与预检同一来源
+        # （缺省 DeepSeek；LOCAL_MODEL_* 启用时是本地端点；WATER_AGENT_LLM_* 由运维配置）。
         return argparse.Namespace(
             db_path=None,
             dimensions=None,
@@ -281,10 +280,10 @@ class WebAgenticSessionFactory:
             top_k=5,
             recall_top_k=20,
             hybrid_alpha=0.7,
-            model=local_settings.get("model", "deepseek-chat"),
-            base_url=local_settings.get("base_url", "https://api.deepseek.com"),
-            api_key_env="DEEPSEEK_API_KEY",
-            api_key=local_settings.get("api_key"),
+            model=None,
+            base_url=None,
+            api_key_env=None,
+            api_key=None,
             mock_generator=self.mock_generator,
             session_dir=self.session_dir,
             trace_dir=self.trace_dir,

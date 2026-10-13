@@ -14,9 +14,9 @@ from water_agent.documents.attachments import MAX_ATTACHMENTS_PER_MESSAGE
 from water_agent.documents.repository import UploadRepository
 from water_agent.graphs.confirmation import STATUS_WAITING_CONFIRMATION
 from water_agent.runtime.agentic import (
+    chat_model_problem,
     embedding_configured,
     embedding_required,
-    real_llm_configured,
 )
 from water_agent.storage.repository import (
     ProjectRepository,
@@ -224,10 +224,11 @@ async def create_message(
 
     factory = manager.session_factory
     if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator:
-        if not real_llm_configured():
-            return _not_configured(
-                "WEB_MODEL_NOT_CONFIGURED", "Real agent model is not configured"
-            )
+        # 端点 / Key 的判定与装配同一来源（resolve_chat_endpoint）：缺省端点缺 Key 沿用原说明；
+        # 端点改了却没配专用 Key 时写明缺哪一项（P7-S10：不回落 DeepSeek 的 Key）。
+        problem = chat_model_problem()
+        if problem is not None:
+            return _not_configured(*problem)
         # 检索用的 embedding 凭据独立于对话模型。两者配齐才算可跑：只配了对话模型
         # 时，装配会在构造 embedding provider 时抛 ValueError，浏览器只看到通用的
         # "agent run failed"，而这纯粹是配置缺失——独立错误码让它可自助排查。

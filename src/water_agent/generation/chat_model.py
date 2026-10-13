@@ -1,9 +1,11 @@
 """真实 chat 模型装配（Step 7）：DeepSeek OpenAI 兼容 function calling。
 
-本步只实现 DeepSeek 官方 OpenAI 兼容路径（``ChatOpenAI`` + 自定义
-``base_url``），暂不引入多 provider 抽象。缺 Key 必须响亮失败（与
-``generation/llm.py`` 的 ``LLMGenerator`` 风格一致），无 Key 时的离线闭环
-由 ``--mock-generator`` / fake 承担，禁止静默降级。
+OpenAI 兼容路径（``ChatOpenAI`` + 自定义 ``base_url``），不引入多 provider 抽象。缺 Key 必须响亮
+失败（与 ``generation/llm.py`` 的 ``LLMGenerator`` 风格一致），无 Key 时的离线闭环由
+``--mock-generator`` / fake 承担，禁止静默降级。
+
+P7-S10：端点 / 模型 / Key 名没显式给出时取 ``generation/endpoints.py::resolve_chat_endpoint()``
+（缺省仍是 DeepSeek），本函数只是构造器，不再自带一份缺省值。
 
 P2.5（Step 12）：返回的模型被 ``GovernedChatModel`` 包裹，每次生成都经
 ``ProviderGateway``（限流/预算/有界重试/429 退避/熔断/usage 对账）；流式生成经
@@ -18,6 +20,12 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from water_agent.config.credentials import resolve_secret
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.runtime.governance.binding import default_gateway
 from water_agent.runtime.governance.contracts import (
@@ -27,16 +35,17 @@ from water_agent.runtime.governance.contracts import (
 )
 from water_agent.runtime.governance.gateway import ProviderGateway
 
-DEFAULT_MODEL = "deepseek-chat"
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# 历史名字保留（调用方与测试按 chat_model.DEFAULT_* 引用）；值的唯一来源是 endpoints。
+DEFAULT_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_API_KEY_ENV = DEFAULT_CHAT_API_KEY
 
 
 def build_chat_model(
     *,
-    model: str = DEFAULT_MODEL,
-    base_url: str = DEFAULT_BASE_URL,
-    api_key_env: str = DEFAULT_API_KEY_ENV,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key_env: str | None = None,
     api_key: str | None = None,
     temperature: float = 0.0,
     category: CallCategory = CallCategory.AGENTIC_LOOP,
@@ -44,7 +53,10 @@ def build_chat_model(
     request_context: RequestContext | None = None,
     request_context_factory: Callable[[], RequestContext] | None = None,
 ) -> BaseChatModel:
-    """构造 DeepSeek（OpenAI 兼容）chat model，供 agentic 循环使用。
+    """构造 OpenAI 兼容 chat model（缺省 DeepSeek），供 agentic 循环使用。
+
+    ``model`` / ``base_url`` / ``api_key_env`` 为 ``None`` 时按 ``resolve_chat_endpoint`` 解析；给了的项
+    作为显式覆盖交给同一个解析函数（Key 名的回落规则也在那里：端点改了就不回落 ``DEEPSEEK_API_KEY``）。
 
     规范问答是事实问答（铁律②：回答可追溯、不编造）：``temperature`` 默认 0，
     调用方可显式覆盖。缺 Key 抛 ``ValueError`` 并指明环境变量名——"失败要响亮"，
@@ -55,7 +67,11 @@ def build_chat_model(
     ``ChatOpenAI`` 自带重试必须关掉（``max_retries=0``），否则会与 gateway
     的重试**叠乘**，实际请求数变成两者之积。
     """
-    resolved_api_key = (api_key or resolve_secret(api_key_env) or "").strip()
+    endpoint = resolve_chat_endpoint(base_url=base_url, model=model, api_key_env=api_key_env)
+    model = endpoint.model
+    base_url = endpoint.base_url
+    api_key_env = endpoint.api_key_name or DEFAULT_CHAT_API_KEY
+    resolved_api_key = (api_key or endpoint.api_key_literal or resolve_secret(api_key_env) or "").strip()
     if not resolved_api_key:
         raise ValueError(
             f"{api_key_env} must not be empty"
