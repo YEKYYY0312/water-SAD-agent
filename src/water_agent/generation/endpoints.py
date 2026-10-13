@@ -6,8 +6,8 @@
 embedding 预检都踩过的坑。
 
 优先级（对话端点）：调用方显式给出（CLI ``--model`` / ``--base-url``）> 运维环境变量
-``WATER_AGENT_LLM_BASE_URL`` / ``WATER_AGENT_LLM_MODEL`` > 缺省 DeepSeek。三项都没设 = 现状，已有部署
-零变化。embedding 端点对称（``WATER_AGENT_EMBEDDING_*``，缺省百炼 ``qwen3.7-text-embedding``）。
+``WATER_AGENT_LLM_BASE_URL`` / ``WATER_AGENT_LLM_MODEL`` > Web 设置面板写的 ``<凭据卷>/llm_endpoint.json``
+（管理员，只收 https 与列明的本机例外）> 缺省 DeepSeek。都没设 = 现状，已有部署零变化。embedding 端点对称（``WATER_AGENT_EMBEDDING_*``，缺省百炼 ``qwen3.7-text-embedding``）。
 
 **密钥只发给它所属的服务商**：``WATER_AGENT_LLM_API_KEY`` 未配置时，只有端点仍是 DeepSeek 才回落
 ``DEEPSEEK_API_KEY``；端点指向别处就不回落（否则会把 DeepSeek 的 Key 发给别的服务商），解析结果
@@ -20,9 +20,12 @@ embedding 预检都踩过的坑。
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from water_agent.config.credentials import resolve_secret
@@ -49,10 +52,23 @@ SOURCE_DEFAULT = "default"
 SOURCE_ENV = "env"
 SOURCE_EXPLICIT = "explicit"
 SOURCE_LOCAL_MODEL = "local_model"
+SOURCE_PANEL = "panel"
+
+#: Web 设置面板写的对话端点（非密钥配置，与凭据同卷、0600）。
+PANEL_ENDPOINT_FILE = "llm_endpoint.json"
+#: 面板写端点时 ``http://`` 只收这些主机（本机与 compose 里的 ``local-model`` 服务）；其余一律 https。
+PANEL_HTTP_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "local-model"})
+MAX_MODEL_NAME_LENGTH = 200
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._:/@+\-]+$")
 
 
 class EndpointConfigError(ValueError):
     """端点配置本身不成立（URL 不合法、两条路径同时启用）。启动期即响亮失败。"""
+
+
+class PanelEndpointError(EndpointConfigError):
+    """面板写的 ``llm_endpoint.json`` 读不出或不成立。不让进程起不来（管理员要能在面板里改正它），
+    但解析与预检照样失败（不静默回到缺省端点）。"""
 
 
 def normalize_base_url(value: str) -> str:
@@ -83,6 +99,73 @@ def validate_base_url(value: str, *, label: str) -> str:
         raise EndpointConfigError(f"{label} 不得包含 #fragment")
     if port is not None and not 0 < port < 65536:
         raise EndpointConfigError(f"{label} 的端口不合法")
+    return cleaned
+
+
+def validate_model_name(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned or len(cleaned) > MAX_MODEL_NAME_LENGTH or not _MODEL_NAME_RE.fullmatch(cleaned):
+        raise EndpointConfigError(
+            f"模型名只能含字母、数字与 . _ : / @ + -，长度 1–{MAX_MODEL_NAME_LENGTH}"
+        )
+    return cleaned
+
+
+def validate_panel_base_url(value: str) -> str:
+    """面板可写的 base_url：只收 ``https://``（``http://localhost`` / ``127.0.0.1`` / ``local-model`` 例外）。
+
+    面板能写端点就等于能决定把用户问题与检索条文发到哪——与"面板改不了 MCP command"同一级风险，所以只收
+    https、要求管理员、改了就必须重新验证（兼容性报告按端点 + 模型精确匹配）。
+    """
+
+    cleaned = validate_base_url(value, label="base_url")
+    parts = urlsplit(cleaned)
+    if parts.scheme == "https":
+        return cleaned
+    if (parts.hostname or "").lower() in PANEL_HTTP_HOSTS:
+        return cleaned
+    raise EndpointConfigError(
+        "base_url 只接受 https://（本机 http://localhost、http://127.0.0.1 与 compose 服务 http://local-model 例外）"
+    )
+
+
+def panel_endpoint_path() -> Path:
+    from water_agent.config.credentials import credentials_dir
+
+    return credentials_dir() / PANEL_ENDPOINT_FILE
+
+
+def read_panel_endpoint() -> tuple[str, str] | None:
+    """面板写的 ``(base_url, model)``；文件不存在为 ``None``，读不出或不成立即 :class:`PanelEndpointError`。"""
+
+    path = panel_endpoint_path()
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or set(payload) != {"base_url", "model"}:
+            raise ValueError("字段必须恰好是 base_url 与 model")
+        return validate_panel_base_url(str(payload["base_url"])), validate_model_name(str(payload["model"]))
+    except (OSError, ValueError, TypeError) as exc:
+        raise PanelEndpointError(f"{PANEL_ENDPOINT_FILE} 不可用（{exc}）；请在设置面板重新保存对话端点") from exc
+
+
+def write_panel_endpoint(base_url: str, model: str) -> tuple[str, str]:
+    """校验并原子写出面板端点（同目录临时文件 + ``os.replace``，0600）。凭据卷不可写时抛 ``OSError``。"""
+
+    cleaned = (validate_panel_base_url(base_url), validate_model_name(model))
+    target = panel_endpoint_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f"{target.name}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(
+            descriptor,
+            json.dumps({"base_url": cleaned[0], "model": cleaned[1]}, ensure_ascii=False).encode("utf-8"),
+        )
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, target)
     return cleaned
 
 
@@ -212,11 +295,16 @@ def resolve_chat_endpoint(
     explicit_model = (model or "").strip()
     env_base = _env(getenv, CHAT_BASE_URL_ENV)
     env_model = _env(getenv, CHAT_MODEL_ENV)
+    panel = None if env_base or env_model else read_panel_endpoint()
     if local_model_configured(getenv):
         if env_base or env_model:
             raise EndpointConfigError(
                 f"LOCAL_MODEL_ENABLED 与 {CHAT_BASE_URL_ENV} / {CHAT_MODEL_ENV} 不能同时启用："
                 "本地模型路径（P5 Step 46）与 OpenAI 兼容端点二选一"
+            )
+        if panel is not None:
+            raise PanelEndpointError(
+                "LOCAL_MODEL_ENABLED 与设置面板配置的对话端点不能同时启用：二选一（关掉本地模型，或在面板恢复缺省）"
             )
         if not explicit_base and not explicit_model:
             settings = local_model_settings(getenv)
@@ -228,17 +316,20 @@ def resolve_chat_endpoint(
                 api_key_literal=LOCAL_MODEL_DEFAULT_API_KEY,
             )
 
+    panel_base, panel_model = panel if panel is not None else ("", "")
     if explicit_base or explicit_model:
         source = SOURCE_EXPLICIT
     elif env_base or env_model:
         source = SOURCE_ENV
+    elif panel is not None:
+        source = SOURCE_PANEL
     else:
         source = SOURCE_DEFAULT
     resolved_base = validate_base_url(
-        explicit_base or env_base or DEFAULT_CHAT_BASE_URL,
+        explicit_base or env_base or panel_base or DEFAULT_CHAT_BASE_URL,
         label="--base-url" if explicit_base else CHAT_BASE_URL_ENV,
     )
-    resolved_model = explicit_model or env_model or DEFAULT_CHAT_MODEL
+    resolved_model = explicit_model or env_model or panel_model or DEFAULT_CHAT_MODEL
     key_name = (api_key_env or "").strip() or _key_name(
         specific=CHAT_API_KEY,
         fallback=DEFAULT_CHAT_API_KEY,
@@ -289,10 +380,16 @@ __all__ = [
     "ChatEndpoint",
     "EmbeddingEndpoint",
     "EndpointConfigError",
+    "PanelEndpointError",
     "chat_env_configured",
     "endpoint_host",
     "normalize_base_url",
+    "panel_endpoint_path",
+    "read_panel_endpoint",
     "resolve_chat_endpoint",
     "resolve_embedding_endpoint",
     "validate_base_url",
+    "validate_model_name",
+    "validate_panel_base_url",
+    "write_panel_endpoint",
 ]
