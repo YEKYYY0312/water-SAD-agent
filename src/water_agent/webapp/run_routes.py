@@ -15,8 +15,7 @@ from water_agent.documents.repository import UploadRepository
 from water_agent.graphs.confirmation import STATUS_WAITING_CONFIRMATION
 from water_agent.runtime.agentic import (
     chat_model_problem,
-    embedding_configured,
-    embedding_required,
+    retrieval_problem,
 )
 from water_agent.storage.repository import (
     ProjectRepository,
@@ -229,15 +228,13 @@ async def create_message(
         problem = chat_model_problem()
         if problem is not None:
             return _not_configured(*problem)
-        # 检索用的 embedding 凭据独立于对话模型。两者配齐才算可跑：只配了对话模型
-        # 时，装配会在构造 embedding provider 时抛 ValueError，浏览器只看到通用的
-        # "agent run failed"，而这纯粹是配置缺失——独立错误码让它可自助排查。
-        # 刻意不降级为 fixture 检索：那会让答案看似正常、实则脱离真实语料。
-        if embedding_required(factory.agent_args) and not embedding_configured():
-            return _not_configured(
-                "WEB_EMBEDDING_NOT_CONFIGURED",
-                "Retrieval embedding credential is not configured",
-            )
+        # 检索的预检语义是"必须能检索"（P7-S10）：auto 下没配 embedding 走关键词检索、不拒绝（运行结果里
+        # 如实标出 retrieval_mode=text）；只有强制 hybrid 时缺 embedding / 与索引不匹配才 424——否则装配必然
+        # 失败，浏览器只看到通用的 "agent run failed"。刻意不降级为 fixture 检索：那会让答案看似正常、实则
+        # 脱离真实语料。
+        problem = retrieval_problem(factory.agent_args)
+        if problem is not None:
+            return _not_configured(*problem)
 
     # 附件归属在建 run 之前校验：不可见与不存在同答 404，且不留下 queued run。
     attachment_ids = [str(item) for item in dict.fromkeys(body.attachments)]
