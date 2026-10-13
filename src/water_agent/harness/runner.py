@@ -44,6 +44,12 @@ from water_agent.domain.models import (
 from water_agent.domain.state import default_state
 from water_agent.generation.chat_model import build_chat_model
 from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.agent_rag import (
@@ -99,12 +105,14 @@ DEFAULT_FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 # 索引目录与选择规则归 retrieval.trivium 统一维护；别名保留既有引用点。
 DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 DEFAULT_DB_DIMENSIONS = 512
-DEFAULT_MODEL = "deepseek-chat"
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
-DEFAULT_JUDGE_MODEL = "deepseek-chat"
-DEFAULT_JUDGE_BASE_URL = "https://api.deepseek.com"
-DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# 历史名字保留（mock-agentic 装配参数与既有引用）；真实评测的端点 / 模型 / Key 名没显式给出时按
+# resolve_chat_endpoint 解析（P7-S10，缺省仍是 DeepSeek）。
+DEFAULT_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_API_KEY_ENV = DEFAULT_CHAT_API_KEY
+DEFAULT_JUDGE_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_JUDGE_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_JUDGE_API_KEY_ENV = DEFAULT_CHAT_API_KEY
 
 # 退出码语义（与 SKIP 明确区分）：
 #   0 全部通过或全部 SKIP；1 有用例失败；2 评测集加载问题；3 有 Key 但真实组件构建失败
@@ -168,13 +176,13 @@ class HarnessRunner:
         rerank_model: str | None = None,
         rerank_base_url: str | None = None,
         rerank_api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
-        api_key_env: str = DEFAULT_API_KEY_ENV,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key_env: str | None = None,
         judge: bool = False,
-        judge_model: str = DEFAULT_JUDGE_MODEL,
-        judge_base_url: str = DEFAULT_JUDGE_BASE_URL,
-        judge_api_key_env: str = DEFAULT_JUDGE_API_KEY_ENV,
+        judge_model: str | None = None,
+        judge_base_url: str | None = None,
+        judge_api_key_env: str | None = None,
         real_graph: str = "agentic",
         max_tool_turns: int = 10,
     ) -> None:
@@ -202,9 +210,13 @@ class HarnessRunner:
         self.rerank_model = rerank_model
         self.rerank_base_url = rerank_base_url
         self.rerank_api_key = rerank_api_key
-        self.model = model
-        self.base_url = base_url
-        self.api_key_env = api_key_env
+        # 端点唯一来源（P7-S10）：参数是显式覆盖，None 即按部署配置；Key 名的回落规则同 CLI / Web
+        self._chat_endpoint = resolve_chat_endpoint(
+            base_url=base_url, model=model, api_key_env=api_key_env
+        )
+        self.model = self._chat_endpoint.model
+        self.base_url = self._chat_endpoint.base_url
+        self.api_key_env = self._chat_endpoint.api_key_name or DEFAULT_CHAT_API_KEY
         self.judge = judge
         self.judge_model = judge_model
         self.judge_base_url = judge_base_url
@@ -221,10 +233,9 @@ class HarnessRunner:
 
     def _probe_real_skip(self) -> str | None:
         """检测真实质量层运行前置条件，返回跳过原因（None=可运行）。"""
-        deepseek = os.environ.get(self.api_key_env, "").strip()
         dashscope = os.environ.get("DASHSCOPE_API_KEY", "").strip()
         missing: list[str] = []
-        if not deepseek:
+        if self._chat_endpoint.missing_key():
             missing.append(self.api_key_env)
         if not dashscope:
             missing.append("DASHSCOPE_API_KEY")
@@ -535,7 +546,7 @@ class HarnessRunner:
 
         variant = self._effective_variant(case)
         if variant == "real":
-            if not os.environ.get(self.api_key_env, "").strip():
+            if self._chat_endpoint.missing_key():
                 verdict = run_quality_polish(rendered, api_key_env=self.api_key_env)
             else:
                 if self._real_polisher is None:
@@ -1153,13 +1164,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db-path", default=None, help="TriviumDB 索引路径（默认用 data/indexes 下最新库）")
     p.add_argument("--dimensions", type=int, default=None, choices=[256, 512, 768, 1024], help="embedding 维度")
     p.add_argument("--rerank", choices=["local", "bailian", "none"], default="local", help="rerank 策略")
-    p.add_argument("--model", default=DEFAULT_MODEL, help="LLM 模型名")
-    p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="LLM base_url")
-    p.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV, help="真实模型 API Key 环境变量名")
+    p.add_argument("--model", default=None, help="LLM 模型名（缺省按部署配置，未配置时 deepseek-chat）")
+    p.add_argument("--base-url", default=None, help="LLM base_url（缺省按部署配置，未配置时 DeepSeek）")
+    p.add_argument("--api-key-env", default=None, help="真实模型 API Key 环境变量名（缺省按端点解析）")
     p.add_argument("--judge", action="store_true", help="启用 LLM-as-judge 回答质量评分（仅 --variant real 有效）")
-    p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="Judge 模型名")
-    p.add_argument("--judge-base-url", default=DEFAULT_JUDGE_BASE_URL, help="Judge base_url")
-    p.add_argument("--judge-api-key-env", default=DEFAULT_JUDGE_API_KEY_ENV, help="Judge API Key 环境变量名")
+    p.add_argument("--judge-model", default=None, help="Judge 模型名（缺省同对话端点解析）")
+    p.add_argument("--judge-base-url", default=None, help="Judge base_url（缺省同对话端点解析）")
+    p.add_argument("--judge-api-key-env", default=None, help="Judge API Key 环境变量名（缺省按端点解析）")
     p.add_argument("--real-graph", choices=["agentic", "legacy"], default="agentic",
                    help="--variant real 走哪条图：agentic（默认，模型自己声明引用、校验器真判）/ legacy（引用系统代填，仅供对比）")
     p.add_argument("--max-tool-turns", type=int, default=10, help="agentic 图每轮工具调用预算")
