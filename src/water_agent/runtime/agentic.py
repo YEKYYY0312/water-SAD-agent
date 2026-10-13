@@ -22,7 +22,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
-from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
+from water_agent.generation.chat_model import build_chat_model
+from water_agent.generation.endpoints import (
+    EndpointConfigError,
+    chat_env_configured,
+    resolve_chat_endpoint,
+)
 from water_agent.graphs.agent_rag import (
     PER_TURN_RESET,
     _extract_validation_signal,
@@ -87,18 +92,46 @@ DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 
 
-def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
-    """Inspect only whether the configured real-model key exists."""
+#: 预检：对话模型没配齐（缺 Key / 端点配置不成立 / 本地模型缺证据）。
+CHAT_MODEL_NOT_CONFIGURED = "WEB_MODEL_NOT_CONFIGURED"
 
-    from water_agent.config.credentials import resolve_secret
+
+def chat_model_problem(
+    environment: Callable[[str], str | None] = os.getenv,
+) -> tuple[str, str] | None:
+    """对话模型能否装配；不能时返回 ``(错误码, 说明)``。只看配置，不读出也不回显 Key 值。
+
+    与 ``build_chat_model`` 共用 ``resolve_chat_endpoint``（端点 / 模型 / Key 名 + 三层解析）：两处各自
+    判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、真跑 503 的矛盾结果。
+    缺省端点缺 Key 时说明沿用原文；端点改了却没配专用 Key 时写明缺哪一项（不回落 DeepSeek 的 Key）。
+    """
+
     from water_agent.generation.local_model import local_model_configured, local_model_ready
 
-    if local_model_configured(environment):
-        return local_model_ready(environment)
-    # 与 build_chat_model 共用同一解析顺序（env → _FILE → 凭据卷）。两处各自
-    # 判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、
-    # 真跑 503 的矛盾结果。
-    return resolve_secret("DEEPSEEK_API_KEY", getenv=environment) is not None
+    if local_model_configured(environment) and not chat_env_configured(environment):
+        if local_model_ready(environment):
+            return None
+        return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
+    try:
+        endpoint = resolve_chat_endpoint(getenv=environment)
+    except EndpointConfigError as exc:
+        return CHAT_MODEL_NOT_CONFIGURED, f"Real agent model is not configured: {exc}"
+    missing = endpoint.missing_key(getenv=environment)
+    if missing is None:
+        return None
+    if endpoint.is_default:
+        return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
+    detail = (
+        f"Real agent model is not configured: {missing} is required for {endpoint.host} "
+        "(keys of other providers are never sent to it)"
+    )
+    return CHAT_MODEL_NOT_CONFIGURED, detail
+
+
+def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
+    """Inspect only whether the configured real model can be assembled（见 ``chat_model_problem``）。"""
+
+    return chat_model_problem(environment) is None
 
 
 def embedding_required(args: argparse.Namespace | None = None) -> bool:
@@ -457,7 +490,6 @@ class AgenticSession:
         )
         self.recorder = JsonTraceRecorder(Path(args.trace_dir))
         self.gateway = default_gateway_with_sink(self.recorder.record_provider_event)
-        api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
         api_key = getattr(args, "api_key", None)
         from water_agent.generation.local_model import local_model_configured, local_model_ready
 
@@ -471,18 +503,26 @@ class AgenticSession:
         elif args.mock_generator:
             self.model = _ScriptedAgenticModel()
         else:
+            # 端点 / 模型 / Key 名的唯一来源（P7-S10）：args 里的值是显式覆盖（CLI），None 即按部署配置
+            endpoint = resolve_chat_endpoint(
+                base_url=getattr(args, "base_url", None),
+                model=getattr(args, "model", None),
+                api_key_env=getattr(args, "api_key_env", None),
+            )
             try:
                 self.model = build_chat_model(
-                    model=args.model,
-                    base_url=args.base_url,
-                    api_key_env=api_key_env,
+                    model=endpoint.model,
+                    base_url=endpoint.base_url,
+                    api_key_env=endpoint.api_key_name,
                     api_key=api_key,
                     gateway=self.gateway,
                     request_context_factory=lambda: self.request_context,
                 )
+            except EndpointConfigError:
+                raise
             except ValueError as exc:
                 raise ValueError(
-                    f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
+                    f"{exc}。agentic 真实模型链路需要 API Key：export {endpoint.api_key_name}=sk-...，"
                     "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
                 ) from exc
 
@@ -899,6 +939,7 @@ __all__ = [
     "_initial_messages_with_runtime_context",
     "build_agentic_session",
     "build_cli_checkpointer",
+    "chat_model_problem",
     "embedding_configured",
     "embedding_required",
     "real_llm_configured",
