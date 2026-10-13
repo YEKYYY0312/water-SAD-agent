@@ -93,6 +93,10 @@ class ToolCapabilityEntry(BaseModel):
 
 #: 远程 provider 调用点清单。**新增远程调用必须先加到这里**。
 #:
+#: P7-S10：``ProviderKind.DEEPSEEK_CHAT`` 的语义扩为"OpenAI 兼容对话端点"——端点 / 模型由
+#: ``generation/endpoints.py::resolve_chat_endpoint`` 决定（缺省仍是 DeepSeek），出站模块与调用点不变（还是
+#: 下面这四个 ``deepseek_chat_*``，名字保留）；限流 / 熔断 / 预算键里本来就含 ``model``，换模型自然分桶。
+#:
 #: P2.5 Step 12 后 ``governed=True``：每个出口都经 ``ProviderGateway``。
 #: ``current_timeout_seconds`` / ``current_retry`` 记录的是**接入后**的真实口径
 #: （统一取自 ``GovernanceConfig`` 的 provider 画像，不再各处硬编码）。
