@@ -34,6 +34,11 @@ from typing import Any
 from water_agent.docgen.templates import RenderedDoc, check_structure, validate_citation_policy
 from water_agent.domain.models import TokenUsage
 from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+)
 from water_agent.runtime.governance.contracts import CallCategory, RequestContext
 from water_agent.runtime.governance.gateway import ProviderGateway
 
@@ -41,10 +46,11 @@ from water_agent.runtime.governance.gateway import ProviderGateway
 NUMERIC_REL_TOL = 1e-6
 NUMERIC_ABS_TOL = 1e-6
 
-# 润色可调用的默认模型（与真实链路同源：DeepSeek OpenAI 兼容）
-POLISH_MODEL = "deepseek-chat"
-POLISH_BASE_URL = "https://api.deepseek.com"
-POLISH_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# 润色模型与真实链路同源：端点 / 模型 / Key 名没显式给出时按 resolve_chat_endpoint 解析（P7-S10，
+# 缺省 DeepSeek）。常量只为历史引用保留。
+POLISH_MODEL = DEFAULT_CHAT_MODEL
+POLISH_BASE_URL = DEFAULT_CHAT_BASE_URL
+POLISH_API_KEY_ENV = DEFAULT_CHAT_API_KEY
 
 
 @dataclass(slots=True)
@@ -275,9 +281,9 @@ class RealPolishTransport:
     def __init__(
         self,
         *,
-        model: str = POLISH_MODEL,
-        base_url: str = POLISH_BASE_URL,
-        api_key_env: str = POLISH_API_KEY_ENV,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key_env: str | None = None,
         gateway: ProviderGateway | None = None,
         request_context: RequestContext | None = None,
     ) -> None:
