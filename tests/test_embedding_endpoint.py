@@ -179,8 +179,10 @@ def test_mismatched_embedding_never_searches_vectors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """P7-S10-A04 当前 embedding 模型或维度与 ``index_meta.json`` 不一致、索引是纯关键词索引、或元数据读不出：
-    装配期即 ``RETRIEVAL_EMBEDDING_MISMATCH``，一次向量检索（一次 embedding 请求）都不做；会话与 runner 两条
-    装配路径同一道检查；建库脚本拒绝往别的模型建的索引里追加。"""
+    一次向量检索（一次 embedding 请求）都不做——``auto`` 降级到关键词检索并在运行状态里如实标出
+    （``retrieval_mode=text``、``embedding_mismatch`` 与具体原因），强制 ``hybrid`` 即
+    ``RETRIEVAL_EMBEDDING_MISMATCH``；会话与 runner 两条装配路径同一道检查；建库脚本拒绝往别的模型建的索引里
+    追加。"""
 
     from water_agent.harness.runner import HarnessRunner
     from water_agent.runtime.agentic import _build_retriever
@@ -188,17 +190,32 @@ def test_mismatched_embedding_never_searches_vectors(
     db = _index(tmp_path, model="bge-m3", dimensions=512)
     monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-dashscope-key-0001")
     seen = _count_embedding_requests(monkeypatch)
-    with pytest.raises(trivium.EmbeddingMismatchError) as caught:
-        _build_retriever(_args(db))
-    assert caught.value.code == "RETRIEVAL_EMBEDDING_MISMATCH" and "bge-m3" in caught.value.reason
     eval_path = tmp_path / "empty.jsonl"
     eval_path.write_text("", encoding="utf-8")
     runner = HarnessRunner(
         eval_path=eval_path, report_dir=tmp_path / "r", trace_dir=tmp_path / "t", db_path=db
     )
+
+    retriever, _ = _build_retriever(_args(db))
+    status = retriever.runtime_status
+    assert (status["retrieval_mode"], status["retrieval_mode_reason"]) == (
+        "text",
+        "embedding_mismatch",
+    )
+    assert (
+        "bge-m3" in status["retrieval_mode_detail"]
+        and "qwen3.7-text-embedding" in status["retrieval_mode_detail"]
+    )
+    assert retriever.retrieve("给水管道的设计秒流量", top_k=3), "关键词检索照常可用"
+    assert runner._build_real_retriever().runtime_status["retrieval_mode"] == "text"
+    assert seen == []
+
+    monkeypatch.setenv("WATER_AGENT_RETRIEVAL_MODE", "hybrid")
+    with pytest.raises(trivium.EmbeddingMismatchError) as caught:
+        _build_retriever(_args(db))
+    assert caught.value.code == "RETRIEVAL_EMBEDDING_MISMATCH" and "bge-m3" in caught.value.reason
     with pytest.raises(trivium.EmbeddingMismatchError):
         runner._build_real_retriever()
-    assert seen == []
 
     write_index_meta(
         db,
@@ -223,6 +240,10 @@ def test_mismatched_embedding_never_searches_vectors(
     trivium.index_meta_path(db).write_text("{ 坏的", encoding="utf-8")
     with pytest.raises(trivium.EmbeddingMismatchError):
         _build_retriever(_args(db))
+    monkeypatch.delenv("WATER_AGENT_RETRIEVAL_MODE")
+    retriever, _ = _build_retriever(_args(db))
+    assert retriever.runtime_status["retrieval_mode"] == "text"
+    assert retriever.runtime_status["index_meta"] == "invalid"
     assert seen == []
 
     from scripts import build_index as build_index_script

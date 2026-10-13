@@ -75,10 +75,22 @@ from water_agent.retrieval.rerank import (
 )
 from water_agent.retrieval.trivium import DEFAULT_INDEX_DIR as TRIVIUM_INDEX_DIR
 from water_agent.retrieval.trivium import (
+    MODE_HYBRID,
+    MODE_TEXT,
+    REASON_EMBEDDING_MATCHED,
+    REASON_EMBEDDING_MISMATCH,
+    REASON_EMBEDDING_NOT_CONFIGURED,
+    REASON_FORCED,
+    EmbeddingMismatchError,
+    IndexMetaError,
     IndexSelectionError,
     TriviumRetriever,
+    embedding_mismatch,
     ensure_embedding_matches,
+    index_dimensions,
+    read_index_meta,
     resolve_index_path,
+    retrieval_mode_setting,
 )
 from water_agent.runtime.cancellation import RunCancelled, cancellation_scope
 from water_agent.runtime.governance.binding import (
@@ -165,6 +177,33 @@ def embedding_required(args: argparse.Namespace | None = None) -> bool:
         return True
 
 
+def retrieval_problem(args: argparse.Namespace | None = None) -> tuple[str, str] | None:
+    """检索能不能跑；不能时返回 ``(错误码, 说明)``（Web 预检用，P7-S10）。
+
+    预检的语义从"必须有 embedding"变为"必须能检索"：``auto`` 下缺 embedding 走关键词检索、不拒绝；只有
+    **强制** ``hybrid`` 时才要求 embedding 已配置且与索引匹配（否则装配必然失败，浏览器只能看到通用的
+    "agent run failed"）。不需要真实 embedding（mock 生成器、没有真实索引）时不检查。
+    """
+
+    try:
+        setting = retrieval_mode_setting(getattr(args, "retrieval_mode", None))
+    except ValueError as exc:
+        return "WEB_RETRIEVAL_MODE_INVALID", str(exc)
+    if setting != MODE_HYBRID or not embedding_required(args):
+        return None
+    if not embedding_configured():
+        return "WEB_EMBEDDING_NOT_CONFIGURED", "Retrieval embedding credential is not configured"
+    try:
+        db_path = _resolve_db_path(args if args is not None else argparse.Namespace())
+        if db_path is not None:
+            resolve_retrieval_plan(db_path, setting=setting, dimensions=index_dimensions(db_path))
+    except EmbeddingMismatchError as exc:
+        return exc.code, f"Retrieval embedding does not match the index: {exc.reason}"
+    except ValueError:
+        return None  # 选索引本身出错：交给装配响亮失败（与此前一致）
+    return None
+
+
 def embedding_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Inspect only whether the embedding key exists，解析顺序与 chat model 一致。
 
@@ -244,6 +283,100 @@ def _load_fixture_clauses() -> list[RetrievedClause]:
         return []
 
 
+def resolve_retrieval_plan(
+    db_path: Path, *, setting: str, dimensions: int
+) -> tuple[str, str, str | None]:
+    """这份索引用哪种检索：返回 ``(mode, reason, detail)``（P7-S10，规格 §3.11）。
+
+    - ``text``（强制）→ 关键词检索，不碰 embedding；
+    - ``hybrid``（强制）→ embedding 与索引不匹配（模型 / 维度不一致、纯关键词索引、元数据读不出）即
+      :class:`EmbeddingMismatchError`；没配 embedding Key 时由构造 provider 那一步响亮失败；
+    - ``auto`` → embedding 已配置且与索引匹配走 ``hybrid``，否则走 ``text`` 并如实记原因——**不静默继续向量
+      检索，也不把关键词检索说成语义检索**。
+
+    ``detail`` 只在 auto 因不匹配降级时给出（模型名 / 维度，不含任何 Key）。
+    """
+
+    if setting == MODE_TEXT:
+        return MODE_TEXT, REASON_FORCED, None
+    from water_agent.generation.endpoints import resolve_embedding_endpoint
+
+    endpoint = resolve_embedding_endpoint()
+    try:
+        meta = read_index_meta(db_path, dimensions=dimensions)
+        mismatch = embedding_mismatch(meta, model=endpoint.model, dimensions=dimensions)
+    except IndexMetaError as exc:
+        mismatch = str(exc)
+    if setting == MODE_HYBRID:
+        if mismatch is not None:
+            raise EmbeddingMismatchError(mismatch)
+        return MODE_HYBRID, REASON_FORCED, None
+    if endpoint.missing_key() is not None:
+        return MODE_TEXT, REASON_EMBEDDING_NOT_CONFIGURED, None
+    if mismatch is not None:
+        return MODE_TEXT, REASON_EMBEDDING_MISMATCH, mismatch
+    return MODE_HYBRID, REASON_EMBEDDING_MATCHED, None
+
+
+def build_index_retriever(
+    db_path: Path,
+    *,
+    setting: str,
+    dimensions: int | None,
+    hybrid_alpha: float,
+    fallback_clauses: list[RetrievedClause],
+    mock_embedding: bool = False,
+    request_context=None,
+    gateway=None,
+) -> TriviumRetriever:
+    """真实索引上的检索器（会话装配与 runner 真实评测共用，检索模式规则只有这一份）。
+
+    ``mock_embedding``（``--mock-generator``）只在判定为 ``hybrid`` 时用确定性伪向量代替真实 embedding；
+    判定为 ``text`` 时与真实路径一样不碰 embedding。
+    """
+
+    dim = dimensions or index_dimensions(db_path)
+    if mock_embedding and setting == MODE_HYBRID:
+        mode, reason, detail = MODE_HYBRID, REASON_FORCED, None
+    else:
+        mode, reason, detail = resolve_retrieval_plan(db_path, setting=setting, dimensions=dim)
+    if mode == MODE_TEXT:
+        retriever = TriviumRetriever(
+            db_path=db_path,
+            hybrid_alpha=hybrid_alpha,
+            dim=dim,
+            fallback_clauses=fallback_clauses,
+            retrieval_mode=MODE_TEXT,
+            retrieval_mode_reason=reason,
+            retrieval_mode_detail=detail,
+        )
+        retriever._fallback_reason = f"keyword retrieval ({reason})"  # type: ignore[attr-defined]
+        return retriever
+    if mock_embedding:
+        from water_agent.retrieval.trivium import mock_embed
+
+        embedding_fn = lambda text: mock_embed(text, dim=dim)
+        fallback_kind, fallback_reason = "mock", "explicit mock_generator"
+    else:
+        provider, _ = _embedding_for(db_path, request_context=request_context, gateway=gateway)
+        # 构造之后再核一次（provider 的模型 / 维度才是真正要发出去的）：判定与实际调用不分叉
+        ensure_embedding_matches(db_path, model=provider.config.model, dimensions=dim)  # type: ignore[attr-defined]
+        embedding_fn = provider.embed  # type: ignore[attr-defined]
+        fallback_kind, fallback_reason = "none", "real db"
+    retriever = TriviumRetriever(
+        db_path=db_path,
+        embedding_fn=embedding_fn,
+        hybrid_alpha=hybrid_alpha,
+        dim=dim,
+        fallback_clauses=fallback_clauses,
+        retrieval_mode=MODE_HYBRID,
+        retrieval_mode_reason=reason,
+    )
+    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
+    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
+    return retriever
+
+
 def _build_retriever(
     args: argparse.Namespace, *, request_context=None, gateway=None
 ) -> tuple[Retriever, str]:
@@ -253,38 +386,16 @@ def _build_retriever(
     db_path = _resolve_db_path(args)
     if db_path is None:
         return TriviumRetriever(db_path=None, fallback_clauses=fixture), ""
-
-    dim = getattr(args, "dimensions", None)
-    if getattr(args, "mock_generator", False):
-        import triviumdb
-
-        probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
-        dim = dim or int(probe.dim())
-        probe.close()
-        from water_agent.retrieval.trivium import mock_embed
-
-        embedding_fn = lambda text: mock_embed(text, dim=dim)
-        fallback_kind = "mock"
-        fallback_reason = "explicit mock_generator"
-    else:
-        provider, detected = _embedding_for(
-            db_path, request_context=request_context, gateway=gateway
-        )
-        dim = detected if dim is None else dim
-        # 换 embedding 模型必须重建索引（P7-S10）：模型或维度与 index_meta.json 不一致即拒绝向量检索
-        ensure_embedding_matches(db_path, model=provider.config.model, dimensions=dim)  # type: ignore[attr-defined]
-        embedding_fn = provider.embed  # type: ignore[attr-defined]
-        fallback_kind = "none"
-        fallback_reason = "real db"
-    retriever = TriviumRetriever(
-        db_path=db_path,
-        embedding_fn=embedding_fn,
+    retriever = build_index_retriever(
+        db_path,
+        setting=retrieval_mode_setting(getattr(args, "retrieval_mode", None)),
+        dimensions=getattr(args, "dimensions", None),
         hybrid_alpha=getattr(args, "hybrid_alpha", 0.7),
-        dim=dim,
         fallback_clauses=fixture,
+        mock_embedding=bool(getattr(args, "mock_generator", False)),
+        request_context=request_context,
+        gateway=gateway,
     )
-    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
-    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
     return retriever, str(db_path)
 
 
@@ -305,11 +416,17 @@ def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=N
 
 
 def _build_cache_service(
-    args: argparse.Namespace, *, mcp_server_manifest: str = "", skill_library_digest: str = ""
+    args: argparse.Namespace,
+    *,
+    mcp_server_manifest: str = "",
+    skill_library_digest: str = "",
+    keyword_index: bool = False,
 ) -> AnswerCacheService:
     """``mcp_server_manifest`` 进缓存键（P7-S3，F6）：MCP server 清单 / 白名单 / 命令任一变化，
     旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。
-    ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。"""
+    ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。
+    ``keyword_index``（P7-S10）：真实索引上走的是关键词检索——语料 / 索引版本因子记成 ``text-only``，
+    与混合检索的回答互不命中（检索方式不同，答案依据就不同）；混合检索时与历史键同键。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
     # P7-S10：对话端点进缓存键（缺省 DeepSeek 为空串，与历史键同键）
     endpoint = resolve_chat_endpoint(
@@ -321,7 +438,7 @@ def _build_cache_service(
 
     return AnswerCacheService(
         # 语料 / 索引版本因子：embedding 模型取解析结果（缺省 qwen3.7-text-embedding，与历史键同键）
-        embedding_model=resolve_embedding_endpoint().model,
+        embedding_model="text-only" if keyword_index else resolve_embedding_endpoint().model,
         dimensions=getattr(args, "dimensions", None) or 512,
         top_k=getattr(args, "top_k", 5),
         recall_top_k=getattr(args, "recall_top_k", 20),
@@ -658,12 +775,23 @@ class AgenticSession:
                     args,
                     mcp_server_manifest=self.mcp_assembly.manifest_hash,
                     skill_library_digest=self.skill_library.digest(),
+                    keyword_index=self._keyword_index(),
                 )
                 if not args.mock_generator
                 else None
             ),
             **confirmation_kwargs,
         )
+
+    def _retrieval_status(self) -> dict[str, Any]:
+        runtime_status = getattr(self.retriever, "runtime_status", None)
+        return runtime_status if isinstance(runtime_status, dict) else {}
+
+    def _keyword_index(self) -> bool:
+        """真实索引上走的是关键词检索（不含 fixture 兜底）。"""
+
+        status = self._retrieval_status()
+        return status.get("retrieval_mode") == MODE_TEXT and bool(status.get("db_opened"))
 
     def _thread_retrieved_source_ids(self) -> set[str]:
         """本 thread 历来 ``retrieve_clauses`` 返回过的 source_id（读 checkpoint，不读进程内态）。
@@ -686,6 +814,20 @@ class AgenticSession:
         if self.mcp_assembly.has_activity:
             self.recorder.record(
                 node="mcp", event="mcp_assembly", data=self.mcp_assembly.trace_summary()
+            )
+        status = self._retrieval_status()
+        if "retrieval_mode" in status:
+            # P7-S10：检索模式任何时候都如实记下（text 是关键词检索，不是语义检索）；不含路径与 Key
+            self.recorder.record(
+                node="retrieval",
+                event="retrieval_mode",
+                query="",
+                data={
+                    "retrieval_mode": status.get("retrieval_mode"),
+                    "retrieval_mode_reason": status.get("retrieval_mode_reason"),
+                    "retrieval_mode_detail": status.get("retrieval_mode_detail"),
+                    "index_meta": status.get("index_meta"),
+                },
             )
         if self.skill_library.active:
             # P7-S9：只有名字、来源与错误码（不含正文、不含运维目录路径）；开关 off 时不写
@@ -978,6 +1120,8 @@ __all__ = [
     "embedding_configured",
     "embedding_required",
     "real_llm_configured",
+    "resolve_retrieval_plan",
+    "retrieval_problem",
 ]
 
 # Compatibility alias retained for CLI's existing private import surface.

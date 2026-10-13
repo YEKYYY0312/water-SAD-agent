@@ -88,6 +88,41 @@ INDEX_META_NONE = "none"
 MODE_HYBRID = "hybrid"
 MODE_TEXT = "text"
 
+#: 检索模式设置（P7-S10）：``auto`` = embedding 已配置且与索引匹配 → ``hybrid``，否则 ``text``；
+#: ``hybrid`` = 强制混合（缺 embedding 或不匹配即失败）；``text`` = 强制关键词（BM25，不调用任何 embedding）。
+RETRIEVAL_MODE_ENV = "WATER_AGENT_RETRIEVAL_MODE"
+MODE_AUTO = "auto"
+RETRIEVAL_MODE_SETTINGS = (MODE_AUTO, MODE_HYBRID, MODE_TEXT)
+#: ``retrieval_mode_reason`` 的取值。text 模式**不是**语义检索，运行状态与界面必须如实标出原因。
+REASON_FORCED = "forced"
+REASON_EMBEDDING_NOT_CONFIGURED = "embedding_not_configured"
+REASON_EMBEDDING_MISMATCH = "embedding_mismatch"
+REASON_EMBEDDING_MATCHED = "embedding_matched"
+REASON_FIXTURE = "fixture"
+
+
+def retrieval_mode_setting(
+    explicit: str | None = None, *, getenv: Callable[[str], str | None] = os.environ.get
+) -> str:
+    """检索模式设置：调用方显式给出 > ``WATER_AGENT_RETRIEVAL_MODE`` > ``auto``。取值不对即响亮失败。"""
+
+    raw = (explicit or getenv(RETRIEVAL_MODE_ENV) or MODE_AUTO).strip().lower()
+    if raw not in RETRIEVAL_MODE_SETTINGS:
+        raise ValueError(f"{RETRIEVAL_MODE_ENV} 只能是 {'|'.join(RETRIEVAL_MODE_SETTINGS)}，得到 {raw!r}")
+    return raw
+
+
+def index_dimensions(db_path: str | Path) -> int:
+    """库的实际维度（只读打开，不调用 embedding）。"""
+
+    import triviumdb
+
+    probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
+    try:
+        return int(probe.dim())
+    finally:
+        probe.close()
+
 
 class IndexMetaError(ValueError):
     """``<db>.index_meta.json`` 存在但读不出 / 字段不对：不知道向量是谁产的，就不能拿它做向量检索。"""
@@ -346,10 +381,21 @@ class TriviumRetriever(Retriever):
         embedding_fn: Callable[[str], list[float]] | None = None,
         hybrid_alpha: float = DEFAULT_HYBRID_ALPHA,
         dim: int | None = None,
+        retrieval_mode: str = MODE_HYBRID,
+        retrieval_mode_reason: str = "",
+        retrieval_mode_detail: str | None = None,
     ) -> None:
+        if retrieval_mode not in (MODE_HYBRID, MODE_TEXT):
+            raise ValueError(f"retrieval_mode 只能是 hybrid|text，得到 {retrieval_mode!r}")
         self.db_path = Path(db_path) if db_path is not None else None
+        #: text 模式（P7-S10）：关键词检索（BM25），``search_hybrid(零向量, hybrid_alpha=0.0)``，
+        #: **一次 embedding 都不调用**（含维度探测）。
+        self._retrieval_mode = retrieval_mode
+        self._retrieval_mode_reason = retrieval_mode_reason
+        #: auto 因 embedding 与索引不匹配而降级时的具体原因（模型名 / 维度，不含 Key）
+        self._retrieval_mode_detail = retrieval_mode_detail
         self._embedding_fn = embedding_fn or mock_embed
-        self._hybrid_alpha = hybrid_alpha
+        self._hybrid_alpha = 0.0 if retrieval_mode == MODE_TEXT else hybrid_alpha
         self._fallback = InMemoryRetriever(fallback_clauses or _default_fixture_clauses())
         self._parent_store: dict[str, Chunk] = parent_store or self._load_parent_store()
         self._db = None
@@ -360,11 +406,14 @@ class TriviumRetriever(Retriever):
         self._fallback_kind: str = "fixture" if self.db_path is None or not self.db_path.exists() else "none"
         self._fallback_reason: str = "db path missing" if self.db_path is None else ("db path not found" if not self.db_path.exists() else "")
         self._used_fallback = self._fallback_kind != "none"
+        open_dim = dim
         if self.db_path is not None and self.db_path.exists():
             try:
                 import triviumdb
 
-                open_dim = dim
+                if open_dim is None and retrieval_mode == MODE_TEXT:
+                    # text 模式不碰 embedding：维度直接读库
+                    open_dim = index_dimensions(self.db_path)
                 # 未显式指定时，用 query 向量实际维度推断（写读一致）
                 if open_dim is None:
                     try:
@@ -400,6 +449,7 @@ class TriviumRetriever(Retriever):
                 self._fallback_reason = f"real db open failed: {exc}"
                 self._used_fallback = True
         self._index_meta = self._index_meta_status(dim)
+        self._dim = open_dim if self._db is not None else dim
         self._text_index_ready = False
         self._text_indexed_nodes = 0
         if self._db is not None:
@@ -502,6 +552,23 @@ class TriviumRetriever(Retriever):
             "access_mode": self._access_mode,
             "db_opened": self._db_opened,
             "index_meta": self._index_meta,
+            **self.retrieval_mode_status,
+        }
+
+    @property
+    def retrieval_mode_status(self) -> dict[str, str | None]:
+        """本检索器**实际**在用的检索模式与原因。没有真实索引（fixture 兜底）时是 fixture 语料上的关键词匹配。"""
+
+        if self._db is None:
+            return {
+                "retrieval_mode": MODE_TEXT,
+                "retrieval_mode_reason": REASON_FIXTURE,
+                "retrieval_mode_detail": None,
+            }
+        return {
+            "retrieval_mode": self._retrieval_mode,
+            "retrieval_mode_reason": self._retrieval_mode_reason,
+            "retrieval_mode_detail": self._retrieval_mode_detail,
         }
 
     def _enrich_with_parent(self, clause: RetrievedClause, payload: dict) -> RetrievedClause:
@@ -536,11 +603,15 @@ class TriviumRetriever(Retriever):
             raise TriviumRetrievalError(
                 f"text index not ready for db={self.db_path}: {self._db_error or 'unknown'}"
             )
-        try:
-            qvec = self._embedding_fn(query)
-        except Exception as exc:
-            self._db_error = str(exc)
-            raise TriviumRetrievalError(f"embedding failed for query={query!r}: {exc}") from exc
+        if self._retrieval_mode == MODE_TEXT:
+            # 关键词模式：零向量 + hybrid_alpha=0.0，排序只来自文本索引（BM25），不调用 embedding
+            qvec = [0.0] * int(self._dim or 0)
+        else:
+            try:
+                qvec = self._embedding_fn(query)
+            except Exception as exc:
+                self._db_error = str(exc)
+                raise TriviumRetrievalError(f"embedding failed for query={query!r}: {exc}") from exc
 
         try:
             hits = self._db.search_hybrid(qvec, query, top_k=top_k, hybrid_alpha=self._hybrid_alpha)
