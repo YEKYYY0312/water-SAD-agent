@@ -19,6 +19,7 @@ from uuid import uuid4
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import default_state
 from water_agent.generation.base import Generator
+from water_agent.generation.compatibility import require_verified_endpoint
 from water_agent.generation.endpoints import (
     CHAT_API_KEY,
     CHAT_BASE_URL_ENV,
@@ -26,6 +27,7 @@ from water_agent.generation.endpoints import (
     DEFAULT_CHAT_API_KEY,
     DEFAULT_CHAT_BASE_URL,
     DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
 )
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
@@ -165,6 +167,8 @@ def build_app(
         assembler = PromptAssembler()
         sys_content = assembler.assemble_prompt().content
         system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        # 与 agentic 路径同一道兼容性门槛（P7-S10）：非缺省端点没有通过的报告即拒绝
+        require_verified_endpoint(resolve_chat_endpoint(base_url=args.base_url, model=args.model))
         generator = build_llm_generator(
             model=args.model,
             base_url=args.base_url,

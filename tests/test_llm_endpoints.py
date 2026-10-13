@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -45,6 +46,17 @@ def _clean_endpoint_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
         monkeypatch.delenv(f"{name}_FILE", raising=False)
     monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "credentials"))
     forget_injected_credentials()
+
+
+def _write_report(path: Path, *, endpoint: str, model: str) -> Path:
+    spec = importlib.util.spec_from_file_location(
+        "fake_openai_server",
+        REPO_ROOT / "tests" / "fixtures" / "endpoint_compat" / "fake_openai_server.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.write_passing_report(path, endpoint=endpoint, model=model)
 
 
 def _inner(model: object) -> object:
@@ -205,6 +217,9 @@ def test_all_entry_points_share_one_resolution(
     monkeypatch.setenv(ep.CHAT_MODEL_ENV, "other-model")
     monkeypatch.setenv("WATER_AGENT_LLM_API_KEY", "sk-the-other-provider-key")
     expected = ("https://llm.other-provider.example/v1", "other-model")
+    # 非缺省端点要过兼容性门槛（A02，见 test_endpoint_compatibility.py）：这里给一份精确匹配的报告
+    report = _write_report(tmp_path / "compat.json", endpoint=expected[0], model=expected[1])
+    monkeypatch.setenv("WATER_AGENT_LLM_COMPATIBILITY_REPORT", str(report))
 
     def seen(model: object) -> tuple[str, str]:
         inner = _inner(model)

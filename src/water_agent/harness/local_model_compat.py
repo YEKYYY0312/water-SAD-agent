@@ -55,16 +55,14 @@ def _all_blocked(*, settings: Mapping[str, Any], reason: str) -> LocalModelCompa
     )
 
 
-def _real_checks(
-    settings: Mapping[str, Any],
-) -> tuple[dict[str, CheckStatus], int, dict[str, Any]]:
-    """Run the model-facing checks against the configured OpenAI-compatible endpoint."""
+def probe_tools() -> tuple[Any, Any, Any]:
+    """探针用的内部注册表与两个单独绑定的工具（``calc_velocity`` / ``cite_clauses``）。
 
+    刻意逐个绑定单个工具（``tests/test_plugin_invariants.py`` 的白名单写明了这一处）；远程端点探针
+    （``harness/endpoint_compat.py``）调用这里，不另写一份绑定。
+    """
 
-    from water_agent.generation.chat_model import build_chat_model
-    from water_agent.prompting.assembler import _estimate_tokens
     from water_agent.retrieval.in_memory import InMemoryRetriever
-    from water_agent.runtime.governance.binding import local_request_context
     from water_agent.tools.calc_velocity import calc_velocity_spec
     from water_agent.tools.cite import build_cite_clauses_tool
     from water_agent.tools.ds_adapters import tool_spec_to_base_tool
@@ -79,13 +77,18 @@ def _real_checks(
     registry.register(build_read_drawing_tool(Path(tempfile.gettempdir()) / "water-agent-compat"))
     calc_tool = tool_spec_to_base_tool(registry, "calc_velocity")
     cite_tool = tool_spec_to_base_tool(registry, "cite_clauses")
-    model = build_chat_model(
-        model=str(settings["model"]),
-        base_url=str(settings["base_url"]),
-        api_key=str(settings["api_key"]),
-        request_context=local_request_context(thread_id="local-model-compat"),
-    )
+    return registry, calc_tool, cite_tool
 
+
+def model_facing_checks(model: Any) -> tuple[dict[str, CheckStatus], int, dict[str, Any]]:
+    """四项面向模型的检查（真实调用）：function calling、结构化引用、程序化计算、工具 schema 预算。
+
+    本地模型探针与远程端点探针共用（P7-S10 抽出，提示词与判定与 P5 Step 46 逐字相同）。
+    """
+
+    from water_agent.prompting.assembler import _estimate_tokens
+
+    registry, calc_tool, cite_tool = probe_tools()
     checks: dict[str, CheckStatus] = {}
     evidence: dict[str, Any] = {}
 
@@ -123,6 +126,27 @@ def _real_checks(
     )
     evidence["calculation_result_keys"] = sorted(calculated)
 
+    schema_tokens = _estimate_tokens(json.dumps(registry.list_tools(), ensure_ascii=False))
+    checks["tool_schema_budget"] = "passed" if schema_tokens < 4500 else "failed"
+    return checks, schema_tokens, evidence
+
+
+def _real_checks(
+    settings: Mapping[str, Any],
+) -> tuple[dict[str, CheckStatus], int, dict[str, Any]]:
+    """Run the model-facing checks against the configured OpenAI-compatible endpoint."""
+
+    from water_agent.generation.chat_model import build_chat_model
+    from water_agent.runtime.governance.binding import local_request_context
+
+    model = build_chat_model(
+        model=str(settings["model"]),
+        base_url=str(settings["base_url"]),
+        api_key=str(settings["api_key"]),
+        request_context=local_request_context(thread_id="local-model-compat"),
+    )
+    checks, schema_tokens, evidence = model_facing_checks(model)
+
     from water_agent.harness.memory_eval import DEFAULT_SUITE, run_suite
 
     with tempfile.TemporaryDirectory(prefix="water-agent-local-model-p0-") as workdir:
@@ -136,9 +160,6 @@ def _real_checks(
         "failed": memory_report["failed"],
         "skipped": memory_report["skipped"],
     }
-
-    schema_tokens = _estimate_tokens(json.dumps(registry.list_tools(), ensure_ascii=False))
-    checks["tool_schema_budget"] = "passed" if schema_tokens < 4500 else "failed"
 
     # These two checks are intentionally explicit rather than inferred from a
     # successful response. The gateway/transport must be exercised with a
@@ -225,7 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if result.is_compatible else 2
 
 
-__all__ = ["PROBE_VERSION", "main", "run_local_model_compatibility"]
+__all__ = [
+    "PROBE_VERSION",
+    "main",
+    "model_facing_checks",
+    "probe_tools",
+    "run_local_model_compatibility",
+]
 
 
 if __name__ == "__main__":  # pragma: no cover
