@@ -206,49 +206,18 @@ def text_mode_implemented() -> bool:
     return "retrieval_mode" in inspect.signature(TriviumRetriever.__init__).parameters
 
 
-def _zero_vector_provider(dimensions: int) -> Any:
-    """现建纯文本索引用的占位 provider：只给维度元数据，embed 返回零向量（不做 embedding）。"""
-
-    class _ZeroVector:
-        config = type(
-            "ZeroVectorConfig",
-            (),
-            {
-                "model": "none",
-                "dimensions": dimensions,
-                "index_version": f"text-only__{dimensions}__curated-v1",
-                "fallback_enabled": False,
-            },
-        )()
-
-        @staticmethod
-        def embed(text: str) -> list[float]:
-            return [0.0] * dimensions
-
-    return _ZeroVector()
-
-
 def build_curated_text_index(curated_root: Path, db_path: Path, *, dimensions: int) -> None:
-    """从受控语料现建一份纯文本索引（零向量；与真实索引的文本分量同源，见决策记录）。"""
+    """从受控语料现建一份纯关键词索引（与 ``build_index.py --text-only`` 同一实现，零 embedding 调用）。
 
-    from water_agent.ingestion.pipeline import ingest_to_trivium
+    它与真实索引的文本分量同源（同一份受控语料、同一切块）：rag_p1 上两者的 text 模式指标逐项相同（决策记录）。
+    """
+
+    from water_agent.ingestion.pipeline import build_text_only_index
 
     files = _clause_files(curated_root)
     if not files:
         raise HarnessUsageError(f"{curated_root / 'clauses'} 下没有受控语料")
-    provider = _zero_vector_provider(dimensions)
-    for path in files:
-        ingest_to_trivium(path, db_path, embedding_provider=provider, curated=True)
-
-
-def _index_dimensions(db_path: Path) -> int:
-    import triviumdb
-
-    probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
-    try:
-        return int(probe.dim())
-    finally:
-        probe.close()
+    build_text_only_index(files, db_path, dimensions=dimensions)
 
 
 def _session_args(db_path: Path, *, mode: str, dimensions: int) -> argparse.Namespace:
@@ -264,7 +233,9 @@ def _session_args(db_path: Path, *, mode: str, dimensions: int) -> argparse.Name
 def build_retriever(db_path: Path, *, mode: str) -> Any:
     """按生产装配（``runtime.agentic._build_retriever``）建检索器；text 模式机制缺失时用零向量等价物。"""
 
-    dimensions = _index_dimensions(db_path)
+    from water_agent.retrieval.trivium import index_dimensions
+
+    dimensions = index_dimensions(db_path)
     if mode == "text" and not text_mode_implemented():
         from water_agent.retrieval.trivium import TriviumRetriever
 
