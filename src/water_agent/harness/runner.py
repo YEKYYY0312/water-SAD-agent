@@ -266,6 +266,10 @@ class HarnessRunner:
                 probe.close()
         dim = dim or DEFAULT_DB_DIMENSIONS
         provider = build_embedding_provider(dimensions=dim)
+        # 与会话装配同一道检查（P7-S10）：embedding 模型 / 维度与索引不一致即拒绝向量检索
+        from water_agent.retrieval.trivium import ensure_embedding_matches
+
+        ensure_embedding_matches(index, model=provider.config.model, dimensions=dim)
         return TriviumRetriever(
             db_path=index,
             embedding_fn=provider.embed,

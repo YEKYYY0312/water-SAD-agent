@@ -3,6 +3,11 @@
 只读取 data/curated/clauses/ 中已通过审计的规范条款，
 禁止本地 embedding 兜底，维度与 index_version 强绑定。
 ``--dry-run`` 只切块统计，不写库、不调云端，也不要求 DASHSCOPE_API_KEY。
+
+P7-S10：embedding 端点 / 模型按 ``resolve_embedding_endpoint`` 解析（缺省百炼 qwen3.7-text-embedding）；建库时
+把模型、端点主机名、维度与 index_version 写进 ``<db>.index_meta.json``，检索侧据此拒绝"换了模型还用旧向量"。
+往已有索引里追加时，元数据（没有元数据的旧索引按百炼缺省模型对待）与本次的模型 / 维度不一致即拒绝——
+一份索引里混两种模型的向量就是损坏。
 """
 from __future__ import annotations
 
@@ -11,7 +16,14 @@ import json
 from pathlib import Path
 
 from water_agent.embedding import DEFAULT_MODEL, build_embedding_provider
-from water_agent.ingestion.pipeline import IngestError, ingest_to_trivium
+from water_agent.ingestion.pipeline import IngestError, ingest_to_trivium, write_index_meta
+from water_agent.retrieval.trivium import (
+    MODE_HYBRID,
+    MODE_TEXT,
+    IndexMetaError,
+    embedding_mismatch,
+    read_index_meta,
+)
 
 
 class _DryRunProvider:
@@ -44,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build TriviumDB index from curated corpus")
     p.add_argument("--curated-root", default="data/curated", help="受控语料根目录")
     p.add_argument("--db-path", required=True, help="输出的 TriviumDB 路径，如 data/indexes/qwen3.7_512.db")
-    p.add_argument("--dimensions", type=int, default=512, choices=[256, 512, 768, 1024])
+    # 维度由 embedding 模型决定：缺省 qwen3.7 只收 256/512/768/1024，其余模型由 BailianEmbeddingConfig 校验
+    p.add_argument("--dimensions", type=int, default=512)
     p.add_argument("--dry-run", action="store_true", help="只切块统计，不写库不调云端（不需要 Key）")
     args = p.parse_args(argv)
 
@@ -77,11 +90,36 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(json.dumps({"ok": False, "error": f"DB 维度自检失败: {exc}"}, ensure_ascii=False))
             return 2
+        try:
+            existing = read_index_meta(args.db_path, dimensions=args.dimensions)
+        except IndexMetaError as exc:
+            print(json.dumps({"ok": False, "error": f"已有索引的元数据不可用：{exc}"}, ensure_ascii=False))
+            return 2
+        mismatch = embedding_mismatch(
+            existing, model=provider.config.model, dimensions=provider.config.dimensions
+        )
+        if mismatch is not None:
+            print(json.dumps({
+                "ok": False,
+                "error": f"不能往已有索引里追加：{mismatch}。请先删除 {args.db_path} 及其侧文件再重建。",
+            }, ensure_ascii=False))
+            return 2
 
     files = sorted(clause_dir.glob("*.jsonl"))
     if not files:
         print(json.dumps({"ok": False, "error": "no curated clause files"}, ensure_ascii=False))
         return 2
+
+    if not args.dry_run:
+        # 先写元数据再入库：中途失败的库同样记着它的向量是哪个模型产的，不会被当成旧索引按缺省模型对待
+        write_index_meta(
+            args.db_path,
+            embedding_model=provider.config.model,
+            embedding_base_url=getattr(provider.config, "base_url", None),
+            dimensions=provider.config.dimensions,
+            index_version=provider.config.index_version,
+            retrieval_modes=(MODE_HYBRID, MODE_TEXT),
+        )
 
     total = {"total_chunks": 0, "parent_chunks": 0, "child_payloads": 0, "inserted": 0, "skipped_existing": 0, "updated": 0, "failed": 0}
     per_file = []
