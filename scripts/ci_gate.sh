@@ -2,7 +2,8 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → drawing_p0 → drawing_gen_p0 → multi_agent_p0 → 基线对比 → memory_p0。
+#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
+#      → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
 #
@@ -199,6 +200,30 @@ else
     fi
 fi
 
+# retrieval_colloquial_p0（P7-S10）：口语化 / 同义改写问法上的关键词检索（text 模式，BM25，不调用任何
+# embedding、不要求任何 Key）。从 data/curated 现建纯关键词索引，CI 干净克隆里也能跑；与入仓基线比
+# Recall@1/3/5、MRR、PASS_TO_PASS 与用例消失。门禁只守"不变差"，不设绝对阈值：只配对话 Key 时的口语化召回
+# 本来就低（见 docs/design/p7-step-10-decision.md）。hybrid 模式需要百炼 Key，不进门禁。
+step "retrieval_colloquial_p0 关键词检索（54 条口语化问法，不降）"
+RC_HEAD="data/eval/reports/retrieval_colloquial_p0_head.json"
+RC_MAIN="data/eval/retrieval_colloquial_p0_main.json"
+if ! $PY -m water_agent.harness.retrieval_mode_eval data/eval/retrieval_colloquial_p0.jsonl --mode text --report-path "$RC_HEAD" > "$LOG_DIR/retrieval_colloquial.log" 2>&1; then
+    tail -30 "$LOG_DIR/retrieval_colloquial.log"
+    fail "retrieval_colloquial_p0 runner"
+else
+    head -3 "$LOG_DIR/retrieval_colloquial.log"
+    if [ -f "$RC_MAIN" ]; then
+        if ! $PY scripts/compare_retrieval_colloquial_p0.py --head "$RC_HEAD" --base "$RC_MAIN" > "$LOG_DIR/retrieval_colloquial_cmp.log" 2>&1; then
+            cat "$LOG_DIR/retrieval_colloquial_cmp.log"
+            fail "retrieval_colloquial_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/retrieval_colloquial_cmp.log"
+        fi
+    else
+        missing_baseline "retrieval_colloquial_p0" "cp $RC_HEAD $RC_MAIN"
+    fi
+fi
+
 # drawing_p0（P3 Step 22）：合成图纸审查 smoke 集，守护审查子图链路回归。
 # ⚠️ 该套件 real_samples=false / accepts_recall_gate=false —— 门禁对比的是
 # HEAD 与 main 的用例级回归与 smoke 观测指标（阈值 5pt），**不是**真实缺陷
@@ -317,4 +342,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"

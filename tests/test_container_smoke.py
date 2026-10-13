@@ -201,8 +201,19 @@ class TestCliJsonContract:
         return json.loads(out[out.index("{") : out.rindex("}") + 1])
 
     def test_explicit_db_path_reports_a_non_fallback_retriever(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # 冒烟容器里没有 embedding Key：检索模式按 auto 判定（P7-S10），本机设了的变量不能左右结论
+        for name in (
+            "DASHSCOPE_API_KEY",
+            "DASHSCOPE_API_KEY_FILE",
+            "WATER_AGENT_EMBEDDING_API_KEY",
+            "WATER_AGENT_EMBEDDING_BASE_URL",
+            "WATER_AGENT_EMBEDDING_MODEL",
+            "WATER_AGENT_RETRIEVAL_MODE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
         db = _build_mini_index(tmp_path / "index")
 
         payload = self._run(tmp_path, capsys, "--db-path", str(db))
@@ -220,9 +231,12 @@ class TestCliJsonContract:
         # 走 persisted 时 ``text_indexed_nodes`` 按设计保持 0（"本进程没重建过"），
         # 不代表没有文本索引——冒烟的 detail 因此报 source/access_mode 而不是它。
         assert runtime["text_indexed_nodes"] == 0
-        # ``fallback_kind == "mock"`` 指的是 embedding 是假的，语料是真的——别把
-        # 探针改成断言 kind == "none"，那会连"假模型 + 真索引"这个组合一起否掉。
-        assert runtime["fallback_kind"] == "mock"
+        # P7-S10：没配 embedding（auto）时假模型 + 真索引走关键词检索，一次 embedding 都不调用（连伪向量
+        # 都不用），所以 ``fallback_kind`` 是 "none"——语料是真的、检索模式如实报 text。配了 embedding 时
+        # 假模型才用伪向量走混合检索（``fallback_kind == "mock"``，见 test_retrieval_mode.py）。
+        assert runtime["retrieval_mode"] == "text"
+        assert runtime["retrieval_mode_reason"] == "embedding_not_configured"
+        assert runtime["fallback_kind"] == "none"
         assert runtime["db_error"] is None
         assert payload["citations"], "mock 模型会引用首条命中，没引用说明检索没结果"
         assert {c["source_id"] for c in payload["citations"]} <= MINI_SOURCE_IDS
@@ -245,6 +259,45 @@ class TestCliJsonContract:
         assert payload["db_path"] == str(db)
         assert payload["retriever_runtime_status"]["is_fallback"] is False
         assert {c["source_id"] for c in payload["citations"]} <= MINI_SOURCE_IDS
+
+
+def test_probe_reports_retrieval_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S10-A09 冒烟的 agentic 探针断言 ``retrieval_mode`` 出现在运行状态里且与本部署的配置一致：期望值在
+    冒烟进程内按同一套规则（``resolve_retrieval_plan``）独立算出——auto 且没有 embedding Key 时是关键词检索，
+    强制 text / hybrid 各自如实报出；子进程报的与之不一致即判失败（配置没透传到位）。"""
+
+    for name in (
+        "DASHSCOPE_API_KEY",
+        "DASHSCOPE_API_KEY_FILE",
+        "WATER_AGENT_EMBEDDING_API_KEY",
+        "WATER_AGENT_EMBEDDING_BASE_URL",
+        "WATER_AGENT_EMBEDDING_MODEL",
+        "WATER_AGENT_RETRIEVAL_MODE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    assert "agentic_run_reports_retrieval_mode" in inspect.getsource(smoke.main)
+    db = _build_mini_index(tmp_path / "index")
+    run = TestCliJsonContract._run
+
+    payload = run(tmp_path / "auto", capsys, "--db-path", str(db))
+    assert smoke.expected_retrieval_mode(db) == ("text", "embedding_not_configured")
+    assert smoke._retrieval_mode_check(payload) == (
+        True,
+        "reported=('text', 'embedding_not_configured') expected=('text', 'embedding_not_configured')",
+    )
+    for setting, expected in (("text", ("text", "forced")), ("hybrid", ("hybrid", "forced"))):
+        monkeypatch.setenv("WATER_AGENT_RETRIEVAL_MODE", setting)
+        payload = run(tmp_path / setting, capsys, "--db-path", str(db))
+        assert smoke._retrieval_mode_check(payload)[0] is True, setting
+        status = payload["retriever_runtime_status"]
+        assert (status["retrieval_mode"], status["retrieval_mode_reason"]) == expected
+    payload["retriever_runtime_status"]["retrieval_mode"] = "text"
+    ok, detail = smoke._retrieval_mode_check(payload)
+    assert ok is False and "expected=('hybrid', 'forced')" in detail
+    assert smoke._retrieval_mode_check({"retriever_runtime_status": {}})[0] is False
 
 
 class TestCheckpointerDegradation:

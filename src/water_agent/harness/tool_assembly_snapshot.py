@@ -91,11 +91,27 @@ PINNED_ENV_KEYS = (
     "LOCAL_MODEL_BASE_URL",
     "LOCAL_MODEL_NAME",
     "LOCAL_MODEL_COMPATIBILITY_REPORT",
+    # P7-S10：对话 / embedding 端点、兼容性报告、超时 / 价格覆盖与检索模式
+    "WATER_AGENT_LLM_BASE_URL",
+    "WATER_AGENT_LLM_MODEL",
+    "WATER_AGENT_LLM_API_KEY",
+    "WATER_AGENT_LLM_API_KEY_FILE",
+    "WATER_AGENT_LLM_COMPATIBILITY_REPORT",
+    "WATER_AGENT_LLM_TIMEOUT_SECONDS",
+    "WATER_AGENT_LLM_PRICE",
+    "WATER_AGENT_EMBEDDING_BASE_URL",
+    "WATER_AGENT_EMBEDDING_MODEL",
+    "WATER_AGENT_EMBEDDING_API_KEY",
+    "WATER_AGENT_EMBEDDING_API_KEY_FILE",
+    "WATER_AGENT_RETRIEVAL_MODE",
 )
 
 #: Web profile 用的占位 Key：只用来让 ``build_chat_model`` 能构造对象，永远不会被发出去
 #: （捕获点之后不调用模型）。
 _PLACEHOLDER_API_KEY = "sk-tool-assembly-snapshot-placeholder"
+#: P7-S10 ``session_endpoint_custom`` 的非缺省对话端点（``.invalid`` 顶级域，永远解析不到；捕获点之后不调用模型）。
+CUSTOM_ENDPOINT_BASE_URL = "https://llm.snapshot.invalid/v1"
+CUSTOM_ENDPOINT_MODEL = "snapshot-compatible-model"
 
 DrawingMode = Literal["off", "arg", "env", "none"]
 McpMode = Literal["disabled", "empty", "fake", "http_fake", "confirm_skip", "ready_flag", "invalid"]
@@ -120,6 +136,8 @@ class Profile:
     cli_checkpointer: bool = False
     #: P7-S9：打开 Skill 库（``WATER_AGENT_SKILLS=on``，只用随包分发的内置 skill）。
     skills: bool = False
+    #: P7-S10：非缺省 OpenAI 兼容对话端点 + 一份精确匹配的测试兼容报告（真生成器装配，不调用模型）。
+    endpoint: bool = False
 
 
 #: 会话侧 ``drawing``：off = ``drawing_root=""``（不注册图纸工具）；arg = 显式目录；
@@ -185,6 +203,12 @@ PROFILES: tuple[Profile, ...] = (
         "fake Streamable HTTP MCP server（明文回环 + allow_private_network）：两个工具暴露、一个被 schema 子集拒绝",
         mcp="http_fake",
         mcp_server_id="snaphttp",
+    ),
+    Profile(
+        "session_endpoint_custom",
+        "session",
+        "非缺省 OpenAI 兼容对话端点 + 精确匹配的测试兼容报告：chat model 指向配置的端点与模型",
+        endpoint=True,
     ),
     Profile(
         "session_mcp_register_fault",
@@ -331,6 +355,8 @@ class _ProfileState:
     surface: dict[str, Any] | None = None
     capture_lifecycle: dict[str, Any] | None = None
     error: BaseException | None = None
+    #: 捕获到的 ``build_agentic_app(model=...)``（P7-S10 端点 profile 用）。
+    chat_model: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +610,16 @@ def _write_mcp_config(path: Path, profile: Profile, http_port: int | None = None
 def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int | None = None) -> Path | None:
     """按 profile 设置环境变量，返回要通过参数传入的图纸根（只有 drawing=arg 时非空）。"""
 
-    for key in ("DRAWING_ROOT", "WATER_AGENT_MCP_CONFIG", "DEEPSEEK_API_KEY", "WATER_AGENT_SKILLS"):
+    for key in (
+        "DRAWING_ROOT",
+        "WATER_AGENT_MCP_CONFIG",
+        "DEEPSEEK_API_KEY",
+        "WATER_AGENT_SKILLS",
+        "WATER_AGENT_LLM_BASE_URL",
+        "WATER_AGENT_LLM_MODEL",
+        "WATER_AGENT_LLM_API_KEY",
+        "WATER_AGENT_LLM_COMPATIBILITY_REPORT",
+    ):
         os.environ.pop(key, None)
     drawing_arg: Path | None = None
     if profile.drawing in {"arg", "env"}:
@@ -601,6 +636,30 @@ def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int |
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
     if profile.skills:
         os.environ["WATER_AGENT_SKILLS"] = "on"
+    if profile.endpoint:
+        from water_agent.generation.compatibility import (
+            ENDPOINT_COMPATIBILITY_CHECKS,
+            ENDPOINT_PROBE_VERSION,
+            CompatibilityReport,
+            write_report,
+        )
+
+        report = write_report(
+            workdir / "llm_compatibility_report.json",
+            CompatibilityReport(
+                version=ENDPOINT_PROBE_VERSION,
+                status="compatible",
+                model=CUSTOM_ENDPOINT_MODEL,
+                endpoint=CUSTOM_ENDPOINT_BASE_URL,
+                checks={name: "passed" for name in ENDPOINT_COMPATIBILITY_CHECKS},
+                schema_tokens=1000,
+                evidence={"probe_version": ENDPOINT_PROBE_VERSION},
+            ),
+        )
+        os.environ["WATER_AGENT_LLM_BASE_URL"] = CUSTOM_ENDPOINT_BASE_URL
+        os.environ["WATER_AGENT_LLM_MODEL"] = CUSTOM_ENDPOINT_MODEL
+        os.environ["WATER_AGENT_LLM_API_KEY"] = _PLACEHOLDER_API_KEY
+        os.environ["WATER_AGENT_LLM_COMPATIBILITY_REPORT"] = str(report)
     return drawing_arg
 
 
@@ -632,11 +691,12 @@ def _session_args(profile: Profile, workdir: Path, drawing_arg: Path | None) -> 
         top_k=5,
         recall_top_k=20,
         hybrid_alpha=0.7,
-        model="deepseek-chat",
-        base_url="https://api.deepseek.com",
-        api_key_env="DEEPSEEK_API_KEY",
+        # 端点 profile 不给显式值：交给 resolve_chat_endpoint 按（profile 设好的）运维环境变量解析
+        model=None if profile.endpoint else "deepseek-chat",
+        base_url=None if profile.endpoint else "https://api.deepseek.com",
+        api_key_env=None if profile.endpoint else "DEEPSEEK_API_KEY",
         api_key=None,
-        mock_generator=True,
+        mock_generator=not profile.endpoint,
         session_dir=str(workdir / "sessions"),
         trace_dir=str(workdir / "traces"),
         stream=False,
@@ -782,6 +842,7 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
 
     def capture(*args: Any, **kwargs: Any) -> Any:
         state.captures += 1
+        state.chat_model = kwargs.get("model")
         state.trace_calls_at_capture = list(state.trace_calls)
         state.surface, state.capture_lifecycle = _inspect_app_kwargs(kwargs)
         if profile.side == "runner":
@@ -844,11 +905,29 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
         "mcp_clients_alive_after_scope": alive_after,
         "app": state.capture_lifecycle,
     }
+    if profile.endpoint:
+        # 只给端点 profile 记（其余 profile 的 lifecycle 逐字不变）：chat model 实际指向哪里
+        lifecycle["chat_model_endpoint"] = _chat_model_endpoint(state.chat_model)
     return {
         "side": profile.side,
         "description": profile.description,
         "surface": state.surface,
         "lifecycle": lifecycle,
+    }
+
+
+def _chat_model_endpoint(model: Any) -> dict[str, Any] | None:
+    if model is None:
+        return None
+    from water_agent.generation.compatibility import endpoint_verification
+    from water_agent.generation.endpoints import resolve_chat_endpoint
+
+    inner = getattr(model, "inner", None)
+    return {
+        "wrapper": type(model).__name__,
+        "base_url": getattr(inner, "openai_api_base", None),
+        "model": getattr(inner, "model_name", None),
+        "compatibility": endpoint_verification(resolve_chat_endpoint()).status,
     }
 
 

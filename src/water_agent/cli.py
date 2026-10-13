@@ -1,7 +1,7 @@
 """生产问答 CLI + 交互式问答循环。
 
 生产链路：TriviumDB 混合检索召回 → LocalReranker 重排 → top_k=5 → LLM 生成。
-默认真实 LLM（DeepSeek 官方 Claude 兼容）；--mock-generator 可用确定性生成器自测链路。
+默认真实 LLM（OpenAI 兼容端点，缺省 DeepSeek）；--mock-generator 可用确定性生成器自测链路。
 --mode agentic：Step 6 起模型驱动的 Agentic RAG 外层循环；Step 7 接真实 DeepSeek
 function calling（无 Key 属结构化错误而非静默降级），--stream 可流式打印 token。
 """
@@ -19,7 +19,16 @@ from uuid import uuid4
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import default_state
 from water_agent.generation.base import Generator
-from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV
+from water_agent.generation.compatibility import require_verified_endpoint
+from water_agent.generation.endpoints import (
+    CHAT_API_KEY,
+    CHAT_BASE_URL_ENV,
+    CHAT_MODEL_ENV,
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.calc import build_calc_graph, detect_intent, parse_calc_query
@@ -69,12 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-k", type=int, default=5, help="rerank 后返回条数")
     p.add_argument("--recall-top-k", type=int, default=20, help="混合检索召回的候选条数")
     p.add_argument("--hybrid-alpha", type=float, default=0.7)
-    p.add_argument("--model", default="deepseek-chat", help="LLM 模型名")
-    p.add_argument("--base-url", default="https://api.deepseek.com", help="LLM OpenAI 兼容 base_url")
+    # 缺省 None = 按部署配置解析（generation/endpoints.py：WATER_AGENT_LLM_* > deepseek-chat /
+    # https://api.deepseek.com）；给了即显式覆盖。非缺省端点同样要过兼容性门槛（P7-S10）。
+    p.add_argument("--model", default=None, help=f"LLM 模型名（缺省读 {CHAT_MODEL_ENV}，未设时 {DEFAULT_CHAT_MODEL}）")
+    p.add_argument(
+        "--base-url",
+        default=None,
+        help=f"LLM OpenAI 兼容 base_url（缺省读 {CHAT_BASE_URL_ENV}，未设时 {DEFAULT_CHAT_BASE_URL}）",
+    )
     p.add_argument(
         "--api-key-env",
-        default=DEFAULT_API_KEY_ENV,
-        help="真实模型 API Key 所在环境变量名（--mode agentic 用，默认 DEEPSEEK_API_KEY）",
+        default=None,
+        help=(
+            f"真实模型 API Key 所在环境变量名（--mode agentic 用；缺省 {CHAT_API_KEY}，"
+            f"端点仍是 DeepSeek 时回落 {DEFAULT_CHAT_API_KEY}）"
+        ),
     )
     p.add_argument(
         "--stream",
@@ -149,6 +167,8 @@ def build_app(
         assembler = PromptAssembler()
         sys_content = assembler.assemble_prompt().content
         system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        # 与 agentic 路径同一道兼容性门槛（P7-S10）：非缺省端点没有通过的报告即拒绝
+        require_verified_endpoint(resolve_chat_endpoint(base_url=args.base_url, model=args.model))
         generator = build_llm_generator(
             model=args.model,
             base_url=args.base_url,
@@ -296,6 +316,12 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
     if payload.get("retriever_runtime_status"):
         status = payload["retriever_runtime_status"]
         print(f"检索运行态: kind={status.get('fallback_kind')} reason={status.get('fallback_reason')} db_error={status.get('db_error')}")
+        mode = status.get("retrieval_mode")
+        if mode == "text":
+            # P7-S10：关键词模式如实标出，不得说成语义检索
+            print(f"检索模式: 关键词模式（{status.get('retrieval_mode_reason')}；不是语义检索）")
+        elif mode:
+            print(f"检索模式: 混合检索（{status.get('retrieval_mode_reason')}）")
     elif payload["retriever_fallback"]:
         print("检索: fixture 回落（未使用真实 TriviumDB 索引）")
     if payload["errors"]:

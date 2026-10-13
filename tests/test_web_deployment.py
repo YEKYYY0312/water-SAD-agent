@@ -206,3 +206,28 @@ def test_public_base_url_is_passed_to_the_app_only() -> None:
     app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
     assert "      WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}\n" in app_block
     assert compose.count("\n      WEB_PUBLIC_BASE_URL:") == 1, "只有 app 服务拿到它"
+
+
+def test_endpoint_variables_are_passed_through() -> None:
+    """P7-S10-A09 compose 给 app 透传对话 / embedding 端点、兼容性报告、超时、价格与检索模式（缺省为空 = 现状：
+    DeepSeek + 百炼 + auto）；冒烟服务拿到检索模式与 embedding 端点，好按同一配置断言 retrieval_mode。Key 一律
+    不经环境变量传（会出现在 ``docker compose config`` 里），在设置面板的只写槽位填写。"""
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    smoke_block = compose.split("\n  smoke:\n", 1)[1].split("\n  reverse-proxy:\n", 1)[0]
+    for name in (
+        "WATER_AGENT_LLM_BASE_URL",
+        "WATER_AGENT_LLM_MODEL",
+        "WATER_AGENT_LLM_COMPATIBILITY_REPORT",
+        "WATER_AGENT_LLM_TIMEOUT_SECONDS",
+        "WATER_AGENT_LLM_PRICE",
+        "WATER_AGENT_EMBEDDING_BASE_URL",
+        "WATER_AGENT_EMBEDDING_MODEL",
+        "WATER_AGENT_RETRIEVAL_MODE",
+    ):
+        assert f"      {name}: ${{{name}:-}}\n" in app_block, name
+    for name in ("WATER_AGENT_RETRIEVAL_MODE", "WATER_AGENT_EMBEDDING_BASE_URL", "WATER_AGENT_EMBEDDING_MODEL"):
+        assert f"      {name}: ${{{name}:-}}\n" in smoke_block, name
+    assert "WATER_AGENT_LLM_API_KEY:" not in compose
+    assert "WATER_AGENT_EMBEDDING_API_KEY:" not in compose

@@ -18,6 +18,9 @@ export type CalculationCard = {
   assumptions: string[];
 };
 
+/** 本次运行实际用的检索模式（P7-S10）：text 是关键词检索，不是语义检索，界面必须如实标出。 */
+export type RetrievalModeCard = { mode: string; reason: string | null };
+
 export type WorkspaceRunState = {
   runId: string | null;
   threadId: string | null;
@@ -38,6 +41,8 @@ export type WorkspaceRunState = {
   lastEventId: string;
   /** 挂起的人工确认请求（P7-S7）：有值时界面显示确认卡片，决定提交后清空。 */
   confirmation: ConfirmationRequest | null;
+  /** 本次运行的检索模式（P7-S10，来自 finalize）。 */
+  retrieval: RetrievalModeCard | null;
 };
 
 export const emptyRunState = (): WorkspaceRunState => ({
@@ -57,6 +62,7 @@ export const emptyRunState = (): WorkspaceRunState => ({
   trace: null,
   lastEventId: "0",
   confirmation: null,
+  retrieval: null,
 });
 
 /** 对话里的一条消息。agent 消息带收口状态：失败的回答也要留在对话里，但必须标出来。 */
@@ -162,6 +168,36 @@ function calculationsFromFinalPayload(value: unknown): CalculationCard[] {
   });
 }
 
+function retrievalFromFinalPayload(payload: Record<string, unknown>): RetrievalModeCard | null {
+  const mode = asString(payload.retrieval_mode);
+  return mode ? { mode, reason: asString(payload.retrieval_mode_reason) ?? null } : null;
+}
+
+const RETRIEVAL_REASON_TEXT: Record<string, string> = {
+  embedding_not_configured: "未配置向量模型",
+  embedding_mismatch: "向量模型与索引不匹配",
+  forced: "部署指定",
+  fixture: "未接入真实索引，仅演示语料",
+  embedding_matched: "向量模型与索引匹配",
+};
+
+/**
+ * 检索模式的界面文案。关键词模式一律标出，并说明对口语化问法的影响——不得把关键词检索说成语义检索。
+ * 口语化问法的实测召回见 docs/design/p7-step-10-decision.md。
+ */
+export function retrievalModeView(card: RetrievalModeCard | null): { label: string; tone: string; warning: string | null } | null {
+  if (!card) return null;
+  const reason = card.reason ? RETRIEVAL_REASON_TEXT[card.reason] ?? card.reason : null;
+  if (card.mode === "hybrid") {
+    return { label: `检索：混合检索（向量 + 关键词）${reason ? `，${reason}` : ""}`, tone: "succeeded", warning: null };
+  }
+  const warning =
+    card.reason === "embedding_mismatch"
+      ? "当前向量模型与索引不匹配，需按当前向量模型重建索引；在此之前只用关键词检索，口语化问法可能检索不到。"
+      : "未配置向量模型时，口语化问法可能检索不到；换成规范里的说法再问会更准。";
+  return { label: `检索：关键词模式${reason ? `（${reason}）` : ""}`, tone: "not_configured", warning };
+}
+
 function replaceTool(tools: ToolCard[], next: ToolCard): ToolCard[] {
   const index = tools.findIndex((item) => item.tool_name === next.tool_name);
   if (index < 0) return [...tools, next];
@@ -260,6 +296,7 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       draft: "",
       citations: citationsFromFinalPayload(payload.citations),
       calculations: calculationsFromFinalPayload(payload.calculations),
+      retrieval: retrievalFromFinalPayload(payload),
       errors,
       warnings,
     };

@@ -99,6 +99,20 @@ def create_app(
     # the effective value for code that still reads the variable by name.
     # Values already present in the environment win and are never overwritten.
     load_credentials_into_environ()
+    # P7-S10：端点配置在启动期就校验（URL 不合法、LOCAL_MODEL_* 与 WATER_AGENT_LLM_* 同时启用即
+    # EndpointConfigError），不等第一次提问才报错。只解析配置，不发请求。面板写的配置出问题时不阻止启动
+    # （管理员要能在面板里改正它）——预检与装配照样拒绝，不会静默回到缺省端点。
+    from water_agent.generation.endpoints import (
+        PanelEndpointError,
+        resolve_chat_endpoint,
+        resolve_embedding_endpoint,
+    )
+
+    try:
+        resolve_chat_endpoint()
+    except PanelEndpointError:
+        pass
+    resolve_embedding_endpoint()
 
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
 
