@@ -4,6 +4,11 @@
 禁止本地 embedding 兜底，维度与 index_version 强绑定。
 ``--dry-run`` 只切块统计，不写库、不调云端，也不要求 DASHSCOPE_API_KEY。
 
+``--text-only``（P7-S10）：纯关键词建库——不调 embedding、不要求任何 Key，向量写零向量（维度用 ``--dimensions``，
+缺省 512），``index_meta.json`` 写 ``retrieval_modes: ["text"]``。只配了一个对话模型 Key 的部署也能新增 / 更新规范库；
+这种索引在 ``auto`` 下永远走关键词检索，强制 ``hybrid`` 即 ``RETRIEVAL_EMBEDDING_MISMATCH``。它不是"本地 embedding
+兜底"（那个仍然禁止），是不做 embedding。
+
 P7-S10：embedding 端点 / 模型按 ``resolve_embedding_endpoint`` 解析（缺省百炼 qwen3.7-text-embedding）；建库时
 把模型、端点主机名、维度与 index_version 写进 ``<db>.index_meta.json``，检索侧据此拒绝"换了模型还用旧向量"。
 往已有索引里追加时，元数据（没有元数据的旧索引按百炼缺省模型对待）与本次的模型 / 维度不一致即拒绝——
@@ -16,7 +21,13 @@ import json
 from pathlib import Path
 
 from water_agent.embedding import DEFAULT_MODEL, build_embedding_provider
-from water_agent.ingestion.pipeline import IngestError, ingest_to_trivium, write_index_meta
+from water_agent.ingestion.pipeline import (
+    IngestError,
+    TextOnlyEmbedding,
+    ingest_to_trivium,
+    write_index_meta,
+    write_text_only_index_meta,
+)
 from water_agent.retrieval.trivium import (
     MODE_HYBRID,
     MODE_TEXT,
@@ -59,6 +70,11 @@ def main(argv: list[str] | None = None) -> int:
     # 维度由 embedding 模型决定：缺省 qwen3.7 只收 256/512/768/1024，其余模型由 BailianEmbeddingConfig 校验
     p.add_argument("--dimensions", type=int, default=512)
     p.add_argument("--dry-run", action="store_true", help="只切块统计，不写库不调云端（不需要 Key）")
+    p.add_argument(
+        "--text-only",
+        action="store_true",
+        help="纯关键词建库：不调 embedding、不要求任何 Key，向量写零向量，检索只能走关键词模式",
+    )
     args = p.parse_args(argv)
 
     curated = Path(args.curated_root)
@@ -68,7 +84,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # dry-run 不构造真实 provider（build_embedding_provider 构造即校验 Key）
-    provider = _DryRunProvider(args.dimensions) if args.dry_run else build_embedding_provider(dimensions=args.dimensions)
+    if args.text_only:
+        try:
+            provider = TextOnlyEmbedding(args.dimensions)
+        except ValueError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+            return 2
+    elif args.dry_run:
+        provider = _DryRunProvider(args.dimensions)
+    else:
+        provider = build_embedding_provider(dimensions=args.dimensions)
 
     # 维度自检：库已存在且维度与请求不一致 → 报错退出，防止沿用旧维度导致写入全失败
     if not args.dry_run and Path(args.db_path).exists():
@@ -95,9 +120,17 @@ def main(argv: list[str] | None = None) -> int:
         except IndexMetaError as exc:
             print(json.dumps({"ok": False, "error": f"已有索引的元数据不可用：{exc}"}, ensure_ascii=False))
             return 2
-        mismatch = embedding_mismatch(
-            existing, model=provider.config.model, dimensions=provider.config.dimensions
-        )
+        if args.text_only:
+            # 往有向量的索引里写零向量就毁了它；纯关键词索引之间可以追加（维度上面已核对）
+            mismatch = (
+                "已有索引带向量（用 embedding 建的库），不能写入纯关键词条目"
+                if existing.has_vectors
+                else None
+            )
+        else:
+            mismatch = embedding_mismatch(
+                existing, model=provider.config.model, dimensions=provider.config.dimensions
+            )
         if mismatch is not None:
             print(json.dumps({
                 "ok": False,
@@ -110,7 +143,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "error": "no curated clause files"}, ensure_ascii=False))
         return 2
 
-    if not args.dry_run:
+    if args.text_only and not args.dry_run:
+        write_text_only_index_meta(args.db_path, dimensions=provider.config.dimensions)
+    elif not args.dry_run:
         # 先写元数据再入库：中途失败的库同样记着它的向量是哪个模型产的，不会被当成旧索引按缺省模型对待
         write_index_meta(
             args.db_path,
@@ -140,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {
         "ok": ok,
         "dry_run": args.dry_run,
+        "text_only": args.text_only,
+        "retrieval_modes": [MODE_TEXT] if args.text_only else [MODE_HYBRID, MODE_TEXT],
         "curated_root": str(curated),
         "db_path": args.db_path,
         "dimensions": provider.config.dimensions,
