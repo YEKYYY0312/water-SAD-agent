@@ -86,7 +86,7 @@
 | F21 | 确认恢复路径：进程重启后 `resume()` 用空 handle 重建，没有持久化的模型就静默落回全局模型 | `run_manager.py:828-837` |
 | F22 | 唯一构造 `ChatOpenAI(` 的是 `generation/chat_model.py`；出站扫描正则 `\bChatOpenAI\s*\(` 靠它识别该模块，对 `XxxChatOpenAI(` 因 `\b` 不匹配而**盲** | `inventory.py:411`、`test_governance_contracts.py:465-481,525-527` |
 | F23 | 测试替身：至少 10 处严格签名 `create(*, run_id, thread_id, user_id, principal, project_id, stack)`；无条件新增 kwarg 会让它们全部 `TypeError` | `run_manager.py:628-637` 注释、各 `tests/test_web_*.py` |
-| F24 | **运维实测（2026-10-14）**：经一个 OpenAI 兼容代理配置 `deepseek-flash` 后，面板的兼容性检查**未全部通过**（现有 7 项里至少一项失败，具体项待回填）；工作台因此对该 (端点, 模型) 返回 `WEB_MODEL_NOT_VERIFIED`，`real_llm=false`。符合预期：现有探针无法给被测模型传 `extra_body`，默认开思考的模型是带着思考被探测的 | 运维反馈 |
+| F24 | **运维实测（2026-10-14）**：经一个 OpenAI 兼容代理配置 `deepseek-flash` 后，面板的兼容性检查 **7 项里 6 项未通过，仅 `error_handling` 通过**，整次运行状态 `blocked`。按探针代码：`_status` 在没有任何 `failed` 时才是 `blocked`，所以这 6 项**全是 `blocked`（请求抛了异常），不是模型答错**；前四项共用一次 try，第一次真实调用抛异常就一起 `blocked`；`error_handling` 故意发错误模型名、期望得到结构化错误，端点整体不通时它也会通过。因此失败发生在**请求层面**（路径 / 鉴权 / 模型 ID / 超时 / 网络之一），**与思考是否开启的关系未证实**；具体异常类别在报告 evidence 的 `model_facing_error` / `streaming_usage_error` / `cancellation_timeout_error` 里，待回填 | 运维反馈 + `endpoint_compat.py` |
 
 ---
 
@@ -109,7 +109,7 @@
 - 存储：`<dir>/<sha256(规范化端点|模型)[:16]>.json`，目录缺省为凭据卷下 `llm_compatibility_reports/`；**读出后仍调 `CompatibilityReport.matches()`**（文件名只是索引，不是信任根）。
 - `endpoint_verification` 先走原单文件逻辑（缺省免检、`WATER_AGENT_LLM_COMPATIBILITY_REPORT`、面板单文件），再回落逐对文件。
 - 面板「运行兼容性检查」接受可选 `model`（目录内才可）；同一时间只跑一个检查的互斥不变。
-- **探针按目录项的 `thinking` 配置构造被测模型**：`run_endpoint_compatibility(model=…)` 必须用与生产**相同**的 `build_chat_model(extra_body=…)`（`thinking: off` 的条目探针也关闭思考）。否则默认开思考的模型会被一套不同于生产的配置验证——思考阶段首块很慢，会让流式 / 取消 / 超时类检查失败；反过来，探针开着思考通过、上线却关着思考，验证的就不是实际要用的东西（F24）。
+- **探针按目录项的 `thinking` 配置构造被测模型**：`run_endpoint_compatibility(model=…)` 必须用与生产**相同**的 `build_chat_model(extra_body=…)`（`thinking: off` 的条目探针也关闭思考）。否则探针开着思考通过、上线却关着思考（或反过来），验证的就不是实际要用的东西；思考阶段首块更慢，也可能让流式 / 取消 / 超时类检查的结论与生产不一致。这是**独立成立的正确性要求**，与 F24 那次失败的具体原因无关。
 - 约 5 次计费请求 / 模型，面板照旧明示并二次确认。
 
 ### 3.4 选择链路与校验顺序
