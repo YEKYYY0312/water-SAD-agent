@@ -34,7 +34,7 @@
 **做**（编号对应 SDD §7 的 P7-S15-Axx）：
 
 1. **目录（A01）**：`generation/model_catalog.py`（读写、校验、原子写 0600）；管理员读写路由在 `settings_routes.py`（`require_admin` + CSRF，env 锁定只读，审计只记 id / 动作 / 结果）；成员只读 id / label / tier / 已验证。
-2. **逐对验证（A02）**：`compatibility.py` 增逐对存储；`endpoint_compat.py::run_endpoint_compatibility` 与面板接口接受可选 `model`，且**按目录项的 `thinking` 配置构造被测模型**（与生产同一个 `build_chat_model(extra_body=…)`），否则默认开思考的模型会被不同于生产的配置探测（SDD F24）。
+2. **逐对验证（A02）**：`compatibility.py` 增逐对存储；`endpoint_compat.py::run_endpoint_compatibility` 与面板接口接受可选 `model`，且**按目录项的 `thinking` 配置构造被测模型**（与生产同一个 `build_chat_model(extra_body=…)`），否则探针验证的配置与生产不一致（SDD §3.3）。
 3. **构造（A03）**：`build_chat_model(extra_body=)`，仅设置时传；`thinking: off` → `{"thinking":{"type":"disabled"}}`。
 4. **选择链路（A04、A05）**：`MessageRequest.model`、预检 `chat_model_problem(model=)`、`manager.start(model=)`、`_RunHandle.model`、工厂 `supports_model_choice`。
 5. **持久化（A06、A07）**：迁移 0008；`PATCH /api/sessions/{thread_id}`；`resume` 读 `runs.model`；会话 payload 新增 `model`（有值才出现）。
