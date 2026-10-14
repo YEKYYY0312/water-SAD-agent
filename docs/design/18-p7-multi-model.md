@@ -86,6 +86,7 @@
 | F21 | 确认恢复路径：进程重启后 `resume()` 用空 handle 重建，没有持久化的模型就静默落回全局模型 | `run_manager.py:828-837` |
 | F22 | 唯一构造 `ChatOpenAI(` 的是 `generation/chat_model.py`；出站扫描正则 `\bChatOpenAI\s*\(` 靠它识别该模块，对 `XxxChatOpenAI(` 因 `\b` 不匹配而**盲** | `inventory.py:411`、`test_governance_contracts.py:465-481,525-527` |
 | F23 | 测试替身：至少 10 处严格签名 `create(*, run_id, thread_id, user_id, principal, project_id, stack)`；无条件新增 kwarg 会让它们全部 `TypeError` | `run_manager.py:628-637` 注释、各 `tests/test_web_*.py` |
+| F24 | **运维实测（2026-10-14）**：经一个 OpenAI 兼容代理配置 `deepseek-flash` 后，面板的兼容性检查**未全部通过**（现有 7 项里至少一项失败，具体项待回填）；工作台因此对该 (端点, 模型) 返回 `WEB_MODEL_NOT_VERIFIED`，`real_llm=false`。符合预期：现有探针无法给被测模型传 `extra_body`，默认开思考的模型是带着思考被探测的 | 运维反馈 |
 
 ---
 
@@ -108,6 +109,7 @@
 - 存储：`<dir>/<sha256(规范化端点|模型)[:16]>.json`，目录缺省为凭据卷下 `llm_compatibility_reports/`；**读出后仍调 `CompatibilityReport.matches()`**（文件名只是索引，不是信任根）。
 - `endpoint_verification` 先走原单文件逻辑（缺省免检、`WATER_AGENT_LLM_COMPATIBILITY_REPORT`、面板单文件），再回落逐对文件。
 - 面板「运行兼容性检查」接受可选 `model`（目录内才可）；同一时间只跑一个检查的互斥不变。
+- **探针按目录项的 `thinking` 配置构造被测模型**：`run_endpoint_compatibility(model=…)` 必须用与生产**相同**的 `build_chat_model(extra_body=…)`（`thinking: off` 的条目探针也关闭思考）。否则默认开思考的模型会被一套不同于生产的配置验证——思考阶段首块很慢，会让流式 / 取消 / 超时类检查失败；反过来，探针开着思考通过、上线却关着思考，验证的就不是实际要用的东西（F24）。
 - 约 5 次计费请求 / 模型，面板照旧明示并二次确认。
 
 ### 3.4 选择链路与校验顺序
@@ -211,7 +213,7 @@ composer 内模型选择器（目录非空才渲染）、会话默认模型控�
 | ID | 验收 | 验证（拟）| 状态 |
 |---|---|---|---|
 | P7-S15-A01 | 目录：格式 / 条数 / id 校验、原子写 0600、成员只读、管理员 + CSRF 写、env 锁定只读、审计只记 id；缺省不配目录 = 行为逐字不变 | `tests/test_model_catalog.py` | planned |
-| P7-S15-A02 | 逐对验证：存储与回落、`matches()` 复核、原单文件路径不变、改一个模型只作废它自己、面板按模型跑检查 | `tests/test_model_verification.py` | planned |
+| P7-S15-A02 | 逐对验证：存储与回落、`matches()` 复核、原单文件路径不变、改一个模型只作废它自己、面板按模型跑检查；**探针用与生产相同的 `extra_body`（`thinking: off` 的条目探针也关思考）** | `tests/test_model_verification.py` | planned |
 | P7-S15-A03 | 构造：`extra_body` 仅设置时传；`thinking: off` 传 disabled；默认构造参数与 `temperature=0.0` 逐字不变 | `tests/test_chat_model.py` | planned |
 | P7-S15-A04 | 选择校验顺序与错误码；不收 `base_url`；`extra="forbid"`；403 先于 424；LOCAL / env 锁定拒绝；`roundtrip` 条目不可选 | `tests/test_web_model_selection.py` | planned |
 | P7-S15-A05 | 下传与协议兼容：`supports_model_choice`；缺省不传 kwarg；`_args()` 默认全 `None` | `tests/test_web_model_selection.py`、`tests/test_llm_endpoints.py` | planned |
