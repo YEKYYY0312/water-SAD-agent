@@ -24,6 +24,7 @@ import {
 import type { ConfirmationSubmitState } from "./ConfirmationCard.tsx";
 import { ConfirmationApi, confirmationErrorMessage, isWaitingConfirmation } from "./confirmationApi.ts";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
+import { oauthReturnedToSettings } from "./settingsState.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
@@ -123,7 +124,8 @@ export function useWorkspaceController(): WorkspaceController {
   const [streaming, setStreaming] = useState(false);
   const [feedbackState, setFeedbackState] = useState<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // MCP 授权回调 303 回到首页时地址栏带着结果：直接打开设置页（落在 MCP 扩展），结果提示才有地方显示
+  const [settingsOpen, setSettingsOpen] = useState(() => oauthReturnedToSettings(window.location.search));
   const [drawingOpen, setDrawingOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);

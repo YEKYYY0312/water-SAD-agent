@@ -270,7 +270,8 @@ code { font-family: var(--mono); font-size: .92em; }
 .memory-workspace, .settings-panel { display: grid; align-content: start; gap: 1rem; width: min(64rem, 100%); margin: 0 auto; padding: 1.5rem; }
 .memory-workspace-header, .memory-workspace .section-heading, .detail-header, .memory-card-heading, .dialog-actions, .workspace-feedback { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .memory-workspace-header { align-items: flex-start; }
-.memory-workspace-header h2, .settings-panel h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+.memory-workspace-header h2, .settings-panel h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+.settings-panel h2 { font-size: 1.1rem; font-weight: 650; letter-spacing: -.005em; }
 .memory-subtitle { margin-top: .25rem; color: var(--muted); font-size: .88rem; }
 .answer-usage { padding: 1rem; border-radius: var(--r-card); background: var(--surface); }
 .answer-usage h3 { font-size: .9rem; }
@@ -342,9 +343,19 @@ code { font-family: var(--mono); font-size: .92em; }
 .settings-card-head .capability-row { padding: 0; background: transparent; font-size: .9rem; }
 .settings-card-name { color: var(--faint); font: .76rem var(--mono); }
 .settings-footnote { max-width: 46rem; }
+.settings-layout { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.settings-subnav { position: sticky; top: 1rem; display: grid; gap: .15rem; }
+.settings-subnav .nav-row { width: 100%; }
+.settings-page { min-width: 0; }
+.settings-page-body { display: grid; gap: 1rem; }
+.settings-subheading { margin-top: .5rem; font-size: .92rem; font-weight: 600; }
+.model-picker { display: grid; gap: .5rem; }
+.model-picker-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-size: .9rem; }
+.model-picker select { width: 100%; min-height: 2.4rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .9rem; }
+.model-picker input { width: 100%; min-height: 2.4rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .9rem; }
 
 /* ---------- MCP 扩展（P7-S6）：复用设置页卡片，只补元数据、工具列表与凭据槽位 ---------- */
-.mcp-admin { display: grid; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.mcp-admin { display: grid; gap: 1rem; }
 .mcp-server-card, .mcp-allow, .mcp-slots, .mcp-oauth { display: grid; gap: .65rem; }
 .mcp-server-card h3, .mcp-admin .settings-card h3 { font-size: .92rem; font-weight: 600; }
 .mcp-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; font-size: .84rem; }
@@ -366,7 +377,7 @@ code { font-family: var(--mono); font-size: .92em; }
 .mcp-import-result .mcp-tool-list li { display: grid; justify-content: stretch; gap: .2rem; }
 
 /* ---------- Skill 库（P7-S9）：复用设置页卡片与 MCP 区的元数据版式，只补正文区 ---------- */
-.skill-library { display: grid; gap: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.skill-library { display: grid; gap: 1rem; }
 .skill-card { display: grid; gap: .55rem; }
 .skill-card h3, .skill-library .settings-card h3 { font-size: .92rem; font-weight: 600; }
 .skill-description { color: var(--ink-soft); font-size: .86rem; line-height: 1.6; overflow-wrap: anywhere; }
@@ -452,6 +463,9 @@ code { font-family: var(--mono); font-size: .92em; }
   .welcome h2 { font-size: 1.45rem; }
   .attachment { width: 100%; }
   .memory-workspace, .settings-panel { padding: 1rem .9rem; }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .settings-subnav { position: static; display: flex; gap: .25rem; overflow-x: auto; }
+  .settings-subnav .nav-row { width: auto; white-space: nowrap; }
   .memory-workspace-header { align-items: stretch; flex-direction: column; }
   .memory-filters, .form-grid, .comparison-grid { grid-template-columns: 1fr; }
   .modal-backdrop { align-items: end; padding: .5rem; }
