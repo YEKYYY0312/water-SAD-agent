@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable, Iterable
@@ -34,6 +35,9 @@ CheckStatus = Literal["passed", "failed", "blocked", "skipped"]
 #: 运维指定的兼容性报告路径。未设时看面板"运行兼容性检查"写到凭据卷里的那份。
 COMPATIBILITY_REPORT_ENV = "WATER_AGENT_LLM_COMPATIBILITY_REPORT"
 PANEL_REPORT_FILE = "llm_compatibility_report.json"
+#: P7-S15：逐对（端点 + 模型）的兼容性报告目录。每个 (端点, 模型) 一个文件，文件名只是索引（端点 + 模型的摘要），
+#: **读出后仍按 ``matches()`` 复核**——文件名不是信任根。原单文件路径（上面的 env / 面板单文件）保持不变。
+PAIR_REPORT_DIR = "llm_compatibility_reports"
 #: 远程端点探针的版本：检查集或判定变化时递进，旧报告随之失效。
 ENDPOINT_PROBE_VERSION = "p7-s10-2026-10-13"
 #: 远程 OpenAI 兼容端点必须全部 passed 的检查（``memory_p0`` 是离线套件、与端点无关，不在其中）。
@@ -140,10 +144,40 @@ class EndpointVerification:
         return self.status in {VERIFICATION_DEFAULT_EXEMPT, VERIFICATION_VERIFIED}
 
 
+def pair_report_path(base_url: str, model: str) -> Path:
+    """某个 (端点, 模型) 的逐对报告位置：凭据卷下 ``llm_compatibility_reports/<sha256(端点|模型)[:16]>.json``。"""
+
+    from water_agent.config.credentials import credentials_dir
+
+    digest = hashlib.sha256(f"{normalize_base_url(base_url)}|{model}".encode()).hexdigest()[:16]
+    return credentials_dir() / PAIR_REPORT_DIR / f"{digest}.json"
+
+
+def _judge(report: CompatibilityReport, endpoint: ChatEndpoint) -> EndpointVerification:
+    """一份报告对这个端点 + 模型是否构成证据（精确匹配 + 探针版本 + 全部 passed）。"""
+
+    if not report.matches(endpoint=endpoint.base_url, model=endpoint.model):
+        return EndpointVerification(
+            VERIFICATION_UNVERIFIED, "compatibility report is for another endpoint or model"
+        )
+    if report.version != ENDPOINT_PROBE_VERSION:
+        return EndpointVerification(
+            VERIFICATION_UNVERIFIED, "compatibility report was produced by an outdated probe"
+        )
+    if not report.passes(ENDPOINT_COMPATIBILITY_CHECKS):
+        return EndpointVerification(VERIFICATION_UNVERIFIED, "not every compatibility check passed")
+    return EndpointVerification(VERIFICATION_VERIFIED, "compatibility report passed")
+
+
 def endpoint_verification(
     endpoint: ChatEndpoint, *, getenv: Getenv = os.getenv
 ) -> EndpointVerification:
-    """这个端点有没有可用的兼容性证据。缺省端点免检；本地模型路径沿用 P5 Step 46 自己的门槛。"""
+    """这个端点有没有可用的兼容性证据。缺省端点免检；本地模型路径沿用 P5 Step 46 自己的门槛。
+
+    证据来源两处，任一处给出可用报告即放行：**逐对报告**（P7-S15，目录里的模型各自一份）与**原单文件**
+    （``WATER_AGENT_LLM_COMPATIBILITY_REPORT`` / 面板单文件，全局模型用）。都不可用时优先说明"针对这一对的
+    那份报告"为什么不行。
+    """
 
     if endpoint.source == SOURCE_LOCAL_MODEL:
         from water_agent.generation.local_model import local_model_ready
@@ -157,20 +191,19 @@ def endpoint_verification(
         )
     if endpoint.is_default:
         return EndpointVerification(VERIFICATION_DEFAULT_EXEMPT, "default DeepSeek endpoint")
-    report = read_report(compatibility_report_path(getenv), CompatibilityReport)
-    if report is None:
-        return EndpointVerification(VERIFICATION_UNVERIFIED, "no compatibility report")
-    if not report.matches(endpoint=endpoint.base_url, model=endpoint.model):
-        return EndpointVerification(
-            VERIFICATION_UNVERIFIED, "compatibility report is for another endpoint or model"
-        )
-    if report.version != ENDPOINT_PROBE_VERSION:
-        return EndpointVerification(
-            VERIFICATION_UNVERIFIED, "compatibility report was produced by an outdated probe"
-        )
-    if not report.passes(ENDPOINT_COMPATIBILITY_CHECKS):
-        return EndpointVerification(VERIFICATION_UNVERIFIED, "not every compatibility check passed")
-    return EndpointVerification(VERIFICATION_VERIFIED, "compatibility report passed")
+    pair_report = read_report(pair_report_path(endpoint.base_url, endpoint.model), CompatibilityReport)
+    pair_verdict = _judge(pair_report, endpoint) if pair_report is not None else None
+    if pair_verdict is not None and pair_verdict.usable:
+        return pair_verdict
+    single_report = read_report(compatibility_report_path(getenv), CompatibilityReport)
+    single_verdict = (
+        _judge(single_report, endpoint)
+        if single_report is not None
+        else EndpointVerification(VERIFICATION_UNVERIFIED, "no compatibility report")
+    )
+    if single_verdict.usable:
+        return single_verdict
+    return pair_verdict or single_verdict
 
 
 class EndpointNotVerifiedError(ValueError):
@@ -197,6 +230,7 @@ __all__ = [
     "ENDPOINT_COMPATIBILITY_CHECKS",
     "ENDPOINT_PROBE_VERSION",
     "MAX_TOOL_SCHEMA_TOKENS",
+    "PAIR_REPORT_DIR",
     "PANEL_REPORT_FILE",
     "PROBE_HINT",
     "VERIFICATION_DEFAULT_EXEMPT",
@@ -208,6 +242,7 @@ __all__ = [
     "EndpointVerification",
     "compatibility_report_path",
     "endpoint_verification",
+    "pair_report_path",
     "read_report",
     "require_verified_endpoint",
     "write_report",

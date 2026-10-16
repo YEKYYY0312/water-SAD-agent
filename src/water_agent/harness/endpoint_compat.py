@@ -83,7 +83,12 @@ def _probe_gateway(timeout_seconds: float) -> Any:
 
 
 def _model(
-    endpoint: ChatEndpoint, api_key: str, *, model: str | None = None, timeout: float = 0.0
+    endpoint: ChatEndpoint,
+    api_key: str,
+    *,
+    model: str | None = None,
+    timeout: float = 0.0,
+    extra_body: dict[str, Any] | None = None,
 ) -> Any:
     from water_agent.generation.chat_model import build_chat_model
     from water_agent.runtime.governance.binding import local_request_context
@@ -94,6 +99,7 @@ def _model(
         api_key=api_key,
         gateway=_probe_gateway(timeout),
         request_context=local_request_context(thread_id="endpoint-compat"),
+        extra_body=extra_body,
     )
 
 
@@ -116,11 +122,13 @@ def check_streaming_usage(model: Any) -> tuple[CheckStatus, dict[str, Any]]:
 
 
 def check_error_handling(
-    endpoint: ChatEndpoint, api_key: str
+    endpoint: ChatEndpoint, api_key: str, *, extra_body: dict[str, Any] | None = None
 ) -> tuple[CheckStatus, dict[str, Any]]:
     from water_agent.runtime.governance.contracts import CODE_PROVIDER_TIMEOUT, GovernanceError
 
-    bogus = _model(endpoint, api_key, model=ERROR_PROBE_MODEL, timeout=ERROR_DEADLINE_SECONDS)
+    bogus = _model(
+        endpoint, api_key, model=ERROR_PROBE_MODEL, timeout=ERROR_DEADLINE_SECONDS, extra_body=extra_body
+    )
     started = time.monotonic()
     try:
         bogus.invoke("ping")
@@ -152,13 +160,17 @@ def check_cancellation(model: Any) -> tuple[CheckStatus, dict[str, Any]]:
 
 
 def endpoint_checks(
-    endpoint: ChatEndpoint, api_key: str
+    endpoint: ChatEndpoint, api_key: str, *, extra_body: dict[str, Any] | None = None
 ) -> tuple[dict[str, CheckStatus], int, dict[str, Any]]:
-    """七项检查。某一项抛错只把它（或共用一次调用的那组）记为 ``blocked``，其余照常跑。"""
+    """七项检查。某一项抛错只把它（或共用一次调用的那组）记为 ``blocked``，其余照常跑。
+
+    ``extra_body``（P7-S15）：被测模型在目录里声明的思考配置对应的请求体字段，与生产装配**同一份**
+    （``model_catalog.extra_body_for``）——探针验证的必须是上线要用的配置。
+    """
 
     from water_agent.harness.local_model_compat import model_facing_checks
 
-    model = _model(endpoint, api_key)
+    model = _model(endpoint, api_key, extra_body=extra_body)
     checks: dict[str, CheckStatus] = {}
     evidence: dict[str, Any] = {}
     schema_tokens = 0
@@ -178,7 +190,7 @@ def endpoint_checks(
 
     single: Mapping[str, Callable[[], tuple[CheckStatus, dict[str, Any]]]] = {
         "streaming_usage": lambda: check_streaming_usage(model),
-        "error_handling": lambda: check_error_handling(endpoint, api_key),
+        "error_handling": lambda: check_error_handling(endpoint, api_key, extra_body=extra_body),
         "cancellation_timeout": lambda: check_cancellation(model),
     }
     for name, run_check in single.items():
@@ -203,14 +215,20 @@ def run_endpoint_compatibility(
     *,
     getenv: Callable[[str], str | None] = os.getenv,
     out_path: str | Path | None = None,
-    checker: Callable[
-        [ChatEndpoint, str], tuple[dict[str, CheckStatus], int, dict[str, Any]]
-    ] = endpoint_checks,
+    checker: Callable[..., tuple[dict[str, CheckStatus], int, dict[str, Any]]] = endpoint_checks,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    model: str | None = None,
 ) -> tuple[CompatibilityReport | None, dict[str, Any] | None]:
-    """返回 ``(报告, None)``，或没有 Key 时的 ``(None, SKIP 说明)``。``out_path`` 给出时写报告（0600）。"""
+    """返回 ``(报告, None)``，或没有 Key 时的 ``(None, SKIP 说明)``。``out_path`` 给出时写报告（0600）。
 
-    endpoint = resolve_chat_endpoint(getenv=getenv)
+    ``model``（P7-S15）：对目录里的这个模型做检查（同端点、同 Key 槽，只换模型 id）；报告写逐对位置
+    （``pair_report_path``），``out_path`` 给出时以 ``out_path`` 为准。被测模型带上它在目录里声明的
+    ``extra_body``——与生产装配同一份。
+    """
+
+    from water_agent.generation.model_catalog import entry_for, extra_body_for
+
+    endpoint = resolve_chat_endpoint(model=model, getenv=getenv)
     if endpoint.source == SOURCE_LOCAL_MODEL:
         raise EndpointConfigError(
             "LOCAL_MODEL_ENABLED 时请用 python -m water_agent.harness.local_model_compat（本地模型路径的检查集）"
@@ -224,7 +242,14 @@ def run_endpoint_compatibility(
             "model": endpoint.model,
             "reason": "没有对话端点的 Key，未发任何请求",
         }
-    checks, schema_tokens, evidence = checker(endpoint, api_key)
+    extra_body = extra_body_for(endpoint.model)
+    # 没有目录 / 目录外的模型 / 不带额外字段的条目 → 与此前逐字相同地调用 checker(endpoint, api_key)
+    checks, schema_tokens, evidence = (
+        checker(endpoint, api_key, extra_body=extra_body) if extra_body else checker(endpoint, api_key)
+    )
+    catalog_entry = entry_for(endpoint.model)
+    if catalog_entry is not None:
+        evidence = {**evidence, "thinking_profile": catalog_entry.thinking}
     report = CompatibilityReport(
         version=PROBE_VERSION,
         status=_status(checks),  # type: ignore[arg-type]
@@ -240,8 +265,13 @@ def run_endpoint_compatibility(
             **evidence,
         },
     )
-    if out_path is not None:
-        write_report(out_path, report)
+    target: str | Path | None = out_path
+    if target is None and model is not None:
+        from water_agent.generation.compatibility import pair_report_path
+
+        target = pair_report_path(endpoint.base_url, endpoint.model)
+    if target is not None:
+        write_report(target, report)
     return report, None
 
 
@@ -249,14 +279,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="P7-S10 OpenAI-compatible chat endpoint compatibility probe"
     )
-    parser.add_argument("--out", default=None, help="报告输出路径（不给就只打印）")
+    parser.add_argument("--out", default=None, help="报告输出路径（不给就只打印；给了 --model 则写逐对位置）")
+    parser.add_argument(
+        "--model", default=None, help="对目录里的这个模型做检查（同端点、同 Key 槽）；缺省检查当前全局模型"
+    )
     args = parser.parse_args(argv)
     print(
         "注意：本探针会对当前配置的对话端点发出约五次计费请求（不含 Key 与请求原文的报告见 --out）",
         file=sys.stderr,
     )
     try:
-        report, skipped = run_endpoint_compatibility(out_path=args.out)
+        report, skipped = run_endpoint_compatibility(out_path=args.out, model=args.model)
     except EndpointConfigError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
