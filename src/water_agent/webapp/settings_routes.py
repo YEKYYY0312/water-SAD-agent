@@ -46,20 +46,26 @@ from water_agent.generation.compatibility import (
 from water_agent.generation.endpoints import (
     SOURCE_LOCAL_MODEL,
     EndpointConfigError,
-    chat_env_configured,
     endpoint_host,
     resolve_chat_endpoint,
     write_panel_endpoint,
 )
-from water_agent.generation.local_model import local_model_configured
+from water_agent.generation.model_catalog import (
+    CatalogError,
+    load_catalog,
+    parse_entries,
+    write_catalog,
+)
 from water_agent.webapp.auth.audit import (
     audit_llm_compatibility_checked,
     audit_llm_endpoint_updated,
     audit_llm_models_listed,
+    audit_llm_models_updated,
 )
 from water_agent.webapp.auth.csrf import validate_csrf
 from water_agent.webapp.auth.dependencies import require_admin, require_password_changed
 from water_agent.webapp.auth.models import UserRole
+from water_agent.webapp.model_choice import locked_reason
 
 router = APIRouter()
 _API_VERSION = "v1"
@@ -75,6 +81,8 @@ _ERROR_STATUS: dict[str, int] = {
     "WEB_LLM_MODELS_UNSUPPORTED": 422,
     "WEB_LLM_MODELS_DESTINATION_FORBIDDEN": 422,
     "WEB_LLM_MODELS_UNREACHABLE": 502,
+    "WEB_MODEL_CATALOG_INVALID": 422,
+    "WEB_MODEL_UNKNOWN": 422,
 }
 
 
@@ -180,6 +188,14 @@ class EndpointRequest(BaseModel):
     model: str = Field(min_length=1, max_length=200)
 
 
+class CompatibilityRequest(BaseModel):
+    """可选 body：给了 ``model`` 就对目录里的这个模型做检查（同端点、同 Key 槽）；不给 = 当前全局模型。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/@+\-]+$")
+
+
 class ModelsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -226,12 +242,8 @@ class _CompatibilityCheck:
 _CHECK = _CompatibilityCheck()
 
 
-def _locked_reason() -> str | None:
-    if chat_env_configured():
-        return "deployment"
-    if local_model_configured():
-        return "local_model"
-    return None
+#: 与逐条 / 按会话选模型共用同一个判定（``webapp/model_choice.py``）：部署锁定时两边同时只读 / 拒绝。
+_locked_reason = locked_reason
 
 
 def _endpoint_view(user: Any) -> dict[str, Any]:
@@ -342,12 +354,25 @@ async def put_llm_endpoint(body: EndpointRequest, auth: tuple = Depends(require_
 
 
 @router.post("/api/settings/llm-endpoint/compatibility", dependencies=[Depends(validate_csrf)])
-async def run_llm_compatibility(auth: tuple = Depends(require_admin)) -> JSONResponse:
-    """对当前对话端点跑一次兼容性探针（**会产生少量计费调用**，面板上明示）。后台线程，202 后轮询 GET。"""
+async def run_llm_compatibility(
+    body: CompatibilityRequest | None = None, auth: tuple = Depends(require_admin)
+) -> JSONResponse:
+    """对对话端点跑一次兼容性探针（**会产生少量计费调用**，面板上明示）。后台线程，202 后轮询 GET。
+
+    不带 ``model`` = 当前全局模型（结果写原单文件）；带 ``model`` = 目录里的这个模型（P7-S15，写逐对位置；
+    被测模型带上它在目录里声明的 ``extra_body``——与生产装配同一份）。
+    """
 
     user, _principal = auth
+    chosen = body.model if body is not None else None
+    if chosen is not None:
+        if _locked_reason() is not None:
+            return _error("WEB_LLM_ENDPOINT_MANAGED", "对话端点由部署配置或本地模型路径管理，不能为目录里的模型做检查")
+        catalog = load_catalog()
+        if catalog.error is not None or catalog.find(chosen) is None:
+            return _error("WEB_MODEL_UNKNOWN", "所选模型不在目录里")
     try:
-        endpoint = resolve_chat_endpoint()
+        endpoint = resolve_chat_endpoint(model=chosen)
     except EndpointConfigError as exc:
         return _error("WEB_LLM_ENDPOINT_INVALID", str(exc))
     if endpoint.source == SOURCE_LOCAL_MODEL:
@@ -356,11 +381,15 @@ async def run_llm_compatibility(auth: tuple = Depends(require_admin)) -> JSONRes
     def target() -> dict[str, Any]:
         from water_agent.harness.endpoint_compat import run_endpoint_compatibility
 
-        report, skipped = run_endpoint_compatibility(out_path=compatibility_report_path())
+        if chosen is not None:
+            report, skipped = run_endpoint_compatibility(model=chosen)
+        else:
+            report, skipped = run_endpoint_compatibility(out_path=compatibility_report_path())
         if report is None:
             result: dict[str, Any] = {"status": "skipped", "requires": list((skipped or {}).get("requires", []))}
         else:
             result = {"status": report.status}
+        result["model"] = endpoint.model
         audit_llm_compatibility_checked(
             actor_user_id=str(user.user_id), host=endpoint.host, model=endpoint.model, result=result["status"]
         )
@@ -399,3 +428,85 @@ async def fetch_llm_models(body: ModelsRequest, auth: tuple = Depends(require_ad
         return _error(exc.code, exc.message)
     audit_llm_models_listed(actor_user_id=str(user.user_id), host=host, result="ok", count=len(models))
     return _ok({"models": models})
+
+
+# ---------------------------------------------------------------------------
+# 模型目录（P7-S15）
+# ---------------------------------------------------------------------------
+
+
+class ModelCatalogRequest(BaseModel):
+    """整份替换目录。条目的校验（含"不接受 base_url / api_key"）在 ``parse_entries``，错误不回显值。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    models: list[dict[str, Any]] = Field(max_length=64)
+
+
+def _pair_usable(model_id: str) -> bool:
+    """这个目录模型在当前端点上是否已通过逐对验证（读不出 / 端点配置不成立都算未验证）。"""
+
+    try:
+        return endpoint_verification(resolve_chat_endpoint(model=model_id)).usable
+    except EndpointConfigError:
+        return False
+
+
+def _catalog_view(user: Any) -> dict[str, Any]:
+    is_admin = user.role is UserRole.ADMIN
+    locked = _locked_reason()
+    view: dict[str, Any] = {
+        "can_manage": is_admin,
+        "editable": is_admin and locked is None,
+        "locked_reason": locked,
+        "models": [],
+        "error": None,
+    }
+    state = load_catalog()
+    if state.error is not None:
+        # 成员只看到"不可用"，管理员看到原因
+        view["error"] = {
+            "code": "WEB_MODEL_CATALOG_INVALID",
+            "message": state.error if is_admin else "模型目录不可用，请联系管理员",
+        }
+        return view
+    for entry in state.entries:
+        if not is_admin and (
+            not entry.enabled or (entry.allowed_roles is not None and user.role.value not in entry.allowed_roles)
+        ):
+            continue
+        item = entry.model_dump(mode="json") if is_admin else entry.public_view()
+        verified = _pair_usable(entry.id)
+        item["verified"] = verified
+        # 现在能不能被选：启用 + 非思考型（S16 才放行）+ 已验证；部署锁定时一律不能选
+        item["selectable"] = bool(entry.enabled and entry.thinking != "roundtrip" and verified and locked is None)
+        view["models"].append(item)
+    return view
+
+
+@router.get("/api/settings/llm-models")
+async def get_llm_models(auth: tuple = Depends(require_password_changed)) -> JSONResponse:
+    """模型目录。管理员看完整配置（含价格 / 角色限制 / 停用项）；成员只看自己现在能选的条目的身份字段。"""
+
+    user, _principal = auth
+    return _ok(_catalog_view(user))
+
+
+@router.put("/api/settings/llm-models", dependencies=[Depends(validate_csrf)])
+async def put_llm_models(body: ModelCatalogRequest, auth: tuple = Depends(require_admin)) -> JSONResponse:
+    user, _principal = auth
+    if _locked_reason() is not None:
+        return _error("WEB_LLM_ENDPOINT_MANAGED", "对话端点由部署配置或本地模型路径管理，模型目录面板只读")
+    try:
+        entries = parse_entries(body.models)
+    except CatalogError as exc:
+        # 说明里不回显请求值（parse_entries 只写第几项与字段名）
+        return _error("WEB_MODEL_CATALOG_INVALID", str(exc))
+    try:
+        written = write_catalog(entries)
+    except OSError:
+        return _store_unavailable()
+    audit_llm_models_updated(
+        actor_user_id=str(user.user_id), ids=[entry.id for entry in written], count=len(written)
+    )
+    return _ok(_catalog_view(user))

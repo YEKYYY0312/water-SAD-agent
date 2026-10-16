@@ -25,7 +25,14 @@ from water_agent.storage.repository import (
 )
 from water_agent.webapp.auth.csrf import validate_csrf
 from water_agent.webapp.auth.dependencies import require_password_changed
+from water_agent.webapp.auth.models import UserRole
 from water_agent.webapp.auth.user_store import UserNotFoundError, get_user_store
+from water_agent.webapp.model_choice import (
+    MODEL_UNSUPPORTED,
+    ModelChoiceProblem,
+    check_model_choice,
+    effective_model,
+)
 from water_agent.webapp.run_manager import (
     ConfirmationStaleError,
     RunManager,
@@ -34,7 +41,7 @@ from water_agent.webapp.run_manager import (
     WebAgenticSessionFactory,
     parse_last_event_id,
 )
-from water_agent.webapp.workspace_routes import _can_write_project
+from water_agent.webapp.workspace_routes import _can_write_project, _session_payload
 
 router = APIRouter()
 _API_VERSION = "v1"
@@ -44,12 +51,23 @@ def _ok(data: object) -> dict[str, object]:
     return {"version": _API_VERSION, "ok": True, "data": data}
 
 
+class SessionModelRequest(BaseModel):
+    """``PATCH /api/sessions/{thread_id}``：改会话默认模型。``model`` 必须出现；``null`` = 清除，回到全局模型。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/@+\-]+$")
+
+
 class MessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=16_000)
     #: P5-S49：随消息附上的上传 id。上限与 documents.attachments 一致。
     attachments: list[UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
+    #: P7-S15：本条消息选用的模型 id（管理员目录里的模型；缺省 = 会话默认，再缺省 = 全局模型）。
+    #: **只收模型 id，不收 base_url / api_key**（P7-I15）；格式同 ``validate_model_name``，是否在目录里由路由校验。
+    model: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/@+\-]+$")
 
     @field_validator("message")
     @classmethod
@@ -184,6 +202,54 @@ def _forbidden() -> JSONResponse:
     )
 
 
+@router.patch("/api/sessions/{thread_id}", dependencies=[Depends(validate_csrf)])
+async def update_session_model(
+    thread_id: UUID,
+    body: SessionModelRequest,
+    request: Request,
+    auth: tuple = Depends(require_password_changed),
+) -> JSONResponse:
+    """改会话默认模型（P7-S15）。检查顺序：会话归属（404）→ 写权限（403）→ 目录 / 角色 / 锁定 / 逐对验证。
+
+    默认模型必须是**现在就能选**的：不接受未验证的模型，免得之后每条消息都 424。设置后目录里该模型被停用 /
+    删除，之后的消息会 422 ``WEB_MODEL_UNKNOWN``（失败关闭，不会悄悄换成别的模型），用户可在这里清除默认。
+    """
+
+    user, _principal = auth
+    database = getattr(request.app.state, "database", None)
+    manager = _manager(request)
+    if database is None:
+        return _database_unavailable()
+    sessions = WebSessionRepository(database)
+    try:
+        web_session = sessions.get_for_user(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    if web_session.project_id is not None:
+        try:
+            role = ProjectRepository(database).membership_role(web_session.project_id, user.user_id)
+        except ResourceNotFoundError:
+            return _not_found()
+        if not _can_write_project(role, user.role):
+            return _forbidden()
+    elif user.role is UserRole.VIEWER:
+        return _forbidden()
+    if body.model is not None:
+        factory = manager.session_factory if manager is not None else None
+        if not getattr(factory, "supports_model_choice", False):
+            return ModelChoiceProblem(MODEL_UNSUPPORTED, "当前运行环境不支持选择模型", 422).response()
+        real = isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator
+        choice = check_model_choice(body.model, role=user.role, verify=real)
+        if choice is not None:
+            return choice.response()
+    try:
+        updated = sessions.set_model(thread_id, user.user_id, body.model)
+        runs = RunRepository(database).list_for_session(thread_id, user.user_id)
+    except ResourceNotFoundError:
+        return _not_found()
+    return JSONResponse(status_code=200, content=_ok(_session_payload(updated, runs)))
+
+
 @router.post(
     "/api/sessions/{thread_id}/messages",
     dependencies=[Depends(validate_csrf)],
@@ -222,17 +288,29 @@ async def create_message(
             return _forbidden()
 
     factory = manager.session_factory
-    if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator:
+    web_factory = factory if isinstance(factory, WebAgenticSessionFactory) and not factory.mock_generator else None
+    real_factory = web_factory is not None
+    # P7-S15：消息 > 会话默认 > 全局。选了模型就要在这里（授权之后、配置披露之后的 424 之前）校验：目录、角色、
+    # 锁定、逐对验证；任何一项不过都不建 run，也**不会**悄悄换成别的模型（P7-I21）。
+    selected = effective_model(body.model, web_session.model)
+    if selected is not None:
+        if not getattr(factory, "supports_model_choice", False):
+            return ModelChoiceProblem(MODEL_UNSUPPORTED, "当前运行环境不支持选择模型", 422).response()
+        choice = check_model_choice(selected, role=user.role, verify=real_factory)
+        if choice is not None:
+            return choice.response()
+    if web_factory is not None:
         # 端点 / Key 的判定与装配同一来源（resolve_chat_endpoint）：缺省端点缺 Key 沿用原说明；
         # 端点改了却没配专用 Key 时写明缺哪一项（P7-S10：不回落 DeepSeek 的 Key）。
-        problem = chat_model_problem()
+        # 选了模型的情形已在上面经 ``chat_model_problem(model=…)`` 判定过，这里仍判全局（与此前逐字相同）。
+        problem = chat_model_problem() if selected is None else None
         if problem is not None:
             return _not_configured(*problem)
         # 检索的预检语义是"必须能检索"（P7-S10）：auto 下没配 embedding 走关键词检索、不拒绝（运行结果里
         # 如实标出 retrieval_mode=text）；只有强制 hybrid 时缺 embedding / 与索引不匹配才 424——否则装配必然
         # 失败，浏览器只看到通用的 "agent run failed"。刻意不降级为 fixture 检索：那会让答案看似正常、实则
         # 脱离真实语料。
-        problem = retrieval_problem(factory.agent_args)
+        problem = retrieval_problem(web_factory.agent_args)
         if problem is not None:
             return _not_configured(*problem)
 
@@ -263,7 +341,7 @@ async def create_message(
         return _confirmation_pending()
 
     try:
-        run = RunRepository(database).create(thread_id, user.user_id)
+        run = RunRepository(database).create(thread_id, user.user_id, model=selected)
     except ResourceNotFoundError:
         return _not_found()
 
@@ -276,6 +354,7 @@ async def create_message(
             project_id=web_session.project_id,
             query=body.message,
             attachment_ids=attachment_ids,
+            **({"model": selected} if selected is not None else {}),
         )
     except ThreadBusyError:
         # 上面的检查与 start 之间没有 await，单 worker 下走不到这里；兜底时把刚建的行收口，
@@ -353,6 +432,8 @@ async def decide_confirmation(
                 "approved": body.approved,
                 "reason": body.reason,
             },
+            # P7-S15：恢复到当时选的模型（runs.model），而不是静默换回默认模型
+            **({"model": run.model} if run.model else {}),
         )
     except ConfirmationStaleError:
         return _confirmation_stale()
