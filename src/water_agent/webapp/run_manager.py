@@ -137,6 +137,9 @@ class _RunHandle:
     material_table: dict[str, Any] | None = None
     # P5-S49：本条消息点名的附件（路由层已校验归属）。
     attachment_ids: list[str] = field(default_factory=list)
+    # P7-S15：本次运行**实际选用**的模型 id（消息 > 会话默认；路由层已按目录 / 角色 / 逐对验证校验）。
+    # ``None`` = 全局模型。恢复确认时以库里的 ``runs.model`` 为准，不会静默换回默认模型。
+    model: str | None = None
     calc_inputs: dict[str, float] = field(default_factory=dict)
     tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
     # P7-S7：停在人工确认门（不是终态，``finalized`` 仍为 False）。挂起期间 SSE 流以
@@ -237,6 +240,9 @@ class WebAgenticSessionFactory:
     #: P7-S7：本工厂建的会话接了人工确认门。``AgentSessionFactory`` 是协议，评测 / 测试替身不声明
     #: 它，``RunManager`` 就不去读 checkpoint 判定挂起的确认（它们的会话不会挂起）。
     supports_confirmation = True
+    #: P7-S15：本工厂的 ``create`` 接受 ``model``（同端点、同 Key 槽，只换模型 id）。协议型替身不声明它，
+    #: ``RunManager`` 就不传该 kwarg——选了模型而工厂不支持时直接报错，不静默用全局模型。
+    supports_model_choice = True
 
     def __init__(
         self,
@@ -300,6 +306,7 @@ class WebAgenticSessionFactory:
         principal: Principal,
         project_id: UUID | None,
         stack: ExitStack,
+        model: str | None = None,
     ) -> Any:
         saver = stack.enter_context(postgres_checkpointer(self.database))
         scoped_saver = ScopedPostgresSaver(saver, self.sessions, user_id)
@@ -316,8 +323,12 @@ class WebAgenticSessionFactory:
         # server 才暴露），会话同时接上确认门；CLI 与评测 runner 不传，这类 server 整台不暴露。
         lease = self.mcp_pool.lease(load_mcp_gateway(), confirmation_ready=True)
         stack.callback(lease.release)
+        args = self._args()
+        if model is not None:
+            # 同端点、同 Key 槽，只换模型 id（P7-S15）；端点 / Key 名仍由 resolve_chat_endpoint 解析
+            args.model = model
         return build_agentic_session(
-            self._args(),
+            args,
             stack=stack,
             thread_id=thread_id,
             request_context=request_context,
@@ -395,7 +406,11 @@ class RunManager:
         project_id: UUID | str | None,
         query: str,
         attachment_ids: list[str] | None = None,
+        model: str | None = None,
     ) -> dict[str, str]:
+        if model is not None and not getattr(self.session_factory, "supports_model_choice", False):
+            # 选了模型却没有会话工厂能兑现它：报错，绝不静默用全局模型作答（P7-I21）
+            raise ValueError("session factory does not support model choice")
         run_key = str(run_id)
         handle = _RunHandle(
             run_id=run_key,
@@ -403,6 +418,7 @@ class RunManager:
             owner_user_id=owner_user_id,
             project_id=None if project_id is None else UUID(str(project_id)),
             attachment_ids=list(attachment_ids or []),
+            model=model,
         )
         with self._lock:
             if run_key in self._handles:
@@ -716,6 +732,12 @@ class RunManager:
         session: Any | None = None
         try:
             with ExitStack() as stack:
+                # 严格签名的替身工厂不收 model：只有声明 ``supports_model_choice`` 且选了模型才传
+                model_kwargs: dict[str, Any] = {}
+                if handle.model is not None:
+                    if not getattr(self.session_factory, "supports_model_choice", False):
+                        raise ValueError("session factory does not support model choice")
+                    model_kwargs["model"] = handle.model
                 session = self.session_factory.create(
                     run_id=handle.run_id,
                     thread_id=handle.thread_id,
@@ -723,11 +745,20 @@ class RunManager:
                     principal=principal,
                     project_id=handle.project_id,
                     stack=stack,
+                    **model_kwargs,
                 )
                 handle.session = session
                 start_trace = getattr(session, "start_trace", None)
                 if callable(start_trace):
                     start_trace(handle.run_id, trace_query)
+                if handle.model is not None:
+                    self._record_trace_event(
+                        session,
+                        "model_selected",
+                        {"model": handle.model, "source": "catalog"},
+                        status="ok",
+                        node="model",
+                    )
                 result = body(session)
                 if result is None:
                     return
@@ -805,6 +836,7 @@ class RunManager:
         principal: Principal,
         project_id: UUID | str | None,
         decision: dict[str, Any],
+        model: str | None = None,
     ) -> dict[str, str]:
         """对停在确认门的 run 给出决定，在**同一个 run** 上继续（``waiting_confirmation → queued``）。
 
@@ -833,6 +865,8 @@ class RunManager:
                     project_id=None if project_id is None else UUID(str(project_id)),
                     status=STATUS_WAITING_CONFIRMATION,
                     suspended=True,
+                    # 进程重启后 handle 没了：以库里的 runs.model 为准恢复（路由读出后交来）
+                    model=model,
                 )
                 self._handles[run_key] = handle
             self._active_by_thread[thread_key] = run_key
@@ -1077,6 +1111,8 @@ class RunManager:
             # P7-S10：本次实际用的检索模式（hybrid / text）与原因；text 是关键词检索，界面据此如实标出
             "retrieval_mode": runtime.get("retrieval_mode"),
             "retrieval_mode_reason": runtime.get("retrieval_mode_reason"),
+            # P7-S15：只在明确选了模型时出现（"有值才出现"，缺省运行的 payload 与此前逐字相同）；只放模型 id
+            **({"model": handle.model} if handle is not None and handle.model is not None else {}),
         }
 
     @staticmethod

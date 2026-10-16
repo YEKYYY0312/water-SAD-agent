@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-MIGRATION_HEAD = "0007_step51_dwg_uploads"
+MIGRATION_HEAD = "0008_step15_model_choice"
 CHECKPOINT_MIGRATION_HEAD = 9
 
 

@@ -205,6 +205,38 @@ class WebSessionRepository:
                 ).scalars()
             )
 
+    def set_model(self, thread_id: UUID | str, user_id: UUID | str, model: str | None) -> WebSession:
+        """改会话默认模型（P7-S15；``None`` = 清除，回到全局模型）。
+
+        与建 run 同一条写权限规则：个人会话只有拥有者；项目会话要写角色成员（项目 viewer 当作不存在）。
+        模型 id 是否在目录里、是否已验证由调用方（路由）校验，这里只落库。不改 ``updated_at``——换默认模型
+        不应让会话在列表里跳到最前。
+        """
+
+        with self.database.transaction() as session:
+            record = session.execute(
+                select(WebSession).where(
+                    WebSession.thread_id == str(thread_id),
+                    or_(
+                        (
+                            (WebSession.project_id.is_(None))
+                            & (WebSession.owner_user_id == str(user_id))
+                        ),
+                        exists(
+                            select(ProjectMembership.project_id).where(
+                                ProjectMembership.project_id == WebSession.project_id,
+                                ProjectMembership.user_id == str(user_id),
+                                ProjectMembership.role.in_(_PROJECT_WRITE_ROLES),
+                            )
+                        ),
+                    ),
+                )
+            ).scalar_one_or_none()
+            if record is None:
+                raise ResourceNotFoundError("session not found")
+            record.model = model
+            return record
+
     def delete_for_user(self, thread_id: UUID | str, user_id: UUID | str) -> None:
         with self.database.transaction() as session:
             found = session.execute(
@@ -231,8 +263,13 @@ class RunRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def create(self, thread_id: UUID | str, owner_user_id: UUID | str) -> Run:
+    def create(
+        self, thread_id: UUID | str, owner_user_id: UUID | str, *, model: str | None = None
+    ) -> Run:
         """Create a queued run; in a project session only a writing member may.
+
+        ``model``（P7-S15）：这次运行**实际选用**的模型 id（消息 > 会话默认的结果；``None`` = 全局模型）。
+        落库是为了进程重启后挂起的那一轮能恢复到当时选的模型，而不是静默换回默认。
 
         Membership alone makes a session readable, but a run writes the run row
         and the session's checkpoint, so a project ``viewer`` is answered as if
@@ -266,6 +303,7 @@ class RunRepository:
                 thread_id=str(thread_id),
                 owner_user_id=str(owner_user_id),
                 status="queued",
+                model=model,
                 created_at=now,
                 updated_at=now,
             )

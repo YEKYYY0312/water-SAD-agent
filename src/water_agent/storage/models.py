@@ -90,6 +90,8 @@ class WebSession(Base):
     owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     project_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=True)
     title: Mapped[str] = mapped_column(String(240), nullable=False, default="")
+    #: P7-S15：会话默认模型 id（目录里的模型）；``NULL`` = 用全局模型。优先级：消息 > 会话 > 全局。
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -106,6 +108,9 @@ class Run(Base):
     thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("web_sessions.thread_id", ondelete="CASCADE"), nullable=False)
     owner_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    #: P7-S15：这次运行实际选用的模型 id；``NULL`` = 当时用的是全局模型。进程重启后挂起的那一轮据此恢复，
+    #: 不会静默换回默认模型。
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

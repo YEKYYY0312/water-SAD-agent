@@ -33,6 +33,7 @@ from water_agent.generation.endpoints import (
     chat_env_configured,
     resolve_chat_endpoint,
 )
+from water_agent.generation.model_catalog import extra_body_for
 from water_agent.graphs.agent_rag import (
     PER_TURN_RESET,
     _extract_validation_signal,
@@ -118,22 +119,30 @@ CHAT_MODEL_NOT_VERIFIED = "WEB_MODEL_NOT_VERIFIED"
 
 def chat_model_problem(
     environment: Callable[[str], str | None] = os.getenv,
+    *,
+    model: str | None = None,
 ) -> tuple[str, str] | None:
     """对话模型能否装配；不能时返回 ``(错误码, 说明)``。只看配置，不读出也不回显 Key 值。
 
     与 ``build_chat_model`` 共用 ``resolve_chat_endpoint``（端点 / 模型 / Key 名 + 三层解析）：两处各自
     判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、真跑 503 的矛盾结果。
     缺省端点缺 Key 时说明沿用原文；端点改了却没配专用 Key 时写明缺哪一项（不回落 DeepSeek 的 Key）。
+
+    ``model``（P7-S15）：用户逐条 / 按会话选的模型 id，在**同一个端点、同一个 Key 槽**上换模型；为 ``None``
+    就是全局模型（与此前逐字相同）。``LOCAL_MODEL_ENABLED`` 时不允许覆盖——只带 ``model`` 的显式覆盖会跳过
+    本地分支、落到 DeepSeek 缺省端点，等于数据去向翻转。
     """
 
     from water_agent.generation.local_model import local_model_configured, local_model_ready
 
     if local_model_configured(environment) and not chat_env_configured(environment):
+        if model is not None:
+            return CHAT_MODEL_NOT_CONFIGURED, "Model selection is unavailable while the local model path is enabled"
         if local_model_ready(environment):
             return None
         return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
     try:
-        endpoint = resolve_chat_endpoint(getenv=environment)
+        endpoint = resolve_chat_endpoint(model=model, getenv=environment)
     except EndpointConfigError as exc:
         return CHAT_MODEL_NOT_CONFIGURED, f"Real agent model is not configured: {exc}"
     missing = endpoint.missing_key(getenv=environment)
@@ -669,6 +678,8 @@ class AgenticSession:
                     api_key=api_key,
                     gateway=self.gateway,
                     request_context_factory=lambda: self.request_context,
+                    # P7-S15：目录里这个模型声明的思考配置（缺省/目录外 = 不附加）；兼容性探针带同一份
+                    extra_body=extra_body_for(endpoint.model),
                 )
             except EndpointConfigError:
                 raise
