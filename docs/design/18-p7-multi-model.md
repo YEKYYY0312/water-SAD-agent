@@ -86,7 +86,8 @@
 | F21 | 确认恢复路径：进程重启后 `resume()` 用空 handle 重建，没有持久化的模型就静默落回全局模型 | `run_manager.py:828-837` |
 | F22 | 唯一构造 `ChatOpenAI(` 的是 `generation/chat_model.py`；出站扫描正则 `\bChatOpenAI\s*\(` 靠它识别该模块，对 `XxxChatOpenAI(` 因 `\b` 不匹配而**盲** | `inventory.py:411`、`test_governance_contracts.py:465-481,525-527` |
 | F23 | 测试替身：至少 10 处严格签名 `create(*, run_id, thread_id, user_id, principal, project_id, stack)`；无条件新增 kwarg 会让它们全部 `TypeError` | `run_manager.py:628-637` 注释、各 `tests/test_web_*.py` |
-| F24 | **运维实测（2026-10-14）**：经一个 OpenAI 兼容代理配置 `MODEL_NAME` 后，面板的兼容性检查 **7 项里 6 项未通过，仅 `error_handling` 通过**，整次运行状态 `blocked`。按探针代码：`_status` 在没有任何 `failed` 时才是 `blocked`，所以这 6 项**全是 `blocked`（请求抛了异常），不是模型答错**；前四项共用一次 try，第一次真实调用抛异常就一起 `blocked`；`error_handling` 故意发错误模型名、期望得到结构化错误，端点整体不通时它也会通过。因此失败发生在**请求层面**（路径 / 鉴权 / 模型 ID / 超时 / 网络之一），**与思考是否开启的关系未证实**；具体异常类别在报告 evidence 的 `model_facing_error` / `streaming_usage_error` / `cancellation_timeout_error` 里，待回填 | 运维反馈 + `endpoint_compat.py` |
+| F24 | **运维实测（2026-10-14）**：经一个 OpenAI 兼容中转站配置 `MODEL_NAME` 后，首次兼容性检查 **7 项里 6 项未通过，仅 `error_handling` 通过**，状态 `blocked`。报告 evidence 显示 `model_facing_error`、`streaming_usage_error`、`cancellation_timeout_error` 与 `error_code` **全部是 `GovernanceError:PROVIDER_AUTH_FAILED`**——中转站在鉴权这一步就拒绝了请求（连故意发的错误模型名也是鉴权失败，2 秒返回），所以与思考是否开启、模型 ID、接口路径都无关。重新保存中转站自己的 Key 后重跑，**7 项全部通过**。教训：`error_handling` 在端点整体拒绝请求时也会通过，**不能据它判断端点可用**；`blocked`（异常）与 `failed`（答错）必须区分 | 运维反馈 + 报告 evidence |
+| F25 | **运维实测（2026-10-16）**：同一 (中转站, `MODEL_NAME`)，**未传 `extra_body`（现状代码）**，一次真实带工具问答（`calc_velocity` 1 次 + `retrieve_clauses` 3 次，检索因嵌入服务鉴权失败而返回错误 observation）**完整收口，约 30 s，未出现 400**；模型据实说明检索不可用、没有编造条款号。说明在该中转站上多步工具往返可用。**未证实**：该模型在中转站上是否处于思考模式、中转站是否剥离或兼容 `reasoning_content`、**第 2 个用户轮（旧轮被 `history.py` 重建为纯文本）是否 400**。结论**不得推广到直连 `api.deepseek.com`**，也不构成质量证据（单次运行）。独立复核：20 L/s 过 Ø150 断面的流速 ≈ 1.132 m/s，与工具输出一致 | 运维反馈 |
 
 ---
 
@@ -269,7 +270,7 @@ composer 内模型选择器（目录非空才渲染）、会话默认模型控�
 | D2 | `allowed_roles` 缺省？ | 缺省所有可写角色；管理员可逐项收紧 |
 | D3 | 会话默认谁能改？ | 项目会话需 owner / member；VIEWER 不可 |
 | D4 | 旧轮终稿是否保留 reasoning？ | **待实测**（F14）；先按 F2 字面回传，实测后收窄 |
-| D5 | 缺 `reasoning_content` 的合成 assistant / 旧轮纯文本是否 400？空串是否被接受？ | **待实测** |
+| D5 | 缺 `reasoning_content` 的合成 assistant / 旧轮纯文本是否 400？空串是否被接受？ | **部分实测**（F25）：中转站上单轮多步工具循环未 400；**第 2 个用户轮（旧轮纯文本）与合成 assistant 形态尚未测**，空串未测 |
 | D6 | `thinking:disabled` 下 `MODEL_NAME` 的 `rag_p1 --variant real` 质量？ | **待实测**；不得先验声称 |
 | D7 | `MODEL_NAME` 现在是否仍可用、被路由到哪个模型？ | **待实测**；影响"免检缺省"的质量依据 |
 | D8 | 思考型模型的超时画像取值 | 待实测 p95 后定；初值沿用 60s 并禁用超时重试 |
