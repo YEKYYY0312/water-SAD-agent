@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -67,6 +68,7 @@ def build_chat_model(
     gateway: ProviderGateway | None = None,
     request_context: RequestContext | None = None,
     request_context_factory: Callable[[], RequestContext] | None = None,
+    extra_body: dict[str, Any] | None = None,
 ) -> BaseChatModel:
     """构造 OpenAI 兼容 chat model（缺省 DeepSeek），供 agentic 循环使用。
 
@@ -76,6 +78,10 @@ def build_chat_model(
     规范问答是事实问答（铁律②：回答可追溯、不编造）：``temperature`` 默认 0，
     调用方可显式覆盖。缺 Key 抛 ``ValueError`` 并指明环境变量名——"失败要响亮"，
     不允许静默降级为本地/离线模型。
+
+    ``extra_body``（P7-S15）：附加进每个请求体的字段（如关闭思考 ``{"thinking": {"type": "disabled"}}``）。
+    **仅给出时才传给 ``ChatOpenAI``**，缺省路径的构造参数与此前逐字相同；装配与兼容性探针必须带同一份
+    （``model_catalog.extra_body_for``），否则探针验证的不是上线要用的配置。
 
     P2.5 Step 12：返回 ``GovernedChatModel``，每次生成经 ``ProviderGateway``。
     显式 ``timeout`` 取自 gateway 的 provider 画像（补上原先缺失的超时）；
@@ -93,19 +99,22 @@ def build_chat_model(
             f"（可设同名环境变量、{api_key_env}_FILE，或在 Web 设置面板填写）"
         )
     resolved_gateway = gateway if gateway is not None else default_gateway()
-    inner = ChatOpenAI(
-        model=model,
-        base_url=base_url,
-        api_key=SecretStr(resolved_api_key),
-        temperature=temperature,
-        timeout=resolved_gateway.timeout_for(ProviderKind.DEEPSEEK_CHAT),
-        max_retries=0,  # 重试统一由 ProviderGateway 承担，避免叠乘
+    chat_kwargs: dict[str, Any] = {
+        "model": model,
+        "base_url": base_url,
+        "api_key": SecretStr(resolved_api_key),
+        "temperature": temperature,
+        "timeout": resolved_gateway.timeout_for(ProviderKind.DEEPSEEK_CHAT),
+        "max_retries": 0,  # 重试统一由 ProviderGateway 承担，避免叠乘
         # 流式时请求 stream_options.include_usage，让最后一个 chunk 带 usage（DeepSeek 支持）。
         # 必须显式开：langchain-openai 1.6.0 只在默认 OpenAI base_url 下自动开启，自定义
         # base_url 时 stream_usage 留空 → 不发 include_usage → 流式 usage 恒为 USAGE_UNKNOWN、
         # 预算按 0 结清（实测）。非流式请求不受影响（该参数只作用于 _stream）。
-        stream_usage=True,
-    )
+        "stream_usage": True,
+    }
+    if extra_body:
+        chat_kwargs["extra_body"] = extra_body
+    inner = ChatOpenAI(**chat_kwargs)
     return GovernedChatModel(
         inner=inner,
         category=category,
