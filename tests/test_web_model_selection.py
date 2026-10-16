@@ -414,6 +414,8 @@ def test_message_beats_session_default_beats_global_and_is_persisted(
     assert calls == [None]
     assert runs.get_for_user(first.json()["data"]["run_id"], admin_id).model is None
     assert "model" not in next(e for e in events if e["type"] == "finalize")["payload"]
+    first_trace = admin.get(f"/api/runs/{first.json()['data']['run_id']}/trace").json()["data"]
+    assert not any(item["event_type"] == "model_selected" for item in first_trace["events"]), "全局模型的 trace 不变"
 
     # 2) 会话默认 → 生效
     patched = admin.patch(f"/api/sessions/{thread}", json={"model": "flash-a"}, headers=_headers(admin))
@@ -423,6 +425,8 @@ def test_message_beats_session_default_beats_global_and_is_persisted(
     events = _wait_finalized(admin, run_id)
     assert calls[-1] == "flash-a" and runs.get_for_user(run_id, admin_id).model == "flash-a"
     assert next(e for e in events if e["type"] == "finalize")["payload"]["model"] == "flash-a"
+    second_trace = admin.get(f"/api/runs/{run_id}/trace").json()["data"]
+    assert any(item["event_type"] == "model_selected" for item in second_trace["events"]), "选了模型才记 model_selected"
 
     # 3) 消息 > 会话默认
     third = _send(admin, thread, model="fast-b")
