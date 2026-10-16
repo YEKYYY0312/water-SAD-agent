@@ -180,13 +180,16 @@ class JsonTraceRecorder:
         input_tokens: int = 0,
         output_tokens: int = 0,
         total_tokens: int = 0,
-        cost_usd: float = 0.0,
+        cost_usd: float | None = 0.0,
         latency_ms: float = 0.0,
         status: str = "running",
         error: str | None = None,
         query: str | None = None,
     ) -> None:
         """记录一次 LLM 调用事件（Step 10：观测与成本）。
+
+        ``cost_usd=None`` = 价格未知（P7-S15：目录里没声明价格的模型），原样记 ``None``，聚合时按"未知"跳过，
+        不当 0。
 
         ``prompt_preview`` / ``response_preview`` 只存摘要（默认截断到 200 字符），
         避免把完整 prompt/响应写入 trace（PII/密钥泄漏风险，见 OTel GenAI 约定）。
@@ -207,7 +210,7 @@ class JsonTraceRecorder:
                 "input_tokens": int(input_tokens),
                 "output_tokens": int(output_tokens),
                 "total_tokens": int(total_tokens),
-                "cost_usd": round(float(cost_usd), 8),
+                "cost_usd": None if cost_usd is None else round(float(cost_usd), 8),
             },
         )
 
