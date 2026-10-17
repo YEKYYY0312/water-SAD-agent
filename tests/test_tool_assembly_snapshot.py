@@ -317,7 +317,9 @@ def test_http_mcp_profile_is_added_and_the_existing_ones_are_untouched(
     assert profile["surface"]["tools"]["mcp_snaphttp_echo_query"]["schema_chars"] > 0
 
     existing = {
-        name for name in baseline["profiles"] if name not in {"session_http_mcp_fake", "session_endpoint_custom"}
+        name
+        for name in baseline["profiles"]
+        if name not in {"session_http_mcp_fake", "session_endpoint_custom", "session_pick_model_off"}
     }
     assert len(existing) == 16
     for name in existing:
@@ -342,7 +344,7 @@ def test_endpoint_profile_is_added_and_the_existing_ones_are_untouched(
         "compatibility": "verified",
     }
     assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
-    others = {name for name in baseline["profiles"] if name != "session_endpoint_custom"}
+    others = {name for name in baseline["profiles"] if name not in {"session_endpoint_custom", "session_pick_model_off"}}
     assert len(others) == 17
     for name in others:
         assert head["profiles"][name] == baseline["profiles"][name], name
@@ -360,3 +362,30 @@ def test_endpoint_profile_is_added_and_the_existing_ones_are_untouched(
         "WATER_AGENT_RETRIEVAL_MODE",
     ):
         assert key in snap.PINNED_ENV_KEYS, key
+
+
+def test_pick_model_profile_is_added_and_the_existing_ones_are_untouched(
+    head: dict[str, Any], baseline: dict[str, Any]
+) -> None:
+    """P7-S15-A09 新增 ``session_pick_model_off``：缺省端点上从模型目录选一个 ``thinking: off`` 的模型 + 它的逐对
+    兼容性报告，真生成器装配不抛错，chat model 指向所选模型、带关闭思考的 ``extra_body``、兼容状态按逐对报告
+    判为 verified（不是缺省免检）；模型可见面与 mock 缺省 profile 相同（选模型不改工具与提示）；其余 18 个
+    profile 与基线逐字相同，也都没有 ``chat_model_endpoint``（除端点 profile 外）；没有新增环境变量。"""
+
+    profile = head["profiles"]["session_pick_model_off"]
+    assert profile["side"] == "session"
+    assert profile["lifecycle"]["exception"] is None
+    assert profile["lifecycle"]["chat_model_endpoint"] == {
+        "wrapper": "GovernedChatModel",
+        "base_url": "https://api.deepseek.com",
+        "model": snap.PICKED_MODEL,
+        "compatibility": "verified",
+        "extra_body": {"thinking": {"type": "disabled"}},
+    }
+    assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
+    others = {name for name in baseline["profiles"] if name != "session_pick_model_off"}
+    assert len(others) == 18
+    for name in others:
+        assert head["profiles"][name] == baseline["profiles"][name], name
+        if name != "session_endpoint_custom":
+            assert "chat_model_endpoint" not in head["profiles"][name]["lifecycle"], name

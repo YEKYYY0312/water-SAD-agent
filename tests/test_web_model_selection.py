@@ -262,7 +262,7 @@ def test_catalog_is_read_only_when_the_deployment_locks_the_endpoint(
     value: str,
     reason: str,
 ) -> None:
-    """P7-S15-A01/P7-I16 env 配了端点 / 模型或本地模型启用时：目录只读（PUT 409），视图标明锁定原因，条目一律不可选。"""
+    """P7-S15-A01/SDD18-I16 env 配了端点 / 模型或本地模型启用时：目录只读（PUT 409），视图标明锁定原因，条目一律不可选。"""
 
     app = _app(database, tmp_path, _ModelFactory(tmp_path / "traces"))
     admin, _ = _login(app, database, UserRole.ADMIN)
@@ -283,7 +283,7 @@ def test_catalog_is_read_only_when_the_deployment_locks_the_endpoint(
 def test_selection_refuses_unknown_disabled_thinking_and_endpoint_fields_without_creating_a_run(
     database: Database, tmp_path: Path, credentials: Path
 ) -> None:
-    """P7-S15-A04/P7-I15 不在目录 / 已停用 → 422 ``WEB_MODEL_UNKNOWN``；``thinking: roundtrip`` → 422
+    """P7-S15-A04/SDD18-I15 不在目录 / 已停用 → 422 ``WEB_MODEL_UNKNOWN``；``thinking: roundtrip`` → 422
     ``WEB_MODEL_THINKING_UNSUPPORTED``（S16 才放行）；请求体里的 ``base_url`` / ``api_key`` 一律 422
     ``WEB_INVALID_REQUEST``；这些请求都不建 run 行、不调用会话工厂。"""
 
@@ -329,7 +329,7 @@ def test_role_forbidden_precedes_the_verification_failure(
 def test_local_model_mode_refuses_every_override(
     database: Database, tmp_path: Path, credentials: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S15-A04/P7-I16 ``LOCAL_MODEL_ENABLED`` 时只带 ``model`` 的显式覆盖会跳过本地分支、落到 DeepSeek 缺省端点
+    """P7-S15-A04/SDD18-I16 ``LOCAL_MODEL_ENABLED`` 时只带 ``model`` 的显式覆盖会跳过本地分支、落到 DeepSeek 缺省端点
     （数据去向翻转）：逐条选择一律 409 ``WEB_MODEL_LOCKED``，哪怕目录里有这个模型。"""
 
     app = _app(database, tmp_path)
@@ -343,7 +343,7 @@ def test_local_model_mode_refuses_every_override(
 def test_a_factory_that_cannot_honour_the_choice_refuses_instead_of_ignoring_it(
     database: Database, tmp_path: Path, credentials: Path
 ) -> None:
-    """P7-S15-A05/P7-I21 选了模型而会话工厂没声明 ``supports_model_choice``：422 ``WEB_MODEL_UNSUPPORTED``，
+    """P7-S15-A05/SDD18-I21 选了模型而会话工厂没声明 ``supports_model_choice``：422 ``WEB_MODEL_UNSUPPORTED``，
     绝不静默用全局模型作答；不选模型时严格签名的替身工厂照常工作（协议兼容）。"""
 
     factory = _PlainFactory(tmp_path / "traces")
@@ -472,7 +472,7 @@ def test_session_default_authorization_and_validation(
 def test_a_disabled_session_default_fails_closed_instead_of_swapping_models(
     database: Database, tmp_path: Path, credentials: Path
 ) -> None:
-    """P7-S15-A07/P7-I21 会话默认模型被停用 / 删除之后，下一条消息 422 ``WEB_MODEL_UNKNOWN``，**不会**悄悄换成别的
+    """P7-S15-A07/SDD18-I21 会话默认模型被停用 / 删除之后，下一条消息 422 ``WEB_MODEL_UNKNOWN``，**不会**悄悄换成别的
     目录模型或全局模型；用户清除默认后恢复。"""
 
     factory = _ModelFactory(tmp_path / "traces")
