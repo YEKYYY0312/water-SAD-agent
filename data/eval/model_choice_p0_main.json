@@ -1,0 +1,1383 @@
+{
+  "suite": "model_choice_p0",
+  "generated_by": "water_agent.harness.model_choice_eval",
+  "report_format": 1,
+  "mechanism": "present",
+  "dataset": "data/eval/model_choice_p0.jsonl",
+  "dataset_sha256": "25c961038ce26c706728446f05a70166083f005fd2fe0c377098f9ab65faea52",
+  "total": 50,
+  "passed": 50,
+  "metrics": {
+    "selection_validation_correct_rate": 1.0,
+    "unauthorized_model_use_count": 0,
+    "base_url_accepted_count": 0,
+    "silent_fallback_count": 0,
+    "default_behavior_identical_rate": 1.0,
+    "per_pair_verification_isolation_rate": 1.0,
+    "cost_attribution_correct_rate": 1.0,
+    "local_model_override_leak_count": 0,
+    "key_leak_count": 0,
+    "benign_selection_rejected_rate": 0.0,
+    "harness_error_count": 0
+  },
+  "hard_targets": {
+    "selection_validation_correct_rate": 1.0,
+    "unauthorized_model_use_count": 0,
+    "base_url_accepted_count": 0,
+    "silent_fallback_count": 0,
+    "default_behavior_identical_rate": 1.0,
+    "per_pair_verification_isolation_rate": 1.0,
+    "cost_attribution_correct_rate": 1.0,
+    "local_model_override_leak_count": 0,
+    "key_leak_count": 0,
+    "benign_selection_rejected_rate": 0.0,
+    "harness_error_count": 0
+  },
+  "hard_violations": [],
+  "ok": true,
+  "cases": [
+    {
+      "id": "mc-cat-empty-identical",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "catalog_ids",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "default_catalog_empty",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:default",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "trace_model_selected",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "default_behavior",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "default_session_payload",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "default_checks": 3,
+        "default_identical": 3,
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-cat-invalid-id",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "put_catalog:no_echo:bad name!",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "catalog_ids",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-cat-endpoint-field-rejected",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "put_catalog:no_echo:evil.example",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-cat-secret-field-rejected",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "put_catalog:no_echo:sk-secret",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-cat-member-readonly",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "catalog_ids",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "catalog_fields",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-cat-env-locked-readonly",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "catalog_editable",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-cat-role-limited-view",
+      "category": "catalog",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "catalog_ids",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "catalog_ids",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0
+      }
+    },
+    {
+      "id": "mc-sel-unknown-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:unknown",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-disabled-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:disabled",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-roundtrip-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:roundtrip",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-role-forbidden-403",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:forbidden",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-order-403-before-424",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:order",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-unverified-424",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:unverified",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-no-key-424",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:no_key",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-local-model-refused",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:local",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-env-locked-refused",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:env_locked",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-base-url-field-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:base_url",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-api-key-field-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:api_key",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-bad-name-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:bad_name",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-unsupported-factory-422",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:unsupported",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-benign-real",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:benign_real",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_rejected": 0,
+        "benign_total": 1,
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-sel-benign-recording",
+      "category": "selection",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:benign_recording",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_rejected": 0,
+        "benign_total": 1,
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-prio-message-over-session",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-prio-session-over-global",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "trace_model_selected",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-prio-none-uses-global",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:global",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "trace_model_selected",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "default_behavior",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "default_checks": 1,
+        "default_identical": 1,
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-prio-session-patch-sets-and-clears",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "patch:set",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "patch:clear",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 4,
+        "selection_correct": 4
+      }
+    },
+    {
+      "id": "mc-prio-patch-other-user-404",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "patch:other_user",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-prio-patch-validation",
+      "category": "priority",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "patch:unknown",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "patch:thinker",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "patch:base_url",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 3,
+        "selection_correct": 3
+      }
+    },
+    {
+      "id": "mc-ver-per-pair-isolation",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:a",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "verify:b",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-ver-file-name-not-trust-root",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:fast-b",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 1,
+        "pair_correct": 1
+      }
+    },
+    {
+      "id": "mc-ver-stale-probe-version",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:flash-a",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 1,
+        "pair_correct": 1
+      }
+    },
+    {
+      "id": "mc-ver-broken-checks",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:flash-a",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 1,
+        "pair_correct": 1
+      }
+    },
+    {
+      "id": "mc-ver-legacy-single-file-intact",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:flash-a",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "verify:fast-b",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-ver-default-exempt-unchanged",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:default",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "verify:catalog",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-ver-change-invalidates-only-that-pair",
+      "category": "verification",
+      "kind": "verification",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "verify:a",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "verify:b",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-probe-sends-thinking-disabled",
+      "category": "verification",
+      "kind": "probe",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "probe:request_bodies_match_profile",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "probe:only_that_pair_verified",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-probe-default-profile-sends-nothing",
+      "category": "verification",
+      "kind": "probe",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "probe:request_bodies_match_profile",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "probe:only_that_pair_verified",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "pair_checks": 2,
+        "pair_correct": 2
+      }
+    },
+    {
+      "id": "mc-persist-run-model",
+      "category": "persistence",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "run_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 2,
+        "selection_correct": 2
+      }
+    },
+    {
+      "id": "mc-persist-session-default-visible",
+      "category": "persistence",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "patch:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-persist-clear-default",
+      "category": "persistence",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "patch:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "session_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-resume-restores-run-model",
+      "category": "persistence",
+      "kind": "resume",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "resume:restores_run_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {}
+    },
+    {
+      "id": "mc-resume-global-run-stays-global",
+      "category": "persistence",
+      "kind": "resume",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "resume:restores_run_model",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {}
+    },
+    {
+      "id": "mc-persist-disabled-default-fails-closed",
+      "category": "persistence",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:disabled_default",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 1,
+        "selection_correct": 1
+      }
+    },
+    {
+      "id": "mc-gov-cost-noncatalog-legacy",
+      "category": "governance",
+      "kind": "cost",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "cost:deepseek-chat",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "cost:ScriptedChatModel",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "cost_checks": 2,
+        "cost_correct": 2
+      }
+    },
+    {
+      "id": "mc-gov-cost-catalog-priced",
+      "category": "governance",
+      "kind": "cost",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "cost:priced-a",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "cost_checks": 1,
+        "cost_correct": 1
+      }
+    },
+    {
+      "id": "mc-gov-cost-catalog-unpriced-none",
+      "category": "governance",
+      "kind": "cost",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "cost:unpriced-b",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "cost_checks": 1,
+        "cost_correct": 1
+      }
+    },
+    {
+      "id": "mc-gov-cost-registered-in-catalog",
+      "category": "governance",
+      "kind": "cost",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "cost:deepseek-reasoner",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "cost_checks": 1,
+        "cost_correct": 1
+      }
+    },
+    {
+      "id": "mc-gov-model-selected-event",
+      "category": "governance",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "trace_model_selected",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "payload_model",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "trace_model_selected",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 2,
+        "selection_correct": 2
+      }
+    },
+    {
+      "id": "mc-gov-failing-model-never-swapped",
+      "category": "governance",
+      "kind": "failing",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "failing:only_the_chosen_model_was_tried",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "failing:run_failed",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {}
+    },
+    {
+      "id": "mc-sec-no-key-in-audit-or-responses",
+      "category": "governance",
+      "kind": "web",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "put_catalog:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "patch:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "send:status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "calls",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "no_key_in_responses_or_audit",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "key_leaks": 0,
+        "selection_checks": 2,
+        "selection_correct": 2
+      }
+    }
+  ]
+}
