@@ -112,6 +112,8 @@ _PLACEHOLDER_API_KEY = "sk-tool-assembly-snapshot-placeholder"
 #: P7-S10 ``session_endpoint_custom`` 的非缺省对话端点（``.invalid`` 顶级域，永远解析不到；捕获点之后不调用模型）。
 CUSTOM_ENDPOINT_BASE_URL = "https://llm.snapshot.invalid/v1"
 CUSTOM_ENDPOINT_MODEL = "snapshot-compatible-model"
+#: P7-S15 ``session_pick_model_off`` 在目录里选中的模型（缺省 DeepSeek 端点上的目录项，思考 ``off``）。
+PICKED_MODEL = "snapshot-picked-model"
 
 DrawingMode = Literal["off", "arg", "env", "none"]
 McpMode = Literal["disabled", "empty", "fake", "http_fake", "confirm_skip", "ready_flag", "invalid"]
@@ -138,6 +140,8 @@ class Profile:
     skills: bool = False
     #: P7-S10：非缺省 OpenAI 兼容对话端点 + 一份精确匹配的测试兼容报告（真生成器装配，不调用模型）。
     endpoint: bool = False
+    #: P7-S15：缺省端点上从模型目录里选一个思考 ``off`` 的模型（目录 + 逐对兼容性报告写进凭据卷，真生成器装配）。
+    pick_model: bool = False
 
 
 #: 会话侧 ``drawing``：off = ``drawing_root=""``（不注册图纸工具）；arg = 显式目录；
@@ -209,6 +213,12 @@ PROFILES: tuple[Profile, ...] = (
         "session",
         "非缺省 OpenAI 兼容对话端点 + 精确匹配的测试兼容报告：chat model 指向配置的端点与模型",
         endpoint=True,
+    ),
+    Profile(
+        "session_pick_model_off",
+        "session",
+        "缺省端点上从目录选 thinking=off 的模型 + 逐对兼容性报告：chat model 指向所选模型并附带关闭思考的 extra_body",
+        pick_model=True,
     ),
     Profile(
         "session_mcp_register_fault",
@@ -636,6 +646,31 @@ def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int |
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
     if profile.skills:
         os.environ["WATER_AGENT_SKILLS"] = "on"
+    if profile.pick_model:
+        from water_agent.generation.compatibility import (
+            ENDPOINT_COMPATIBILITY_CHECKS,
+            ENDPOINT_PROBE_VERSION,
+            CompatibilityReport,
+            pair_report_path,
+            write_report,
+        )
+        from water_agent.generation.endpoints import DEFAULT_CHAT_BASE_URL
+        from water_agent.generation.model_catalog import CatalogEntry, write_catalog
+
+        write_catalog([CatalogEntry(id=PICKED_MODEL, label="快速模型", tier="fast", thinking="off")])
+        write_report(
+            pair_report_path(DEFAULT_CHAT_BASE_URL, PICKED_MODEL),
+            CompatibilityReport(
+                version=ENDPOINT_PROBE_VERSION,
+                status="compatible",
+                model=PICKED_MODEL,
+                endpoint=DEFAULT_CHAT_BASE_URL,
+                checks={name: "passed" for name in ENDPOINT_COMPATIBILITY_CHECKS},
+                schema_tokens=1000,
+                evidence={"probe_version": ENDPOINT_PROBE_VERSION},
+            ),
+        )
+        os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
     if profile.endpoint:
         from water_agent.generation.compatibility import (
             ENDPOINT_COMPATIBILITY_CHECKS,
@@ -692,11 +727,11 @@ def _session_args(profile: Profile, workdir: Path, drawing_arg: Path | None) -> 
         recall_top_k=20,
         hybrid_alpha=0.7,
         # 端点 profile 不给显式值：交给 resolve_chat_endpoint 按（profile 设好的）运维环境变量解析
-        model=None if profile.endpoint else "deepseek-chat",
+        model=None if profile.endpoint else (PICKED_MODEL if profile.pick_model else "deepseek-chat"),
         base_url=None if profile.endpoint else "https://api.deepseek.com",
         api_key_env=None if profile.endpoint else "DEEPSEEK_API_KEY",
         api_key=None,
-        mock_generator=not profile.endpoint,
+        mock_generator=not (profile.endpoint or profile.pick_model),
         session_dir=str(workdir / "sessions"),
         trace_dir=str(workdir / "traces"),
         stream=False,
@@ -908,6 +943,12 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
     if profile.endpoint:
         # 只给端点 profile 记（其余 profile 的 lifecycle 逐字不变）：chat model 实际指向哪里
         lifecycle["chat_model_endpoint"] = _chat_model_endpoint(state.chat_model)
+    if profile.pick_model:
+        # 同上，只给选模型 profile 记：所选模型实际带的 extra_body（thinking=off 才附加关闭思考）
+        view = _chat_model_endpoint(state.chat_model, picked=PICKED_MODEL)
+        if view is not None:
+            view["extra_body"] = getattr(getattr(state.chat_model, "inner", None), "extra_body", None)
+        lifecycle["chat_model_endpoint"] = view
     return {
         "side": profile.side,
         "description": profile.description,
@@ -916,7 +957,7 @@ def _run_profile(profile: Profile, workdir: Path) -> dict[str, Any]:
     }
 
 
-def _chat_model_endpoint(model: Any) -> dict[str, Any] | None:
+def _chat_model_endpoint(model: Any, *, picked: str | None = None) -> dict[str, Any] | None:
     if model is None:
         return None
     from water_agent.generation.compatibility import endpoint_verification
@@ -927,7 +968,8 @@ def _chat_model_endpoint(model: Any) -> dict[str, Any] | None:
         "wrapper": type(model).__name__,
         "base_url": getattr(inner, "openai_api_base", None),
         "model": getattr(inner, "model_name", None),
-        "compatibility": endpoint_verification(resolve_chat_endpoint()).status,
+        # 选了模型时按所选模型验（逐对报告），否则按全局解析
+        "compatibility": endpoint_verification(resolve_chat_endpoint(model=picked)).status,
     }
 
 

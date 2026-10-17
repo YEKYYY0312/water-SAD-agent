@@ -80,7 +80,7 @@ def test_write_then_read_round_trips_with_a_private_atomic_file(credentials: Pat
 )
 def test_invalid_catalogs_are_rejected_without_echoing_values(raw: list[dict[str, object]]) -> None:
     """P7-S15-A01 id / label / 档位 / 思考配置 / 角色 / 价格 / 条数逐项校验；**端点与密钥字段一律拒绝**
-    （P7-I15：目录不收 base_url / api_key）；错误说明只写第几项与字段名，不回显值。"""
+    （SDD18-I15：目录不收 base_url / api_key）；错误说明只写第几项与字段名，不回显值。"""
 
     with pytest.raises(mc.CatalogError) as raised:
         mc.parse_entries(raw)

@@ -119,7 +119,7 @@ def test_the_legacy_single_report_path_is_unchanged(monkeypatch: pytest.MonkeyPa
 
 
 def test_default_exemption_is_not_widened_by_the_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
-    """P7-S15-A02/P7-I17 免检仍只属于缺省端点 + 字面 ``deepseek-chat``；目录里的模型（哪怕声明了 deepseek-chat
+    """P7-S15-A02/SDD18-I17 免检仍只属于缺省端点 + 字面 ``deepseek-chat``；目录里的模型（哪怕声明了 deepseek-chat
     之外的缺省端点模型）永远走逐对验证。"""
 
     mc.write_catalog(mc.parse_entries([{"id": "deepseek-flash", "label": "闪", "tier": "fast", "thinking": "off"}]))
