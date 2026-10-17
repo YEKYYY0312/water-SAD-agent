@@ -106,7 +106,7 @@ class _FailingFactory:
 
 
 def test_a_failing_selected_model_is_never_swapped_for_another(tmp_path: Path) -> None:
-    """P7-S15-A08/P7-I21 选中的模型装配 / 调用失败 → run 以 ``failed`` 收口，会话工厂**只被调用一次**、只收到
+    """P7-S15-A08/SDD18-I21 选中的模型装配 / 调用失败 → run 以 ``failed`` 收口，会话工厂**只被调用一次**、只收到
     用户选的那个模型；不会因失败而换成全局模型或目录里的另一个模型（模型从不被自动更换）。"""
 
     engine = create_engine(f"sqlite:///{tmp_path / 'gov.sqlite'}")
@@ -144,7 +144,7 @@ def test_a_failing_selected_model_is_never_swapped_for_another(tmp_path: Path) -
 
 
 def test_starting_with_a_model_on_a_factory_without_support_is_an_error(tmp_path: Path) -> None:
-    """P7-S15-A05/P7-I21 ``RunManager.start(model=…)`` 遇到没声明 ``supports_model_choice`` 的工厂直接抛错，
+    """P7-S15-A05/SDD18-I21 ``RunManager.start(model=…)`` 遇到没声明 ``supports_model_choice`` 的工厂直接抛错，
     不静默用全局模型作答。"""
 
     engine = create_engine(f"sqlite:///{tmp_path / 'gov2.sqlite'}")
