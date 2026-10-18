@@ -203,7 +203,7 @@ fi
 # model_choice_p0（P7-S15）：模型目录与按会话 / 按消息选择模型。生产 Web 层（create_app + 真实鉴权 + 真实 RunManager）
 # + 记录型会话工厂 + 本地假端点，判定选择校验（403 先于 424）、不接受 base_url / api_key、不悄悄换模型、缺省行为逐字不变、
 # 逐对兼容性验证互不串、成本按模型归因、本地模型 / env 锁定下一切覆盖被拒、Key 零泄漏。
-# ⚠️ 脚本替身——不证明任何真实模型的作答质量，更不证明"换模型后质量不变"（P7-S15-A12，无 Key 即 blocked）。
+# ⚠️ 脚本替身——不证明任何真实模型的作答质量，更不证明"换模型后质量不变"（P7-S15-A13，无 Key 即 blocked）。
 step "model_choice_p0 模型目录与选择机制层（50 条，硬指标全达标）"
 MC_HEAD="data/eval/reports/ci_gate/model_choice_p0_head.json"
 MC_MAIN="data/eval/model_choice_p0_main.json"

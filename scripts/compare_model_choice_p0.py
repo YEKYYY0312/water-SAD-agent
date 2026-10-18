@@ -1,4 +1,4 @@
-"""`model_choice_p0` 门禁对比：HEAD 报告 vs 入仓基线（P7-S15，规格 P7-S15-A10）。
+"""`model_choice_p0` 门禁对比：HEAD 报告 vs 入仓基线（P7-S15，规格 P7-S15-A11）。
 
 做法照 `compare_tool_exposure_p0.py`：
 
