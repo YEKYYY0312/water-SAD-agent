@@ -107,6 +107,8 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S15-model
     "src/water_agent/runtime/agentic.py",
     "src/water_agent/runtime/governance/config.py",
     "src/water_agent/graphs/agent_rag.py",
+    "src/water_agent/observability/json_trace.py",
+    "src/water_agent/webapp/model_choice.py",
     "src/water_agent/webapp/run_routes.py",
     "src/water_agent/webapp/run_manager.py",
     "src/water_agent/webapp/workspace_routes.py",
