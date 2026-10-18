@@ -401,6 +401,28 @@ S10 让对话模型与 embedding 都可以换成任意 OpenAI 兼容端点，并
   `ci_gate.sh` 与入仓基线（`scripts/compare_retrieval_colloquial_p0.py`）；hybrid 需要百炼 Key，不进门禁。**text 模式口语化 Recall@5
   只有 46.30%**（rag_p1 上 98.28%），只配对话 Key 时口语化问法召回明显不足，面板与决策记录如实写明。
 
+**S15 增补：模型目录与按会话 / 按消息选择模型**（权威规格 `docs/design/18-p7-multi-model.md`，实测与偏离见 `docs/design/p7-step-15-decision.md`）。
+S10 解决"整个部署用哪个模型"，S15 解决"同一端点、同一把 Key 下，用户这一次想用哪个模型"。
+
+- **模型目录** `generation/model_catalog.py`：凭据卷 `llm_models.json`（0600、原子写），≤ 32 条；条目 `{id, label ≤ 40, tier: fast|advanced,
+  thinking: default|off|roundtrip, enabled, allowed_roles?, price?}`，**不收 `base_url` / `api_key`**（首版同端点、同 Key 槽）。`tier` 只是标签，
+  不参与任何路由。`thinking: off` 才附加 `extra_body={"thinking":{"type":"disabled"}}`；`default` 什么都不传（缺省）；`roundtrip` 只能保存、不能被选
+  （S16 才放行）。
+- **逐对兼容性验证**：报告按 (端点, 模型) 存 `llm_compatibility_reports/<sha256(端点|模型)[:16]>.json`，`endpoint_verification` 先查逐对、再查原单文件，
+  `matches()` 复核（文件名只是索引、不是信任根）；原 7 项检查与 `ENDPOINT_PROBE_VERSION` 不变；探针 `run_endpoint_compatibility(model=…)` 与生产装配
+  带**同一份** `extra_body`。免检仍只属于缺省端点 + 字面 `MODEL_NAME`，目录里的模型一律走逐对验证。
+- **选择链路**：优先级 消息 `model` > 会话默认 `web_sessions.model` > 全局；`PATCH /api/sessions/{id}` 改会话默认（放在 `run_routes.py`，与消息路由同处，
+  避免与 `workspace_routes` 循环导入）。校验顺序（`webapp/model_choice.py`）：锁定（`LOCAL_MODEL_ENABLED` 或 env 锁定端点）→ 目录 →
+  `roundtrip` 拒绝 → 角色 → 真实工厂下 `chat_model_problem(model=…)`；**403 先于 424**。选了模型而会话工厂没声明 `supports_model_choice`
+  直接报错，绝不静默用全局模型作答。`runs.model` 落库，`resume` 以它为准（`NULL` = 当时用全局模型）。迁移 `0008_step15_model_choice`。
+- **模型从不被自动更换**：失败、超时、预算、resume 都不能换成目录里的另一个模型或全局模型；会话默认模型之后被停用 / 删除，下一条消息 422，
+  由用户改选或清除。
+- **治理与可观测**：不新增 `ProviderKind` / `Capability` / 出站点（仍是 8）；成本按模型归因（`estimate_model_cost`，运行期查目录价，**未登记价格记
+  `None` 而不是 0**，目录之外与此前逐字相同）；`model_selected` trace 事件；finalize payload 有值才带 `model`。
+- **前端**：输入框旁的模型选择器（目录非空且有可选项才渲染）、会话默认模型、Inspector「本次模型」、模型页里的管理员目录管理区；文案不暗示"进阶 = 更准"。
+- **评测** `model_choice_p0`（50 条合成，11 项硬指标）：生产 Web 层 + 记录型会话工厂 + 本地假端点；接进 `ci_gate.sh` 与入仓基线
+  `data/eval/model_choice_p0_main.json`（`scripts/compare_model_choice_p0.py`）。**不证明任何真实模型的作答质量**，更不证明换模型后质量不变。
+
 ---
 
 ## 4. 不变量（Invariants）
@@ -432,6 +454,7 @@ S10 让对话模型与 embedding 都可以换成任意 OpenAI 兼容端点，并
 | S8 | Step D（二） | Streamable HTTP 传输（以 2025-11-25 会话制为主，2026-07-28 无状态只识别）+ OAuth 2.1 服务级授权（预注册 / 动态注册 + PKCE + `resource` + `iss` 校验）+ 静态 Bearer 槽位；出口由运维写死的 URL 决定、连接期 SSRF 校验与钉死 IP、不跟随重定向；远程工具仍持 `MCP_INVOKE`，`NETWORK_FETCH` 不放宽；出站清单 7 → 8（2026-10-06 从 S5 拆出，2026-10-12 写执行 Prompt） | `docs/execution-prompts/P7-S8-streamable-http.md` | delivered |
 | S9 | Step F | Skill 库：两级来源（仓库内置 + 运维只读目录）的 `SKILL.md` 操作规程，`load_skill` 工具（目录在工具描述里、intent 暴露）按需加载，正文以 `SYSTEM_POLICY` 分片进动态段 `skill_context`；装配期安检；设置页只读 Skill 库（管理员可启停）；`skill_p0` 评测（2026-10-09 新增） | `docs/execution-prompts/P7-S9-skill-library.md` | delivered |
 | S10 | Step G | OpenAI 兼容端点可配置与关键词检索模式（交付见 §3.11）：对话与 embedding 端点 / 模型 / Key 由运维或管理员配置（缺省仍是 DeepSeek + 百炼，已有部署零变化）；非缺省对话端点必须有通过的兼容性报告才能装配（硬门槛，缺省免检）；`WATER_AGENT_RETRIEVAL_MODE=auto` 下没配 embedding 或与索引不匹配时走关键词检索（BM25）并在运行状态里如实标出；索引旁写 `index_meta.json` 绑定 embedding 模型与维度；`build_index.py --text-only`；先建口语化检索评测集（2026-10-12 新增，归入 P7 以复用范围守卫与快照） | `docs/execution-prompts/P7-S10-openai-compatible-endpoints.md` | delivered |
+| S15 | Step H | 模型目录与按会话 / 按消息选择模型（交付见 §3.11 的 S15 增补；规格 `18-p7-multi-model.md`）：管理员目录白名单（同端点、同 Key）+ 逐对兼容性验证 + `thinking: off` + 迁移 0008 + 前端选择器与目录管理区 + `model_choice_p0`；模型从不被自动更换；`thinking: roundtrip` 只能保存、不能选（S16） | `docs/execution-prompts/P7-S15-model-catalog-and-selection.md` | delivered |
 
 S3–S7 的已知约束（开工写执行 Prompt 时必须吸收）：
 
@@ -783,6 +806,28 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
 | P7-S10-A11 | 非 DeepSeek 端点上的真实作答质量（`rag_p1 --variant real`）与 hybrid 模式在口语化集上的实测（需对话 / 百炼 Key，见未覆盖项） | 无 | untested |
 | P7-S10-A12 | 手动验收：只配一个对话 Key 时带引用作答且显示关键词模式；换端点未验证即 424；改 embedding 模型未重建索引即显示不匹配（见未覆盖项） | 无 | untested |
 
+### S15：模型目录与按会话 / 按消息选择模型（Step H）
+
+规格 `docs/design/18-p7-multi-model.md` §7 的同名验收行在此登记，让追溯检查能核对（18 号文档的不变量 I15 / I16 / I17 / I21 不在这里登记为行，
+因为本节追溯检查固定只认 P7-I01…I07 七条不变量；测试 docstring 里用 `SDD18-Ixx` 引用）。
+
+| # | 验收 | 验证项 | 状态 |
+|---|---|---|---|
+| P7-S15-A01 | 目录：格式 / 条数 / id 校验、原子写 0600、成员只读、管理员 + CSRF 写、env 锁定只读、审计只记 id；缺省不配目录 = 行为逐字不变 | `tests/test_model_catalog.py::test_no_catalog_file_means_an_empty_catalog_without_error`<br>`tests/test_model_catalog.py::test_write_then_read_round_trips_with_a_private_atomic_file`<br>`tests/test_model_catalog.py::test_invalid_catalogs_are_rejected_without_echoing_values`<br>`tests/test_model_catalog.py::test_a_corrupt_or_foreign_file_fails_closed_with_an_error`<br>`tests/test_model_catalog.py::test_members_only_see_identity_fields`<br>`tests/test_web_model_selection.py::test_catalog_is_admin_managed_and_member_readable`<br>`tests/test_web_model_selection.py::test_catalog_is_read_only_when_the_deployment_locks_the_endpoint` | delivered |
+| P7-S15-A02 | 逐对验证：存储与回落、`matches()` 复核、原单文件路径不变、改一个模型只作废它自己、面板按模型跑检查；探针用与生产相同的 `extra_body` | `tests/test_model_verification.py::test_a_pair_report_verifies_exactly_its_own_pair`<br>`tests/test_model_verification.py::test_the_file_name_is_an_index_not_a_trust_root`<br>`tests/test_model_verification.py::test_stale_probe_version_and_failed_checks_do_not_verify`<br>`tests/test_model_verification.py::test_the_legacy_single_report_path_is_unchanged`<br>`tests/test_model_verification.py::test_default_exemption_is_not_widened_by_the_catalog`<br>`tests/test_model_verification.py::test_probe_for_a_catalog_model_sends_the_production_extra_body`<br>`tests/test_model_verification.py::test_probe_sends_nothing_extra_for_default_profile_models`<br>`tests/test_web_model_selection.py::test_panel_runs_the_compatibility_check_for_a_catalog_model` | delivered |
+| P7-S15-A03 | 构造：`extra_body` 仅设置时传；`thinking` 三种取值映射到请求体；默认构造参数与 `temperature=0.0` 逐字不变 | `tests/test_chat_model.py::test_extra_body_is_forwarded_only_when_given`<br>`tests/test_model_catalog.py::test_thinking_profiles_map_to_the_request_body` | delivered |
+| P7-S15-A04 | 选择校验顺序与错误码；不收 `base_url` / `api_key`；403 先于 424；LOCAL / env 锁定拒绝；`roundtrip` 条目不可选 | `tests/test_web_model_selection.py::test_selection_refuses_unknown_disabled_thinking_and_endpoint_fields_without_creating_a_run`<br>`tests/test_web_model_selection.py::test_role_forbidden_precedes_the_verification_failure`<br>`tests/test_web_model_selection.py::test_local_model_mode_refuses_every_override` | delivered |
+| P7-S15-A05 | 下传与协议兼容：选了模型而工厂不支持直接报错；缺省不传 kwarg | `tests/test_web_model_selection.py::test_a_factory_that_cannot_honour_the_choice_refuses_instead_of_ignoring_it`<br>`tests/test_model_governance.py::test_starting_with_a_model_on_a_factory_without_support_is_an_error` | delivered |
+| P7-S15-A06 | 迁移 0008（SQLite 真跑 upgrade / downgrade）与三处版本同步 | `tests/test_p5_step38_storage.py::test_step15_migration_adds_and_removes_the_nullable_model_columns` | delivered |
+| P7-S15-A07 | 会话默认与优先级；`PATCH` 授权；会话默认被停用后失败关闭；`resume` 以 `runs.model` 为准；payload 键集合 | `tests/test_web_model_selection.py::test_message_beats_session_default_beats_global_and_is_persisted`<br>`tests/test_web_model_selection.py::test_session_default_authorization_and_validation`<br>`tests/test_web_model_selection.py::test_a_disabled_session_default_fails_closed_instead_of_swapping_models`<br>`tests/test_web_model_selection.py::test_resume_after_a_restart_restores_the_persisted_run_model` | delivered |
+| P7-S15-A08 | 治理：成本按模型、未登记为 `None`；`model_selected` 事件；`payload.model`；选中的模型失败时从不被换成别的 | `tests/test_model_governance.py::test_cost_is_attributed_per_catalog_model_and_unknown_prices_are_none`<br>`tests/test_model_governance.py::test_llm_call_record_and_trace_keep_unknown_cost_as_none`<br>`tests/test_model_governance.py::test_a_failing_selected_model_is_never_swapped_for_another` | delivered |
+| P7-S15-A09 | 缺省行为不变：快照现有 18 个 profile 与三个版本号逐字不变；新增 `session_pick_model_off`（chat model 指向所选模型、带关闭思考的 `extra_body`、兼容状态按逐对报告判为 verified） | `tests/test_tool_assembly_snapshot.py::test_pick_model_profile_is_added_and_the_existing_ones_are_untouched` | delivered |
+| P7-S15-A10 | 前端：选择器仅目录非空且有可选项才渲染；请求体仅选了才带 `model`；Inspector「本次模型」；目录管理区在模型页（不新增副栏子页）；文案不暗示更准（见未覆盖项） | 无 | untested |
+| P7-S15-A11 | `model_choice_p0` 门禁 + 入仓基线；每个硬指标一条反证（拿掉对应保护即变红） | `gate:model_choice_p0`<br>`tests/test_model_choice_eval.py::test_model_choice_p0_hard_metrics`<br>`tests/test_model_choice_eval.py::test_each_hard_metric_goes_red_when_its_protection_is_removed` | delivered |
+| P7-S15-A12 | 部署：compose 冒烟期望的迁移头与代码一致；迁移服务先于 app（既有约束） | `tests/test_web_deployment_overlay.py::test_smoke_expected_migration_head_matches_the_code_constant` | delivered |
+| P7-S15-A13 | 真实 Key 实测：目录模型（含 `thinking: off`）的兼容性检查、真实带工具问答、`rag_p1 --variant real`（见未覆盖项） | 无 | untested |
+| P7-S15-A14 | 手动验收：浏览器里选择器与目录管理区的交互（见未覆盖项） | 无 | untested |
+
 ### 未覆盖项（显式声明）
 
 - **P7-S0-A15**：它锁的是 S0 时的缺陷现状（确认门执行期不检查）。S1 修复后这个现状已不存在，原测试改写为断言修复后的事实，由 **P7-S1-A03** 承担；本行保留为历史记录，不再有对应测试。
@@ -795,6 +840,9 @@ drawing_p0 / drawing_gen_p0 / multi_agent_p0 / memory_p0 与入仓基线对比�
   需要 `DEEPSEEK_API_KEY` 与网络，不在离线门禁内；没有 Key 时记为 blocked，**不得**声称真实工具选择准确率。
 - **P7-S10-A11**：需要非 DeepSeek 的对话端点 Key 与百炼 Key、网络；离线门禁只跑 text 模式。没有 Key 时记为 blocked，**不得**声称换模型后作答质量不变，也不得声称关键词模式与混合检索等效。
 - **P7-S10-A12**：需要本机 Web 栈与浏览器，CI 上没有；自动化覆盖在 A05 / A08（HTTP 往返）与前端 node 测试。
+- **P7-S15-A10**：前端测试是 `web/app/tests/model_choice.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不是追溯检查能识别的 pytest 节点。
+- **P7-S15-A13**：需要对话端点 Key 与网络；离线门禁只跑假端点。没有 Key 时记为 blocked，**不得**声称换模型后作答质量不变，也不得声称"进阶档更准"；`thinking: off` 下函数调用与 `cite_clauses` 的真实质量同样未验证。
+- **P7-S15-A14**：需要本机 Web 栈与浏览器；自动化覆盖在 A04 / A07（HTTP 往返）与前端 node 测试。
 - **P7-S8-A14**：本机与 CI 都没有真实的 HTTP MCP server 与授权服务器；`mcp_http_p0` 只对本地假 server 与假授权服务器验证协议与治理语义，**不得**声称已接通任何真实远程 MCP 或企业单点登录。
 - **P7-S8-A15**：需要本机 Web 栈、浏览器与可回调的 `WEB_PUBLIC_BASE_URL`，CI 上没有；自动化覆盖在 A08（HTTP 往返，测试直接带 state 调回调）与前端 node 测试。
 - **P7-S9-A12**：前端测试是 `web/app/tests/skills.test.mjs`（`npm test`），由 `p5-ci` 的 frontend job 执行，不是追溯检查能识别的 pytest 节点。

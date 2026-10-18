@@ -96,14 +96,14 @@
 ### 3.1 模型目录
 
 - 存放：凭据卷 `llm_models.json`（0600、原子写，仿 `generation/endpoints.py::write_panel_endpoint`），**不动** `llm_endpoint.json`。读写在新模块 `generation/model_catalog.py`，模型名复用 `validate_model_name`。
-- 条目：`{id, label, tier: "fast"|"advanced", thinking: "off"|"roundtrip", enabled, allowed_roles?, price?}`。`label` ≤ 40 字符；`tier` 只是标签，**不参与任何路由**；`allowed_roles` 缺省 = 所有可写角色；`price` 可选，进 `ModelPrice(confirmed=False)`。
+- 条目：`{id, label, tier: "fast"|"advanced", thinking: "default"|"off"|"roundtrip", enabled, allowed_roles?, price?}`。`label` ≤ 40 字符；`tier` 只是标签，**不参与任何路由**；`thinking` 的第三个取值 `default`（什么都不传，且是缺省）是实现时补的（见 `p7-step-15-decision.md` §0.2 D1）：有些模型没有思考开关，强传 `thinking` 字段会让严格服务商 400，管理员就没法"关"；`allowed_roles` 缺省 = 所有可写角色；`price` 可选，进 `ModelPrice(confirmed=False)`。
 - 条数上限 32；`id` 唯一；`thinking: roundtrip` 在 S15 里**只能保存、不能被选**（S16 才放行，见 §5）。
 - 谁能改：`require_admin` + CSRF；env 锁定（`_locked_reason()` 为 `deployment` / `local_model`）时目录**只读**；变更进审计（只记 id / 动作 / 结果，不记 Key）。
 - 缺省：没有目录文件 = 只有全局模型可用，请求、响应、提示、快照**逐字不变**。
 
 ### 3.2 优先级与会话默认
 
-`消息.model` > `web_sessions.model` > 全局模型。会话默认由 `PATCH /api/sessions/{thread_id}` 修改（归属 → 项目写权限 → 目录校验）。**用户显式选择不是路由**：模型从不因失败、成本或问题难度被自动更换。
+`消息.model` > `web_sessions.model` > 全局模型。会话默认由 `PATCH /api/sessions/{thread_id}` 修改（实现在 `run_routes.py`，不在 `workspace_routes.py`——两者会循环导入；`_session_payload` 仍在 `workspace_routes.py`）（归属 → 项目写权限 → 目录校验）。**用户显式选择不是路由**：模型从不因失败、成本或问题难度被自动更换。
 
 ### 3.3 逐对验证
 
@@ -121,11 +121,11 @@
 
 ### 3.5 持久化（迁移 `0008`）
 
-`web_sessions.model`、`runs.model`：nullable、`VARCHAR(200)`、revision ≤ 32 字符。同步 `storage/database.py:21`、`compose.yml` 的 `SMOKE_EXPECTED_MIGRATION_HEAD`、`tests/test_memory_store.py:103`。`resume` 优先读 `runs.model`（修 F21）；读不到则落回会话默认 → 全局，并发 `warning`（**绝不静默**）。会话 payload 新增 `model` 键（"有值才出现"，保住 `test_web_authorization.py:656` 的键集合断言需同步更新）。
+`web_sessions.model`、`runs.model`：nullable、`VARCHAR(200)`、revision ≤ 32 字符。同步 `storage/database.py:21`、`compose.yml` 的 `SMOKE_EXPECTED_MIGRATION_HEAD`、`tests/test_memory_store.py:103`。`resume` 以 `runs.model` 为准（修 F21）；`NULL` 就是当时用了全局模型，**没有**"读不到则降级并告警"的路径——一个已经在跑的 run 不该被会话默认的后续改动影响（实现时作废了这句原设计，见决策记录 §0.2 D3）。会话 payload 新增 `model` 键（"有值才出现"，保住 `test_web_authorization.py:656` 的键集合断言需同步更新）。
 
 ### 3.6 治理与可观测
 
-- 价格：目录项的 `price` 并入 `_default_prices`（`confirmed=False`，**不做硬拒绝**）；trace 的成本改走 `price_for(model)`，**未登记 = `None`**（不估算）。S15 只改 agentic 路径（`agent_rag.py` + `generation/cost.py`），legacy / docgen / judge 的写死价留作已知限制。
+- 价格：目录项的 `price`（`confirmed=False`，**不做硬拒绝**）**不并入启动时构造的 `_default_prices`**（启动期读凭据卷文件太脆弱）；改为运行期 `generation/cost.py::estimate_model_cost` 查询，只在目录里的模型上生效，目录之外与此前逐字相同；治理阈值没动，故未递进 `GOVERNANCE_CONFIG_VERSION`。trace 成本**未登记 = `None`**（不估算，决策记录 §0.2 D2）。S15 只改 agentic 路径（`agent_rag.py` + `generation/cost.py`），legacy / docgen / judge 的写死价留作已知限制。
 - `start_trace` 追加 `model_selected` 事件（model、端点主机名、来源 = message|session|global）；`_result_payload` 带 `model`（只放模型 id，不放 `base_url`）。
 - 限流桶键仍含 model，靠目录白名单**有界**（自由文本 id 会无界增长，也能靠轮换名字绕过 RPM——所以请求体不收未登记 id）。
 - 递进 `GOVERNANCE_CONFIG_VERSION`。
@@ -184,7 +184,7 @@ composer 内模型选择器（目录非空才渲染）、会话默认模型控�
 
 | 步 | 内容 | 执行 Prompt | 状态 |
 |---|---|---|---|
-| S15 | 模型目录 + 逐对验证 + 按会话 / 按消息选择 + 迁移 0008 + `thinking: off`（flash 关闭思考）+ 治理与可观测 + 前端 + `model_choice_p0`。**目录里 `thinking: roundtrip` 的条目只能保存，不能被选**（返回 `WEB_MODEL_THINKING_UNSUPPORTED`） | `docs/execution-prompts/P7-S15-model-catalog-and-selection.md` | planned |
+| S15 | 模型目录 + 逐对验证 + 按会话 / 按消息选择 + 迁移 0008 + `thinking: off`（flash 关闭思考）+ 治理与可观测 + 前端 + `model_choice_p0`。**目录里 `thinking: roundtrip` 的条目只能保存，不能被选**（返回 `WEB_MODEL_THINKING_UNSUPPORTED`） | `docs/execution-prompts/P7-S15-model-catalog-and-selection.md` | delivered |
 | S16 | 思考子类与回传策略 + 清理 + 探针扩展（版本递进）+ `ThinkingPump` 与折叠展示 + 治理 + `thinking_p0`；放行 `roundtrip` 条目 | `docs/execution-prompts/P7-S16-thinking-models.md` | planned |
 
 **Step 0（两步之前，不写代码）**：用户填 DeepSeek / 百炼 Key → 设置页「获取模型」得到**真实模型 ID** → 对 `MODEL_NAME` 跑现有兼容性检查（**预期可能假通过**，F11）→ **做一次真实带工具的问答**，观察默认思考下是否 400 → 回答 §10 的四个实测问题 → 结果写回本文 §2。
@@ -197,13 +197,13 @@ composer 内模型选择器（目录非空才渲染）、会话默认模型控�
 
 | # | 不变量 | 强制位置（拟）| 状态 |
 |---|---|---|---|
-| P7-I15 | 逐条选择只接受目录内的 model id；`MessageRequest` / 会话 PATCH 不接受 `base_url`、`api_key` 等端点字段 | `tests/test_web_model_selection.py` | planned |
-| P7-I16 | `LOCAL_MODEL_ENABLED` 或 env 锁定时，任何逐条 / 会话级模型覆盖一律拒绝 | `tests/test_web_model_selection.py` | planned |
-| P7-I17 | 免检仍仅限字面 `MODEL_NAME` + 缺省端点（`ChatEndpoint.is_default` 定义不变）；目录项永远走逐对验证 | `tests/test_llm_endpoints.py`、`tests/test_model_verification.py` | planned |
+| P7-I15 | 逐条选择只接受目录内的 model id；`MessageRequest` / 会话 PATCH 不接受 `base_url`、`api_key` 等端点字段 | `tests/test_web_model_selection.py` | delivered |
+| P7-I16 | `LOCAL_MODEL_ENABLED` 或 env 锁定时，任何逐条 / 会话级模型覆盖一律拒绝 | `tests/test_web_model_selection.py` | delivered |
+| P7-I17 | 免检仍仅限字面 `MODEL_NAME` + 缺省端点（`ChatEndpoint.is_default` 定义不变）；目录项永远走逐对验证 | `tests/test_llm_endpoints.py`、`tests/test_model_verification.py` | delivered |
 | P7-I18 | `reasoning_content` 永不进入 `answer`、历史投影、导出、答案缓存、trace、`UsageRecord`，也不走旧 `token` / `draft_*` 通道；只经 `thinking_*` 事件，且先过 `check_output` | `tests/test_thinking_isolation.py` | planned |
 | P7-I19 | 出站消息只允许在 assistant 消息上加 `reasoning_content` 一个非标准键 | `tests/test_reasoning_chat_model.py` | planned |
 | P7-I20 | 子类构造点唯一在 `generation/chat_model.py`，且出站扫描能识别它（放进未登记模块即红）| `tests/test_governance_contracts.py::TestInventoryCoverage` | planned |
-| P7-I21 | 模型从不被自动更换：失败、超时、预算、resume 缺记录都只能报错或落回**用户已选的更低优先级默认并告警**，不得换成目录里的另一个模型 | `tests/test_model_governance.py` | planned |
+| P7-I21 | 模型从不被自动更换：失败、超时、预算、resume 都只能报错，不得换成目录里的另一个模型或全局模型 | `tests/test_model_governance.py` | delivered |
 
 ---
 
@@ -213,18 +213,18 @@ composer 内模型选择器（目录非空才渲染）、会话默认模型控�
 
 | ID | 验收 | 验证（拟）| 状态 |
 |---|---|---|---|
-| P7-S15-A01 | 目录：格式 / 条数 / id 校验、原子写 0600、成员只读、管理员 + CSRF 写、env 锁定只读、审计只记 id；缺省不配目录 = 行为逐字不变 | `tests/test_model_catalog.py` | planned |
-| P7-S15-A02 | 逐对验证：存储与回落、`matches()` 复核、原单文件路径不变、改一个模型只作废它自己、面板按模型跑检查；**探针用与生产相同的 `extra_body`（`thinking: off` 的条目探针也关思考）** | `tests/test_model_verification.py` | planned |
-| P7-S15-A03 | 构造：`extra_body` 仅设置时传；`thinking: off` 传 disabled；默认构造参数与 `temperature=0.0` 逐字不变 | `tests/test_chat_model.py` | planned |
-| P7-S15-A04 | 选择校验顺序与错误码；不收 `base_url`；`extra="forbid"`；403 先于 424；LOCAL / env 锁定拒绝；`roundtrip` 条目不可选 | `tests/test_web_model_selection.py` | planned |
-| P7-S15-A05 | 下传与协议兼容：`supports_model_choice`；缺省不传 kwarg；`_args()` 默认全 `None` | `tests/test_web_model_selection.py`、`tests/test_llm_endpoints.py` | planned |
-| P7-S15-A06 | 迁移 0008（SQLite 真跑）与三处版本同步 | `tests/test_p5_step38_storage.py`、`tests/test_web_deployment_overlay.py`、`tests/test_memory_store.py` | planned |
-| P7-S15-A07 | 会话默认与优先级；`PATCH` 授权；`resume` 读 `runs.model`；读不到则降级并告警；payload 键集合 | `tests/test_web_model_selection.py` | planned |
-| P7-S15-A08 | 治理：价格 `confirmed=False`；成本按模型、未登记为 `None`；`model_selected` 事件；`payload.model`；限流桶有界；从不自动换模型（P7-I21）| `tests/test_model_governance.py` | planned |
-| P7-S15-A09 | 缺省行为不变：快照现有 profile 逐字不变（仅允许 `PINNED_ENV_KEYS` 与声明的新 env）| `tests/test_tool_assembly_snapshot.py` | planned |
-| P7-S15-A10 | 前端：选择器仅目录非空渲染；请求体仅选了才带；Inspector 卡；目录管理区在模型页；文案不暗示更准（node 测试）| `web/app/tests/model_choice.test.mjs` | planned |
-| P7-S15-A11 | `model_choice_p0` 门禁 + 基线 | `gate:model_choice_p0` | planned |
-| P7-S15-A12 | 部署：compose / env / 卷；迁移服务先于 app | `tests/test_web_deployment.py` | planned |
+| P7-S15-A01 | 目录：格式 / 条数 / id 校验、原子写 0600、成员只读、管理员 + CSRF 写、env 锁定只读、审计只记 id；缺省不配目录 = 行为逐字不变 | `tests/test_model_catalog.py` | delivered |
+| P7-S15-A02 | 逐对验证：存储与回落、`matches()` 复核、原单文件路径不变、改一个模型只作废它自己、面板按模型跑检查；**探针用与生产相同的 `extra_body`（`thinking: off` 的条目探针也关思考）** | `tests/test_model_verification.py` | delivered |
+| P7-S15-A03 | 构造：`extra_body` 仅设置时传；`thinking: off` 传 disabled；默认构造参数与 `temperature=0.0` 逐字不变 | `tests/test_chat_model.py` | delivered |
+| P7-S15-A04 | 选择校验顺序与错误码；不收 `base_url`；`extra="forbid"`；403 先于 424；LOCAL / env 锁定拒绝；`roundtrip` 条目不可选 | `tests/test_web_model_selection.py` | delivered |
+| P7-S15-A05 | 下传与协议兼容：`supports_model_choice`；缺省不传 kwarg；`_args()` 默认全 `None` | `tests/test_web_model_selection.py`、`tests/test_llm_endpoints.py` | delivered |
+| P7-S15-A06 | 迁移 0008（SQLite 真跑）与三处版本同步 | `tests/test_p5_step38_storage.py`、`tests/test_web_deployment_overlay.py`、`tests/test_memory_store.py` | delivered |
+| P7-S15-A07 | 会话默认与优先级；`PATCH` 授权；`resume` 以 `runs.model` 为准；会话默认被停用后失败关闭；payload 键集合 | `tests/test_web_model_selection.py` | delivered |
+| P7-S15-A08 | 治理：价格 `confirmed=False`；成本按模型、未登记为 `None`；`model_selected` 事件；`payload.model`；限流桶有界；从不自动换模型（P7-I21）| `tests/test_model_governance.py` | delivered |
+| P7-S15-A09 | 缺省行为不变：快照现有 profile 逐字不变（仅允许 `PINNED_ENV_KEYS` 与声明的新 env）| `tests/test_tool_assembly_snapshot.py` | delivered |
+| P7-S15-A10 | 前端：选择器仅目录非空渲染；请求体仅选了才带；Inspector 卡；目录管理区在模型页；文案不暗示更准（node 测试）| `web/app/tests/model_choice.test.mjs` | delivered（node 测试，追溯检查认不出 .mjs，16 号规格里登记为 untested） |
+| P7-S15-A11 | `model_choice_p0` 门禁 + 基线 | `gate:model_choice_p0` | delivered |
+| P7-S15-A12 | 部署：compose / env / 卷；迁移服务先于 app | `tests/test_web_deployment_overlay.py` | delivered |
 | P7-S15-A13 | 真实 Key 实测：`MODEL_NAME`（`thinking:disabled`）的兼容性检查、真实带工具问答、`rag_p1 --variant real`（见 §9）| 无 | untested |
 
 ### S16：思考型模型
