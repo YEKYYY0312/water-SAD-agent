@@ -61,7 +61,7 @@ from water_agent.domain.state import (
     STATUS_FAILED,
     STATUS_SUCCEEDED,
 )
-from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.generation.cost import estimate_model_cost
 from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
@@ -254,7 +254,8 @@ def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[s
         "input_tokens": in_tok,
         "output_tokens": out_tok,
         "total_tokens": in_tok + out_tok,
-        "cost_usd": estimate_deepseek_cost(in_tok, out_tok),
+        # P7-S15：目录里的模型按各自价格估算，不知道价格记 None（不是 0）；目录之外与此前逐字相同
+        "cost_usd": estimate_model_cost(model_name, in_tok, out_tok),
         "latency_ms": latency_ms,
         "response_preview": preview,
     }
