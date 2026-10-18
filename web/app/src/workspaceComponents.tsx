@@ -9,6 +9,8 @@ import type { Attachment, ExportState } from "./useWorkspaceController";
 import type { Project, WorkspaceSession } from "./workspaceApi";
 import { isTerminalStatus, type ConversationMessage, type WorkspaceRunState } from "./workspaceState.ts";
 import { AnswerMarkdown } from "./AnswerMarkdown.tsx";
+import { ComposerModelSelect, SessionDefaultModel } from "./ModelChoice.tsx";
+import type { ModelCatalogView } from "./modelChoiceApi.ts";
 
 export type { ConversationMessage } from "./workspaceState.ts";
 
@@ -297,7 +299,11 @@ export function ConversationPanel({
   exportState,
   feedbackState,
   confirmationState,
+  modelCatalog,
+  messageModel,
   inspectorOpen,
+  onMessageModelChange,
+  onSessionModelChange,
   onDraftChange,
   onSubmit,
   onCancel,
@@ -320,7 +326,11 @@ export function ConversationPanel({
   exportState: ExportState;
   feedbackState: string | null;
   confirmationState: ConfirmationSubmitState;
+  modelCatalog: ModelCatalogView | null;
+  messageModel: string;
   inspectorOpen: boolean;
+  onMessageModelChange: (value: string) => void;
+  onSessionModelChange: (model: string | null) => void;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -485,6 +495,13 @@ export function ConversationPanel({
               hidden
               onChange={(event) => { if (event.target.files?.length) onAttach(event.target.files); event.target.value = ""; }}
             />
+            <ComposerModelSelect
+              catalog={modelCatalog}
+              value={messageModel}
+              sessionDefault={session?.model}
+              disabled={!session || streaming || waiting}
+              onChange={onMessageModelChange}
+            />
             <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF/DWG 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" />
             </button>
@@ -500,6 +517,12 @@ export function ConversationPanel({
             )}
           </div>
         </form>
+        <SessionDefaultModel
+          catalog={modelCatalog}
+          sessionDefault={session?.model}
+          disabled={!session || streaming || waiting}
+          onChange={onSessionModelChange}
+        />
         <p className="composer-scope"><Icon name="folder" />资料范围：{scopeName} · 拖拽文件到输入框也可上传</p>
       </div>
     </section>

@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { McpAdminPanel } from "./McpAdminPanel";
+import { ModelCatalogPanel } from "./ModelCatalogPanel.tsx";
 import { SkillLibraryPanel } from "./SkillLibraryPanel";
 import { LlmEndpointApi, SettingsApi, SettingsApiError, type CredentialStatus, type LlmEndpointView } from "./settingsApi";
 import {
@@ -526,6 +527,9 @@ function ModelSettingsPage({
       <div className="settings-card-list">
         <LlmEndpointCard onChanged={changed} />
       </div>
+
+      {/* 管理员的模型目录；成员读到 can_manage=false 时整块不渲染 */}
+      <ModelCatalogPanel />
 
       {rows.length > 0 && (
         <>
