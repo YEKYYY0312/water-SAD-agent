@@ -472,3 +472,16 @@ code { font-family: var(--mono); font-size: .92em; }
 }
 @media (min-width: 52.01rem) { .mobile-only { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+/* P7-S15 模型选择：输入框旁的下拉、会话默认模型、管理员目录行（类名不与设置页已有的 .model-picker 重名） */
+.composer-model-select { max-width: 15rem; min-height: 2rem; padding: .2rem .5rem; border: 1px solid var(--line); border-radius: var(--r-item); background: var(--canvas); color: var(--muted); font-size: .8rem; }
+.composer-model-select:disabled { opacity: .6; }
+.session-default-model { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .5rem .3rem 0; color: var(--faint); font-size: .78rem; }
+.session-default-model select { min-height: 1.8rem; padding: .15rem .4rem; border: 1px solid var(--line); border-radius: var(--r-item); background: var(--canvas); font-size: .78rem; }
+.model-catalog-rows { display: grid; gap: .5rem; margin: .75rem 0; }
+.model-catalog-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.model-catalog-row input[type="text"], .model-catalog-row input:not([type]) { min-width: 8rem; flex: 1 1 8rem; min-height: 2.2rem; padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .85rem; }
+.model-catalog-row select { min-height: 2.2rem; padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .85rem; }
+.model-catalog-enabled { display: inline-flex; align-items: center; gap: .25rem; font-size: .82rem; }
+.model-catalog-status { color: var(--faint); font-size: .78rem; }
+.settings-card-actions { display: flex; gap: .5rem; }

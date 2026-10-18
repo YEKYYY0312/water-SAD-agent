@@ -219,6 +219,14 @@ def audit_llm_models_listed(*, actor_user_id: str, host: str, result: str, count
     )
 
 
+def audit_llm_models_updated(*, actor_user_id: str, ids: list[str], count: int) -> None:
+    """P7-S15：管理员改了模型目录。只记模型 id 与条数（id 不是密钥），**不记价格 / 角色细节，更不记 Key**。"""
+    _emit(
+        "settings.llm_models_updated",
+        {"actor_user_id": actor_user_id, "count": count, "ids": ids[:64]},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------

@@ -103,6 +103,9 @@ class FakeOpenAIServer:
                             "tools": [
                                 t.get("function", {}).get("name") for t in body.get("tools") or []
                             ],
+                            # P7-S15：探针 / 装配带的 extra_body 字段与完整消息，供"带同一份配置"的断言用
+                            "thinking": body.get("thinking"),
+                            "messages": body.get("messages"),
                         }
                     )
                 if not self.path.endswith("/chat/completions"):
