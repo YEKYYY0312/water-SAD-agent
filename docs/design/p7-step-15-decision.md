@@ -82,7 +82,27 @@ model_choice_p0 mechanism=present passed=50/50
 
 ### 2.1 测试与门禁
 
-（见本文件末尾“验证记录”，在最终验证后回填。）
+各命令单独运行、单独看退出码（本机无 Key、无 Docker 栈验收，30 个 skip 是 PG 门控等既有前置条件，与本步前相同）：
+
+```text
+$ pytest -o addopts= -q                                  # 全量
+3824 passed, 30 skipped, 761 warnings in 238.53s        exit=0
+$ ruff check src                                          # ci_gate 的口径；tests/ 里另有 19 条既有告警，均在本步未触碰的文件
+All checks passed!                                        exit=0
+$ mypy src/water_agent
+Success: no issues found in 244 source files              exit=0
+$ python -m water_agent.harness.tool_assembly_snapshot --check
+装配快照与基线一致（19 个 profile）                        exit=0
+$ (cd web/app && npm test && npm run build)
+tests 110 / pass 110 / fail 0；tsc + vite build 通过        exit=0
+$ COMPOSE_PROJECT_NAME=p7s15 bash scripts/ci_gate.sh      # 含 model_choice_p0(50/50) 与基线对比
+==> CI 门禁通过：… + model_choice_p0(50/50) + … + 基线对比   exit=0
+```
+
+范围守卫：补遗 PR（`YEK/p7-docs-s15-scope-fix`）合入 main 之前，对 `origin/main` 跑会报 `model_choice.py` 与 `json_trace.py` 两处越界（预期，补遗正是为此）；在临时 worktree 里预演“补遗合入后”
+（合并补遗分支、以补遗分支为 base）无任何违规。**正式结论要在补遗 PR 合入、main 合进本分支之后再跑一次。**
+
+未做：真实 Key 的任何调用（计费），Docker 栈 / 浏览器验收（P7-S15-A14）。
 
 ## 3. 快照变化
 
