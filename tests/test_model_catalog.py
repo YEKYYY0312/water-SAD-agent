@@ -108,7 +108,7 @@ def test_a_corrupt_or_foreign_file_fails_closed_with_an_error(credentials: Path)
 
 
 def test_thinking_profiles_map_to_the_request_body(credentials: Path) -> None:
-    """P7-S15-A01/A03 ``off`` 显式关闭思考；``default`` 与 ``roundtrip`` 在 S15 里什么都不传；目录外的 id 什么都不传。
+    """P7-S15-A01 / P7-S15-A03 ``off`` 显式关闭思考；``default`` 与 ``roundtrip`` 在 S15 里什么都不传；目录外的 id 什么都不传。
     装配与兼容性探针共用 ``extra_body_for``——同一个模型两处带同一份请求体。"""
 
     mc.write_catalog(
