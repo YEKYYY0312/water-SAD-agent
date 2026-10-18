@@ -1,4 +1,5 @@
 import type { TraceSnapshot, WorkspaceRunEvent } from "./workspaceApi";
+import { modelFromFinalPayload, type ModelCard } from "./modelChoiceState.ts";
 import { parseConfirmationRequest, WAITING_CONFIRMATION, type ConfirmationRequest } from "./confirmationApi.ts";
 
 export type ToolCard = {
@@ -43,6 +44,8 @@ export type WorkspaceRunState = {
   confirmation: ConfirmationRequest | null;
   /** 本次运行的检索模式（P7-S10，来自 finalize）。 */
   retrieval: RetrievalModeCard | null;
+  /** 用户为本次运行选的模型（P7-S15，来自 finalize；没选过 = null，用的是全局模型）。 */
+  model: ModelCard | null;
 };
 
 export const emptyRunState = (): WorkspaceRunState => ({
@@ -63,6 +66,7 @@ export const emptyRunState = (): WorkspaceRunState => ({
   lastEventId: "0",
   confirmation: null,
   retrieval: null,
+  model: null,
 });
 
 /** 对话里的一条消息。agent 消息带收口状态：失败的回答也要留在对话里，但必须标出来。 */
@@ -297,6 +301,7 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       citations: citationsFromFinalPayload(payload.citations),
       calculations: calculationsFromFinalPayload(payload.calculations),
       retrieval: retrievalFromFinalPayload(payload),
+      model: modelFromFinalPayload(payload),
       errors,
       warnings,
     };

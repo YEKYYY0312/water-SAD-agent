@@ -25,6 +25,8 @@ export type WorkspaceSession = {
   thread_id: string;
   project_id: string | null;
   title: string;
+  /** 会话默认模型（P7-S15）；没设置的会话没有这个键。 */
+  model?: string;
   created_at: string;
   updated_at: string;
   runs?: RunSummary[];
@@ -177,13 +179,23 @@ export class WorkspaceApi {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}`);
   }
 
-  sendMessage(threadId: string, message: string, attachments: string[] = []): Promise<MessageRun> {
+  sendMessage(threadId: string, message: string, attachments: string[] = [], model?: string): Promise<MessageRun> {
     // 附件 id 随消息寄出：后端校验归属后把这些文件按原文顺序读进提示词（P5-S49）。
-    // 空数组不发送，保持与旧后端的请求体兼容。
-    const body = attachments.length > 0 ? { message, attachments } : { message };
+    // 空数组不发送，保持与旧后端的请求体兼容；model 同理——只有用户选了才带（P7-S15）。
+    const body: { message: string; attachments?: string[]; model?: string } = { message };
+    if (attachments.length > 0) body.attachments = attachments;
+    if (model) body.model = model;
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`, {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  }
+
+  /** 改会话默认模型；`null` = 清除，回到全局模型（P7-S15）。 */
+  setSessionModel(threadId: string, model: string | null): Promise<WorkspaceSession> {
+    return this.request(`/api/sessions/${encodeURIComponent(threadId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ model }),
     });
   }
 
