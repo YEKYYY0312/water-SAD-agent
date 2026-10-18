@@ -1,4 +1,4 @@
-"""model_choice_p0 harness、门禁对比与"每个硬指标一条反证"（P7-S15-A10，``docs/design/18-p7-multi-model.md`` §7）。
+"""model_choice_p0 harness、门禁对比与"每个硬指标一条反证"（P7-S15-A11，``docs/design/18-p7-multi-model.md`` §7）。
 
 数据集在机制之后补写（没有"机制未实现时全红"的基线），所以用反证代替：对每个硬指标，monkeypatch 拿掉
 对应的保护，只跑相关用例，断言该指标变红——证明用例真的在守这条保护，而不是恒绿。
@@ -36,9 +36,12 @@ _HOST_KEYS = (
 
 @pytest.fixture(scope="module")
 def head() -> dict:
-    for key in _HOST_KEYS:
-        assert key not in os.environ, f"{key} 会让 harness 读到宿主配置"
-    report, problems = mc.run(DATASET)
+    # 前面的测试可能把凭据同步进了 os.environ（设置面板的写入会这样做）；宿主配置会让 harness 读到别处的端点，
+    # 所以在这里清掉，用完恢复，而不是依赖测试顺序
+    with pytest.MonkeyPatch.context() as patch:
+        for key in _HOST_KEYS:
+            patch.delenv(key, raising=False)
+        report, problems = mc.run(DATASET)
     assert problems == [] and report is not None
     return report
 
@@ -62,7 +65,7 @@ def _compare(tmp_path: Path, head: dict, base: dict | None) -> tuple[int, dict]:
 
 
 def test_model_choice_p0_hard_metrics(head: dict, baseline: dict, tmp_path: Path) -> None:
-    """P7-S15-A10 ``model_choice_p0`` 经生产 Web 层运行：50 条全过、十一项硬指标全部达到目标；入仓基线是同一
+    """P7-S15-A11 ``model_choice_p0`` 经生产 Web 层运行：50 条全过、十一项硬指标全部达到目标；入仓基线是同一
     数据集上的 present 报告，与 HEAD 逐字相同；比较器拒绝手改指标、absent 机制、用例消失、PASS_TO_PASS
     回退与数据集变化。"""
 
@@ -326,7 +329,7 @@ def test_each_hard_metric_goes_red_when_its_protection_is_removed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """P7-S15-A10 反证：拿掉对应保护，只跑相关用例，该硬指标必须离开目标值；不拿掉时同一批用例全在目标上。"""
+    """P7-S15-A11 反证：拿掉对应保护，只跑相关用例，该硬指标必须离开目标值；不拿掉时同一批用例全在目标上。"""
 
     assert ids, "相关用例 id 为空：数据集改名了？"
     control = _metrics_for(ids, tmp_path / "control")

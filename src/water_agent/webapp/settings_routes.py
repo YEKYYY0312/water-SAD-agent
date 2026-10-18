@@ -20,7 +20,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -355,7 +355,10 @@ async def put_llm_endpoint(body: EndpointRequest, auth: tuple = Depends(require_
 
 @router.post("/api/settings/llm-endpoint/compatibility", dependencies=[Depends(validate_csrf)])
 async def run_llm_compatibility(
-    body: CompatibilityRequest | None = None, auth: tuple = Depends(require_admin)
+    # 不用 ``CompatibilityRequest | None``：OpenAPI 会变成 anyOf，请求体上限的重算（test_upload_body_limit）按 $ref 取模型。
+    # 无请求体的旧调用方式照常：缺省实例的 model 为 None
+    body: CompatibilityRequest = Body(default_factory=CompatibilityRequest),  # noqa: B008
+    auth: tuple = Depends(require_admin),
 ) -> JSONResponse:
     """对对话端点跑一次兼容性探针（**会产生少量计费调用**，面板上明示）。后台线程，202 后轮询 GET。
 
@@ -364,7 +367,7 @@ async def run_llm_compatibility(
     """
 
     user, _principal = auth
-    chosen = body.model if body is not None else None
+    chosen = body.model
     if chosen is not None:
         if _locked_reason() is not None:
             return _error("WEB_LLM_ENDPOINT_MANAGED", "对话端点由部署配置或本地模型路径管理，不能为目录里的模型做检查")

@@ -380,7 +380,7 @@ def _wait_finalized(client: TestClient, run_id: str) -> list[dict[str, Any]]:
 def test_message_beats_session_default_beats_global_and_is_persisted(
     database: Database, tmp_path: Path, credentials: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P7-S15-A05/A07 优先级 消息 > 会话默认 > 全局：会话工厂收到的就是生效的那个；``runs.model`` 落库实际选用的
+    """P7-S15-A05 / P7-S15-A07 优先级 消息 > 会话默认 > 全局：会话工厂收到的就是生效的那个；``runs.model`` 落库实际选用的
     模型（没选 = ``None``）；finalize 与 ``model_selected`` 只在选了模型时出现，缺省运行的 payload 逐字不变；
     清除会话默认后回到全局。真实工厂的子类 + 已验证的逐对报告，覆盖 ``WebAgenticSessionFactory`` 的标志位。"""
 
