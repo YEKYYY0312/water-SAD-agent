@@ -24,6 +24,8 @@ import {
 import type { ConfirmationSubmitState } from "./ConfirmationCard.tsx";
 import { ConfirmationApi, confirmationErrorMessage, isWaitingConfirmation } from "./confirmationApi.ts";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
+import { ModelCatalogApi, type ModelCatalogView } from "./modelChoiceApi.ts";
+import { messageModelValue, modelErrorMessage } from "./modelChoiceState.ts";
 import { oauthReturnedToSettings } from "./settingsState.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
 
@@ -104,6 +106,11 @@ export type WorkspaceController = {
   /** 人工确认（P7-S7）：提交进度与批准 / 拒绝。 */
   confirmationState: ConfirmationSubmitState;
   decideConfirmation: (approved: boolean, reason: string) => void;
+  /** 模型目录与选择（P7-S15）：目录为空 / 无可选项时界面不渲染选择器。 */
+  modelCatalog: ModelCatalogView | null;
+  messageModel: string;
+  setMessageModel: (value: string) => void;
+  setSessionModel: (model: string | null) => void;
 };
 
 export function useWorkspaceController(): WorkspaceController {
@@ -111,6 +118,7 @@ export function useWorkspaceController(): WorkspaceController {
   const uploadApi = useRef(new UploadApi()).current;
   const exportApi = useRef(new ExportApi()).current;
   const confirmationApi = useRef(new ConfirmationApi()).current;
+  const modelCatalogApi = useRef(new ModelCatalogApi()).current;
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
@@ -132,6 +140,9 @@ export function useWorkspaceController(): WorkspaceController {
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<ExportState>(null);
   const [confirmationState, setConfirmationState] = useState<ConfirmationSubmitState>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogView | null>(null);
+  // 本条消息选的模型；空串 = 不指定（沿用会话默认，再沿用全局）。切会话时复位
+  const [messageModel, setMessageModel] = useState("");
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
@@ -318,6 +329,7 @@ export function useWorkspaceController(): WorkspaceController {
     setRun(emptyRunState());
     setFeedbackState(null);
     setExportState(null);
+    setMessageModel("");
     setPageError(null);
   };
 
@@ -370,7 +382,7 @@ export function useWorkspaceController(): WorkspaceController {
     runStatus.current = "queued";
     retries.current = 0;
     setStreaming(true);
-    void api.sendMessage(selectedThreadId, message, attachmentIds)
+    void api.sendMessage(selectedThreadId, message, attachmentIds, messageModelValue(messageModel))
       .then((created) => {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");
@@ -384,6 +396,28 @@ export function useWorkspaceController(): WorkspaceController {
         setDraft((current) => current || draft);
         setAttachments((current) => [...sentAttachments, ...current]);
       });
+  };
+
+  // 模型目录（P7-S15）：读失败当作"没有目录"，界面与没有这个功能时相同；设置页关闭后重读，管理员的改动随即可见
+  useEffect(() => {
+    if (settingsOpen) return;
+    let active = true;
+    void modelCatalogApi.get()
+      .then((view) => { if (active) setModelCatalog(view); })
+      .catch(() => { if (active) setModelCatalog(null); });
+    return () => { active = false; };
+  }, [modelCatalogApi, settingsOpen]);
+
+  const setSessionModel = (model: string | null) => {
+    if (!selectedThreadId) return;
+    setPageError(null);
+    void api.setSessionModel(selectedThreadId, model)
+      .then((updated) => setSessions((current) => current.map((item) => (
+        item.thread_id === updated.thread_id ? { ...item, ...updated, model: updated.model } : item
+      ))))
+      .catch((error) => setPageError(
+        error instanceof WorkspaceApiError ? modelErrorMessage(error.code, apiMessage(error)) : apiMessage(error),
+      ));
   };
 
   const decideConfirmation = (approved: boolean, reason: string) => {
@@ -525,5 +559,9 @@ export function useWorkspaceController(): WorkspaceController {
     downloadExport,
     confirmationState,
     decideConfirmation,
+    modelCatalog,
+    messageModel,
+    setMessageModel,
+    setSessionModel,
   };
 }

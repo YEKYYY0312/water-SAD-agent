@@ -144,6 +144,10 @@ export function Workbench() {
             exportState={workspace.exportState}
             feedbackState={workspace.feedbackState}
             confirmationState={workspace.confirmationState}
+            modelCatalog={workspace.modelCatalog}
+            messageModel={workspace.messageModel}
+            onMessageModelChange={workspace.setMessageModel}
+            onSessionModelChange={workspace.setSessionModel}
             inspectorOpen={inspectorOpen}
             onDraftChange={workspace.setDraft}
             onSubmit={workspace.sendMessage}
@@ -167,7 +171,7 @@ export function Workbench() {
         />
       )}
       {!panelOpen && (
-        <Inspector run={workspace.run} capabilities={workspace.capabilities} open={inspectorOpen} onClose={() => setInspectorOpen(false)} />
+        <Inspector run={workspace.run} capabilities={workspace.capabilities} modelCatalog={workspace.modelCatalog} open={inspectorOpen} onClose={() => setInspectorOpen(false)} />
       )}
     </main>
   );
