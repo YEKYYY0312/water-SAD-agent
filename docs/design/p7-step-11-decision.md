@@ -14,9 +14,14 @@
 
 ### 0.1 执行 Prompt §0 的修订
 
-执行 Prompt 的范围块与 §0 在写作时已逐条核对 main，开工后**没有**需要追加的范围补遗：S11 实际改动的文件都在 `allow` 里，也没有碰 `forbid`。
-唯一一处写作时留给评审的冲突（追溯检查与 17 号 SDD 的不变量）已按 S15 的做法裁决并合入（PR #50）：测试 docstring 用 `SDD17-Ixx` 引用不变量，验收行登记进 16 号 §7，
-`tests/test_p7_traceability.py` 未改。
+1. **范围块补遗（单独的文档 PR，先合入 main）**：执行 Prompt 的范围块有两处与实现冲突，范围守卫对 `origin/main` 报 2 处越界：
+   - `src/water_agent/tools/ds_adapters.py`：Prompt 的 `allow` 只放行了 `tools/base.py`，同时 `forbid` 了 `tools/[!b]*`。但污点只认 `ToolMessage.artifact`（D3）要求联网工具的结果在适配层
+     拆成 `content` + `artifact`，而 `ds_adapters.py` 是 `ToolSpec` → LangChain 工具的**唯一**适配层，没有别的位置可以写。这是 Prompt 的疏漏，不是实现可以绕开的。
+     改动限定为三处：`_with_web_artifact`、`WEB_CONTENT_ARTIFACT` 常量、以及 `result_source is WEB_CONTENT` 时才走新分支（其余工具的返回值与此前逐字相同）。
+   - `web/app/src/answerImages.ts`（新建）：前端测试用 node strip-types 直跑，不能 import 带 JSX 的组件文件，所以把纯函数 `imageAsText` 拆到独立的 `.ts`。
+   按 S15 先例（#48）走独立文档 PR：分支名不以 `YEK/p7-s<n>-` 开头，只改执行 Prompt 的 `allow` / `forbid`；合入 main 后把 main 合进本分支，再跑范围守卫。范围块从 merge-base 读，分支改不了自己的范围。
+   补遗时把 `forbid` 里的 `tools/[!b]*` 收窄为 `tools/[!bd]*`（让 `base.py` 与 `ds_adapters.py` 之外的 `tools/*.py` 仍然禁止），其余 `forbid` 不动。
+2. **18 / 17 号 SDD 的不变量引用**：评审已裁决照 S15 做法（PR #50）：测试 docstring 用 `SDD17-Ixx` 引用不变量，验收行登记进 16 号 §7，`tests/test_p7_traceability.py` 未改。
 
 ### 0.2 实测后追加的偏离
 
@@ -102,8 +107,27 @@ external_content_p0 passed=44/44
 各命令单独运行、单独看退出码（本机无 Key；30 个 skip 是 PG 门控等既有前置条件）：
 
 ```text
-（在最终验证后回填）
+$ pytest -o addopts= -q                                  # 全量
+3969 passed, 30 skipped, 788 warnings in 271.30s        exit=0
+$ ruff check src                                          # ci_gate 的口径
+All checks passed!                                        exit=0
+$ mypy src/water_agent
+Success: no issues found in 249 source files              exit=0
+$ python -m water_agent.harness.tool_assembly_snapshot --check
+装配快照与基线一致（19 个 profile）                        exit=0
+$ (cd web/app && npm test && npm run build)
+tests 113 / pass 113 / fail 0；tsc + vite build 通过        exit=0
+$ COMPOSE_PROJECT_NAME=p7s11 bash scripts/ci_gate.sh      # 含 external_content_p0(44/44) 与基线对比
+==> CI 门禁通过：… + model_choice_p0(50/50) + external_content_p0(44/44) + … + 基线对比   exit=0
 ```
+
+全量里曾出现过 4 个只在全量下才暴露的失败（单跑都通过），都是真实回归，已修：
+`test_dwg_upload::test_subprocess_only_in_registered_modules`（`inventory.py` 注释里写了 `subprocess.run(` 字样，被既有的子进程扫描误命中——改了注释措辞）；
+`test_plugin_invariants::[P7-I01 / P7-I02 / P7-I07]`（评测与测试第一版自己构造 `ToolRegistry`、转换 `BaseTool`、直接构图，违反结构不变量——见 D12）。
+
+范围守卫：对 `origin/main` 跑报 2 处越界（`tools/ds_adapters.py`、`web/app/src/answerImages.ts`），见 §0.1 第 1 条；**正式结论要在补遗 PR 合入、main 合进本分支之后再跑一次**。
+
+未做：真实 Key / 真实搜索服务的任何调用（S11 没有 provider）；浏览器手动验收。
 
 ## 3. 快照变化
 
