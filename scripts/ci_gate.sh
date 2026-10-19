@@ -2,7 +2,7 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
+#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → external_content_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
 #      → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
@@ -225,6 +225,31 @@ else
     fi
 fi
 
+# external_content_p0（P7-S11）：外部内容底座。敌意语料（64 条）逐条验证信封 / 归一化，受治理 GET 内核对进程内假对端验证
+# 禁止目的地零字节、3xx 不跟随、超限中止、错误不回显；生产图 + 脚本模型 + 夹具 web 工具验证回合污点、披露行、缓存拒绝、
+# 终答网址追溯与"缺省路径逐字不变"。
+# ⚠️ 归一化是确定性正则，必有语料之外的写法——指标 1.0 不证明能拦住任意注入；也不证明任何真实搜索服务可用（S12 起才有 provider）。
+step "external_content_p0 外部内容底座机制层（44 条 + 敌意语料 64 条，硬指标全达标）"
+EC_HEAD="data/eval/reports/ci_gate/external_content_p0_head.json"
+EC_MAIN="data/eval/external_content_p0_main.json"
+mkdir -p "$(dirname "$EC_HEAD")"
+if ! $PY -m water_agent.harness.external_content_eval data/eval/external_content_p0.jsonl --report-path "$EC_HEAD" > "$LOG_DIR/external_content.log" 2>&1; then
+    tail -30 "$LOG_DIR/external_content.log"
+    fail "external_content_p0 runner"
+else
+    head -4 "$LOG_DIR/external_content.log"
+    if [ -f "$EC_MAIN" ]; then
+        if ! $PY scripts/compare_external_content_p0.py --head "$EC_HEAD" --base "$EC_MAIN" > "$LOG_DIR/external_content_cmp.log" 2>&1; then
+            cat "$LOG_DIR/external_content_cmp.log"
+            fail "external_content_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/external_content_cmp.log"
+        fi
+    else
+        missing_baseline "external_content_p0" "cp $EC_HEAD $EC_MAIN"
+    fi
+fi
+
 # retrieval_colloquial_p0（P7-S10）：口语化 / 同义改写问法上的关键词检索（text 模式，BM25，不调用任何
 # embedding、不要求任何 Key）。从 data/curated 现建纯关键词索引，CI 干净克隆里也能跑；与入仓基线比
 # Recall@1/3/5、MRR、PASS_TO_PASS 与用例消失。门禁只守"不变差"，不设绝对阈值：只配对话 Key 时的口语化召回
@@ -367,4 +392,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + external_content_p0(44/44) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"

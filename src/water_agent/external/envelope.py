@@ -103,17 +103,23 @@ def _strip_invisible(text: str) -> str:
 
 
 def _truncate(text: str, limit: int) -> str:
-    """按字符截断；不切在半个替换串中间，也不留下孤立的代理项。"""
+    """按字符截断；**不切在替换串（``[[MARKER_SANITIZED]]`` / ``[REMOVED_SPECIAL_TOKEN]``）中间**。
+
+    做法：在原文里找出每个替换串的出现区间；如果截断点落在某个区间内部（既不在它之前也不在它之后），
+    就把截断点退到该区间起点。Python 字符串按码点切，不会产生孤立代理项。
+    """
 
     if len(text) <= limit:
         return text
-    cut = text[:limit]
+    cut = limit
     for token in (MARKER_SANITIZED, TEMPLATE_TOKEN_REMOVED):
-        head = token[0]
-        index = cut.rfind(head)
-        if index != -1 and not cut.endswith(token) and token.startswith(cut[index:]):
-            cut = cut[:index]
-    return cut.rstrip()
+        start = text.find(token)
+        while start != -1:
+            end = start + len(token)
+            if start < cut < end:
+                cut = start
+            start = text.find(token, end)
+    return text[:cut].rstrip()
 
 
 def _needs_compat_fold(text: str) -> bool:
