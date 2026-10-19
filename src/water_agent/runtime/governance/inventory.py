@@ -428,7 +428,7 @@ _EGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\baiohttp\.ClientSession\b"),
 )
 
-#: 通过子进程调外部下载器的程序名（``subprocess.run(["curl", ...])`` 之类）。用 AST 判定首个参数字面量，
+#: 通过子进程调外部下载器的程序名（以 ``curl`` / ``wget`` 作为首个参数起子进程）。用 AST 判定首个参数字面量，
 #: 不用文本正则：``rules.py`` 的护栏规则里有 ``curl`` / ``wget`` 字面量，那是检测对象，不是调用。
 _DOWNLOADER_PROGRAMS = frozenset({"curl", "wget"})
 _SUBPROCESS_FUNCTIONS = frozenset({"run", "Popen", "call", "check_call", "check_output", "system", "popen"})

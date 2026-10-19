@@ -5,6 +5,7 @@ S11 没有任何生产工具声明 ``result_source=WEB_CONTENT``：这里用夹�
 """
 from __future__ import annotations
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -20,16 +21,13 @@ from water_agent.external.taint import (
     web_tool_names,
 )
 from water_agent.graphs.agent_rag import PER_TURN_RESET, build_agentic_app
+from water_agent.plugins import AssemblyContext, ClausesPlugin, PluginContribution, assemble_tools
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
 from water_agent.runtime.governance.cache import REASON_WEB_CONTENT_USED, evaluate_store_eligibility
-from water_agent.runtime.governance.contracts import CallCategory, Capability, SourceTag
+from water_agent.runtime.governance.contracts import CallCategory, Capability, Principal, SourceTag
 from water_agent.runtime.governance.pipeline import GuardrailPipeline
 from water_agent.tools.base import ToolSpec
-from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 WEB_URL = "https://example.com/pipe-velocity"
 OTHER_URL = "https://evil.example/fabricated"
@@ -49,22 +47,58 @@ def _web_spec(result_source: SourceTag | None = SourceTag.WEB_CONTENT) -> ToolSp
     )
 
 
+class _FixturePlugin:
+    plugin_id = "fixture_web"
+
+    def __init__(self, spec: ToolSpec) -> None:
+        self._spec = spec
+
+    def contribute(self, ctx: AssemblyContext) -> PluginContribution:
+        return PluginContribution(plugin_id=self.plugin_id, tools=(self._spec,))
+
+
+@pytest.fixture(autouse=True)
+def _declare_fixture_capability():
+    """整个测试期间声明夹具工具的能力。
+
+    ``ToolRegistry`` 在**每次调用时**才解析默认管线，所以声明必须覆盖图运行的全程，而不只是装配那一刻。
+    夹具工具不在治理清单里；未声明的工具照常 fail closed（见 ``test_undeclared_fixture_tool_is_still_refused``）。
+    """
+
+    from water_agent.runtime.governance import pipeline as pipeline_module
+
+    previous = pipeline_module._default_pipeline
+    pipeline_module.set_default_guardrail_pipeline(
+        GuardrailPipeline(declared_capabilities={"fixture_web_lookup": Capability.CALCULATE})
+    )
+    yield
+    pipeline_module.set_default_guardrail_pipeline(previous)
+
+
+def _assemble(web_result_source: SourceTag | None = SourceTag.WEB_CONTENT):
+    """经生产的 ``assemble_tools`` 装配（工具注册 / 主体 / 护栏 / 适配器都走生产路径）。"""
+
+    ctx = AssemblyContext(
+        retriever=InMemoryRetriever(load_clauses_jsonl(FIXTURE_PATH)),
+        cite_context_source=lambda: set(),
+        drawing_root="",
+    )
+    return assemble_tools(
+        ctx,
+        base_principal=Principal.local("taint-test"),
+        trace=None,
+        plugins=[ClausesPlugin(), _FixturePlugin(_web_spec(web_result_source))],
+    )
+
+
 def _app(responses, *, web_result_source: SourceTag | None = SourceTag.WEB_CONTENT, cache_service=None):
-    clauses = load_clauses_jsonl(FIXTURE_PATH)
-    retriever = InMemoryRetriever(clauses)
-    # 夹具工具不在治理清单里：按既有惯例由装配期声明能力（fail closed 对未声明的工具照常生效）
-    pipeline = GuardrailPipeline(declared_capabilities={"fixture_web_lookup": Capability.CALCULATE})
-    registry = ToolRegistry(pipeline=pipeline)
-    registry.register(build_retrieve_clauses_tool(retriever))
-    cite_spec, _ = build_cite_clauses_tool_with_context_check(context_source=lambda: set())
-    registry.register(cite_spec)
-    registry.register(_web_spec(web_result_source))
-    tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+    assembly = _assemble(web_result_source)
     return build_agentic_app(
         model=FakeMessagesListChatModel(responses=list(responses)),
-        tools=tools,
+        tools=assembly.tools,
         checkpointer=MemorySaver(),
         cache_service=cache_service,
+        exposure=assembly.exposure,
     )
 
 
@@ -80,15 +114,16 @@ def _config(thread: str = "t1") -> dict:
 
 
 def test_result_source_defaults_to_none_and_existing_tools_are_unchanged() -> None:
-    """P7-S11-A06 ``ToolSpec.result_source`` 缺省 ``None``：现有工具一律不声明，不产生污点。"""
+    """P7-S11-A06 ``ToolSpec.result_source`` 缺省 ``None``：现有工具一律不声明，不产生污点；只有夹具工具被识别为联网工具。"""
 
     assert ToolSpec.model_fields["result_source"].default is None
-    clauses = load_clauses_jsonl(FIXTURE_PATH)
-    assert build_retrieve_clauses_tool(InMemoryRetriever(clauses)).result_source is None
-    registry = ToolRegistry()
-    registry.register(_web_spec())
-    registry.register(build_retrieve_clauses_tool(InMemoryRetriever(clauses)))
+    registry = _assemble().registry
+    assert "retrieve_clauses" in registry.list_all_names() and "fixture_web_lookup" in registry.list_all_names()
+    assert registry.get("retrieve_clauses").result_source is None
+    assert registry.get("cite_clauses").result_source is None
     assert web_tool_names(registry) == frozenset({"fixture_web_lookup"})
+    # 没有联网工具声明时，集合为空
+    assert web_tool_names(_assemble(web_result_source=None).registry) == frozenset()
 
 
 # -- 污点置位与复位 -------------------------------------------------------------------------------------------
@@ -251,3 +286,16 @@ def test_web_content_can_never_be_written_to_long_term_memory() -> None:
         with pytest.raises(MemoryInjectionBlockedError):
             guard.check(ContentEnvelope(source_tag=other, text=benign))
     assert guard.check(ContentEnvelope(source_tag=SourceTag.USER_MESSAGE, text=benign)).quarantined is False
+
+
+def test_undeclared_fixture_tool_is_still_refused() -> None:
+    """P7-S11-A06 对照：夹具工具的能力是**测试里显式声明**的；声明撤掉后它照常被护栏 fail closed 拦下，
+    也就不会产生污点之外的任何效应——证明上面的绿不是因为护栏被放松了。"""
+
+    from water_agent.runtime.governance import pipeline as pipeline_module
+
+    pipeline_module.set_default_guardrail_pipeline(GuardrailPipeline())
+    app = _app([_web_call(), AIMessage(content="好的。")])
+    out = app.invoke({"messages": [HumanMessage(content="管径怎么选")]}, config=_config("undeclared"))
+    blocked = [m for m in out["messages"] if isinstance(m, ToolMessage) and m.name == "fixture_web_lookup"]
+    assert blocked and "GUARDRAIL_BLOCKED" in str(blocked[0].content)

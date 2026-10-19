@@ -485,47 +485,89 @@ def run_get_rebinding(case: ExternalCase, result: CaseResult) -> None:
 # ---------------------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def _declared_fixture_capability(tool_name: str, capability: Any) -> Any:
+    """装配期声明夹具工具的能力（``GuardrailPipeline(declared_capabilities=…)``），退出时恢复默认管线。
+
+    夹具工具不在治理清单里；``assemble_tools`` 自己建 ``ToolRegistry``，用的是进程级默认管线，所以通过既有的
+    ``set_default_guardrail_pipeline`` 通道注入（测试与 CLI 装配用）。未声明的工具照常 fail closed。
+    """
+
+    from water_agent.runtime.governance import pipeline as pipeline_module
+
+    previous = pipeline_module._default_pipeline
+    pipeline_module.set_default_guardrail_pipeline(
+        pipeline_module.GuardrailPipeline(declared_capabilities={tool_name: capability})
+    )
+    try:
+        yield
+    finally:
+        pipeline_module.set_default_guardrail_pipeline(previous)
+
+
+class _FixturePlugin:
+    """把一个 ``ToolSpec`` 作为插件贡献给 ``assemble_tools``（与 ``tests/test_tool_plugins.py`` 的桩插件同一做法）。
+
+    评测**不自己构造 ``ToolRegistry`` / 转换 ``BaseTool``**：工具注册、授权主体、护栏、适配器全走生产的 ``assemble_tools``
+    （结构不变量 P7-I01 / I02 因此不需要为本评测开白名单）。
+    """
+
+    plugin_id = "fixture_web"
+
+    def __init__(self, spec: Any) -> None:
+        self._spec = spec
+
+    def contribute(self, ctx: Any) -> Any:
+        from water_agent.plugins import PluginContribution
+
+        return PluginContribution(plugin_id=self.plugin_id, tools=(self._spec,))
+
+
 def _build_app(responses: Sequence[Any], *, web_tool: bool = True, cache_service: Any = None) -> Any:
     from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
     from langgraph.checkpoint.memory import MemorySaver
     from pydantic import BaseModel as _BaseModel
 
     from water_agent.graphs.agent_rag import build_agentic_app
+    from water_agent.plugins import AssemblyContext, ClausesPlugin, assemble_tools
     from water_agent.retrieval.in_memory import InMemoryRetriever
     from water_agent.retrieval.loader import load_clauses_jsonl
-    from water_agent.runtime.governance.contracts import Capability, SourceTag
-    from water_agent.runtime.governance.pipeline import GuardrailPipeline
+    from water_agent.runtime.governance.contracts import Principal, SourceTag
     from water_agent.tools.base import ToolSpec
-    from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-    from water_agent.tools.ds_adapters import tool_spec_to_base_tool
-    from water_agent.tools.registry import ToolRegistry
-    from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
     class _Args(_BaseModel):
         query: str = Field(min_length=1, max_length=64)
 
-    retriever = InMemoryRetriever(load_clauses_jsonl(FIXTURE_CLAUSES))
-    pipeline = GuardrailPipeline(declared_capabilities={"fixture_web_lookup": Capability.CALCULATE})
-    registry = ToolRegistry(pipeline=pipeline)
-    registry.register(build_retrieve_clauses_tool(retriever))
-    cite_spec, _ = build_cite_clauses_tool_with_context_check(context_source=lambda: set())
-    registry.register(cite_spec)
+    plugins: list[Any] = [ClausesPlugin()]
     if web_tool:
-        registry.register(
-            ToolSpec(
-                name="fixture_web_lookup",
-                description="Use when a test needs a stand-in for a web lookup tool. Do not use for anything outside tests.",
-                args_model=_Args,
-                execute=lambda args: {"results": [{"title": "t", "snippet": "管径选择见规范", "url": WEB_URL}], "urls": [WEB_URL]},
-                result_source=SourceTag.WEB_CONTENT,
+        plugins.append(
+            _FixturePlugin(
+                ToolSpec(
+                    name="fixture_web_lookup",
+                    description="Use when a test needs a stand-in for a web lookup tool. Do not use for anything outside tests.",
+                    args_model=_Args,
+                    execute=lambda args: {"results": [{"title": "t", "snippet": "管径选择见规范", "url": WEB_URL}], "urls": [WEB_URL]},
+                    result_source=SourceTag.WEB_CONTENT,
+                )
             )
         )
-    tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+    ctx = AssemblyContext(
+        retriever=InMemoryRetriever(load_clauses_jsonl(FIXTURE_CLAUSES)),
+        cite_context_source=lambda: set(),
+        drawing_root="",
+    )
+    assembly = assemble_tools(
+        ctx,
+        base_principal=Principal.local("ec-eval"),
+        trace=None,
+        plugins=plugins,
+    )
     return build_agentic_app(
         model=FakeMessagesListChatModel(responses=list(responses)),
-        tools=tools,
+        tools=assembly.tools,
         checkpointer=MemorySaver(),
         cache_service=cache_service,
+        exposure=assembly.exposure,
     )
 
 
@@ -766,6 +808,8 @@ _RUNNERS: dict[str, Callable[[ExternalCase, CaseResult], None]] = {
 
 
 def run_case(case: ExternalCase) -> CaseResult:
+    from water_agent.runtime.governance.contracts import Capability
+
     result = CaseResult(id=case.id, category=case.category, layer=case.layer)
     runner = _RUNNERS.get(case.op)
     if runner is None:
@@ -773,7 +817,8 @@ def run_case(case: ExternalCase) -> CaseResult:
         return result
     try:
         # 审计 / 治理事件可能打印到 stdout；评测输出只留指标与失败明细
-        with contextlib.redirect_stdout(io.StringIO()):
+        # ``ToolRegistry`` 每次调用才解析默认管线，所以夹具工具的能力声明要覆盖整个用例（装配 + 图运行）
+        with contextlib.redirect_stdout(io.StringIO()), _declared_fixture_capability("fixture_web_lookup", Capability.CALCULATE):
             runner(case, result)
     except Exception as exc:  # noqa: BLE001 — 记为用例错误（硬指标 harness_error_count）
         result.error = f"{type(exc).__name__}: {exc}"

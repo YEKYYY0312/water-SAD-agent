@@ -130,6 +130,10 @@ F10 是**现有缺口**，与本规格是否交付无关：只要模型输出里
 | `webapp/smoke.py` | `urllib.request.Request` | **现有扫描漏掉的真实出站**：冒烟探针只连 app 自身；登记为出站模块（回环目的地）或豁免并写理由 |
 | `runtime/governance/rules.py` | `curl` / `wget` 字面量 | 护栏规则里的检测对象，不是调用；改用 AST 判定后不再命中 |
 
+**S11 实际裁决（2026-10-19，见 `p7-step-11-decision.md`）**：`mcp/http_transport.py` 已登记无需处理；`harness/mcp_http_eval.py` 与 `webapp/smoke.py` 写进
+`_EGRESS_SCAN_EXEMPT` 并写明理由（`smoke.py` **不登记成出站站点**——登记会让人以为它走限流 / 预算 / 熔断，而冒烟探针本来就不该经过 `ProviderGateway`）；
+`rules.py` 改用 AST 判定后不再命中。豁免集合恰为这两项加治理层自身，由 `tests/test_governance_contracts.py::TestInventoryCoverage::test_scan_exemptions_are_exactly_the_reviewed_three` 锁定。
+
 ---
 
 ## 5. 能力一：联网搜索（S12）
@@ -168,6 +172,7 @@ provider 响应 → 逐条：网址必须能解析为 http(s)、≤ 300 字符�
 |---|---|
 | R1 不能当引用 | `cite_clauses` 只接受语料 `source_id`；`web_refs` 永不进"本 thread 检索到的 source_id 集合"|
 | R2 网址追溯 | 终答里出现的 http(s) 网址 ⊆ 本 thread 的 `web_refs` ∪ 用户消息里的网址，否则 `unverified_url` → 回流一次、再失败即 `failed`（复用引用校验的回流机制）。**仅当 `WATER_AGENT_WEB_SEARCH=on` 的装配生效**，避免改变现有部署的行为 |
+> **S11 对 R2 的实现偏离**：S11 还没有 `WATER_AGENT_WEB_SEARCH` 开关，所以不是"开关 on 才生效"，而是"本回合 `web_tainted` 或本 thread 已有 `web_refs` 才校验"；没用过联网内容的回合行为逐字不变。S12 再把开关接上。
 | R3 规范性结论不豁免 | 零引用豁免规则不因搜索而放宽：只有网络证据的规范性回答不能 `succeeded` |
 | R4 披露行 | 见 §4.3 |
 | R5 污点效应 | 见 §4.3 |
@@ -280,7 +285,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 | 步 | 内容 | 执行 Prompt | 状态 |
 |---|---|---|---|
-| S11 | 外部内容底座：`WEB_CONTENT` 标签、信封 / 归一化库、`governed_get` 内核、回合污点及其效应、P7-I08 + 静态扫描扩展、答案渲染不加载外部图片（F10）、`external_content_p0` | `docs/execution-prompts/P7-S11-external-content-foundation.md` | planned |
+| S11 | 外部内容底座：`WEB_CONTENT` 标签、信封 / 归一化库、`governed_get` 内核、回合污点及其效应、P7-I08 + 静态扫描扩展、答案渲染不加载外部图片（F10）、`external_content_p0` | `docs/execution-prompts/P7-S11-external-content-foundation.md` | delivered |
 | S12 | 联网搜索：`web_search` + provider 适配器 + `QueryEgressGuard` + 结果流水线 + 回答纪律 + 逐条消息勾选 + 治理站点 8 → 9 + `web_search_p0` | `docs/execution-prompts/P7-S12-web-search.md` | planned |
 | S13 | Skill 下载：静态注册表协议 + 隔离区 + 运维 CLI + 第三来源层与加载期哈希重算 + 治理站点 → 10 + `skill_fetch_p0` | `docs/execution-prompts/P7-S13-skill-fetch.md` | planned |
 | S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | planned |
@@ -293,13 +298,13 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 | # | 不变量 | 强制位置（拟）| 状态 |
 |---|---|---|---|
-| P7-I08 | `open_exchange(` 的调用方 ∈ 登记表（`mcp/http_client.py`、`mcp/oauth.py`、`external/http_get.py`，以及 PR #45 合入后的 `generation/chat_model.py`；以 S11 开工时 main 上的真实调用方为准），AST 判定，登记项不再对应真实代码同样判失败 | `tests/test_plugin_invariants.py` | planned |
-| P7-I09 | 本地 `ToolSpec` 的 `args_model` 不含 `url` / `uri` / `href` / `endpoint` / `host` 字段 | `tests/test_plugin_invariants.py` | planned |
+| P7-I08 | `open_exchange(` 的调用方 ∈ 登记表（`mcp/http_client.py`、`mcp/oauth.py`、`external/http_get.py`，以及 PR #45 合入后的 `generation/chat_model.py`；以 S11 开工时 main 上的真实调用方为准），AST 判定，登记项不再对应真实代码同样判失败 | `tests/test_plugin_invariants.py` | delivered |
+| P7-I09 | 本地 `ToolSpec` 的 `args_model` 不含 `url` / `uri` / `href` / `endpoint` / `host` 字段 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I10 | provider 适配器模块不 import 任何网络原语（只能由 `governed_get` 驱动）| `tests/test_web_search_adapters.py` | planned |
 | P7-I11 | 终答网址校验器接进 finalize（`WATER_AGENT_WEB_SEARCH=on` 时）| `tests/test_web_search_discipline.py` | planned |
 | P7-I12 | `skills/remote/`（取 / 批准）只被 `skills/cli.py` 导入；`tools/` 与 `webapp/` 不导入它 | `tests/test_skill_fetch_invariants.py` | planned |
 | P7-I13 | `mcp/registry.py` 不导入 `MCPStdioClient` / `MCPHttpClient` / `open_bridge`（目录模块不连接条目）| `tests/test_mcp_registry_invariants.py` | planned |
-| P7-I14 | `web_tainted` 回合的答案缓存写入资格恒为 false | `tests/test_answer_cache.py` | planned |
+| P7-I14 | `web_tainted` 回合的答案缓存写入资格恒为 false | `tests/test_answer_cache.py` | delivered |
 
 ---
 
@@ -309,15 +314,15 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 | ID | 验收 | 验证（拟）| 状态 |
 |---|---|---|---|
-| P7-S11-A01 | `WEB_CONTENT`：信任 5、不可承载指令、`relabel` 只降不升；偏序测试更新 | `tests/test_governance_contracts.py` | planned |
-| P7-S11-A02 | 信封与归一化：随机 id、伪造边界 / 模板 token / 不可见 Unicode / Markdown 图片 / 自动链接全部中和；剥 provider 自带壳；上限；敌意语料逐条 | `tests/test_external_envelope.py` | planned |
-| P7-S11-A03 | `governed_get`：经 `open_exchange` + 网关；禁止目的地零字节；3xx 不跟随；字节 / 时间上限；错误映射稳定码 | `tests/test_external_http_get.py` | planned |
-| P7-S11-A04 | P7-I08：登记表与真实调用方一致；反证（在未登记模块调用 `open_exchange(` 即红）| `tests/test_plugin_invariants.py` | planned |
-| P7-S11-A05 | 静态扫描新增模式各有"放进未登记模块即红"的反证 | `tests/test_governance_contracts.py::TestInventoryCoverage` | planned |
-| P7-S11-A06 | 回合污点：`ToolSpec.result_source` 驱动 `web_tainted`；缓存拒绝原因 `web_content_used`；记忆写入拦截；披露行由程序追加；`PER_TURN_RESET` | `tests/test_web_taint.py` | planned |
-| P7-S11-A07 | 终答网址追溯校验器：伪造网址回流一次后失败；`web_refs` 跨轮累积 | `tests/test_web_taint.py` | planned |
-| P7-S11-A08 | 答案渲染不加载外部图片（前端 node 测试）| `web/app/tests/answer_markdown.test.mjs` | planned |
-| P7-S11-A09 | `external_content_p0` 门禁 + 基线；现有快照 profile 逐字不变 | `gate:external_content_p0` | planned |
+| P7-S11-A01 | `WEB_CONTENT`：信任 5、不可承载指令、`relabel` 只降不升；偏序测试更新 | `tests/test_governance_contracts.py` | delivered |
+| P7-S11-A02 | 信封与归一化：随机 id、伪造边界 / 模板 token / 不可见 Unicode / Markdown 图片 / 自动链接全部中和；剥 provider 自带壳；上限；敌意语料逐条 | `tests/test_external_envelope.py` | delivered |
+| P7-S11-A03 | `governed_get`：经 `open_exchange` + 网关；禁止目的地零字节；3xx 不跟随；字节 / 时间上限；错误映射稳定码 | `tests/test_external_http_get.py` | delivered |
+| P7-S11-A04 | P7-I08：登记表与真实调用方一致；反证（在未登记模块调用 `open_exchange(` 即红）| `tests/test_plugin_invariants.py` | delivered |
+| P7-S11-A05 | 静态扫描新增模式各有"放进未登记模块即红"的反证 | `tests/test_governance_contracts.py::TestInventoryCoverage` | delivered |
+| P7-S11-A06 | 回合污点：`ToolSpec.result_source` 驱动 `web_tainted`；缓存拒绝原因 `web_content_used`；记忆写入拦截；披露行由程序追加；`PER_TURN_RESET` | `tests/test_web_taint.py` | delivered |
+| P7-S11-A07 | 终答网址追溯校验器：伪造网址回流一次后失败；`web_refs` 跨轮累积 | `tests/test_web_taint.py` | delivered |
+| P7-S11-A08 | 答案渲染不加载外部图片（前端 node 测试）| `web/app/tests/answer_markdown.test.mjs` | delivered（node 测试；16 号规格里登记为 untested，追溯检查认不出 .mjs） |
+| P7-S11-A09 | `external_content_p0` 门禁 + 基线；现有快照 profile 逐字不变 | `gate:external_content_p0` | delivered |
 
 ### S12：联网搜索
 
