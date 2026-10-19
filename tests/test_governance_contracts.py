@@ -226,7 +226,10 @@ class TestSourceTagNotDowngradable:
         """P7-S11-A01 ``WEB_CONTENT``：信任级别 5（低于 ``TOOL_OUTPUT`` 10、高于 ``GENERATED_OUTPUT`` 0），
         不可承载指令；``relabel`` 只能降级（不能升到 ``TOOL_OUTPUT``，更不能升到 ``USER_MESSAGE``）。"""
 
-        from water_agent.runtime.governance.contracts import SOURCE_TRUST_LEVEL, is_instruction_bearing
+        from water_agent.runtime.governance.contracts import (
+            SOURCE_TRUST_LEVEL,
+            is_instruction_bearing,
+        )
 
         assert SOURCE_TRUST_LEVEL[SourceTag.WEB_CONTENT] == 5
         assert SOURCE_TRUST_LEVEL[SourceTag.GENERATED_OUTPUT] < 5 < SOURCE_TRUST_LEVEL[SourceTag.TOOL_OUTPUT]
@@ -523,6 +526,93 @@ class TestInventoryCoverage:
             {"water_agent/mcp/rogue_transport.py", "water_agent/mcp/http_transport.py"}
         )
         assert inventory.ungoverned_egress_modules() == frozenset({"water_agent/mcp/rogue_transport.py"})
+
+    @pytest.mark.parametrize(
+        ("label", "source"),
+        [
+            ("socket.create_connection", "import socket\n\ndef f(h):\n    return socket.create_connection((h, 443))\n"),
+            ("socket.socket", "import socket\n\ndef f():\n    return socket.socket(socket.AF_INET)\n"),
+            ("urllib.request.Request", "import urllib.request\n\ndef f(u):\n    return urllib.request.Request(u)\n"),
+            ("urllib.request.build_opener", "import urllib.request\n\ndef f():\n    return urllib.request.build_opener()\n"),
+            ("aiohttp.ClientSession", "import aiohttp\n\nasync def f():\n    return aiohttp.ClientSession()\n"),
+            ("subprocess curl (list)", "import subprocess\n\ndef f(u):\n    subprocess.run(['curl', '-s', u], check=False)\n"),
+            ("subprocess wget (str)", "import os\n\ndef f(u):\n    os.system('wget ' + u)\n"),
+            ("subprocess /usr/bin/curl", "import subprocess\n\ndef f(u):\n    subprocess.Popen(('/usr/bin/curl', u))\n"),
+        ],
+    )
+    def test_each_new_egress_pattern_catches_an_unregistered_module(
+        self, label: str, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P7-S11-A05 反证：每个新增的扫描特征，把对应写法放进一个未登记的模块，静态扫描都立即发现。
+
+        没有这条，新模式只是"看起来加了"——模式写错（转义、锚点）扫描照样全绿。
+        """
+        from water_agent.runtime.governance import inventory
+
+        package = tmp_path / "water_agent"
+        (package / "plugins").mkdir(parents=True)
+        (package / "plugins" / "rogue.py").write_text(source, encoding="utf-8")
+        monkeypatch.setattr(inventory, "PACKAGE_ROOT", package)
+        assert inventory.ungoverned_egress_modules() == frozenset({"water_agent/plugins/rogue.py"}), label
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # 护栏规则里的 curl / wget 是检测对象，不是调用
+            "import re\nRULE = re.compile(r'curl\\s+[^|]*\\|\\s*sh')\nNAMES = ('curl', 'wget')\n",
+            # 别的子进程程序不算
+            "import subprocess\n\ndef f():\n    subprocess.run(['git', 'status'], check=False)\n",
+            # ssl 上下文只是 TLS 配置
+            "import ssl\n\nCTX = ssl.create_default_context()\n",
+            # open_exchange 是出站内核：它的调用方由 SDD17-I08 单独约束，不进这张模式表
+            "from water_agent.mcp.http_transport import open_exchange\n\ndef f(u):\n    return open_exchange(u, 'GET')\n",
+        ],
+    )
+    def test_benign_modules_are_not_flagged_as_egress(
+        self, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P7-S11-A05 良性对照：不是出站的写法不被误判（否则扫描会逼人去"登记"不该登记的模块）。"""
+        from water_agent.runtime.governance import inventory
+
+        package = tmp_path / "water_agent"
+        (package / "plugins").mkdir(parents=True)
+        (package / "plugins" / "benign.py").write_text(source, encoding="utf-8")
+        monkeypatch.setattr(inventory, "PACKAGE_ROOT", package)
+        assert inventory.scan_remote_egress_modules() == frozenset(), source
+
+    def test_the_scan_reads_comments_too(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """P7-S11-A05 记录既有行为：正则扫描连注释 / docstring 都扫（只要出现带括号的调用形态），
+        所以 src 里不要在注释里写这些模式的调用字面量（AGENTS.md）。``curl`` / ``wget`` 走 AST，不受注释影响。"""
+        from water_agent.runtime.governance import inventory
+
+        package = tmp_path / "water_agent"
+        (package / "plugins").mkdir(parents=True)
+        (package / "plugins" / "commented.py").write_text("# 不要用 socket.create_connection(addr) 直连\n", encoding="utf-8")
+        (package / "plugins" / "no_call_shape.py").write_text("# socket.create_connection 只是提到名字\n", encoding="utf-8")
+        (package / "plugins" / "curl_comment.py").write_text("# subprocess.run(['curl', u])\n", encoding="utf-8")
+        monkeypatch.setattr(inventory, "PACKAGE_ROOT", package)
+        assert inventory.scan_remote_egress_modules() == frozenset({"water_agent/plugins/commented.py"})
+
+    def test_scan_exemptions_are_exactly_the_reviewed_three(self) -> None:
+        """P7-S11-A05 扫描豁免只能是评审过的三项（治理层自身 + 两个只连回环 / compose 内服务的模块）。
+
+        豁免会让文件从此不被扫描：这条断言让"悄悄加一项豁免来绕过扫描"必须改测试、进评审。
+        """
+        from water_agent.runtime.governance.inventory import _EGRESS_SCAN_EXEMPT
+
+        assert _EGRESS_SCAN_EXEMPT == frozenset(
+            {
+                "water_agent/runtime/governance/inventory.py",
+                "water_agent/harness/mcp_http_eval.py",
+                "water_agent/webapp/smoke.py",
+            }
+        )
+
+    def test_no_new_provider_call_site_in_s11(self) -> None:
+        """P7-S11-A05 S11 不新增出站站点：``governed_get`` 本步没有生产调用方，登记站点要等 S12 的 ``web_search``。"""
+        from water_agent.runtime.governance.inventory import PROVIDER_CALL_SITES
+
+        assert len(PROVIDER_CALL_SITES) == 8
 
     def test_mcp_remote_site_is_registered_with_its_own_provider(self) -> None:
         site = call_site("mcp_streamable_http")
