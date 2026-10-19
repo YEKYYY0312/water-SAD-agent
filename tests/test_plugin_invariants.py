@@ -208,7 +208,7 @@ def _registry_violations(callers: set[str]) -> tuple[set[str], set[str]]:
 
 
 def test_open_exchange_callers_are_registered() -> None:
-    """SDD17-I08 ``open_exchange(`` 的调用方 ∈ 登记表（AST 判定真实调用）；登记项不再对应真实代码同样判失败。
+    """P7-S11-A04 / SDD17-I08 ``open_exchange(`` 的调用方 ∈ 登记表（AST 判定真实调用）；登记项不再对应真实代码同样判失败。
 
     ``open_exchange`` 是出站内核而非原始网络原语，所以模块级静态扫描（``_EGRESS_PATTERNS``）管不到"谁能调用它"。
     这条不变量补上：任何新的调用方都必须先登记（并同时是治理清单里的出站站点），否则红灯。
@@ -220,7 +220,7 @@ def test_open_exchange_callers_are_registered() -> None:
 
 
 def test_open_exchange_registry_goes_red_for_an_unregistered_caller_and_a_stale_entry() -> None:
-    """SDD17-I08 反证：往真实调用方集合里加一个未登记模块 → 判定报出它；去掉一个真实调用方 → 登记项被判过期。"""
+    """P7-S11-A04 / SDD17-I08 反证：往真实调用方集合里加一个未登记模块 → 判定报出它；去掉一个真实调用方 → 登记项被判过期。"""
 
     real = _callers("open_exchange")
     assert _calls_in("from x import open_exchange\nopen_exchange(1)\n", "open_exchange")
@@ -257,7 +257,7 @@ def _local_tool_specs() -> list[Any]:
 
 
 def test_local_tools_take_no_destination_argument() -> None:
-    """SDD17-I09 本地 ``ToolSpec`` 的 ``args_model`` 不含 ``url`` / ``uri`` / ``href`` / ``endpoint`` / ``host`` 字段：
+    """P7-S11-A04 / SDD17-I09 本地 ``ToolSpec`` 的 ``args_model`` 不含 ``url`` / ``uri`` / ``href`` / ``endpoint`` / ``host`` 字段：
     模型只控制查询字符串，不控制目的地（出口由运维写死）。"""
 
     specs = _local_tool_specs()
@@ -267,7 +267,7 @@ def test_local_tools_take_no_destination_argument() -> None:
 
 
 def test_destination_argument_check_catches_a_url_parameter() -> None:
-    """SDD17-I09 反证：给一个带 ``url`` 参数的假工具，同一判定必须报出它。"""
+    """P7-S11-A04 / SDD17-I09 反证：给一个带 ``url`` 参数的假工具，同一判定必须报出它。"""
 
     from pydantic import BaseModel
 
