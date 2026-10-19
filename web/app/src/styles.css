@@ -485,3 +485,6 @@ code { font-family: var(--mono); font-size: .92em; }
 .model-catalog-enabled { display: inline-flex; align-items: center; gap: .25rem; font-size: .82rem; }
 .model-catalog-status { color: var(--faint); font-size: .78rem; }
 .settings-card-actions { display: flex; gap: .5rem; }
+
+/* P7-S11：回答里的外部图片不加载，以纯文本占位 */
+.answer-image-blocked { color: var(--muted); font-size: .85em; }
