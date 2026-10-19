@@ -46,7 +46,7 @@
 7. **终答网址追溯（A07）**：终答里出现的 http(s) 网址 ⊆ 本 thread 的 `web_refs` ∪ 用户消息里的网址，否则 `unverified_url` → 回流一次（复用引用校验的回流机制）、再失败即 `failed`；`web_refs` 跨轮累积（读 checkpoint，与 `cite_clauses` 可追溯集合同源思路，**不依赖进程内状态**）；**无污点且无 `web_refs` 的回合不校验、行为逐字不变**。**R1**：`web_refs` 永不进"本 thread 检索到的 source_id 集合"（`cite_clauses` 只接受语料 `source_id`）。
 8. **答案渲染（A08）**：`AnswerMarkdown` 不渲染外部图片；链接保持 `rel="noopener noreferrer nofollow"`；前端 node 测试。
 9. **评测（A09）**：`external_content_p0` + `hostile_web_corpus.jsonl` + 比较器 + 入仓基线 + `ci_gate.sh`；每个硬指标一条反证。
-10. **追溯**：把 SDD 17 号纳入 `tests/test_p7_traceability.py` 的解析范围（**该文件在本步 forbid 里**——见 §5 与范围块说明：追溯扩展若必须改它，先停下确认，由评审决定是否临时放行）。
+10. **追溯**：`P7-S11-A01…A09` 验收行登记进 16 号 §7（追溯检查只认 16 号规格）；17 号 SDD 的不变量在测试里用 `SDD17-I08` 写法引用，**不改** `tests/test_p7_traceability.py`。
 11. **文档**：决策记录 `docs/design/p7-step-11-decision.md`（结构见 `16-p7` §8 第 6 条）、`p2.5-threat-model.md` 登记 T15 的底座部分、`p2.5-provider-inventory.md`（注明 `governed_get` 与 P7-I08）、`17` 号 SDD 把 S11 验收行翻成 `delivered`、AGENTS.md 追加条目。
 
 **不做**：`web_search` 工具与任何 provider 适配器（S12）；`Capability.WEB_SEARCH`、`GRANTABLE_CAPABILITIES` 扩展、新 `ProviderKind` / `CallCategory` / 画像（S12）；出站站点 8 → 9（S12）；`QueryEgressGuard`（S12）；skill 下载、MCP 目录（S13 / S14）；搜索结果缓存、语义缓存；任何网址抓取（`web_fetch` / 浏览器）；改 `gateway.py` / `pipeline.py` 的规则语义；改 `DANGEROUS_CAPABILITIES`、`NETWORK_FETCH`；改 `INSTRUCTION_BEARING_SOURCES`；改预算数字（`cost < 4500`、`schema_chars_total == 4497`、系统提示 `< 1950`）；改 `plugins/**`、`mcp/**`（`open_exchange` 本身不动）、`prompting/**`；声称任何真实外部服务可用。
@@ -58,7 +58,7 @@
 2. **Step 2 harness**：`harness/external_content_eval.py`、`tests/fixtures/fake_http_peer.py`（进程内线程、记录收到的请求数与路径）；此时机制未实现，红灯基线记入决策记录。
 3. **Step 3 机制**（每块先写失败测试，docstring 写验收 ID）：`SourceTag.WEB_CONTENT` → `envelope.py` → `http_get.py` → `ToolSpec.result_source` 与污点 → 缓存拒绝原因 / 记忆拦截 / 披露行 → 终答网址校验器 → P7-I08 → 静态扫描扩展 → 前端。
 4. **Step 4 反证与基线**：补齐每个硬指标的反证；生成入仓基线；接 `scripts/ci_gate.sh`。
-5. **Step 5 快照与追溯**：快照 `--check` 必须仍一致（19 个 profile 不变）；追溯检查把 SDD 17 号纳入（见 §5）。
+5. **Step 5 快照与追溯**：快照 `--check` 必须仍一致（19 个 profile 不变）；`P7-S11-A01…A09` 登记进 16 号 §7，`test_p7_traceability.py` 通过。
 
 ## 3. 验证命令
 
@@ -91,7 +91,7 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S11-exter
 - 现有 19 个快照 profile 或三个版本号有任何变化；缺省配置（无污点、无外部工具）下任何机制层评测或 `baseline.json` 对比出现差异；
 - 需要改 `gateway.py` / `pipeline.py` / `inventory.py` 的**站点登记**（`PROVIDER_CALL_SITES`）、`plugins/**`、`mcp/**`、`prompting/**`，或需要新增 `Capability` / `ProviderKind` / `CallCategory` / 出站站点；
 - 需要改 `DANGEROUS_CAPABILITIES`、`INSTRUCTION_BEARING_SOURCES`，或上调任何预算上限；
-- 追溯检查扩展必须改 `tests/test_p7_traceability.py`（它在 forbid 里）——先说明现象，由评审决定是否临时放行；
+- 追溯检查在不改 `tests/test_p7_traceability.py` 的前提下无法通过（说明 `SDD17-Ixx` 写法或 16 号 §7 登记有误）——先说明现象，不得改该文件；
 - 静态扫描新增模式在 main 上命中了 §1 第 5 条之外的模块，且无法在"登记 / 豁免并写理由"之间裁决；
 - 归一化的某条敌意语料无法被中和而不误伤良性对照（说明规则要改设计，不是调阈值）；
 - 门禁出现与本步无关的红灯。
@@ -136,6 +136,7 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S11-exter
     "docs/design/p7-step-11-decision.md",
     "docs/design/17-p7-external-capabilities.md",
     "docs/design/17-p7-external-capabilities-harness.md",
+    "docs/design/16-p7-plugin-mcp.md",
     "docs/design/p2.5-threat-model.md",
     "docs/design/p2.5-provider-inventory.md",
     "docs/execution-prompts/P7-S11-external-content-foundation.md",
@@ -216,8 +217,8 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S11-exter
 >
 > - **`tests/test_vision_review.py`、`tests/test_llm_endpoints.py`、`tests/test_tool_assembly_snapshot.py`、`data/eval/tool_assembly_main.json` 在 forbid 里**：S11 不新增出站站点、不新增快照 profile，这些文件的断言（`== 8`、19 个 profile）必须原样成立；`frozen_json` 因此冻结**全部** `session_*` 与 `runner_*`，没有"新 profile 不被匹配"的例外。若实测必须新增站点或 profile，按 §5 停止。
 > - **`protect` 里没有 `len(PROVIDER_CALL_SITES) == 8`**：该断言在 `tests/test_vision_review.py` 里，而那个文件在 forbid 里（本身就守住了它）；`tests/test_llm_endpoints.py::test_defaults_are_unchanged` 同理。
-> - **`tests/test_p7_traceability.py` 在 forbid 里**：它断言 16 号规格的不变量恰好 7 条，且 S15 刚刚因此把 18 号 SDD 的不变量改成了不带 `P7-` 前缀的引用（决策记录 `p7-step-15-decision.md` §0.1 第 2 条）。17 号 SDD 的 P7-I08…I14 与 `P7-S11-Axx` 若要被追溯检查认，需要改这个文件——**这是本步一个已知的、需要评审裁决的冲突**：推荐方案是照 S15 的做法，S11 的测试 docstring 用 `SDD17-I08` 这种不带 `P7-` 前缀的写法引用不变量，验收行 `P7-S11-Axx` 登记进 16 号 §7（需把 `docs/design/16-p7-plugin-mcp.md` 加入 allow——见下条）；备选是评审同意临时放行该测试文件。
-> - **`docs/design/16-p7-plugin-mcp.md` 没有放进 allow**：按推荐方案需要加入——开工前评审若采纳推荐方案，请把它补进 allow（走 S15 同款的"独立文档 PR 先合入 main"）。
+> - **`tests/test_p7_traceability.py` 在 forbid 里**：它断言 16 号规格的不变量恰好 7 条，S15 因此把 18 号 SDD 的不变量改成了不带 `P7-` 前缀的引用（决策记录 `p7-step-15-decision.md` §0.1 第 2 条）。评审已裁决照 S15 做法（见下条），本步不需要改这个文件。
+> - **`docs/design/16-p7-plugin-mcp.md` 已放进 allow**（采纳推荐方案）：本步在 16 号 §7 登记 `P7-S11-A01…A09` 验收行并把 S11 纳入 §5 分步表；S11 测试 docstring 引用 17 号 SDD 的不变量时用 `SDD17-I08` 这种不带 `P7-` 前缀的写法（带前缀会被 `test_p7_traceability.py` 的反向检查拦下），**不改** `tests/test_p7_traceability.py`。
 > - `src/water_agent/generation/**` 在 forbid 里：`list_models` 已经是 `open_exchange` 的合规调用方，本步只读它、不改它。
 > - `src/water_agent/runtime/governance/pipeline.py` 在 allow 里仅为 `check_memory_write` 的来源检查（污点 BLOCK）；不得改其他护栏规则（`rules.py` 在 forbid 里，`RULESET_VERSION` 不递进）。
 > - `src/water_agent/runtime/agentic.py` 在 allow 里仅为把 `web_refs` 读出 checkpoint 接进可追溯集合的同款机制；不得改会话装配、工具暴露与提示。
