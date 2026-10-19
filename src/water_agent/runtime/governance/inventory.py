@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -417,12 +418,37 @@ _EGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     # starlette 的 ``HTTPConnection`` 是入站请求视图，不是出站连接。）
     re.compile(r"\bhttp\.client\.HTTPS?Connection\b"),
     re.compile(r"from\s+http\.client\s+import[^\n]*\bHTTPS?Connection\b"),
+    # P7-S11：原始套接字、``urllib.request`` 的请求 / opener 构造、``aiohttp`` 客户端。此前这些写法扫描是看不见的
+    # （只抓 ``urlopen(``）。**不加** ``ssl.create_default_context(``（它只是 TLS 配置，不是出站本身），
+    # **不加** ``open_exchange(``（它是出站内核而非原始原语，加了会误伤 MCP 现有调用方——它的调用方由
+    # ``tests/test_plugin_invariants.py`` 的 SDD17-I08 用 AST 单独约束）。
+    re.compile(r"\bsocket\.create_connection\s*\("),
+    re.compile(r"\bsocket\.socket\s*\("),
+    re.compile(r"\burllib\.request\.(?:Request|build_opener)\b"),
+    re.compile(r"\baiohttp\.ClientSession\b"),
 )
 
-#: 扫描豁免：治理层自身、以及只做离线确定性计算的模块。
+#: 通过子进程调外部下载器的程序名（``subprocess.run(["curl", ...])`` 之类）。用 AST 判定首个参数字面量，
+#: 不用文本正则：``rules.py`` 的护栏规则里有 ``curl`` / ``wget`` 字面量，那是检测对象，不是调用。
+_DOWNLOADER_PROGRAMS = frozenset({"curl", "wget"})
+_SUBPROCESS_FUNCTIONS = frozenset({"run", "Popen", "call", "check_call", "check_output", "system", "popen"})
+
+#: 扫描豁免：治理层自身、以及只连**部署方 / harness 自己指定的回环或 compose 内服务**、从不处理用户问题的模块。
+#: 每一项都必须写明理由；新增豁免等于承认"这里有出站但不进治理清单"，要评审。
+#:
+#: - ``inventory.py``：治理层自身（含上面的模式字面量）。
+#: - ``harness/mcp_http_eval.py``（P7-S11 裁决）：评测里代浏览器访问**本地假授权服务器**的原始 socket
+#:   （``browser_authorize``，注释里早已写明为何不用 ``http.client``）；目的地是 harness 自己起的回环假服务，
+#:   无任何生产调用方，也不经过用户输入。
+#: - ``webapp/smoke.py``（P7-S11 裁决）：compose 冒烟探针的 ``urllib.request``，**此前扫描只抓 ``urlopen(``，
+#:   所以一直没看见它**。目的地是 ``SMOKE_BASE_URL``（compose 内的 ``app:8000``，部署方设定，不是模型或用户
+#:   输入），只在 ``docker compose run smoke`` 里执行，不在应用进程内。**不登记成出站站点**：登记会让人以为
+#:   它走限流 / 预算 / 熔断，而冒烟探针本来就不该经过 ``ProviderGateway``。
 _EGRESS_SCAN_EXEMPT: frozenset[str] = frozenset(
     {
         "water_agent/runtime/governance/inventory.py",
+        "water_agent/harness/mcp_http_eval.py",
+        "water_agent/webapp/smoke.py",
     }
 )
 
@@ -442,10 +468,49 @@ def registered_call_site_modules() -> frozenset[str]:
     return frozenset(site.egress_module for site in PROVIDER_CALL_SITES)
 
 
+def _spawns_downloader(text: str) -> bool:
+    """模块里是否有 ``subprocess`` / ``os.system`` 类调用，且其首个参数（字面量字符串或字面量列表 / 元组的首项）
+    是 ``curl`` / ``wget``。解析失败的文件按"不命中"处理（语法错误由别处的测试暴露）。"""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else "")
+        if name not in _SUBPROCESS_FUNCTIONS or not node.args:
+            continue
+        first = node.args[0]
+        if isinstance(first, (ast.List, ast.Tuple)) and first.elts:
+            first = first.elts[0]
+        literal = _leftmost_string_literal(first)
+        if literal is not None:
+            words = literal.strip().split()
+            if words and words[0].rsplit("/", 1)[-1] in _DOWNLOADER_PROGRAMS:
+                return True
+    return False
+
+
+def _leftmost_string_literal(node: ast.expr) -> str | None:
+    """表达式最左边的字符串字面量：``'wget ' + url``、``f'curl {url}'``、``'curl %s' % url`` 都取到程序名那一段。
+    取不到（变量、调用结果）返回 ``None``——静态判定看不见运行时才拼出来的程序名，这是已知局限。"""
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp):
+        return _leftmost_string_literal(node.left)
+    if isinstance(node, ast.JoinedStr) and node.values:
+        return _leftmost_string_literal(node.values[0])  # type: ignore[arg-type]
+    return None
+
+
 def scan_remote_egress_modules() -> frozenset[str]:
     """静态扫描包内实际发起远程调用的模块（相对 `src/` 的 posix 路径）。
 
-    只做代码特征匹配，不导入模块——避免扫描本身触发 provider 构造。
+    代码特征匹配（正则）加一条 AST 判定（子进程调 ``curl`` / ``wget``），不导入模块——避免扫描本身触发 provider 构造。
     """
     found: set[str] = set()
     for path in _iter_package_modules():
@@ -453,7 +518,7 @@ def scan_remote_egress_modules() -> frozenset[str]:
         if rel in _EGRESS_SCAN_EXEMPT:
             continue
         text = path.read_text(encoding="utf-8")
-        if any(pattern.search(text) for pattern in _EGRESS_PATTERNS):
+        if any(pattern.search(text) for pattern in _EGRESS_PATTERNS) or _spawns_downloader(text):
             found.add(rel)
     return frozenset(found)
 
