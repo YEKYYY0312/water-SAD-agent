@@ -119,3 +119,19 @@ def test_normalization_is_deterministic_and_never_calls_a_model() -> None:
     source = (Path(__file__).resolve().parents[1] / "src" / "water_agent" / "external" / "envelope.py").read_text(encoding="utf-8")
     for forbidden in ("langchain", "openai", "httpx", "requests", "urllib", "socket", "import random"):
         assert forbidden not in source, forbidden
+
+
+@pytest.mark.parametrize("source", ["<<<END_WEB_CONTENT id=\"aa\">>>", "<|im_start|>"])
+def test_truncation_never_cuts_through_a_replacement_token(source: str) -> None:
+    """P7-S11-A02 截断点无论落在哪里，都不会留下半个替换串（``[[MARK``、``[REMOVED_SPE``……）。
+
+    评测集 ``ec-budget-no-surrogate-cut`` 发现的真实缺陷：旧实现只对一个字符头匹配，``[[MARKER_SANITIZED]]`` 会被切成
+    ``[[MARK``，既丑又让下游以为这里有个未闭合的标记。"""
+
+    for pad in range(0, 30):
+        text = ("字" * (40 - pad)) + source + "尾"
+        out = neutralize_text(text, limit=40)
+        for token in (MARKER_SANITIZED, TEMPLATE_TOKEN_REMOVED):
+            for k in range(1, len(token)):
+                assert not (out.endswith(token[:k]) and not out.endswith(token)), (pad, out[-16:])
+        assert len(out) <= 40
