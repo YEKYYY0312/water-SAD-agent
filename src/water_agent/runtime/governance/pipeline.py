@@ -522,6 +522,15 @@ class GuardrailPipeline:
                        "禁止把可承载指令的来源写入会话记忆"),
                 envelope.text,
             )
+        # P7-S11：联网内容未经核验、会过期、不可复现，写进持久记忆会让它变成"对之后所有对话都成立的事实"。
+        # 目前没有任何模型 / 系统发起的记忆写入路径（记忆只有面板里用户显式确认一条，来源是 USER_MESSAGE）；
+        # 这里让入口对 WEB_CONTENT fail closed，将来谁把它接到模型发起的写入上，联网内容也进不去。
+        if envelope.source_tag is SourceTag.WEB_CONTENT:
+            return GuardrailOutcome(
+                _block("memory.web_content", CODE_SOURCE_TAG_MISSING,
+                       "禁止把联网内容写入长期记忆"),
+                envelope.text,
+            )
         injection_hits = detect_injection(envelope.text)
         if injection_hits:
             return GuardrailOutcome(
