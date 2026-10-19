@@ -33,6 +33,14 @@ BASE_TOOL_SITES = frozenset({ASSEMBLY_MODULE, "harness/local_model_compat.py"})
 #: P7-I07：只有这两条装配路径构图（装配快照的捕获点前提）。
 AGENTIC_APP_CALLERS = frozenset({"runtime/agentic.py", "harness/runner.py"})
 
+#: P7-I07 的评测白名单（P7-S11）：这些模块**为了验证图本身的行为**直接调用 ``build_agentic_app``，每条要说明为什么不算第二条装配路径。
+#: 它们不进装配快照的捕获点前提（快照只采 ``AGENTIC_APP_CALLERS`` 的 profile）；工具仍经生产的 ``assemble_tools`` 装配，
+#: 只是图的输入里多一个夹具工具——``AgenticSession`` 没有注入额外插件的通道，而 S11 还没有任何生产联网工具可以走会话路径验证。
+#: S12 的 ``web_search`` 接入生产装配后，这条白名单应当收窄或删除（届时评测改走 ``AgenticSession``）。
+EVAL_GRAPH_CALLERS: dict[str, str] = {
+    "harness/external_content_eval.py": "external_content_p0 的回合污点用例：经生产 assemble_tools + 生产图验证夹具联网工具的污点 / 披露 / 缓存 / 网址追溯",
+}
+
 
 def _modules() -> Iterator[tuple[str, ast.Module]]:
     for path in sorted(SRC.rglob("*.py")):
@@ -119,7 +127,9 @@ def test_invariants_hold(invariant: str) -> None:
         assert GRANTABLE_CAPABILITIES == frozenset({Capability.MCP_INVOKE})
     elif invariant == "P7-I07":
         callers = _callers("build_agentic_app")
-        assert callers == AGENTIC_APP_CALLERS, sorted(callers)
+        assert callers - set(EVAL_GRAPH_CALLERS) == AGENTIC_APP_CALLERS, sorted(callers)
+        stale = set(EVAL_GRAPH_CALLERS) - callers
+        assert not stale, f"评测白名单条目已不再构图，应删除：{sorted(stale)}"
     else:  # pragma: no cover - 参数化列表与分支一一对应
         raise AssertionError(invariant)
 
