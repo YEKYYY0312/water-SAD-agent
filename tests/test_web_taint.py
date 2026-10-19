@@ -26,7 +26,7 @@ from water_agent.runtime.governance.cache import REASON_WEB_CONTENT_USED, evalua
 from water_agent.runtime.governance.contracts import CallCategory, Capability, SourceTag
 from water_agent.runtime.governance.pipeline import GuardrailPipeline
 from water_agent.tools.base import ToolSpec
-from water_agent.tools.cite import build_cite_clauses_tool
+from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
 from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.registry import ToolRegistry
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
@@ -56,7 +56,8 @@ def _app(responses, *, web_result_source: SourceTag | None = SourceTag.WEB_CONTE
     pipeline = GuardrailPipeline(declared_capabilities={"fixture_web_lookup": Capability.CALCULATE})
     registry = ToolRegistry(pipeline=pipeline)
     registry.register(build_retrieve_clauses_tool(retriever))
-    registry.register(build_cite_clauses_tool(lambda: set()))
+    cite_spec, _ = build_cite_clauses_tool_with_context_check(context_source=lambda: set())
+    registry.register(cite_spec)
     registry.register(_web_spec(web_result_source))
     tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
     return build_agentic_app(
