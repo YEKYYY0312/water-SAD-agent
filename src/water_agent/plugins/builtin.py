@@ -11,8 +11,9 @@ from pathlib import Path
 
 from water_agent.drawing.drawing_root import DrawingRootResult
 from water_agent.plugins.base import AssemblyContext, PluginContribution, ToolPlugin
-from water_agent.plugins.exposure import CORE, ExposureRule
+from water_agent.plugins.exposure import CORE, REQUEST, ExposureRule
 from water_agent.plugins.mcp_gateway import McpGatewayPlugin
+from water_agent.runtime.governance.contracts import Capability
 from water_agent.skills.library import BUILTIN_SKILLS_DIR, SkillLibrary, build_skill_library
 from water_agent.skills.models import Skill
 from water_agent.tools.calc_velocity import calc_velocity_spec
@@ -21,6 +22,9 @@ from water_agent.tools.load_skill import build_load_skill_tool, fit_catalog
 from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
 from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
+from water_agent.web_search.config import WebSearchConfig, resolve_web_search_config
+from water_agent.web_search.runtime import WebSearchRuntime
+from water_agent.web_search.tool import build_web_search_tool
 
 #: 内置插件的注册顺序（规格 P7-I04）。顺序就是工具的注册顺序，决定提示词工具指引的排列
 #: 与截断位置（800 字预算；MCP 工具排在最后，总是最先被截掉）。
@@ -30,6 +34,7 @@ BUILTIN_PLUGIN_ORDER: tuple[str, ...] = (
     "materials",
     "drawing",
     "mcp_gateway",
+    "web_search",
     "skills",
 )
 
@@ -194,6 +199,69 @@ class SkillsPlugin:
         )
 
 
+#: ``web_search`` 组 id（= 插件 id）。入口按它向 ``ToolExposurePolicy.decide(request_enabled=…)`` 声明"本条消息勾选了联网"。
+WEB_SEARCH_GROUP = "web_search"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WebSearchContribution(PluginContribution):
+    """联网搜索插件的贡献，带回解析后的部署配置（``status`` / ``provider`` / 主机名；**不含密钥与基址**的 repr）。"""
+
+    config: WebSearchConfig = field(default_factory=lambda: WebSearchConfig(status="off"))
+
+
+class WebSearchPlugin:
+    """联网搜索（P7-S12）。两道门缺一不可：
+
+    1. **部署**（运维）：开关 + provider + 基址 [+ 密钥] 缺一即 ``skipped``、不注册工具；
+    2. **本条消息**（用户勾选，``requested``）：没勾选同样 ``skipped``（``detail="not_requested"``）——不注册工具、不授予能力，
+       装配面与部署关闭时逐字相同。
+
+    两道都过才贡献工具、``REQUEST`` 暴露规则与 ``Capability.WEB_SEARCH``（``GRANTABLE_CAPABILITIES`` 允许，与 MCP 插件追加
+    ``MCP_INVOKE`` 同一机制）。本轮是否真的开放，还要看暴露预算：最紧组合下整组让位，由外层图向用户发
+    ``WEB_SEARCH_NOT_EXPOSED``。
+
+    非法配置（开关写错、provider 拼错、基址不是合法 URL）抛 ``WebSearchConfigError``：装配期响亮失败，不静默当成关闭。
+    """
+
+    plugin_id = "web_search"
+
+    def __init__(
+        self,
+        runtime: WebSearchRuntime | None = None,
+        *,
+        config: WebSearchConfig | None = None,
+        requested: bool = False,
+    ) -> None:
+        self._runtime = runtime if runtime is not None else WebSearchRuntime()
+        self._config = config
+        self._requested = requested
+
+    @property
+    def runtime(self) -> WebSearchRuntime:
+        return self._runtime
+
+    def contribute(self, ctx: AssemblyContext) -> WebSearchContribution:
+        # 配置总是解析（没勾选也解析）：写错的部署配置必须装配期响亮失败，而不是等到第一次有人勾选联网才发现
+        config = self._config if self._config is not None else resolve_web_search_config()
+        if not config.ready:
+            return WebSearchContribution(
+                plugin_id=self.plugin_id, status="skipped", detail=config.detail or config.status, config=config
+            )
+        if not self._requested:
+            # 部署已就绪，但这条消息没勾选联网：不注册工具、不授予能力——与部署关闭时的装配面逐字相同
+            return WebSearchContribution(
+                plugin_id=self.plugin_id, status="skipped", detail="not_requested", config=config
+            )
+        return WebSearchContribution(
+            plugin_id=self.plugin_id,
+            tools=(build_web_search_tool(config, self._runtime),),
+            grants=frozenset({Capability.WEB_SEARCH}),
+            config=config,
+            exposure=REQUEST,
+        )
+
+
 class _Remembering:
     """包一层插件：记下它贡献的工具，供 :class:`SkillsPlugin` 核对 ``requires_tools``。"""
 
@@ -216,10 +284,15 @@ def builtin_plugins(
     mcp: McpGatewayPlugin,
     skills_disabled: Sequence[str] = (),
     skills_builtin_dir: Path = BUILTIN_SKILLS_DIR,
+    web_search_runtime: WebSearchRuntime | None = None,
+    web_search_config: WebSearchConfig | None = None,
+    web_search_requested: bool = False,
 ) -> tuple[ToolPlugin, ...]:
     """按 :data:`BUILTIN_PLUGIN_ORDER` 排好的全部内置插件。MCP 插件由调用方给出来源模式。
 
     ``skills_disabled`` 是 Web 管理层里停用的 skill 名（P7-S9）；开关与目录由环境变量决定。
+    ``web_search_*``（P7-S12）：联网搜索工具的会话级依赖（本轮私有上下文、请求上下文、网关、trace）、调用方已解析的部署配置
+    （不给就在装配时读环境）与"这条消息是否勾选了联网"（缺省否：CLI / runner 没有勾选入口）。
     """
 
     tool_plugins = tuple(
@@ -228,6 +301,8 @@ def builtin_plugins(
     )
     plugins: tuple[ToolPlugin, ...] = (
         *tool_plugins,
+        # 不包 _Remembering：skill 的 requires_tools 不能依赖一个"逐条消息才可能出现"的工具
+        WebSearchPlugin(web_search_runtime, config=web_search_config, requested=web_search_requested),
         SkillsPlugin(earlier=tool_plugins, disabled=skills_disabled, builtin_dir=skills_builtin_dir),
     )
     assert tuple(plugin.plugin_id for plugin in plugins) == BUILTIN_PLUGIN_ORDER
@@ -239,6 +314,7 @@ __all__ = [
     "DRAWING_EXPOSURE",
     "MATERIALS_EXPOSURE",
     "SKILL_FIXED_KEYWORDS",
+    "WEB_SEARCH_GROUP",
     "ClausesPlugin",
     "DrawingContribution",
     "DrawingPlugin",
@@ -246,5 +322,7 @@ __all__ = [
     "MaterialsPlugin",
     "SkillsContribution",
     "SkillsPlugin",
+    "WebSearchContribution",
+    "WebSearchPlugin",
     "builtin_plugins",
 ]
