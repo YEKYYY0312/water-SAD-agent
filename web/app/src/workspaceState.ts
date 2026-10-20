@@ -69,6 +69,22 @@ export const emptyRunState = (): WorkspaceRunState => ({
   model: null,
 });
 
+/**
+ * 后端放进 run.warnings 的稳定码 → 中文说明（P7-S12）。用 Map 而不是对象字面量：
+ * 警告文本来自服务端，`constructor` 之类的串不能在原型链上查到东西。
+ */
+const WARNING_TEXT: ReadonlyMap<string, string> = new Map([
+  [
+    "WEB_SEARCH_NOT_EXPOSED",
+    "本条消息勾选了联网，但这一轮联网搜索没有开放（工具预算已满或联网服务暂不可用），本回答未联网",
+  ],
+]);
+
+/** 警告怎么显示：登记过的稳定码换成中文说明，其余一律原样——不改变其他 warning 现有的显示。 */
+export function warningDisplayText(warning: string): string {
+  return WARNING_TEXT.get(warning.trim()) ?? warning;
+}
+
 /** 对话里的一条消息。agent 消息带收口状态：失败的回答也要留在对话里，但必须标出来。 */
 export type ConversationMessage = {
   role: "user" | "agent";
@@ -276,7 +292,9 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       : next;
   }
   if (event.type === "warning") {
-    const warning = asString(payload.message) ?? asString(payload.code);
+    const code = asString(payload.code);
+    // 登记过中文说明的稳定码优先于 message：message 可能是英文原文，那样用户看到的就不是中文说明
+    const warning = (code && WARNING_TEXT.has(code) ? code : undefined) ?? asString(payload.message) ?? code;
     return warning && !next.warnings.includes(warning)
       ? { ...next, warnings: [...next.warnings, warning] }
       : next;

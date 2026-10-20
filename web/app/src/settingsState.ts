@@ -4,11 +4,15 @@ import type { CompatibilityStatus, CredentialSource, CredentialStatus, LlmEndpoi
 /** 与后端 config/credentials.py 的 MIN_CREDENTIAL_LENGTH 保持一致。 */
 export const MIN_CREDENTIAL_LENGTH = 8;
 
+/** 联网搜索服务的密钥槽位（P7-S12）。地址 / 提供方 / 开关是运维的，面板只写这一把密钥。 */
+export const WEB_SEARCH_KEY_SLOT = "WATER_AGENT_WEB_SEARCH_API_KEY";
+
 const CREDENTIAL_PURPOSES: Record<string, string> = {
   DEEPSEEK_API_KEY: "对话模型（OpenAI 兼容端点，缺省 DeepSeek）",
   WATER_AGENT_LLM_API_KEY: "对话模型（OpenAI 兼容端点专用 Key）",
   DASHSCOPE_API_KEY: "向量检索（OpenAI 兼容 embedding 端点，缺省阿里云百炼）＋重排（阿里云百炼，可选）",
   WATER_AGENT_EMBEDDING_API_KEY: "向量检索（OpenAI 兼容 embedding 端点专用 Key）",
+  [WEB_SEARCH_KEY_SLOT]: "联网搜索（搜索服务的 API Key）",
 };
 
 /** 每把 Key 管什么、什么时候必须填（P7-S10：端点改到别家时不回落旧 Key——密钥只发给所属服务商）。 */
@@ -17,6 +21,7 @@ const CREDENTIAL_HINTS: Record<string, string> = {
   WATER_AGENT_LLM_API_KEY: "对话端点不是 DeepSeek 时必填；配了它就优先用它。",
   DASHSCOPE_API_KEY: "同时服务向量检索（缺省百炼端点）、重排与 PDF 视觉审阅。不配也能提问：检索会走关键词模式。",
   WATER_AGENT_EMBEDDING_API_KEY: "embedding 端点不是百炼时必填；换 embedding 模型必须重建索引。",
+  [WEB_SEARCH_KEY_SLOT]: "只有运维选定的搜索服务需要密钥时才用到；搜索服务的地址、提供方与开关由运维设置，这里改不了。",
 };
 
 const SOURCE_LABELS: Record<CredentialSource, string> = {
@@ -84,6 +89,19 @@ export function credentialRows(statuses: CredentialStatus[]): CredentialRow[] {
     updatedAt: formatUpdatedAt(status.updated_at),
     tone: status.configured ? "succeeded" : "not_configured",
   }));
+}
+
+/** 对话端点卡片自己填写的两把 Key：端点可编辑时，「其他密钥」里不再重复出同槽位的卡片。 */
+export const CHAT_KEY_SLOTS: ReadonlySet<string> = new Set(["DEEPSEEK_API_KEY", "WATER_AGENT_LLM_API_KEY"]);
+
+/**
+ * 「模型与密钥」页底部「其他密钥」要列哪些行。联网搜索的槽位只在「联网搜索」页填写：
+ * 那里保存后会同步刷新输入框旁「联网」开关的就绪状态，这里写则不会；两处各放一份表单也容易让人填错地方。
+ */
+export function otherCredentialRows(rows: CredentialRow[], endpointOwnsChatKeys: boolean): CredentialRow[] {
+  return rows.filter(
+    (row) => row.name !== WEB_SEARCH_KEY_SLOT && !(endpointOwnsChatKeys && CHAT_KEY_SLOTS.has(row.name)),
+  );
 }
 
 /**
@@ -190,12 +208,13 @@ export const COMPATIBILITY_BILLING_NOTE = "运行检查会对当前对话端点�
 // 设置页副栏
 // ---------------------------------------------------------------------------
 
-export type SettingsSection = "models" | "skills" | "mcp";
+export type SettingsSection = "models" | "skills" | "mcp" | "web_search";
 
 export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; adminOnly: boolean }[] = [
   { id: "models", label: "模型与密钥", adminOnly: false },
   { id: "skills", label: "Skill 库", adminOnly: false },
   { id: "mcp", label: "MCP 扩展", adminOnly: true },
+  { id: "web_search", label: "联网搜索", adminOnly: false },
 ];
 
 /**
