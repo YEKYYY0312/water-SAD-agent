@@ -196,6 +196,11 @@ class Capability(str, Enum):
     #: 依据人工配置（mcp_servers.json）显式授予时才生效，这就是 P4「权限可配置」
     #: 的落点。危险操作（写/破坏性）不走本能力，见 `requires_human_confirmation`。
     MCP_INVOKE = "mcp_invoke"
+    #: P7-S12：联网搜索（**只读外发**，目的地由运维写死的基址决定，模型只控制查询字符串）。
+    #: **不在** DEFAULT_LOCAL_CAPABILITIES 与 Web 成员能力集内；只有部署开关已开且用户对**这一条消息**
+    #: 勾选了"联网"时，装配期才由插件追加给主体（``GRANTABLE_CAPABILITIES``）。
+    #: 与下面的 ``NETWORK_FETCH`` 语义不同：后者是"目的地由模型决定"，仍在危险集里、仍被构造期拒绝。
+    WEB_SEARCH = "web_search"
     # 以下能力当前**没有任何主体被授予**（见 DEFAULT_LOCAL_CAPABILITIES），
     # 存在的意义是让 Step 14 的"默认拒绝"可被正例/反例测试覆盖。
     WRITE_FILE = "write_file"
@@ -524,6 +529,8 @@ class ProviderKind(str, Enum):
     BAILIAN_VISION = "bailian_vision"
     #: P7-S8：远程 MCP server（Streamable HTTP）与其 OAuth 授权服务器。出口只由运维配置的 URL 决定。
     MCP_REMOTE = "mcp_remote"
+    #: P7-S12：联网搜索服务（运维配置的单一基址；searxng 自托管或 brave 公网 API）。
+    WEB_SEARCH = "web_search"
 
 
 class CallCategory(str, Enum):
@@ -541,6 +548,8 @@ class CallCategory(str, Enum):
     MCP_TOOL_CALL = "mcp_tool_call"
     #: 设置面板「获取模型」：对用户填写的对话端点发一次 ``GET {base_url}/models``（管理员触发，不含用户问题）。
     MODEL_LIST = "model_list"
+    #: P7-S12：一次联网搜索（``web_search`` 工具发往运维配置的搜索服务的 GET）。
+    WEB_SEARCH = "web_search"
 
 
 class ProviderCall(BaseModel):

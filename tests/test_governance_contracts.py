@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -47,6 +48,7 @@ from water_agent.runtime.governance.contracts import (
     is_instruction_bearing,
     trust_level,
 )
+from water_agent.runtime.governance.gateway import ProviderGateway
 from water_agent.runtime.governance.inventory import (
     PROVIDER_CALL_SITES,
     TOOL_CAPABILITIES,
@@ -609,10 +611,95 @@ class TestInventoryCoverage:
         )
 
     def test_no_new_provider_call_site_in_s11(self) -> None:
-        """P7-S11-A05 S11 不新增出站站点：``governed_get`` 本步没有生产调用方，登记站点要等 S12 的 ``web_search``。"""
+        """P7-S11-A05 S11 不新增出站站点：``governed_get`` 本步没有生产调用方，登记站点要等 S12 的 ``web_search``。
+
+        P7-S12 起是 9：第 9 个站点正是 ``web_search``（``governed_get`` 的第一个生产调用方）。除它之外仍是 S11 时的 8 个。
+        """
         from water_agent.runtime.governance.inventory import PROVIDER_CALL_SITES
 
-        assert len(PROVIDER_CALL_SITES) == 8
+        assert len(PROVIDER_CALL_SITES) == 9
+        assert [site.site_id for site in PROVIDER_CALL_SITES if site.site_id != "web_search"] == [
+            "deepseek_chat_legacy_rag",
+            "deepseek_chat_agentic_loop",
+            "deepseek_chat_docgen_polish",
+            "deepseek_chat_judge",
+            "bailian_embedding_query",
+            "bailian_rerank",
+            "bailian_vision_pdf_review",
+            "mcp_streamable_http",
+        ]
+
+    def test_web_search_site_profile_and_tool_are_registered(self) -> None:
+        """P7-S12-A06 第 9 个出站站点 ``web_search``：逻辑调用点 ``web_search/tool.py``、出站原语在 ``mcp/http_transport.py``；
+        画像 15 s、只对瞬时错误重试一次、每主体每分钟 ≤ 20；熔断按 provider 主机分桶；工具登记在
+        ``PLUGIN_GRANTED_TOOL_CAPABILITIES``（能力不在默认集）；``GOVERNANCE_CONFIG_VERSION`` 已递进。"""
+        from water_agent.runtime.governance.config import (
+            DEFAULT_GOVERNANCE_CONFIG,
+            GOVERNANCE_CONFIG_VERSION,
+        )
+        from water_agent.runtime.governance.inventory import (
+            PLUGIN_GRANTED_TOOL_CAPABILITIES,
+            TOOLSPEC_SCAN_DIRS,
+        )
+        from water_agent.web_search.config import WebSearchConfig
+        from water_agent.web_search.tool import provider_call_for
+
+        site = call_site("web_search")
+        assert site.module == "water_agent/web_search/tool.py"
+        assert site.egress_module == "water_agent/mcp/http_transport.py"
+        assert site.provider is ProviderKind.WEB_SEARCH and site.category is CallCategory.WEB_SEARCH
+        assert site.required_capability is Capability.WEB_SEARCH
+        assert site.governed is True and site.cache_eligible is False
+        profile = DEFAULT_GOVERNANCE_CONFIG.profile_for(ProviderKind.WEB_SEARCH)
+        assert profile.timeout_seconds == 15.0 and profile.retry.max_attempts == 2
+        assert profile.rate_limit.max_requests_per_minute == 20
+        assert GOVERNANCE_CONFIG_VERSION == "p7-s12-2026-10-20"
+        call_a = provider_call_for(WebSearchConfig(status="ready", provider="searxng", base_url="https://a.example/"))
+        call_b = provider_call_for(WebSearchConfig(status="ready", provider="searxng", base_url="https://b.example/"))
+        assert ProviderGateway.breaker_key(call_a) != ProviderGateway.breaker_key(call_b)
+        assert call_a.required_capability is Capability.WEB_SEARCH
+        assert [entry.tool_name for entry in PLUGIN_GRANTED_TOOL_CAPABILITIES] == ["web_search"]
+        assert capability_for_tool("web_search") is Capability.WEB_SEARCH
+        assert Capability.WEB_SEARCH not in DEFAULT_LOCAL_CAPABILITIES
+        assert "web_search" in TOOLSPEC_SCAN_DIRS and "plugins" not in TOOLSPEC_SCAN_DIRS
+
+    def test_a_toolspec_in_web_search_without_a_capability_goes_red(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """P7-S12-A06 反证：扫描范围扩到 ``web_search/`` 是真的——在那里放一个没登记能力的 ToolSpec，``undeclared_tool_names`` 立即报出。"""
+        from water_agent.runtime.governance import inventory
+
+        package = tmp_path / "water_agent"
+        (package / "web_search").mkdir(parents=True)
+        (package / "tools").mkdir(parents=True)
+        (package / "web_search" / "rogue.py").write_text(
+            'from water_agent.tools.base import ToolSpec\n\nSPEC = ToolSpec(\n    name="rogue_web_lookup",\n)\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(inventory, "PACKAGE_ROOT", package)
+        assert inventory.undeclared_tool_names() == frozenset({"rogue_web_lookup"})
+
+    def test_web_search_usage_is_recorded_as_unknown(self) -> None:
+        """P7-S12-A06 搜索不返回 token 用量：网关账记 usage 未知、不估算成本（``governed_get`` 的既有语义，经生产工具复测）。"""
+        from tests.fixtures.fake_search_server import FakeSearchServer
+        from water_agent.runtime.governance.contracts import DEFAULT_LOCAL_CAPABILITIES as caps
+        from water_agent.web_search.config import WebSearchConfig
+        from water_agent.web_search.runtime import WebSearchRuntime
+        from water_agent.web_search.tool import build_web_search_tool
+
+        records: list[Any] = []
+        gateway = ProviderGateway(on_usage=records.append)
+        ctx = RequestContext(
+            principal=Principal.local("ws-usage", capabilities=caps | {Capability.WEB_SEARCH}),
+            request_id="ws-usage", thread_id="ws-usage",
+        )
+        with FakeSearchServer("ok") as server:
+            config = WebSearchConfig(status="ready", provider="searxng", base_url=server.base_url, allow_private=True)
+            spec = build_web_search_tool(config, WebSearchRuntime(request_context=lambda: ctx, gateway=lambda: gateway))
+            assert spec.execute(spec.args_model(query="给水管道经济流速"))["ok"] is True
+        assert len(records) == 1
+        assert records[0].usage_known is False and records[0].cost_usd is None
+        assert records[0].provider is ProviderKind.WEB_SEARCH
 
     def test_mcp_remote_site_is_registered_with_its_own_provider(self) -> None:
         site = call_site("mcp_streamable_http")
@@ -672,12 +759,16 @@ class TestInventoryCoverage:
 
         P7-S8-A04：P7-S8 后远程出口由 7 变 8：MCP Streamable HTTP 与其 OAuth 授权端点（``mcp_streamable_http``，
         唯一出站模块 ``mcp/http_transport.py``）——登记进清单、经 gateway、静态扫描能命中它。
+
+        P7-S12 后远程出口由 8 变 9（``web_search``，经 ``external/http_get.py::governed_get``，出站原语仍在
+        ``mcp/http_transport.py``），工具数由 6 变 7（``web_search`` 登记在 ``PLUGIN_GRANTED_TOOL_CAPABILITIES``：它所需的
+        ``WEB_SEARCH`` 能力不在默认能力集里，只在部署开关已开、用户对这条消息勾选联网时由插件追加）。
         """
         assert governance_coverage() == {
-            "provider_call_sites": 8,
-            "provider_governed": 8,
-            "tools": 6,
-            "tools_guardrail_validated": 6,
+            "provider_call_sites": 9,
+            "provider_governed": 9,
+            "tools": 7,
+            "tools_guardrail_validated": 7,
         }
         for site in PROVIDER_CALL_SITES:
             assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"

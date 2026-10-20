@@ -12,8 +12,10 @@ from water_agent.runtime.governance.contracts import Capability
 from water_agent.tools.base import ToolSpec
 
 #: 插件能追加给主体的能力（规格 P7-I06）。插件不是权限主体：除了"这台 MCP server 的工具
-#: 确实暴露了、所以主体需要 ``MCP_INVOKE`` 才能调用"，插件不得替主体申请任何能力。
-GRANTABLE_CAPABILITIES: frozenset[Capability] = frozenset({Capability.MCP_INVOKE})
+#: 确实暴露了、所以主体需要 ``MCP_INVOKE`` 才能调用"，以及（P7-S12）"联网搜索工具确实暴露了——部署开关已开、
+#: 用户对这一条消息勾选了联网——所以主体需要 ``WEB_SEARCH`` 才能调用"，插件不得替主体申请任何能力。
+#: ``NETWORK_FETCH``（目的地由模型决定）仍在危险集里，不在这里，也不被任何主体持有。
+GRANTABLE_CAPABILITIES: frozenset[Capability] = frozenset({Capability.MCP_INVOKE, Capability.WEB_SEARCH})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
