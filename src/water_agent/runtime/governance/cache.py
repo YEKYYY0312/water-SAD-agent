@@ -79,6 +79,9 @@ REASON_EMPTY_ANSWER = "empty_answer"
 REASON_REDACTED_OR_BLOCKED = "redacted_or_blocked_content"
 REASON_NO_STORE = "request_no_store"
 REASON_CALC_PRESENT = "calc_result_present"
+#: P7-S11：本回合用过联网内容（``web_tainted``）。网络内容未经核验、会过期、不可复现，写进精确缓存会把它
+#: 变成"对所有后来者都成立的回答"。恒拒绝（SDD17-I14）。
+REASON_WEB_CONTENT_USED = "web_content_used"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +110,7 @@ def evaluate_store_eligibility(
     answer: str,
     contains_redacted_or_blocked: bool = False,
     calc_result_present: bool = False,
+    web_tainted: bool = False,
     no_store: bool = False,
 ) -> StoreEligibility:
     """判定一条回答能否写入精确缓存。
@@ -125,6 +129,7 @@ def evaluate_store_eligibility(
         answer: 最终回答；空回答无缓存价值。
         contains_redacted_or_blocked: 内容是否含被脱敏/阻断的部分。
         calc_result_present: 是否携带计算结果（铁律①：计算不进缓存）。
+        web_tainted: 本回合是否用过联网内容（P7-S11）；为真恒不可缓存。
         no_store: 请求是否显式 ``no_store``。
     """
     if no_store:
@@ -135,6 +140,8 @@ def evaluate_store_eligibility(
         return StoreEligibility.no(REASON_TEMPERATURE)
     if calc_result_present:
         return StoreEligibility.no(REASON_CALC_PRESENT)
+    if web_tainted:
+        return StoreEligibility.no(REASON_WEB_CONTENT_USED)
     if not citation_verified:
         return StoreEligibility.no(REASON_CITATION)
     if not output_guardrails_passed:
@@ -572,6 +579,7 @@ __all__ = [
     "REASON_REDACTED_OR_BLOCKED",
     "REASON_SPEC_VERSION_UNKNOWN",
     "REASON_TEMPERATURE",
+    "REASON_WEB_CONTENT_USED",
     "AnswerCache",
     "CacheKeyFactors",
     "CacheStats",
