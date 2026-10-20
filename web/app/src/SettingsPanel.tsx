@@ -3,7 +3,8 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { McpAdminPanel } from "./McpAdminPanel";
 import { ModelCatalogPanel } from "./ModelCatalogPanel.tsx";
 import { SkillLibraryPanel } from "./SkillLibraryPanel";
-import { LlmEndpointApi, SettingsApi, SettingsApiError, type CredentialStatus, type LlmEndpointView } from "./settingsApi";
+import { LlmEndpointApi, SettingsApi, type CredentialStatus, type LlmEndpointView } from "./settingsApi";
+import { CredentialCard, PanelError, errorInfo } from "./settingsShared.tsx";
 import {
   COMPATIBILITY_BILLING_NOTE,
   clampSection,
@@ -16,135 +17,19 @@ import {
   modelChoices,
   modelReadinessMessage,
   modelReadinessTone,
+  otherCredentialRows,
   validateBaseUrlInput,
   validateCredentialInput,
   validateEndpointInput,
   visibleSections,
   type SettingsSection,
 } from "./settingsState";
+import { WebSearchPanel } from "./WebSearchPanel.tsx";
 import type { SystemCapabilities } from "./workspaceApi";
 import { CapabilityStatus } from "./workspaceInspector";
 
 const api = new SettingsApi();
 const endpointApi = new LlmEndpointApi();
-
-function errorInfo(error: unknown): { code: string; message: string } {
-  if (error instanceof SettingsApiError) return { code: error.code, message: error.message };
-  return { code: "WEB_API_ERROR", message: "请求未完成，请稍后重试。" };
-}
-
-function PanelError({ error }: { error: { code: string; message: string } | null }) {
-  if (!error) return null;
-  return (
-    <div className="dialog-error" role="alert">
-      <strong>{error.code}</strong>
-      <span>{error.message}</span>
-    </div>
-  );
-}
-
-function CredentialCard({
-  row,
-  onSave,
-  onClear,
-  onBack,
-}: {
-  row: ReturnType<typeof credentialRows>[number];
-  onSave: (name: string, value: string) => Promise<void>;
-  onClear: (name: string) => Promise<void>;
-  onBack?: () => void;
-}) {
-  const [value, setValue] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ code: string; message: string } | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const complaint = validateCredentialInput(value);
-    if (complaint) {
-      setError({ code: "WEB_CREDENTIAL_INVALID", message: complaint });
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await onSave(row.name, value);
-      // 立刻丢弃输入：值已落盘，留在 DOM 里只会增加被旁人看到的机会。
-      setValue("");
-      setSaved(true);
-    } catch (caught) {
-      setError(errorInfo(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const clear = async () => {
-    setBusy(true);
-    setError(null);
-    setSaved(false);
-    try {
-      await onClear(row.name);
-      setValue("");
-    } catch (caught) {
-      setError(errorInfo(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form className="settings-card dialog-form" onSubmit={submit}>
-      <div className="settings-card-head">
-        <CapabilityStatus label={row.purpose} status={row.tone} message={row.sourceLabel} />
-      </div>
-      <code className="settings-card-name">{row.name}</code>
-      {row.hint && <p className="field-hint">{row.hint}</p>}
-      {row.updatedAt && <p className="field-hint">更新于 {row.updatedAt}</p>}
-
-      <label>
-        {row.configured ? "替换密钥" : "填写密钥"}
-        <input
-          type="password"
-          value={value}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={row.configured ? "留空则保持不变" : "sk-…"}
-          onChange={(event) => setValue(event.target.value)}
-          disabled={busy}
-        />
-      </label>
-      <p className="field-hint">
-        只粘贴密钥本身，不要带 <code>export</code> 或引号。保存后立即生效，无需重启。
-      </p>
-
-      <PanelError error={error} />
-      {saved && (
-        <div className="workspace-feedback feedback-info" role="status">
-          已保存，下一次提问即使用新密钥。
-          {onBack && (
-            <button type="button" className="button-primary" onClick={onBack}>
-              返回会话提问
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="dialog-actions">
-        {row.configured && (
-          <button type="button" className="button-danger" onClick={clear} disabled={busy}>
-            清除
-          </button>
-        )}
-        <button type="submit" className="button-primary" disabled={busy || !value}>
-          {busy ? "正在保存…" : "保存"}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 /**
  * 对话模型端点（P7-S10）：任意 OpenAI 兼容端点。改端点就决定了用户问题与检索条文发往哪里，所以只有管理员能改、
@@ -428,7 +313,6 @@ function LlmEndpointCard({ onChanged }: { onChanged: () => void }) {
 }
 
 const MANUAL_OPTION = "__manual__";
-const CHAT_KEY_SLOTS = new Set(["DEEPSEEK_API_KEY", "WATER_AGENT_LLM_API_KEY"]);
 
 /** 「模型与密钥」页：真实模型就绪度、对话端点（地址 + Key + 获取模型）、其余密钥。 */
 function ModelSettingsPage({
@@ -491,9 +375,7 @@ function ModelSettingsPage({
   };
 
   const realLlm = capabilities ? capabilities.real_llm : null;
-  const rows = (statuses ? credentialRows(statuses) : []).filter(
-    (row) => !(endpointOwnsChatKeys && CHAT_KEY_SLOTS.has(row.name)),
-  );
+  const rows = otherCredentialRows(statuses ? credentialRows(statuses) : [], endpointOwnsChatKeys);
 
   return (
     <div className="settings-page-body">
@@ -553,10 +435,13 @@ function ModelSettingsPage({
 export function SettingsPanel({
   capabilities,
   onCapabilitiesChanged,
+  onWebSearchChanged,
   onBack,
 }: {
   capabilities: SystemCapabilities | null;
   onCapabilitiesChanged: () => void;
+  /** 联网搜索的密钥写入 / 清除后调用：工作台据此重新读取就绪状态，输入框旁的「联网」开关随之出现或消失。 */
+  onWebSearchChanged?: () => void;
   onBack?: () => void;
 }) {
   // 授权回调回到首页时直接停在 MCP 扩展（结果提示在那一页）；其余从「模型与密钥」开始
@@ -613,6 +498,8 @@ export function SettingsPanel({
           {section === "skills" && <SkillLibraryPanel capabilities={capabilities} onOpenMcp={() => setRequested("mcp")} />}
           {/* 只有管理员看得到：读接口 403 时整块不渲染（P7-S6） */}
           {section === "mcp" && <McpAdminPanel />}
+          {/* 所有登录用户可看只读状态；密钥槽位只给管理员，地址 / 提供方 / 开关是运维的（P7-S12） */}
+          {section === "web_search" && <WebSearchPanel onChanged={onWebSearchChanged} onBack={onBack} />}
         </div>
       </div>
     </section>

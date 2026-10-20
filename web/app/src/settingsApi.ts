@@ -29,7 +29,8 @@ export class SettingsApiError extends Error {
   }
 }
 
-async function decode<T>(response: Response): Promise<T> {
+/** 解信封：失败抛 SettingsApiError。导出给 webSearchApi 复用，不再抄第三份。 */
+export async function decode<T>(response: Response): Promise<T> {
   let envelope: ApiEnvelope<T>;
   try {
     envelope = (await response.json()) as ApiEnvelope<T>;
