@@ -140,6 +140,9 @@ class _RunHandle:
     # P7-S15：本次运行**实际选用**的模型 id（消息 > 会话默认；路由层已按目录 / 角色 / 逐对验证校验）。
     # ``None`` = 全局模型。恢复确认时以库里的 ``runs.model`` 为准，不会静默换回默认模型。
     model: str | None = None
+    # P7-S12：本条消息是否勾选了联网。**只在进程内**，不进 runs 表、不进会话默认（与 S15 的模型选择刻意不同：
+    # 勾选是逐条消息的瞬时同意）。确认门挂起后同进程恢复时沿用；进程重启后恢复时为 False（恢复的那一段不再联网）。
+    web_search: bool = False
     calc_inputs: dict[str, float] = field(default_factory=dict)
     tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
     # P7-S7：停在人工确认门（不是终态，``finalized`` 仍为 False）。挂起期间 SSE 流以
@@ -243,6 +246,9 @@ class WebAgenticSessionFactory:
     #: P7-S15：本工厂的 ``create`` 接受 ``model``（同端点、同 Key 槽，只换模型 id）。协议型替身不声明它，
     #: ``RunManager`` 就不传该 kwarg——选了模型而工厂不支持时直接报错，不静默用全局模型。
     supports_model_choice = True
+    #: P7-S12：本工厂的 ``create`` 接受 ``web_search``（用户对这一条消息勾选了联网）。同理：协议型替身不声明就不传，
+    #: 勾选了而工厂不支持时直接报错，不静默忽略勾选。
+    supports_web_search = True
 
     def __init__(
         self,
@@ -307,6 +313,7 @@ class WebAgenticSessionFactory:
         project_id: UUID | None,
         stack: ExitStack,
         model: str | None = None,
+        web_search: bool = False,
     ) -> Any:
         saver = stack.enter_context(postgres_checkpointer(self.database))
         scoped_saver = ScopedPostgresSaver(saver, self.sessions, user_id)
@@ -335,6 +342,7 @@ class WebAgenticSessionFactory:
             checkpointer=scoped_saver,
             mcp_lease=lease,
             confirmation=True,
+            **({"web_search": True} if web_search else {}),
         )
 
     def close(self) -> dict[str, Any]:
@@ -407,10 +415,14 @@ class RunManager:
         query: str,
         attachment_ids: list[str] | None = None,
         model: str | None = None,
+        web_search: bool = False,
     ) -> dict[str, str]:
         if model is not None and not getattr(self.session_factory, "supports_model_choice", False):
             # 选了模型却没有会话工厂能兑现它：报错，绝不静默用全局模型作答（P7-I21）
             raise ValueError("session factory does not support model choice")
+        if web_search and not getattr(self.session_factory, "supports_web_search", False):
+            # 勾选了联网却没有会话工厂能兑现它：报错，绝不静默当成没勾选
+            raise ValueError("session factory does not support web search")
         run_key = str(run_id)
         handle = _RunHandle(
             run_id=run_key,
@@ -419,6 +431,7 @@ class RunManager:
             project_id=None if project_id is None else UUID(str(project_id)),
             attachment_ids=list(attachment_ids or []),
             model=model,
+            web_search=web_search,
         )
         with self._lock:
             if run_key in self._handles:
@@ -738,6 +751,10 @@ class RunManager:
                     if not getattr(self.session_factory, "supports_model_choice", False):
                         raise ValueError("session factory does not support model choice")
                     model_kwargs["model"] = handle.model
+                if handle.web_search:
+                    if not getattr(self.session_factory, "supports_web_search", False):
+                        raise ValueError("session factory does not support web search")
+                    model_kwargs["web_search"] = True
                 session = self.session_factory.create(
                     run_id=handle.run_id,
                     thread_id=handle.thread_id,
