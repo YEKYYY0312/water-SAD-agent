@@ -227,6 +227,41 @@ def audit_llm_models_updated(*, actor_user_id: str, ids: list[str], count: int) 
     )
 
 
+def audit_web_search_performed(
+    *,
+    principal_hash: str,
+    query_hash: str,
+    query_length: int,
+    provider: str,
+    host: str,
+    count: int,
+    result: str,
+) -> None:
+    """P7-S12：一次联网搜索。**只记**主体哈希、查询哈希 + 长度、provider、主机名、条数、结果码——**不记查询原文、不记网址、
+    不记密钥**（审计长期留存，比 trace 更敏感）。由 ``web_search/events.py`` 的 sink 调用，字段在那里先过白名单。"""
+    _emit(
+        "web_search.performed",
+        {
+            "principal_hash": principal_hash,
+            "query_hash": query_hash,
+            "query_length": int(query_length),
+            "provider": provider,
+            "host": host,
+            "count": int(count),
+            "result": result,
+        },
+    )
+
+
+def _register_web_search_sink() -> None:
+    from water_agent.web_search.events import set_audit_sink
+
+    set_audit_sink(audit_web_search_performed)
+
+
+_register_web_search_sink()
+
+
 # ---------------------------------------------------------------------------
 # Test helper — clear buffer between tests
 # ---------------------------------------------------------------------------
