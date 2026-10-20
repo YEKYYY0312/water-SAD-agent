@@ -179,12 +179,20 @@ export class WorkspaceApi {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}`);
   }
 
-  sendMessage(threadId: string, message: string, attachments: string[] = [], model?: string): Promise<MessageRun> {
+  sendMessage(
+    threadId: string,
+    message: string,
+    attachments: string[] = [],
+    model?: string,
+    webSearch?: boolean,
+  ): Promise<MessageRun> {
     // 附件 id 随消息寄出：后端校验归属后把这些文件按原文顺序读进提示词（P5-S49）。
     // 空数组不发送，保持与旧后端的请求体兼容；model 同理——只有用户选了才带（P7-S15）。
-    const body: { message: string; attachments?: string[]; model?: string } = { message };
+    // web_search 同理：只有用户勾选了「联网」才带 true，未勾选时请求体与此前逐字相同（P7-S12）。
+    const body: { message: string; attachments?: string[]; model?: string; web_search?: true } = { message };
     if (attachments.length > 0) body.attachments = attachments;
     if (model) body.model = model;
+    if (webSearch) body.web_search = true;
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`, {
       method: "POST",
       body: JSON.stringify(body),
