@@ -15,18 +15,22 @@ import {
   visibleSections,
 } from "../src/settingsState.ts";
 
-test("sub-navigation lists the three pages and hides MCP only once we know the user is not an admin", () => {
-  assert.deepEqual(SETTINGS_SECTIONS.map((section) => section.id), ["models", "skills", "mcp"]);
-  assert.deepEqual(visibleSections(true).map((section) => section.id), ["models", "skills", "mcp"]);
+test("sub-navigation lists the four pages and hides MCP only once we know the user is not an admin", () => {
+  // P7-S12：联网搜索追加在最后，所有登录用户可见（密钥表单才限管理员）
+  assert.deepEqual(SETTINGS_SECTIONS.map((section) => section.id), ["models", "skills", "mcp", "web_search"]);
+  assert.deepEqual(visibleSections(true).map((section) => section.id), ["models", "skills", "mcp", "web_search"]);
   // 还不知道角色时先显示（读到非管理员再收起，避免管理员每次进来都先少一项）
-  assert.deepEqual(visibleSections(null).map((section) => section.id), ["models", "skills", "mcp"]);
-  assert.deepEqual(visibleSections(false).map((section) => section.id), ["models", "skills"]);
+  assert.deepEqual(visibleSections(null).map((section) => section.id), ["models", "skills", "mcp", "web_search"]);
+  assert.deepEqual(visibleSections(false).map((section) => section.id), ["models", "skills", "web_search"]);
 });
 
 test("a hidden section falls back to the first page instead of rendering an empty one", () => {
   assert.equal(clampSection("mcp", false), "models");
   assert.equal(clampSection("mcp", true), "mcp");
   assert.equal(clampSection("skills", false), "skills");
+  // 联网搜索页成员也看得到，不会被收起
+  assert.equal(clampSection("web_search", false), "web_search");
+  assert.equal(clampSection("web_search", true), "web_search");
 });
 
 test("returning from an MCP authorization lands on the MCP page, otherwise the first page", () => {
@@ -107,6 +111,7 @@ test("the settings shell renders one page at a time and wires the sub-navigation
   assert.match(panel, /section === "models" && \(/);
   assert.match(panel, /section === "skills" && <SkillLibraryPanel/);
   assert.match(panel, /section === "mcp" && <McpAdminPanel \/>/);
+  assert.match(panel, /section === "web_search" && <WebSearchPanel /);
   // 授权回调回首页时设置页直接打开
   assert.match(workbench, /useState\(\(\) => oauthReturnedToSettings\(window\.location\.search\)\)/);
   for (const selector of [".settings-layout", ".settings-subnav", ".model-picker"]) {
