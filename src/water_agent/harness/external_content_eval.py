@@ -5,8 +5,8 @@
 
 - **unit**：对 ``data/eval/hostile_web_corpus.jsonl``（64 条，Step 1 先于代码冻结）逐条跑归一化与包装；``governed_get``
   对进程内假对端（线程，**不起子进程**）验证禁止目的地零字节、3xx 不跟随、超限中止、错误不回显；
-- **session**：经**生产图**（``build_agentic_app``）+ 脚本模型 + 声明了 ``result_source=WEB_CONTENT`` 的夹具工具，验证污点、
-  披露行、缓存拒绝、终答网址追溯与"缺省路径逐字不变"。S11 没有任何生产工具声明它——``web_search`` 是 S12 的。
+- **session**：经**生产会话**（``AgenticSession``）+ 生产 ``web_search`` 工具 + 进程内假搜索服务 + 脚本模型，验证污点、
+  披露行、缓存拒绝、终答网址追溯与"缺省路径逐字不变"（P7-S12 起；S11 时没有生产联网工具，只能直接构图 + 夹具工具）。
 
 **不测**：真实模型会不会被"中和后的"文本影响；归一化是确定性正则，必有语料之外的写法——指标 1.0 只说明语料里的写法被覆盖，
 **不得据此声称"能拦住任意注入"**。也不证明任何真实搜索服务可用（S12 起才有 provider）。
@@ -485,96 +485,131 @@ def run_get_rebinding(case: ExternalCase, result: CaseResult) -> None:
 # ---------------------------------------------------------------------------
 
 
-@contextlib.contextmanager
-def _declared_fixture_capability(tool_name: str, capability: Any) -> Any:
-    """装配期声明夹具工具的能力（``GuardrailPipeline(declared_capabilities=…)``），退出时恢复默认管线。
+class _SessionApp:
+    """一个会话用例的运行环境：生产 ``AgenticSession``（真实 ``assemble_tools``、护栏、提示装配、引用校验、checkpoint）+ 生产
+    ``web_search`` 工具 + 进程内假搜索服务（线程，**不起子进程**）。模型换成逐条消费 ``responses`` 的离线模型——与 S11 用
+    ``FakeMessagesListChatModel`` 时同一组回复、同一种消费方式，用例的判定因此逐字不变。
 
-    夹具工具不在治理清单里；``assemble_tools`` 自己建 ``ToolRegistry``，用的是进程级默认管线，所以通过既有的
-    ``set_default_guardrail_pipeline`` 通道注入（测试与 CLI 装配用）。未声明的工具照常 fail closed。
+    P7-S12 起评测改走这条生产路径（S11 决策记录 D12：S11 没有生产联网工具，只能直接构图 + 夹具工具；``web_search``
+    接入后这条白名单随之删除）。同一个 ``_SessionApp`` 上多次 :meth:`invoke` 共用 checkpointer 与 thread（多轮）。
     """
 
-    from water_agent.runtime.governance import pipeline as pipeline_module
+    def __init__(self, responses: Sequence[Any], *, web_tool: bool = True) -> None:
+        self.responses = list(responses)
+        self.web_tool = web_tool
+        self._index = 0
+        self._saver: Any = None
+        self.server_url = ""
 
-    previous = pipeline_module._default_pipeline
-    pipeline_module.set_default_guardrail_pipeline(
-        pipeline_module.GuardrailPipeline(declared_capabilities={tool_name: capability})
-    )
-    try:
-        yield
-    finally:
-        pipeline_module.set_default_guardrail_pipeline(previous)
+    def next_response(self) -> Any:
+        if self._index >= len(self.responses):
+            raise RuntimeError("脚本回复已用完（循环比预期多转了一圈）")
+        response = self.responses[self._index]
+        self._index += 1
+        return response
 
+    def invoke(self, text: str, thread: str) -> dict[str, Any]:
+        import argparse
+        import asyncio
+        import os
+        from contextlib import ExitStack
 
-class _FixturePlugin:
-    """把一个 ``ToolSpec`` 作为插件贡献给 ``assemble_tools``（与 ``tests/test_tool_plugins.py`` 的桩插件同一做法）。
+        from langgraph.checkpoint.memory import MemorySaver
 
-    评测**不自己构造 ``ToolRegistry`` / 转换 ``BaseTool``**：工具注册、授权主体、护栏、适配器全走生产的 ``assemble_tools``
-    （结构不变量 P7-I01 / I02 因此不需要为本评测开白名单）。
-    """
+        from water_agent.retrieval.loader import load_clauses_jsonl
+        from water_agent.retrieval.trivium import TriviumRetriever
+        from water_agent.runtime.agentic import AgenticSession
 
-    plugin_id = "fixture_web"
-
-    def __init__(self, spec: Any) -> None:
-        self._spec = spec
-
-    def contribute(self, ctx: Any) -> Any:
-        from water_agent.plugins import PluginContribution
-
-        return PluginContribution(plugin_id=self.plugin_id, tools=(self._spec,))
-
-
-def _build_app(responses: Sequence[Any], *, web_tool: bool = True, cache_service: Any = None) -> Any:
-    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-    from langgraph.checkpoint.memory import MemorySaver
-    from pydantic import BaseModel as _BaseModel
-
-    from water_agent.graphs.agent_rag import build_agentic_app
-    from water_agent.plugins import AssemblyContext, ClausesPlugin, assemble_tools
-    from water_agent.retrieval.in_memory import InMemoryRetriever
-    from water_agent.retrieval.loader import load_clauses_jsonl
-    from water_agent.runtime.governance.contracts import Principal, SourceTag
-    from water_agent.tools.base import ToolSpec
-
-    class _Args(_BaseModel):
-        query: str = Field(min_length=1, max_length=64)
-
-    plugins: list[Any] = [ClausesPlugin()]
-    if web_tool:
-        plugins.append(
-            _FixturePlugin(
-                ToolSpec(
-                    name="fixture_web_lookup",
-                    description="Use when a test needs a stand-in for a web lookup tool. Do not use for anything outside tests.",
-                    args_model=_Args,
-                    execute=lambda args: {"results": [{"title": "t", "snippet": "管径选择见规范", "url": WEB_URL}], "urls": [WEB_URL]},
-                    result_source=SourceTag.WEB_CONTENT,
+        if self._saver is None:
+            self._saver = MemorySaver()
+        peer_mod = _fake_search_module()
+        keys = ("WATER_AGENT_WEB_SEARCH", "WATER_AGENT_WEB_SEARCH_PROVIDER", "WATER_AGENT_WEB_SEARCH_BASE_URL",
+                "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE", "WATER_AGENT_SKILLS", "WATER_AGENT_TOOL_EXPOSURE")
+        saved = {key: os.environ.get(key) for key in keys}
+        hits = [{"title": "t", "snippet": "管径选择见规范", "url": WEB_URL}]
+        with tempfile.TemporaryDirectory(prefix="wa-ec-session-") as tmp, peer_mod.FakeSearchServer("ok", hits=hits) as server:
+            try:
+                for key in keys:
+                    os.environ.pop(key, None)
+                if self.web_tool:
+                    os.environ.update({
+                        "WATER_AGENT_WEB_SEARCH": "on",
+                        "WATER_AGENT_WEB_SEARCH_PROVIDER": "searxng",
+                        "WATER_AGENT_WEB_SEARCH_BASE_URL": server.base_url,
+                        "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE": "1",
+                    })
+                args = argparse.Namespace(
+                    db_path=None, dimensions=None, rerank="local", rerank_model=None, rerank_base_url=None,
+                    rerank_api_key=None, top_k=5, recall_top_k=20, hybrid_alpha=0.7, model="deepseek-chat",
+                    base_url=None, api_key_env="DEEPSEEK_API_KEY", api_key=None, mock_generator=True,
+                    session_dir=f"{tmp}/sessions", trace_dir=f"{tmp}/traces", stream=False, drawing_root="",
                 )
-            )
-        )
-    ctx = AssemblyContext(
-        retriever=InMemoryRetriever(load_clauses_jsonl(FIXTURE_CLAUSES)),
-        cite_context_source=lambda: set(),
-        drawing_root="",
-    )
-    assembly = assemble_tools(
-        ctx,
-        base_principal=Principal.local("ec-eval"),
-        trace=None,
-        plugins=plugins,
-    )
-    return build_agentic_app(
-        model=FakeMessagesListChatModel(responses=list(responses)),
-        tools=assembly.tools,
-        checkpointer=MemorySaver(),
-        cache_service=cache_service,
-        exposure=assembly.exposure,
-    )
+                with ExitStack() as stack:
+                    session = AgenticSession(
+                        args, stack=stack, thread_id=thread, checkpointer=self._saver, model=_replay_model(self),
+                        retriever=TriviumRetriever(db_path=None, fallback_clauses=load_clauses_jsonl(FIXTURE_CLAUSES)),
+                        mcp_enabled=False, web_search=self.web_tool,
+                    )
+                    asyncio.run(session.aask(text, run_id=f"{thread}-{self._index}"))
+                    values = dict(getattr(session.app.get_state(session.config), "values", {}) or {})
+            finally:
+                for key, value in saved.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+        return values
+
+
+def _replay_model_class() -> Any:
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from pydantic import ConfigDict as _ConfigDict
+
+    class ReplayModel(BaseChatModel):
+        """逐条交出 ``_SessionApp.responses``（与 ``FakeMessagesListChatModel`` 同一顺序语义，但跨多轮共用一个游标）。"""
+
+        model_config = _ConfigDict(arbitrary_types_allowed=True)
+        owner: Any
+
+        @property
+        def _llm_type(self) -> str:
+            return "external-content-replay"
+
+        def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> Any:
+            response = self.owner.next_response()
+            message = AIMessage(content=response.content, tool_calls=list(response.tool_calls or []))
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    return ReplayModel
+
+
+def _replay_model(owner: _SessionApp) -> Any:
+    """工厂函数：延迟导入 langchain（模块顶层不依赖它）。"""
+
+    return _replay_model_class()(owner=owner)
+
+
+def _fake_search_module() -> Any:
+    import importlib
+
+    sys.path.insert(0, str(REPO_ROOT))
+    try:
+        return importlib.import_module("tests.fixtures.fake_search_server")
+    finally:
+        sys.path.pop(0)
+
+
+def _build_app(responses: Sequence[Any], *, web_tool: bool = True, cache_service: Any = None) -> _SessionApp:
+    del cache_service
+    return _SessionApp(responses, web_tool=web_tool)
 
 
 def _web_call() -> Any:
     from langchain_core.messages import AIMessage
 
-    return AIMessage(content="", tool_calls=[{"name": "fixture_web_lookup", "args": {"query": "管径"}, "id": "c-web"}])
+    return AIMessage(content="", tool_calls=[{"name": "web_search", "args": {"query": "管径"}, "id": "c-web"}])
 
 
 def _say(text: str) -> Any:
@@ -593,17 +628,8 @@ def _scripts() -> dict[str, list[Any]]:
     }
 
 
-def _invoke(app: Any, text: str, thread: str) -> dict[str, Any]:
-    from langchain_core.messages import HumanMessage
-
-    from water_agent.graphs.agent_rag import PER_TURN_RESET
-
-    return dict(  # type: ignore[no-any-return]
-        app.invoke(
-            {"messages": [HumanMessage(content=text)], **PER_TURN_RESET},
-            config={"configurable": {"thread_id": thread}},
-        )
-    )
+def _invoke(app: _SessionApp, text: str, thread: str) -> dict[str, Any]:
+    return app.invoke(text, thread)
 
 
 def run_session_taint(case: ExternalCase, result: CaseResult) -> None:
@@ -698,10 +724,10 @@ def run_session_cite_web_id(case: ExternalCase, result: CaseResult) -> None:
 
     messages = [
         HumanMessage(content="管径怎么选"),
-        AIMessage(content="", tool_calls=[{"name": "fixture_web_lookup", "args": {"query": "x"}, "id": "w"}]),
+        AIMessage(content="", tool_calls=[{"name": "web_search", "args": {"query": "x"}, "id": "w"}]),
         ToolMessage(
             content=_json.dumps({"urls": [WEB_URL]}),
-            name="fixture_web_lookup",
+            name="web_search",
             tool_call_id="w",
             artifact={"water_agent_web_content": [WEB_URL]},
         ),
@@ -808,8 +834,6 @@ _RUNNERS: dict[str, Callable[[ExternalCase, CaseResult], None]] = {
 
 
 def run_case(case: ExternalCase) -> CaseResult:
-    from water_agent.runtime.governance.contracts import Capability
-
     result = CaseResult(id=case.id, category=case.category, layer=case.layer)
     runner = _RUNNERS.get(case.op)
     if runner is None:
@@ -818,7 +842,7 @@ def run_case(case: ExternalCase) -> CaseResult:
     try:
         # 审计 / 治理事件可能打印到 stdout；评测输出只留指标与失败明细
         # ``ToolRegistry`` 每次调用才解析默认管线，所以夹具工具的能力声明要覆盖整个用例（装配 + 图运行）
-        with contextlib.redirect_stdout(io.StringIO()), _declared_fixture_capability("fixture_web_lookup", Capability.CALCULATE):
+        with contextlib.redirect_stdout(io.StringIO()):
             runner(case, result)
     except Exception as exc:  # noqa: BLE001 — 记为用例错误（硬指标 harness_error_count）
         result.error = f"{type(exc).__name__}: {exc}"
