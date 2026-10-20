@@ -71,7 +71,7 @@
      `ConnectSpy`（记录每次 `socket.connect`、非回环地址一律拒绝），被禁止目的地的用例另断言**零连接尝试**。
   2. `off_identical_rate` 的第一版反证没变红：off 用例连 provider 都没配，拿掉开关后插件仍因"缺 provider"跳过。改为 off 用例除开关外**全部配齐**，证明单靠开关就关得住。
   另：反证补丁一开始只改了定义处的名字，`from x import f` 在导入方另存的绑定没被替换（`citation_integrity_violations` 的反证因此没咬到）——反证一律走 `_patch_everywhere`。
-- **D7 冻结后改动过的用例（Step 1 之后，写明原因）**：数据集在 commit `1eefe3b` 冻结（79 条）；机制实现后改了 8 条，**都是用例自身的期望写错，不是为了让实现通过**：
+- **D7 冻结后改动过的用例（Step 1 之后，写明原因）**：数据集在 commit `1eefe3b` 冻结（79 条）；机制实现后改了 11 条（`git diff 1eefe3b 1a1a8ab -- data/eval/web_search_p0.jsonl`：79 → 79 条，无增删，11 条内容变化），**都是用例自身的期望写错，不是为了让实现通过**：
   - `ws-q-too-long` / `ws-q-url-shaped` / `ws-q-injection` / `ws-q-zero-width`：这四类在到达查询守卫之前就被更早的一层拦下（参数模式 `maxLength=128` → `INVALID_ARGUMENTS`；
     工具参数护栏的域名白名单 / 注入 / 不可见字符 → `GUARDRAIL_BLOCKED`）。期望码改成实际拦下它的那一层；"假服务零请求"不变；`query_block_recall` 度量的是"泄露查询没有出站"，与哪一层拦下无关。
   - `ws-q-private-retrieved-overlap`：原用例用 `private_context.retrieved` 声明检索条文，但那不是生产里检索条文的来源。改为本轮**真的先调用 `retrieve_clauses`**，再拿条文原句当搜索词
@@ -169,4 +169,41 @@ schema 2719，指引 311 字符，未截断）；现有 19 个 profile 逐字不
 
 ## 验证记录
 
-（实施完成后回填。）
+> 环境：worktree，`export PYTHONPATH=src`，已 `unset HTTPS_PROXY HTTP_PROXY`；本机 shell 没有 `WATER_AGENT_*` / `*_API_KEY` / `LOCAL_MODEL_*`。`_venv` 用主检出的那份。验证对象是 `edea7c5`（本步最后一个功能 / 文档 commit，其后只回填本节）。
+
+**全量测试**（ci_gate 的 pytest 是 `-qq`、没有汇总行，所以另跑 `pytest -q -o addopts= -p no:cacheprovider` 取计数）：
+
+```text
+FAILED tests/test_check_step_scope.py::test_repo_scope_blocks_are_usable
+1 failed, 4121 passed, 30 skipped, 1057 warnings in 322.60s (0:05:22)
+AssertionError: ('P7-S15-model-catalog-and-selection.md', {'node': 'tests/test_vision_review.py::test_vision_call_site_is_registered_and_governed', 'contains': 'assert len(PROVIDER_CALL_SITES) == 8'})
+```
+
+这是唯一的红灯，是本步的直接后果而不是回归：Prompt 明确要求把 `tests/test_vision_review.py` 的 `== 8` 改成 `== 9`，而 S15、S16 两份执行 Prompt 的 `protect` 还锁着那一句（`check_protected` 在全部 15 份范围文档上只报这两处）。修法在文档 PR（§0.1 第 2 条）；本分支改不了，因为范围块只认 merge-base 上的版本。
+
+**ci_gate**（`COMPOSE_PROJECT_NAME=p7s12 VENV=…/_venv bash scripts/ci_gate.sh`）：`EXIT=1`，日志里唯一的 `!!` 行是上面这条 pytest；其余各步通过：
+
+```text
+ruff check src            All checks passed!
+mypy src/water_agent      Success: no issues found in 262 source files
+rag_p0 12/12 · calc_p0 28/28 · docgen_p0 11/11 · material_p0 10/10 · governance_p0 32/32 · agentic_p0 21/21
+tool_exposure_p0 36/36 · skill_p0 26/26 · mcp_http_p0 44/44 · model_choice_p0 50/50
+external_content_p0 44/44（比较器通过） · web_search_p0 79/79（13 项硬指标全达标，比较器通过）
+retrieval_colloquial_p0（text，R@5 0.463，不降）· drawing_p0 · drawing_gen_p0 · multi_agent_p0 · 基线对比 · memory_p0 通过
+```
+
+**快照**：`tool_assembly_snapshot --check` → `装配快照与基线一致（20 个 profile）`；`--diff` 原文见 §3。
+
+**前端**：`npm test` 132/132，`npm run build` 退出码 0（提交前最后一次运行，其后 `web/` 无改动）。
+
+**范围守卫**（`check_step_scope.py docs/execution-prompts/P7-S12-web-search.md --base YEK/p7-docs-s12-prompt`；`--base origin/main` 读不到范围块，因为 Prompt 还不在 main 上）：
+
+```text
+!! 改动超出允许范围：tests/test_dxf_upload.py
+!! 范围守卫未通过：1 处违规
+step=P7-S12 base=YEK/p7-docs-s12-prompt merge-base=219150ba9100 commits=10 changed_files=77
+```
+
+唯一的越界是 `tests/test_dxf_upload.py`：它锁着 `provider_call_sites: 8` / `tools: 6`，站点 8 → 9、工具 6 → 7 必然改它（S8 D13 同类疏漏）。`protect` 与 `frozen_json` 无违规。同样要在文档 PR 里补进 `allow`。
+
+**补遗文档 PR 的内容**（未提交、未推送）：S12 Prompt 的 `allow` 加 `tests/test_dxf_upload.py`；S15、S16 Prompt 的 `protect` 各删掉 `assert len(PROVIDER_CALL_SITES) == 8` 那一条。分支名不能以 `YEK/p7-s<n>-` 开头。
