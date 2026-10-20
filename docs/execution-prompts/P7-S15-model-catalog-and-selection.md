@@ -209,10 +209,6 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S15-model
       "contains": "assert surface[\"schema_chars_total\"] == 4497"
     },
     {
-      "node": "tests/test_vision_review.py::test_vision_call_site_is_registered_and_governed",
-      "contains": "assert len(PROVIDER_CALL_SITES) == 8"
-    },
-    {
       "node": "tests/test_llm_endpoints.py::test_defaults_are_unchanged",
       "contains": "assert chat.is_default"
     },

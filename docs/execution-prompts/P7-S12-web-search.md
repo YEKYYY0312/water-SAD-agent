@@ -155,6 +155,7 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S12-web-s
     "tests/test_web_taint.py",
     "tests/test_vision_review.py",
     "tests/test_llm_endpoints.py",
+    "tests/test_dxf_upload.py",
     "tests/test_tool_assembly_snapshot.py",
     "tests/test_p7_known_figures.py",
     "tests/test_web_deployment.py",
@@ -247,3 +248,5 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S12-web-s
 > - **`data/eval/external_content_p0_main.json` 在 forbid 里**：S11 的基线不得改。`external_content_p0` 的会话用例若改走 `AgenticSession`（见 §0 倒数第三行），**报告必须逐字不变**——评测改道不应改变任何用例的判定结果；若报告变了，说明改道改变了被测行为，按 §5 停下。`harness/external_content_eval.py` 在 allow 里仅为这一处改道。
 > - **`config/credentials.py` 在 allow 里**：只为把 `WATER_AGENT_WEB_SEARCH_API_KEY` 加入凭据白名单（env > `_FILE` > 凭据卷，与 `WATER_AGENT_LLM_API_KEY` 同构）。
 > - **`plugins/assembly.py` 在 allow 里**：`assemble_tools` 要把 `request_enabled` 交给 `ToolExposurePolicy`、并在 `web_search=True` 时追加 `WEB_SEARCH` 能力；`GRANTABLE_CAPABILITIES` 在 `plugins/base.py`。改动不得改变不传 `web_search` 时的任何行为。
+> - **`tests/test_dxf_upload.py` 在 allow 里（实现后补入，先例 S8 D13）**：`test_tool_schema_budget_and_governance_counts_are_untouched` 锁着 `provider_call_sites` / `provider_governed` / `tools` / `tools_guardrail_validated` 四个数（8 / 8 / 6 / 6）；站点 8 → 9、`web_search` 作为第 7 个已登记并通过护栏校验的工具，必然改它，写 Prompt 时漏列。
+> - **S15 / S16 Prompt 的 `protect` 里 `tests/test_vision_review.py::test_vision_call_site_is_registered_and_governed` 的 `assert len(PROVIDER_CALL_SITES) == 8` 已在同一个文档 PR 里删除**：本步按上文把它合法地改成 `== 9`，旧 protect 不删，`tests/test_check_step_scope.py::test_repo_scope_blocks_are_usable` 在 main 上会变红（S8 / S9 踩过同类问题）。S16 Prompt 正文里其余的“出站点仍是 8”“现有 19 个 profile”等计数在 S12 合入后已过期，S16 开工前需按当时的 main 复核。
