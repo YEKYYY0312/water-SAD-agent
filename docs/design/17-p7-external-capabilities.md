@@ -20,9 +20,9 @@
 | 既有约束 | 出处 | 本规格怎么处理 |
 |---|---|---|
 | "不从网络安装 skill" | S9 执行 Prompt §1 不做 | **有条件放开**（S13）：只有运维主机上的 CLI 能取、能批准；模型与 Web 面板没有任何安装入口；批准绑定全文摘要，加载期每次重算。 |
-| `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | 16 §3.2 / P7-I06 | 拟扩为 `{MCP_INVOKE, WEB_SEARCH}`（待决 D2）。`NETWORK_FETCH` 仍在危险集、不授予任何主体。 |
+| `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | 16 §3.2 / P7-I06 | 已扩为 `{MCP_INVOKE, WEB_SEARCH}`（D2，S12 交付）。`NETWORK_FETCH` 仍在危险集、不授予任何主体。 |
 | "出口只由运维写死的 URL 决定" | S8 | **保持**：搜索服务地址、skill 注册表地址、MCP 目录地址都由运维写死。注册表返回的 MCP 条目 URL **不被连接**（S14 不探测）。 |
-| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 → 9、S13 → 10、S14 → 11；三个站点的 `module` 都是调用方 `external/http_get.py`（S11 建立；它**不含**原始网络原语），`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。 |
+| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 → 9、S13 → 10、S14 → 11；`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。**S12 实际**：站点 `web_search` 的 `module` 是 `web_search/tool.py`（逻辑调用点；它经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），见 `p7-step-12-decision.md`。 |
 | `SourceTag` 只有 7 种、无网络来源 | `contracts.py` | 新增 `WEB_CONTENT`（信任级别低于 `TOOL_OUTPUT`，不可承载指令；S11）。`INSTRUCTION_BEARING_SOURCES` **不改**。 |
 
 ---
@@ -140,7 +140,10 @@ F10 是**现有缺口**，与本规格是否交付无关：只要模型输出里
 
 ### 5.1 工具契约
 
-`web_search(query: str, count: int = 3)`——**只有这两个参数**（schema 越小越安全，也越省预算）。`query` 1–128 字符、单行；`count` 1–5。无域名过滤、无时间过滤、无任何 URL 参数（P7-I09：本地 `ToolSpec` 的参数模型不得含 `url` / `uri` / `href` / `endpoint` / `host`）。`ToolSpec` 定义在 `tools/`，`result_source=SourceTag.WEB_CONTENT`，`timeout_seconds=15`。schema 目标 ≤ 500 字符（Step 0 实测后写入）。
+`web_search(query: str, count: int = 3)`——**只有这两个参数**（schema 越小越安全，也越省预算）。`query` 1–128 字符、单行；`count` 1–5。无域名过滤、无时间过滤、无任何 URL 参数（P7-I09：本地 `ToolSpec` 的参数模型不得含 `url` / `uri` / `href` / `endpoint` / `host`）。`result_source=SourceTag.WEB_CONTENT`，`timeout_seconds=15`。schema 目标 ≤ 500 字符（Step 0 实测：参数模式 342 字符，整条工具定义 594 字符）。
+> **S12 实际**：`ToolSpec` 定义在 `web_search/tool.py`（不在 `tools/`：S12 范围块禁止改 `tools/**`）；治理清单的静态扫描目录扩为 `tools/` + `web_search/`
+> （`inventory.TOOLSPEC_SCAN_DIRS`，`plugins/` 仍不在内），并有"在 `web_search/` 放一个未登记能力的 ToolSpec 即红"的反证。工具登记在
+> `inventory.PLUGIN_GRANTED_TOOL_CAPABILITIES`（所需能力不在默认集；`TOOL_CAPABILITIES` 有"清单里每个工具的能力都在默认集"的断言）。
 
 ### 5.2 能力与开关
 
@@ -172,7 +175,8 @@ provider 响应 → 逐条：网址必须能解析为 http(s)、≤ 300 字符�
 |---|---|
 | R1 不能当引用 | `cite_clauses` 只接受语料 `source_id`；`web_refs` 永不进"本 thread 检索到的 source_id 集合"|
 | R2 网址追溯 | 终答里出现的 http(s) 网址 ⊆ 本 thread 的 `web_refs` ∪ 用户消息里的网址，否则 `unverified_url` → 回流一次、再失败即 `failed`（复用引用校验的回流机制）。**仅当 `WATER_AGENT_WEB_SEARCH=on` 的装配生效**，避免改变现有部署的行为 |
-> **S11 对 R2 的实现偏离**：S11 还没有 `WATER_AGENT_WEB_SEARCH` 开关，所以不是"开关 on 才生效"，而是"本回合 `web_tainted` 或本 thread 已有 `web_refs` 才校验"；没用过联网内容的回合行为逐字不变。S12 再把开关接上。
+> **S11 对 R2 的实现偏离**：S11 还没有 `WATER_AGENT_WEB_SEARCH` 开关，所以不是"开关 on 才生效"，而是"本回合 `web_tainted` 或本 thread 已有 `web_refs` 才校验"；没用过联网内容的回合行为逐字不变。
+> **S12 决定不再追加开关**：污点条件已覆盖开关 off 的部署（off 时没有联网工具、没有污点、校验不触发），多一个开关是第二个真源（S11 决策记录 D5）。
 | R3 规范性结论不豁免 | 零引用豁免规则不因搜索而放宽：只有网络证据的规范性回答不能 `succeeded` |
 | R4 披露行 | 见 §4.3 |
 | R5 污点效应 | 见 §4.3 |
@@ -182,6 +186,9 @@ provider 响应 → 逐条：网址必须能解析为 http(s)、≤ 300 字符�
 
 不靠关键词猜测意图：消息发送请求新增布尔字段 `web_search`（缺省 false），`AgenticSession(web_search=…)` 只在运维开关已开、provider 已配齐的前提下，对**该条消息**把 `WEB_SEARCH` 追加给主体并开放工具（与 S7 的 `confirmation=True` 入口标志同构）。前端输入框旁加"联网"开关，默认每条消息都关。
 暴露策略新增 `request` 模式的组（core 不变）。若用户勾选了联网但该组因预算（最紧组合）被整组让位，**必须**向用户发 `WEB_SEARCH_NOT_EXPOSED` 警告事件，不得静默丢弃——否则用户会以为查过了。备选方案：关键词 intent 暴露（误触发与漏触发都要调；不推荐）。
+> **S12 实际**：入选顺序 core → intent → **request** → sticky → ambient（执行 Prompt 写"request 在 intent 之前"，但那样最紧组合下被挤掉的是读图而不是联网，
+> "让位告警"就成了死代码——见 `p7-step-12-decision.md` §0.1）；`request` 组不参与 sticky（勾选只对那一条消息有效）。部署没就绪而用户勾选了，
+> 同样告警 `WEB_SEARCH_NOT_EXPOSED`。
 
 ### 5.8 失败语义
 
@@ -286,7 +293,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 | 步 | 内容 | 执行 Prompt | 状态 |
 |---|---|---|---|
 | S11 | 外部内容底座：`WEB_CONTENT` 标签、信封 / 归一化库、`governed_get` 内核、回合污点及其效应、P7-I08 + 静态扫描扩展、答案渲染不加载外部图片（F10）、`external_content_p0` | `docs/execution-prompts/P7-S11-external-content-foundation.md` | delivered |
-| S12 | 联网搜索：`web_search` + provider 适配器 + `QueryEgressGuard` + 结果流水线 + 回答纪律 + 逐条消息勾选 + 治理站点 8 → 9 + `web_search_p0` | `docs/execution-prompts/P7-S12-web-search.md` | planned |
+| S12 | 联网搜索：`web_search` + provider 适配器 + `QueryEgressGuard` + 结果流水线 + 回答纪律 + 逐条消息勾选 + 治理站点 8 → 9 + `web_search_p0` | `docs/execution-prompts/P7-S12-web-search.md` | delivered |
 | S13 | Skill 下载：静态注册表协议 + 隔离区 + 运维 CLI + 第三来源层与加载期哈希重算 + 治理站点 → 10 + `skill_fetch_p0` | `docs/execution-prompts/P7-S13-skill-fetch.md` | planned |
 | S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | planned |
 
@@ -300,8 +307,8 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 |---|---|---|---|
 | P7-I08 | `open_exchange(` 的调用方 ∈ 登记表（`mcp/http_client.py`、`mcp/oauth.py`、`external/http_get.py`，以及 PR #45 合入后的 `generation/chat_model.py`；以 S11 开工时 main 上的真实调用方为准），AST 判定，登记项不再对应真实代码同样判失败 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I09 | 本地 `ToolSpec` 的 `args_model` 不含 `url` / `uri` / `href` / `endpoint` / `host` 字段 | `tests/test_plugin_invariants.py` | delivered |
-| P7-I10 | provider 适配器模块不 import 任何网络原语（只能由 `governed_get` 驱动）| `tests/test_web_search_adapters.py` | planned |
-| P7-I11 | 终答网址校验器接进 finalize（`WATER_AGENT_WEB_SEARCH=on` 时）| `tests/test_web_search_discipline.py` | planned |
+| P7-I10 | provider 适配器模块不 import 任何网络原语（只能由 `governed_get` 驱动）| `tests/test_web_search_adapters.py` | delivered |
+| P7-I11 | 终答网址校验器接进 finalize（S12 实际：由回合污点 / `web_refs` 触发，不另设开关，见 §5.6）| `tests/test_web_search_discipline.py` | delivered |
 | P7-I12 | `skills/remote/`（取 / 批准）只被 `skills/cli.py` 导入；`tools/` 与 `webapp/` 不导入它 | `tests/test_skill_fetch_invariants.py` | planned |
 | P7-I13 | `mcp/registry.py` 不导入 `MCPStdioClient` / `MCPHttpClient` / `open_bridge`（目录模块不连接条目）| `tests/test_mcp_registry_invariants.py` | planned |
 | P7-I14 | `web_tainted` 回合的答案缓存写入资格恒为 false | `tests/test_answer_cache.py` | delivered |
@@ -328,19 +335,19 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 | ID | 验收 | 验证（拟）| 状态 |
 |---|---|---|---|
-| P7-S12-A01 | 能力与开关：`WEB_SEARCH` 不在默认集；`GRANTABLE` 扩展（D2）；开关 / provider / 基址 / 密钥缺一即插件 skipped；非法取值装配期失败；`NETWORK_FETCH` 仍被拒 | `tests/test_web_search_tool.py` | planned |
-| P7-S12-A02 | 适配器：纯函数、假服务响应解析、provider 拼错装配期失败、显式 provider 失败不回退 | `tests/test_web_search_adapters.py` | planned |
-| P7-S12-A03 | 目的地：基址校验、禁止目的地零字节、重定向不跟随、响应上限、Content-Type | `tests/test_web_search_transport.py` | planned |
-| P7-S12-A04 | `QueryEgressGuard`：长度 / 单行 / 网址形态 / PII / 凭据 / 私有上下文回显 / 每回合 3 次；良性查询不误拦 | `tests/test_web_query_guard.py` | planned |
-| P7-S12-A05 | 结果流水线：网址校验、截断、注入命中丢弃、去重、预算、信封、`web_refs` | `tests/test_web_search_results.py` | planned |
-| P7-S12-A06 | 治理：新 `ProviderKind` / `CallCategory` / 画像；站点 8 → 9；静态扫描；usage 未知；按主机熔断；`GOVERNANCE_CONFIG_VERSION` 递进 | `tests/test_governance_contracts.py` | planned |
-| P7-S12-A07 | 回答纪律 R1–R5（含"只有网络证据的规范性回答不能 succeeded"）| `tests/test_web_search_discipline.py` | planned |
-| P7-S12-A08 | 暴露：`request` 模式；schema ≤ 500；最紧组合让位时发 `WEB_SEARCH_NOT_EXPOSED` | `tests/test_web_search_exposure.py` | planned |
-| P7-S12-A09 | 错误模板：稳定码、不含上游正文 / 网址 / 密钥、不回退 | `tests/test_web_search_errors.py` | planned |
-| P7-S12-A10 | 审计与 trace 字段白名单；密钥零泄漏（响应 / 审计 / trace / 日志 / 异常）| `tests/test_web_search_audit.py` | planned |
-| P7-S12-A11 | Web：消息请求的 `web_search` 字段、前端"联网"开关、设置页"联网搜索"子页（只读状态 + 密钥槽位，不能写地址）| `tests/test_web_search_web.py`、`web/app/tests/web_search.test.mjs` | planned |
-| P7-S12-A12 | 部署：compose 缺省 off；环境变量被快照钉住 | `tests/test_web_deployment.py` | planned |
-| P7-S12-A13 | `web_search_p0` 门禁 + 基线；快照新增 `session_web_search_fake`，现有 profile 逐字不变 | `gate:web_search_p0` | planned |
+| P7-S12-A01 | 能力与开关：`WEB_SEARCH` 不在默认集；`GRANTABLE` 扩展（D2）；开关 / provider / 基址 / 密钥缺一即插件 skipped；非法取值装配期失败；`NETWORK_FETCH` 仍被拒 | `tests/test_web_search_tool.py` | delivered |
+| P7-S12-A02 | 适配器：纯函数、假服务响应解析、provider 拼错装配期失败、显式 provider 失败不回退 | `tests/test_web_search_adapters.py` | delivered |
+| P7-S12-A03 | 目的地：基址校验、禁止目的地零字节、重定向不跟随、响应上限、Content-Type | `tests/test_web_search_transport.py` | delivered |
+| P7-S12-A04 | `QueryEgressGuard`：长度 / 单行 / 网址形态 / PII / 凭据 / 私有上下文回显 / 每回合 3 次；良性查询不误拦 | `tests/test_web_query_guard.py` | delivered |
+| P7-S12-A05 | 结果流水线：网址校验、截断、注入命中丢弃、去重、预算、信封、`web_refs` | `tests/test_web_search_results.py` | delivered |
+| P7-S12-A06 | 治理：新 `ProviderKind` / `CallCategory` / 画像；站点 8 → 9；静态扫描；usage 未知；按主机熔断；`GOVERNANCE_CONFIG_VERSION` 递进 | `tests/test_governance_contracts.py` | delivered |
+| P7-S12-A07 | 回答纪律 R1–R5（含"只有网络证据的规范性回答不能 succeeded"）| `tests/test_web_search_discipline.py` | delivered |
+| P7-S12-A08 | 暴露：`request` 模式；schema ≤ 500；最紧组合让位时发 `WEB_SEARCH_NOT_EXPOSED` | `tests/test_web_search_exposure.py` | delivered |
+| P7-S12-A09 | 错误模板：稳定码、不含上游正文 / 网址 / 密钥、不回退 | `tests/test_web_search_errors.py` | delivered |
+| P7-S12-A10 | 审计与 trace 字段白名单；密钥零泄漏（响应 / 审计 / trace / 日志 / 异常）| `tests/test_web_search_audit.py` | delivered |
+| P7-S12-A11 | Web：消息请求的 `web_search` 字段、前端"联网"开关、设置页"联网搜索"子页（只读状态 + 密钥槽位，不能写地址）| `tests/test_web_search_web.py`、`web/app/tests/web_search.test.mjs` | delivered |
+| P7-S12-A12 | 部署：compose 缺省 off；环境变量被快照钉住 | `tests/test_web_deployment.py` | delivered |
+| P7-S12-A13 | `web_search_p0` 门禁 + 基线；快照新增 `session_web_search_fake`，现有 profile 逐字不变 | `gate:web_search_p0` | delivered |
 | P7-S12-A14 | 真实搜索服务 / 真实模型是否会滥用或遵循披露（需 Key 与网络，见 §13）| 无 | untested |
 
 ### S13：Skill 下载
