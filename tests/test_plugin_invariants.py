@@ -33,6 +33,14 @@ BASE_TOOL_SITES = frozenset({ASSEMBLY_MODULE, "harness/local_model_compat.py"})
 #: P7-I07：只有这两条装配路径构图（装配快照的捕获点前提）。
 AGENTIC_APP_CALLERS = frozenset({"runtime/agentic.py", "harness/runner.py"})
 
+#: P7-I07 的评测白名单（P7-S11）：这些模块**为了验证图本身的行为**直接调用 ``build_agentic_app``，每条要说明为什么不算第二条装配路径。
+#: 它们不进装配快照的捕获点前提（快照只采 ``AGENTIC_APP_CALLERS`` 的 profile）；工具仍经生产的 ``assemble_tools`` 装配，
+#: 只是图的输入里多一个夹具工具——``AgenticSession`` 没有注入额外插件的通道，而 S11 还没有任何生产联网工具可以走会话路径验证。
+#: S12 的 ``web_search`` 接入生产装配后，这条白名单应当收窄或删除（届时评测改走 ``AgenticSession``）。
+EVAL_GRAPH_CALLERS: dict[str, str] = {
+    "harness/external_content_eval.py": "external_content_p0 的回合污点用例：经生产 assemble_tools + 生产图验证夹具联网工具的污点 / 披露 / 缓存 / 网址追溯",
+}
+
 
 def _modules() -> Iterator[tuple[str, ast.Module]]:
     for path in sorted(SRC.rglob("*.py")):
@@ -119,7 +127,9 @@ def test_invariants_hold(invariant: str) -> None:
         assert GRANTABLE_CAPABILITIES == frozenset({Capability.MCP_INVOKE})
     elif invariant == "P7-I07":
         callers = _callers("build_agentic_app")
-        assert callers == AGENTIC_APP_CALLERS, sorted(callers)
+        assert callers - set(EVAL_GRAPH_CALLERS) == AGENTIC_APP_CALLERS, sorted(callers)
+        stale = set(EVAL_GRAPH_CALLERS) - callers
+        assert not stale, f"评测白名单条目已不再构图，应删除：{sorted(stale)}"
     else:  # pragma: no cover - 参数化列表与分支一一对应
         raise AssertionError(invariant)
 
@@ -175,3 +185,107 @@ def test_session_assembly_matches_baseline() -> None:
         {"profiles": head["profiles"]},
     )
     assert lines == [], "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# S11：外部内容底座的结构不变量（17 号 SDD 的 I08 / I09；docstring 里写不带 ``P7-`` 前缀的 ``SDD17-Ixx``，
+# 因为 ``test_p7_traceability`` 只认 16 号规格里定义的 ``P7-I*``）
+# ---------------------------------------------------------------------------
+
+#: ``open_exchange(`` 的登记调用方（SDD17-I08）。每条都说明为什么它是合规的出站调用方；
+#: 新增调用方 = 新增出站站点，必须同时进 ``PROVIDER_CALL_SITES``。
+OPEN_EXCHANGE_CALLERS: dict[str, str] = {
+    "mcp/http_client.py": "MCP Streamable HTTP 客户端，登记站点 mcp_streamable_http",
+    "mcp/oauth.py": "MCP OAuth 授权端点，同属 mcp_streamable_http 站点",
+    "generation/chat_model.py": "设置面板「获取模型」的 GET {base_url}/models，经 ProviderGateway.call(MODEL_LIST)，复用对话站点",
+    "external/http_get.py": "受治理的 GET 内核（P7-S11）；S12 起为联网搜索 / skill 注册表 / MCP 目录的唯一出站入口",
+}
+
+#: 参数名里出现这些词的本地工具参数 = 把"去哪儿"交给了模型（SDD17-I09）。
+FORBIDDEN_ARG_NAMES = frozenset({"url", "uri", "href", "endpoint", "host"})
+
+
+def _calls_in(source: str, name: str) -> bool:
+    return any(
+        isinstance(node, ast.Call) and _call_name(node) == name for node in ast.walk(ast.parse(source))
+    )
+
+
+def _registry_violations(callers: set[str]) -> tuple[set[str], set[str]]:
+    """（未登记的调用方, 已过期的登记项）——与 ``test_open_exchange_callers_are_registered`` 同一判定。"""
+
+    return callers - set(OPEN_EXCHANGE_CALLERS), set(OPEN_EXCHANGE_CALLERS) - callers
+
+
+def test_open_exchange_callers_are_registered() -> None:
+    """P7-S11-A04 / SDD17-I08 ``open_exchange(`` 的调用方 ∈ 登记表（AST 判定真实调用）；登记项不再对应真实代码同样判失败。
+
+    ``open_exchange`` 是出站内核而非原始网络原语，所以模块级静态扫描（``_EGRESS_PATTERNS``）管不到"谁能调用它"。
+    这条不变量补上：任何新的调用方都必须先登记（并同时是治理清单里的出站站点），否则红灯。
+    """
+
+    unregistered, stale = _registry_violations(_callers("open_exchange"))
+    assert not unregistered, f"未登记的 open_exchange 调用方：{sorted(unregistered)}"
+    assert not stale, f"登记项已不再调用 open_exchange，应删除：{sorted(stale)}"
+
+
+def test_open_exchange_registry_goes_red_for_an_unregistered_caller_and_a_stale_entry() -> None:
+    """P7-S11-A04 / SDD17-I08 反证：往真实调用方集合里加一个未登记模块 → 判定报出它；去掉一个真实调用方 → 登记项被判过期。"""
+
+    real = _callers("open_exchange")
+    assert _calls_in("from x import open_exchange\nopen_exchange(1)\n", "open_exchange")
+    assert not _calls_in("def open_exchange():\n    pass\n", "open_exchange"), "只定义不调用不算调用方"
+
+    unregistered, _ = _registry_violations(real | {"plugins/rogue.py"})
+    assert unregistered == {"plugins/rogue.py"}
+
+    _, stale = _registry_violations(real - {"external/http_get.py"})
+    assert stale == {"external/http_get.py"}
+
+
+def _destination_offenders(specs: list[Any]) -> list[str]:
+    offenders: list[str] = []
+    for spec in specs:
+        for name in getattr(spec.args_model, "model_fields", {}):
+            if name.lower() in FORBIDDEN_ARG_NAMES:
+                offenders.append(f"{spec.name}.{name}")
+    return offenders
+
+
+def _local_tool_specs() -> list[Any]:
+    from water_agent.plugins import McpGatewayPlugin, builtin_plugins
+    from water_agent.plugins.base import AssemblyContext
+    from water_agent.retrieval.in_memory import InMemoryRetriever
+
+    ctx = AssemblyContext(retriever=InMemoryRetriever([]), cite_context_source=lambda: set(), drawing_root="")
+    specs: list[Any] = []
+    for plugin in builtin_plugins(mcp=McpGatewayPlugin.borrowing(None)):
+        if plugin.plugin_id == "mcp_gateway":  # 远程工具的参数由远端 schema 子集决定，另有安检
+            continue
+        specs.extend(plugin.contribute(ctx).tools)
+    return specs
+
+
+def test_local_tools_take_no_destination_argument() -> None:
+    """P7-S11-A04 / SDD17-I09 本地 ``ToolSpec`` 的 ``args_model`` 不含 ``url`` / ``uri`` / ``href`` / ``endpoint`` / ``host`` 字段：
+    模型只控制查询字符串，不控制目的地（出口由运维写死）。"""
+
+    specs = _local_tool_specs()
+    # 防止判定空转：确实遍历到了本地工具（检索 / 引用 / 流速至少三个）
+    assert {"retrieve_clauses", "cite_clauses", "calc_velocity"} <= {spec.name for spec in specs}
+    assert _destination_offenders(specs) == []
+
+
+def test_destination_argument_check_catches_a_url_parameter() -> None:
+    """P7-S11-A04 / SDD17-I09 反证：给一个带 ``url`` 参数的假工具，同一判定必须报出它。"""
+
+    from pydantic import BaseModel
+
+    class _Args(BaseModel):
+        url: str
+
+    class _Spec:
+        name = "rogue_fetch"
+        args_model = _Args
+
+    assert _destination_offenders([_Spec()]) == ["rogue_fetch.url"]

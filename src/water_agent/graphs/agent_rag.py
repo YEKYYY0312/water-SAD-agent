@@ -61,6 +61,11 @@ from water_agent.domain.state import (
     STATUS_FAILED,
     STATUS_SUCCEEDED,
 )
+from water_agent.external.taint import (
+    DISCLOSURE_LINE,
+    WEB_URL_UNVERIFIED_FEEDBACK,
+    unverified_urls,
+)
 from water_agent.generation.cost import estimate_model_cost
 from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.ingestion.version_registry import get_version_registry
@@ -92,6 +97,7 @@ from water_agent.skills.context import (
     resolve_loaded,
 )
 from water_agent.skills.library import SkillLibrary
+from water_agent.tools.ds_adapters import WEB_CONTENT_ARTIFACT
 
 if TYPE_CHECKING:
     from water_agent.graphs.confirmation import ConfirmationRuntime
@@ -127,6 +133,8 @@ _POLICY_REFUSAL_CODES = frozenset(
 _VALIDATOR_CALL_ID = "citation-validator"
 # 空引用（有检索/有回答但没调用 cite_clauses）最多回流一次，再次空引用即结构化失败
 EMPTY_CITATION_MAX_REFLOWS = 1
+#: P7-S11 终答网址校验的回流上限：回流一次，再次出现不可追溯网址即 ``failed``。
+WEB_URL_MAX_REFLOWS = 1
 
 # 默认系统提示（prompt=None 时使用）。规则正文与 PromptAssembler 的
 # ROLE_AND_PRINCIPLES 同源（P1/Step 10 评审：消除两条提示路径的重复规则来源，
@@ -237,6 +245,14 @@ class AgenticRAGState(TypedDict):
     #: ``PER_TURN_RESET`` 里。它是 thread 消息里 ``load_skill`` 回执的投影（``skills.context``），供 Web 与
     #: 评测观察；提示装配直接读回执、按当前 skill 库取正文。
     loaded_skills: NotRequired[list[dict[str, str]]]
+    #: P7-S11 本回合是否用过联网内容（工具声明了 ``result_source=WEB_CONTENT``），逐轮重置。污点的效应：答案缓存拒绝写入
+    #: （``web_content_used``）、finalize 由程序追加披露行、终答里的网址须可追溯。
+    web_tainted: NotRequired[bool]
+    #: P7-S11 本 thread 里联网工具返回过的**规范化网址**（保序去重），跨轮累积、**不在** ``PER_TURN_RESET`` 里。
+    #: 它永远不进"本 thread 检索到的 source_id 集合"（联网内容不能充当引用）。
+    web_refs: NotRequired[list[str]]
+    #: P7-S11 终答网址校验已回流的次数（逐轮重置；上限 ``WEB_URL_MAX_REFLOWS``）。
+    web_url_reflows: NotRequired[int]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -504,6 +520,40 @@ def _extract_validation_signal(
     return context_ids, cited_ids, retrieved_this_turn
 
 
+def _web_artifact_refs(message: Any) -> list[str] | None:
+    """联网内容工具的 ``ToolMessage`` → 它声明返回的网址列表；不是联网工具结果返回 ``None``。
+
+    **只认 artifact**（``tools/ds_adapters.WEB_CONTENT_ARTIFACT``）：artifact 由本地代码按 ``ToolSpec.result_source``
+    写入、不发给模型。正文由工具输出决定，任何来源都能把它写成同样的 JSON——靠正文判污点 / 判网址集合就是把
+    判定权交给了外部内容。
+    """
+    if not isinstance(message, ToolMessage):
+        return None
+    artifact = message.artifact
+    if not isinstance(artifact, dict) or WEB_CONTENT_ARTIFACT not in artifact:
+        return None
+    refs = artifact[WEB_CONTENT_ARTIFACT]
+    return [str(item) for item in refs] if isinstance(refs, list) else []
+
+
+def web_signal(messages: Sequence[Any]) -> tuple[bool, list[str]]:
+    """（本回合是否用过联网内容, 整条 thread 里联网工具返回过的规范化网址）。
+
+    网址集合取自**整条 thread**（与 ``cite_clauses`` 可追溯集合同样读 checkpoint 里的消息），所以跨轮、跨进程
+    都成立；回合污点只看本回合。两者都不依赖进程内状态。
+    """
+    refs: list[str] = []
+    for message in messages:
+        found = _web_artifact_refs(message)
+        if found is None:
+            continue
+        for url in found:
+            if url not in refs:
+                refs.append(url)
+    tainted = any(_web_artifact_refs(m) is not None for m in current_turn_messages(messages))
+    return tainted, refs
+
+
 def _is_validator_feedback(message: Any) -> bool:
     """校验器自己注入的回流消息（按保留的 tool_call_id 前缀识别，不按名字）。
 
@@ -689,6 +739,18 @@ def make_agent_loop(
                 if name and name != INVALID_TOOL_CALL_NAME and name not in exposed:
                     _record("unexposed_call", {"tool_name": name, "unexposed_call": True})
 
+    def _project_web_signal(result: dict[str, Any]) -> None:
+        """P7-S11：把本回合污点与 thread 级 ``web_refs`` 投影进 state。
+
+        只在确有联网工具结果时才写这两个键——没用过联网内容的回合，返回给图的 state 增量与此前逐字相同
+        （缺省路径不变；``web_tainted`` 的复位值由 ``PER_TURN_RESET`` 在每轮开头给出）。
+        """
+        tainted, refs = web_signal(result.get("messages", []) or [])
+        if not tainted and not refs:
+            return
+        result["web_tainted"] = tainted
+        result["web_refs"] = refs
+
     def _restore_turn_contexts(state: AgenticRAGState) -> tuple[dict[str, Any], list[str]]:
         """经 checkpoint 读回成 dict 的召回结果 → 回调给的原对象，或 ``None``（记为取不回）。"""
         stale = [key for key in TURN_CONTEXT_KEYS if isinstance(state.get(key), dict)]
@@ -771,6 +833,7 @@ def make_agent_loop(
                 result["warnings"] = warnings
             if skill_library is not None:
                 _project_loaded_skills(state, result)
+            _project_web_signal(result)
             return result
         except ToolBudgetExceeded as exc:
             return {
@@ -1035,6 +1098,40 @@ def make_citation_validator(version_registry: Any | None = None):
     """
 
     def citation_validator(state: AgenticRAGState) -> dict[str, Any]:
+        result = _validate_citations_step(state)
+        return _check_web_urls(state, result)
+
+    def _check_web_urls(state: AgenticRAGState, result: dict[str, Any]) -> dict[str, Any]:
+        """P7-S11 终答网址追溯：引用校验**通过收口**之后，再要求终答里的 http(s) 网址可追溯。
+
+        只在本回合 ``web_tainted`` 或本 thread 已有 ``web_refs`` 时才校验——没用过联网内容的回合不进这条分支，
+        行为逐字不变。不可追溯 → 回流一次（复用回流机制，反馈不含任何网址）；再次出现 → ``failed``。
+        联网内容永远不进 ``cite_clauses`` 的可追溯集合（``_extract_validation_signal`` 只认 ``retrieve_clauses``）。
+        """
+        if result.get("status") != STATUS_SUCCEEDED:
+            return result
+        messages = state.get("messages", [])
+        tainted, refs = web_signal(messages)
+        if not tainted and not refs:
+            return result
+        answer_text = final_answer_text(messages)
+        human = _last_human_message(messages)
+        bad = unverified_urls(answer_text, refs, user_text=_message_text(human) if human is not None else "")
+        if not bad:
+            return result
+        reflows = int(state.get("web_url_reflows", 0) or 0)
+        errors = list(result.get("errors", state.get("errors", [])) or [])
+        if reflows < WEB_URL_MAX_REFLOWS:
+            return {
+                "messages": _validator_feedback_messages(WEB_URL_UNVERIFIED_FEEDBACK + _USER_FACING_SUFFIX),
+                "retry_count": int(state.get("retry_count", 0) or 0) + 1,
+                "web_url_reflows": reflows + 1,
+                "errors": errors,
+            }
+        errors.append("回答里出现了不是联网工具返回、也不是用户提供的网址（已回流一次仍未纠正）；不得收口为成功")
+        return {"status": STATUS_FAILED, "errors": errors}
+
+    def _validate_citations_step(state: AgenticRAGState) -> dict[str, Any]:
         messages = state.get("messages", [])
         context_ids, cited_ids, retrieved_this_turn = _extract_validation_signal(state)
         check = validate_citations(cited_ids, context_ids, version_registry=version_registry)
@@ -1266,6 +1363,7 @@ def make_finalize(
                         answer=answer,
                         source_ids=source_ids,
                         ctx=request_context,
+                        web_tainted=bool(state.get("web_tainted")),
                     )
                     disposition = cache_service.store(
                         query=state.get("query", "") or _first_human_text(state),
@@ -1304,6 +1402,11 @@ def make_finalize(
             elif outcome.content != answer:
                 rewrites = _rewrite(answer_message, outcome.content)
                 answer = outcome.content
+
+        # P7-S11 披露行：本回合用过联网内容时，由**程序**在终答末尾追加固定文案（不由模型生成，也不写回会话里的模型消息——
+        # 下一轮模型看到的历史不含它）。被拦截 / 空回答不追加：没有可披露的正文。
+        if state.get("web_tainted") and answer and DISCLOSURE_LINE not in answer:
+            answer = f"{answer}\n\n{DISCLOSURE_LINE}"
 
         trace_warnings = _finish_trace(
             status=status,
@@ -1506,6 +1609,8 @@ PER_TURN_RESET: dict[str, Any] = {
     "empty_citation_reflows": 0,
     "tool_exposure": None,
     "confirmations_this_turn": 0,
+    "web_tainted": False,
+    "web_url_reflows": 0,
 }
 
 

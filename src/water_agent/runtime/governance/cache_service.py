@@ -223,6 +223,7 @@ class AnswerCacheService:
         ctx: RequestContext,
         calc_result_present: bool = False,
         contains_redacted_or_blocked: bool = False,
+        web_tainted: bool = False,
     ) -> StoreEligibility:
         """判定写入资格。规范版本状态由注册表查得，**不由调用方声称**。"""
         statuses = spec_statuses_for(source_ids, self._version_registry)
@@ -235,6 +236,7 @@ class AnswerCacheService:
             answer=answer,
             contains_redacted_or_blocked=contains_redacted_or_blocked,
             calc_result_present=calc_result_present,
+            web_tainted=web_tainted,
             no_store=ctx.no_store,
         )
 
