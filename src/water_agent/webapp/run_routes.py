@@ -16,6 +16,7 @@ from water_agent.graphs.confirmation import STATUS_WAITING_CONFIRMATION
 from water_agent.runtime.agentic import (
     chat_model_problem,
     retrieval_problem,
+    web_search_available,
 )
 from water_agent.storage.repository import (
     ProjectRepository,
@@ -68,6 +69,9 @@ class MessageRequest(BaseModel):
     #: P7-S15：本条消息选用的模型 id（管理员目录里的模型；缺省 = 会话默认，再缺省 = 全局模型）。
     #: **只收模型 id，不收 base_url / api_key**（P7-I15）；格式同 ``validate_model_name``，是否在目录里由路由校验。
     model: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/@+\-]+$")
+    #: P7-S12：用户对**这一条消息**勾选了联网（隐私同意显式，缺省不联网）。只收严格布尔（``"true"`` / ``1`` 一律 422）；
+    #: 不落库、不进会话默认，下一条消息不勾选就不联网。部署没开联网搜索时勾选 → 422 ``WEB_SEARCH_UNAVAILABLE``。
+    web_search: StrictBool = False
 
     @field_validator("message")
     @classmethod
@@ -186,6 +190,15 @@ def _not_configured(code: str, message: str) -> JSONResponse:
             "ok": False,
             "error": {"code": code, "message": message},
         },
+    )
+
+
+def _web_search_refused(code: str, message: str) -> JSONResponse:
+    """422：本条消息勾选了联网，但部署没有可用的联网搜索 / 当前运行环境不支持。不建 run、不回显任何配置。"""
+
+    return JSONResponse(
+        status_code=422,
+        content={"version": _API_VERSION, "ok": False, "error": {"code": code, "message": message}},
     )
 
 
@@ -314,6 +327,14 @@ async def create_message(
         if problem is not None:
             return _not_configured(*problem)
 
+    # P7-S12 联网勾选：工厂不支持就直接拒绝（不静默忽略勾选）；部署没开 / 没配齐就拒绝（用户勾选的是一个不存在的能力）。
+    # 放在授权之后（不向无权者透露部署状态）、建 run 之前（被拒的请求不留 queued 行）。
+    if body.web_search:
+        if not getattr(factory, "supports_web_search", False):
+            return _web_search_refused("WEB_SEARCH_UNSUPPORTED", "当前运行环境不支持联网搜索")
+        if not web_search_available():
+            return _web_search_refused("WEB_SEARCH_UNAVAILABLE", "联网搜索未启用或未配置完成，本条消息无法联网")
+
     # 附件归属在建 run 之前校验：不可见与不存在同答 404，且不留下 queued run。
     attachment_ids = [str(item) for item in dict.fromkeys(body.attachments)]
     if attachment_ids:
@@ -355,6 +376,7 @@ async def create_message(
             query=body.message,
             attachment_ids=attachment_ids,
             **({"model": selected} if selected is not None else {}),
+            web_search=body.web_search,
         )
     except ThreadBusyError:
         # 上面的检查与 start 之间没有 await，单 worker 下走不到这里；兜底时把刚建的行收口，

@@ -15,6 +15,7 @@ P7-S10 对话模型端点（``/api/settings/llm-endpoint``）：面板能写端�
 """
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -173,6 +174,59 @@ async def remove_credential(
     # 删除后仍可能「已配置」——环境变量或 Compose secret 那两层不由本进程管理，
     # 如实报告，免得用户以为删干净了却还在用旧 key。
     return _ok({"credential": _rendered(credential_status(name))})
+
+
+# ---------------------------------------------------------------------------
+# 联网搜索（P7-S12）：只读状态。地址 / provider / 开关由运维的环境变量决定，面板**不能**写（被盗的管理员账号
+# 不能把用户问题改道，SDD D3）；面板只能经上面的凭据接口写密钥槽位 WATER_AGENT_WEB_SEARCH_API_KEY。
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/settings/web-search")
+async def get_web_search_settings(auth: tuple = Depends(require_password_changed)) -> JSONResponse:
+    from water_agent.web_search.config import (
+        API_KEY_ENV,
+        PROVIDERS_NEEDING_KEY,
+        WebSearchConfigError,
+        resolve_switch,
+        resolve_web_search_config,
+    )
+
+    user, _principal = auth
+    can_manage = user.role is UserRole.ADMIN
+    try:
+        enabled = resolve_switch(os.environ) == "on"
+        config = resolve_web_search_config()
+    except WebSearchConfigError as exc:
+        # 只给稳定码与一句话：错误文本可能含运维写的取值，但不含密钥（解析错误发生在读密钥之前）
+        return _ok(
+            {
+                "enabled": None,
+                "ready": False,
+                "provider": None,
+                "host": None,
+                "needs_key": False,
+                "key": None,
+                "detail": None,
+                "can_manage": can_manage,
+                "error": {"code": exc.code, "message": "联网搜索的部署配置不合法，请运维检查 WATER_AGENT_WEB_SEARCH_* 环境变量"},
+            }
+        )
+    needs_key = config.provider in PROVIDERS_NEEDING_KEY
+    return _ok(
+        {
+            "enabled": enabled,
+            "ready": config.ready,
+            "provider": config.provider or None,
+            # 只给主机名：完整基址（路径 / 端口 / 查询串）是部署细节
+            "host": config.host or None,
+            "needs_key": needs_key,
+            "key": _rendered(credential_status(API_KEY_ENV)) if needs_key else None,
+            "detail": config.detail or None,
+            "can_manage": can_manage,
+            "error": None,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
