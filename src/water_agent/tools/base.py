@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from water_agent.runtime.governance.contracts import SourceTag
+
 # 工具名约束：snake_case，首字母小写，仅小写字母/数字/下划线，最长 40
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 
@@ -57,6 +59,9 @@ class ToolSpec(BaseModel):
         description="协作式 deadline（秒）：ToolRegistry.invoke 执行后校验耗时，超时返回结构化 TOOL_TIMEOUT",
     )
     guard: Callable[[Any], None] | None = None
+    #: P7-S11：本工具的结果来自外部网络时声明 ``SourceTag.WEB_CONTENT``——图据此置本回合污点
+    #: （答案缓存拒绝写入、记忆写入拦截、终答追加披露行、终答网址须可追溯）。缺省 ``None``：现有工具一律不变。
+    result_source: SourceTag | None = None
 
     @field_validator("name")
     @classmethod

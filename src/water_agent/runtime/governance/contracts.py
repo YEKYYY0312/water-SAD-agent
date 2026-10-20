@@ -130,6 +130,8 @@ class SourceTag(str, Enum):
     RETRIEVED_CLAUSE = "retrieved_clause"
     RETRIEVED_FILE = "retrieved_file"
     TOOL_OUTPUT = "tool_output"
+    #: P7-S11：联网获取的外部内容（搜索摘录等）。信任低于一切本地来源，**不可承载指令**，也不是规范依据。
+    WEB_CONTENT = "web_content"
     SESSION_MEMORY = "session_memory"
     GENERATED_OUTPUT = "generated_output"
 
@@ -143,6 +145,7 @@ SOURCE_TRUST_LEVEL: dict[SourceTag, int] = {
     SourceTag.RETRIEVED_CLAUSE: 20,
     SourceTag.TOOL_OUTPUT: 10,
     SourceTag.RETRIEVED_FILE: 10,
+    SourceTag.WEB_CONTENT: 5,
     SourceTag.GENERATED_OUTPUT: 0,
 }
 

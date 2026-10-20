@@ -35,6 +35,7 @@ from water_agent.runtime.governance.cache import (
     REASON_REDACTED_OR_BLOCKED,
     REASON_SPEC_VERSION_UNKNOWN,
     REASON_TEMPERATURE,
+    REASON_WEB_CONTENT_USED,
     CachedAnswer,
     CacheKeyFactors,
     InMemoryAnswerCache,
@@ -524,6 +525,8 @@ class TestStoreEligibility:
             ({"category": CallCategory.DOCGEN_POLISH}, REASON_CATEGORY),
             ({"category": CallCategory.AGENTIC_LOOP}, REASON_CATEGORY),
             ({"calc_result_present": True}, REASON_CALC_PRESENT),
+            # P7-S11 / SDD17-I14：用过联网内容的回合恒不可缓存
+            ({"web_tainted": True}, REASON_WEB_CONTENT_USED),
             ({"contains_redacted_or_blocked": True}, REASON_REDACTED_OR_BLOCKED),
             ({"no_store": True}, REASON_NO_STORE),
         ],
