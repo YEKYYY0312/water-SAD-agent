@@ -37,6 +37,9 @@ CREDENTIALS: Mapping[str, str] = {
     "DASHSCOPE_API_KEY": "dashscope_api_key",
     "WATER_AGENT_LLM_API_KEY": "water_agent_llm_api_key",
     "WATER_AGENT_EMBEDDING_API_KEY": "water_agent_embedding_api_key",
+    # P7-S12：联网搜索服务（brave 等有密钥的 provider）的凭据槽位。搜索服务的**地址 / provider / 开关**只由运维的
+    # 环境变量决定（``web_search/config.py``），面板最多写这把密钥（只写不读）。
+    "WATER_AGENT_WEB_SEARCH_API_KEY": "water_agent_web_search_api_key",
 }
 
 # 凭据卷挂载点。它刻意不在 /var/lib/water-agent 之下：scripts/backup.sh 打包
