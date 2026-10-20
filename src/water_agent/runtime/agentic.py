@@ -63,6 +63,7 @@ from water_agent.plugins import (
     assemble_tools,
     builtin_plugins,
 )
+from water_agent.plugins.builtin import WEB_SEARCH_GROUP, WebSearchContribution
 from water_agent.prompting import PromptAssembler
 from water_agent.prompting.history import RUNTIME_CONTEXT_PREFIX
 from water_agent.prompting.runtime_context import RuntimeContextProjection, default_context_builder
@@ -101,6 +102,8 @@ from water_agent.runtime.governance.binding import (
 from water_agent.runtime.governance.cache_service import AnswerCacheService
 from water_agent.runtime.governance.contracts import RequestContext
 from water_agent.session import default_checkpoint_serde, session_db_path
+from water_agent.web_search.config import resolve_web_search_config
+from water_agent.web_search.runtime import WebSearchRuntime
 
 # This module is one level deeper than water_agent/cli.py, so the repository
 # root is parents[3] here, not parents[2].
@@ -617,6 +620,11 @@ class AgenticSession:
     要求确认的 MCP server 照常暴露（工具以延迟工具出现），图里接入 ``confirmation_gate``；作答停在
     确认门时返回 ``status="waiting_confirmation"`` 与 ``confirmation`` 请求，由 :meth:`aresume` 继续。
     为 ``False`` 时装配里出现要求确认的工具即报错（没有确认门就不能有延迟工具）。
+
+    ``web_search``（P7-S12）：用户对**这一条消息**勾选了联网（Web 入口的逐条勾选，与 S7 的 ``confirmation=True`` 同构）。
+    部署开关已开且 provider 配齐时，本次装配注册 ``web_search`` 工具、把 ``WEB_SEARCH`` 追加给主体、本轮开放该组；
+    部署没配好时勾选即 ``ValueError``（入口应先看 :func:`web_search_available`，不让用户勾一个不存在的能力）。
+    ``False``（缺省）时装配面与此前逐字相同。会话对象只服务一个 run（Web 每个 run 新建），所以勾选天然只对这一条消息有效。
     """
 
     #: RunManager 只给声明支持的会话传 ``attachment_context`` / ``on_draft``（AgentSessionFactory 是协议）。
@@ -636,9 +644,11 @@ class AgenticSession:
         mcp_enabled: bool = True,
         mcp_lease: McpLease | None = None,
         confirmation: bool = False,
+        web_search: bool = False,
     ) -> None:
         self.args = args
         self.confirmation_enabled = confirmation
+        self.web_search_requested = web_search
         #: 恢复确认时调用方交回的本轮召回结果（只在 aresume 期间非空，见 ConfirmationRuntime.turn_contexts）
         self._resume_contexts: dict[str, Any] = {}
         self.stack = stack
@@ -722,6 +732,16 @@ class AgenticSession:
                 stack=stack,
                 confirmation_ready=confirmation,
             )
+        # 联网搜索（P7-S12）：开关 / provider 写错在装配期响亮失败（每条消息都解析，不等到有人勾选才发现）。
+        # 勾选了而部署没就绪不抛错：插件 skipped、本轮不联网，外层图向用户发 WEB_SEARCH_NOT_EXPOSED（入口通常已先拦下）。
+        web_search_config = resolve_web_search_config()
+        #: 联网搜索工具的会话级依赖：本轮私有上下文、调用者主体、网关、trace（全部惰性取，装配完才有）
+        self.web_search_runtime = WebSearchRuntime(
+            request_context=lambda: self.request_context,
+            gateway=lambda: self.gateway,
+            recorder=lambda: self.recorder,
+            checkpoint_messages=self._thread_messages,
+        )
         assembly = assemble_tools(
             AssemblyContext(
                 retriever=tool_retriever,
@@ -730,7 +750,13 @@ class AgenticSession:
             ),
             base_principal=self.request_context.principal,
             trace=self.recorder,
-            plugins=builtin_plugins(mcp=mcp_plugin, skills_disabled=disabled_skill_names()),
+            plugins=builtin_plugins(
+                mcp=mcp_plugin,
+                skills_disabled=disabled_skill_names(),
+                web_search_runtime=self.web_search_runtime,
+                web_search_config=web_search_config,
+                web_search_requested=web_search,
+            ),
         )
         self.request_context = self.request_context.model_copy(
             update={"principal": assembly.principal}
@@ -740,6 +766,11 @@ class AgenticSession:
         #: P7-S9：本次装配的 skill 库（开关 off 时为空库）。提示装配与外层图共用这一个实例。
         self.skill_library = assembly.contribution(SkillsContribution).library
         self.mcp_tool_names = assembly.registered("mcp_gateway")
+        #: P7-S12：本次装配的联网搜索贡献（``status`` 为 ``active`` 即本条消息可以联网）
+        self.web_search_contribution = assembly.contribution(WebSearchContribution)
+        #: 本条消息由入口开启的 request 组（写进图 state 的 ``request_groups``）。**勾选了就写**，哪怕插件因部署没就绪而
+        #: skipped——外层图据此发现"勾选了却没开放"并告警（不静默丢弃勾选）；没勾选为空。
+        self.request_groups: tuple[str, ...] = (WEB_SEARCH_GROUP,) if web_search else ()
         registry = assembly.registry
         tools = assembly.tools
         self.registry = registry
@@ -793,6 +824,41 @@ class AgenticSession:
             ),
             **confirmation_kwargs,
         )
+
+    def _turn_config(self) -> dict[str, Any]:
+        """本次运行交给图的 config。勾选了联网时附上私有上下文的捕获回调（随 config 继承进内层 react 子图，
+        在检索 / 读图的输出刚产生时记下它，供查询出口守卫比对）；没勾选时就是 ``self.config`` 本身（逐字不变）。"""
+
+        if not self._web_search_active():
+            return self.config
+        return {**self.config, "callbacks": [self.web_search_runtime.private]}
+
+    def _web_search_active(self) -> bool:
+        return self.web_search_contribution.status == "active"
+
+    def _begin_web_search_turn(self, user_text: str, *contexts: Any) -> None:
+        """新回合：清空并登记本轮用户消息（守卫豁免对象）与私有上下文（长期记忆 / 上传资料 / 附件）。没勾选联网时什么都不做。"""
+
+        if self._web_search_active():
+            self.web_search_runtime.private.begin_turn(user_text, *contexts)
+
+    def _turn_question(self) -> str:
+        """本回合用户的问题（确认后恢复时从 checkpoint 读回；读不到即空串——豁免变窄，只会多拦，不会多放）。"""
+
+        for message in reversed(self._thread_messages()):
+            content = getattr(message, "content", None)
+            if (
+                isinstance(message, HumanMessage)
+                and isinstance(content, str)
+                and not content.startswith(RUNTIME_CONTEXT_PREFIX)
+            ):
+                return content
+        return ""
+
+    def _request_kwargs(self) -> dict[str, Any]:
+        """只在有勾选时才把 ``request_groups`` 交给图入口（缺省路径的调用参数与此前逐字相同）。"""
+
+        return {"request_groups": list(self.request_groups)} if self.request_groups else {}
 
     def _retrieval_status(self) -> dict[str, Any]:
         runtime_status = getattr(self.retriever, "runtime_status", None)
@@ -880,6 +946,7 @@ class AgenticSession:
                 on_event(mode, payload)
 
         initial_messages = self._initial_messages(query)
+        self._begin_web_search_turn(query, memory_context, upload_context, attachment_context)
         # 取消检查经 ContextVar 下传到模型调用与工具执行（runtime/cancellation.py）：此前只在
         # 事件回调里检查，内层工具循环取消后照样把剩下的模型/工具调用跑完。
         # 远程 MCP（Streamable HTTP）的 tools/call 按调用者主体做能力校验 / 限流：同样经 ContextVar 下传
@@ -887,7 +954,7 @@ class AgenticSession:
             result = await astream_agentic(
                 self.app,
                 query,
-                self.config,
+                self._turn_config(),
                 on_token=checked_token if on_token is not None else None,
                 on_event=checked_event,
                 on_draft=on_draft,
@@ -896,6 +963,7 @@ class AgenticSession:
                 upload_context=upload_context,
                 attachment_context=attachment_context,
                 request_context=self.request_context,
+                **self._request_kwargs(),
             )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
@@ -950,12 +1018,13 @@ class AgenticSession:
             if on_event is not None:
                 on_event(mode, payload)
 
+        self._begin_web_search_turn(self._turn_question(), memory_context, upload_context, attachment_context)
         try:
             with cancellation_scope(cancel_check), mcp_request_scope(self.request_context):
                 result = await astream_agentic(
                     self.app,
                     "",
-                    self.config,
+                    self._turn_config(),
                     on_token=checked_token if on_token is not None else None,
                     on_event=checked_event,
                     on_draft=on_draft,
@@ -1102,6 +1171,7 @@ def build_agentic_session(
     checkpointer: Any | None = None,
     mcp_lease: McpLease | None = None,
     confirmation: bool = False,
+    web_search: bool = False,
 ) -> AgenticSession:
     """Single assembly function used by CLI and Web adapters."""
 
@@ -1113,7 +1183,22 @@ def build_agentic_session(
         checkpointer=checkpointer,
         mcp_lease=mcp_lease,
         confirmation=confirmation,
+        web_search=web_search,
     )
+
+
+def web_search_available(environ: Any | None = None) -> bool:
+    """部署层面能不能联网搜索（开关已开、provider / 基址 [/ 密钥] 配齐）。Web 预检与能力端点用它决定用户能不能勾选。
+
+    配置非法时返回 ``False``（不在预检里抛错——非法配置会在装配期响亮失败，这里只回答"能不能勾"）。
+    """
+
+    from water_agent.web_search.config import WebSearchConfigError
+
+    try:
+        return resolve_web_search_config(environ).ready
+    except WebSearchConfigError:
+        return False
 
 
 __all__ = [
@@ -1133,6 +1218,7 @@ __all__ = [
     "real_llm_configured",
     "resolve_retrieval_plan",
     "retrieval_problem",
+    "web_search_available",
 ]
 
 # Compatibility alias retained for CLI's existing private import surface.
