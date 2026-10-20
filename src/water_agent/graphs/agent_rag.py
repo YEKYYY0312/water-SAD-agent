@@ -253,6 +253,9 @@ class AgenticRAGState(TypedDict):
     web_refs: NotRequired[list[str]]
     #: P7-S11 终答网址校验已回流的次数（逐轮重置；上限 ``WEB_URL_MAX_REFLOWS``）。
     web_url_reflows: NotRequired[int]
+    #: P7-S12 本条消息由**入口标志**开启的 ``request`` 组 id（目前只有 ``web_search``：用户对这一条消息勾选了联网）。
+    #: 每轮由入口写入（没勾选就是空），**不**随 checkpoint 延续到下一轮——勾选只对那一条消息有效。
+    request_groups: NotRequired[list[str]]
 
 
 def _llm_call_record(message: Any, model_name: str, latency_ms: float) -> dict[str, Any]:
@@ -701,6 +704,8 @@ def make_agent_loop(
         except Exception:  # noqa: BLE001, S110 — 观测失败不影响作答
             pass
 
+    not_exposed_warning: list[str] = []
+
     def _decide_exposure(state: AgenticRAGState, query: str) -> dict[str, Any] | None:
         """本轮的暴露决定；已有就复用（回流），没有暴露策略时为 ``None``（不过滤）。"""
         if exposure is None:
@@ -710,11 +715,22 @@ def make_agent_loop(
         if isinstance(existing, dict):
             decision_state = existing
         else:
+            requested = [str(item) for item in state.get("request_groups") or []]
             decision = exposure.decide(
-                query, previous_turn_tools=previous_turn_tools(state.get("messages", []))
+                query,
+                previous_turn_tools=previous_turn_tools(state.get("messages", [])),
+                # 只在有勾选时才传（缺省路径的调用与此前逐字相同）
+                **({"request_enabled": requested} if requested else {}),
             )
             decision_state = decision.to_state()
             _record("tool_exposure", decision_state)
+            opened = {str(item[0]) for item in decision_state.get("reasons", []) if item}
+            missing = sorted(set(requested) - opened)
+            if missing:
+                # 用户勾选了联网，本轮却没开放（预算让位，或部署没就绪、工具根本没装配）：向用户发警告（warnings + trace），
+                # 不得静默丢弃——否则用户会以为查过了
+                _record("web_search_not_exposed", {"groups": missing})
+                not_exposed_warning.append(WARNING_WEB_SEARCH_NOT_EXPOSED)
         holder["exposed"] = (
             set(decision_state["exposed"]) if decision_state.get("strategy") == "intent" else None
         )
@@ -777,6 +793,7 @@ def make_agent_loop(
 
     def agent_loop(state: AgenticRAGState, config) -> dict[str, Any]:
         holder["turns"] = 0
+        not_exposed_warning.clear()
         query = state.get("query", "") or _first_human_text(state)
         if trace is not None and not trace.started:
             trace.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=query)
@@ -834,6 +851,11 @@ def make_agent_loop(
             if skill_library is not None:
                 _project_loaded_skills(state, result)
             _project_web_signal(result)
+            if not_exposed_warning:
+                warnings = list(result.get("warnings") or state.get("warnings", []) or [])
+                if WARNING_WEB_SEARCH_NOT_EXPOSED not in warnings:
+                    warnings.append(WARNING_WEB_SEARCH_NOT_EXPOSED)
+                result["warnings"] = warnings
             return result
         except ToolBudgetExceeded as exc:
             return {
@@ -979,6 +1001,9 @@ WARNING_TRACE_WRITE_FAILED = "trace_write_failed"
 #: 本轮的召回结果（长期记忆 / 上传资料 / 附件）在恢复后取不回来（P7-S7：确认门挂起期间进程重启过），
 #: 本轮剩下的部分不带它们作答。
 WARNING_TURN_CONTEXT_UNAVAILABLE = "turn_recall_context_unavailable"
+#: P7-S12：用户对这一条消息勾选了联网，但 ``web_search`` 组因预算（最紧组合）被整组让位、本轮没有开放。
+#: 必须告知用户，否则用户会以为查过了。与 ``web_search/errors.py::WEB_SEARCH_NOT_EXPOSED`` 同值。
+WARNING_WEB_SEARCH_NOT_EXPOSED = "WEB_SEARCH_NOT_EXPOSED"
 #: 每轮写入、无 reducer 的召回结果键（见 :func:`_agentic_input`）。
 TURN_CONTEXT_KEYS: tuple[str, ...] = ("memory_context", "upload_context", "attachment_context")
 _NORMATIVE_MARKERS = (
@@ -1611,6 +1636,7 @@ PER_TURN_RESET: dict[str, Any] = {
     "confirmations_this_turn": 0,
     "web_tainted": False,
     "web_url_reflows": 0,
+    "request_groups": [],
 }
 
 
@@ -1785,6 +1811,7 @@ def _agentic_input(
     memory_context: Any | None,
     upload_context: Any | None,
     attachment_context: Any | None,
+    request_groups: Sequence[str] = (),
 ) -> dict[str, Any]:
     # 两个 *_context 是**本轮**的召回结果，必须每轮无条件写入（没有就写 None）。
     # 它们是无 reducer 的 state 键，会随 checkpoint 持久化：只在"有值"时才写，
@@ -1799,6 +1826,9 @@ def _agentic_input(
         "upload_context": upload_context,
         "attachment_context": attachment_context,
         **PER_TURN_RESET,
+        # 本条消息由入口标志开启的 request 组（P7-S12）。没有勾选就沿用 PER_TURN_RESET 的空列表，
+        # 即这一键每轮都被覆盖——上一轮的勾选不会延续到这一轮
+        **({"request_groups": list(request_groups)} if request_groups else {}),
     }
 
 
@@ -1867,6 +1897,7 @@ async def astream_agentic(
     pipeline: GuardrailPipeline | None = None,
     request_context: RequestContext | None = None,
     resume: dict[str, Any] | None = None,
+    request_groups: Sequence[str] = (),
 ) -> dict[str, Any]:
     """流式运行 agentic 图（``subgraphs=True``，内层模型逐块到达），返回最终状态。
 
@@ -1881,6 +1912,8 @@ async def astream_agentic(
     - ``memory_context`` / ``upload_context`` / ``attachment_context``：本轮召回结果，只进入
       独立 data 段，不承载指令、不参与数值推导、不改变引用校验；
     - ``pipeline`` / ``request_context``：草稿过检用的护栏与主体（缺省回落默认实例）；
+    - ``request_groups``（P7-S12）：本条消息由入口标志开启的 ``request`` 工具组 id（目前只有 ``web_search``）。
+      只对这一轮有效（逐轮复位）；不传 = 与此前逐字相同。
     - ``resume``（P7-S7）：对挂起的确认门给出决定，以 ``Command(resume=...)`` 继续同一轮——不重置
       本轮状态、不追加消息、不写任何状态键，``query`` 与各 ``*_context`` 被忽略。本轮的召回结果由
       agent_loop 经 ``turn_contexts`` 取回（见 :func:`make_agent_loop`）：不能用 ``Command(update=...)``
@@ -1894,7 +1927,9 @@ async def astream_agentic(
     input_state: Any = (
         Command(resume=resume)
         if resume is not None
-        else _agentic_input(query, messages, memory_context, upload_context, attachment_context)
+        else _agentic_input(
+            query, messages, memory_context, upload_context, attachment_context, request_groups
+        )
     )
     try:
         async for event in app.astream(
