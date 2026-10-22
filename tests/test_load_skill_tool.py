@@ -185,3 +185,111 @@ def test_catalog_fits_and_skills_group_yields_under_budget(tmp_path: Path, monke
     assert tight.schema_chars <= EXPOSED_SCHEMA_BUDGET
     sticky = policy.decide("管径换成 65 再说一遍", previous_turn_tools=["load_skill"])
     assert "load_skill" in sticky.exposed and ("skills", "sticky") in sticky.reasons
+
+
+# ---------------------------------------------------------------------------
+# P7-S13：已安装层与目录预算（第三方来源不得挤掉仓库评审过的规程，也不得改变现有部署的目录）
+# ---------------------------------------------------------------------------
+
+
+def _installed_skill(name: str, *, description: str = "这是正好十五个字的首句描述。"):  # type: ignore[no-untyped-def]
+    from water_agent.skills.models import Skill, SkillManifest
+
+    return Skill(manifest=SkillManifest(name=name, description=description), body="x", source="installed", digest="0" * 16)
+
+
+def _with_installed(library, names: list[str]):  # type: ignore[no-untyped-def]
+    """现行顺序（内置 + 运维合并后的字母序）之后**追加**已安装层——与 ``build_skill_library`` 同一规则。"""
+
+    from water_agent.skills.library import SkillLibrary
+
+    extra = sorted((_installed_skill(name) for name in names), key=lambda skill: skill.name)
+    return SkillLibrary(enabled=(*library.enabled, *extra), active=True)
+
+
+def test_installed_skills_never_push_a_builtin_out_of_the_catalog() -> None:
+    """P7-S13-A05 装满已安装 skill 时 4 个内置 skill 仍全部在目录里：``fit_catalog`` 先从末尾截已安装层（组内字母序从末尾起），
+    已安装层截空之前不碰内置 + 运维。
+
+    **构造要点**：``enabled`` 的**顺序**不能决定被截的是谁——如果 ``fit_catalog`` 只认"字母序最后一个"，那么只要把已安装 skill 按
+    字母序混进内置里，名字排在前面的已安装 skill 就会把内置的 ``spec-conflict-handling`` 挤出目录（Step 0 实测）。所以这里**直接
+    按字母序全排**构造库（不依赖"追加"约定），``fit_catalog`` 自己必须认 ``source``。"""
+
+    from water_agent.skills.library import SkillLibrary
+
+    base = build_skill_library(available_tools=CORE | {"material_stats"}, environ={"WATER_AGENT_SKILLS": "on"})
+    assert len(base.names) == 4
+    for prefix in ("aa", "zz"):
+        for count in (1, 3, 4, 7, 20):
+            mixed = sorted([*base.enabled, *(_installed_skill(f"{prefix}-skill-n{index:02d}") for index in range(count))],
+                           key=lambda skill: skill.name)
+            fitted = fit_catalog(SkillLibrary(enabled=tuple(mixed), active=True))
+            assert set(base.names) <= set(fitted.names), (prefix, count, "内置被挤出目录")
+            dropped = [name for name, code, _ in fitted.skipped if code == SKILL_CATALOG_FULL]
+            assert all(name.startswith(prefix) for name in dropped), "只会丢已安装层"
+            assert dropped == sorted(dropped, reverse=True), "组内按字母序从末尾起丢"
+            assert build_load_skill_tool(fitted) is not None
+    # 已安装层被截空之后才轮到内置 + 运维（沿用现行"字母序从末尾截"）
+    from water_agent.skills.library import SkillLibrary
+
+    crowded = SkillLibrary(
+        enabled=tuple(_installed_skill(f"b-long-skill-{index:02d}", description="很长的规程描述。" * 12) for index in range(30)),
+        active=True,
+    )
+    fitted = fit_catalog(crowded)
+    dropped = {name for name, code, _ in fitted.skipped if code == SKILL_CATALOG_FULL}
+    assert dropped and all(name > max(fitted.names) for name in dropped)
+
+
+def test_without_installed_skills_the_catalog_and_truncation_are_unchanged(tmp_path: Path) -> None:
+    """P7-S13-A05 无已安装 skill 时 ``fit_catalog`` 与现行**逐字相同**：内置 + 运维合并后的目录文本、截断结果（按字母序从末尾、记 ``SKILL_CATALOG_FULL``）
+    都与 S9 一致——现行部署的目录与 ``skill_library_digest`` 不变。"""
+
+    from water_agent.tools.load_skill import describe
+
+    operator = tmp_path / "operator"
+    for name in ("leak-test-notes", "pump-room-checklist"):
+        _skill(operator, name)
+    library = build_skill_library(
+        available_tools=CORE | {"material_stats"},
+        environ={"WATER_AGENT_SKILLS": "on", "WATER_AGENT_SKILLS_DIR": str(operator)},
+    )
+    assert library.names == (
+        "calc-book-workflow", "drawing-review-report", "leak-test-notes", "missing-input-clarification",
+        "pump-room-checklist", "spec-conflict-handling",
+    ), "现行顺序：内置 + 运维合并后字母序（不是三段分组）"
+    assert fit_catalog(library).names == library.names
+    assert describe(fit_catalog(library).enabled) == describe(library.enabled)
+
+    crowded = tmp_path / "crowded"
+    for index in range(40):
+        _skill(crowded, f"long-skill-{index:02d}", description="这是一段故意写得很长的规程描述，用来把目录撑满。" * 3)
+    full = build_skill_library(
+        available_tools=CORE,
+        environ={"WATER_AGENT_SKILLS": "on", "WATER_AGENT_SKILLS_DIR": str(crowded)},
+        builtin_dir=tmp_path / "none",
+    )
+    fitted = fit_catalog(full)
+    dropped = sorted(name for name, code, _ in fitted.skipped if code == SKILL_CATALOG_FULL)
+    assert dropped == sorted(set(full.names) - set(fitted.names)) and all(name > max(fitted.names) for name in dropped)
+
+
+def test_builtin_and_operator_relative_order_is_independent_of_the_installed_layer(tmp_path: Path) -> None:
+    """P7-S13-A05 已安装层存在与否，内置 + 运维的相对顺序不变（已安装层只追加在末尾）。"""
+
+    operator = tmp_path / "operator"
+    _skill(operator, "leak-test-notes")
+    environ = {"WATER_AGENT_SKILLS": "on", "WATER_AGENT_SKILLS_DIR": str(operator)}
+    without = build_skill_library(available_tools=CORE | {"material_stats"}, environ=environ)
+    installed = tmp_path / "installed"
+    (installed / "aaa-first").mkdir(parents=True)
+    from water_agent.skills.installed import InstalledMeta, sha256_of, write_lock_atomic
+
+    raw = "---\nname: aaa-first\ndescription: 排在最前的已安装规程。\n---\n先检索。\n".encode()
+    (installed / "aaa-first" / "SKILL.md").write_bytes(raw)
+    write_lock_atomic(installed, [InstalledMeta("aaa-first", "1.0.0", sha256_of(raw), len(raw), "r.example", "ops", "t", None)])
+    with_layer = build_skill_library(
+        available_tools=CORE | {"material_stats"}, environ={**environ, "WATER_AGENT_SKILLS_INSTALLED_DIR": str(installed)}
+    )
+    assert with_layer.names[:-1] == without.names and with_layer.names[-1] == "aaa-first"
+    assert [skill.source for skill in with_layer.enabled][-1] == "installed"

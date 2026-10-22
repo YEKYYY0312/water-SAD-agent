@@ -24,7 +24,7 @@ MAX_TRIGGERS = 12
 MAX_TRIGGER_LENGTH = 24
 MAX_REQUIRED_TOOLS = 8
 
-SkillSource = Literal["builtin", "operator"]
+SkillSource = Literal["builtin", "operator", "installed"]
 
 
 class SkillManifest(BaseModel):
