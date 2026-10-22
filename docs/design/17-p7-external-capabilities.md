@@ -22,7 +22,7 @@
 | "不从网络安装 skill" | S9 执行 Prompt §1 不做 | **有条件放开**（S13）：只有运维主机上的 CLI 能取、能批准；模型与 Web 面板没有任何安装入口；批准绑定全文摘要，加载期每次重算。 |
 | `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | 16 §3.2 / P7-I06 | 已扩为 `{MCP_INVOKE, WEB_SEARCH}`（D2，S12 交付）。`NETWORK_FETCH` 仍在危险集、不授予任何主体。 |
 | "出口只由运维写死的 URL 决定" | S8 | **保持**：搜索服务地址、skill 注册表地址、MCP 目录地址都由运维写死。注册表返回的 MCP 条目 URL **不被连接**（S14 不探测）。 |
-| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 → 9、S13 → 10、S14 → 11；`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。**S12 实际**：站点 `web_search` 的 `module` 是 `web_search/tool.py`（逻辑调用点；它经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），见 `p7-step-12-decision.md`。 |
+| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 8 → 9、**S13 9 → 10**、S14 10 → 11；`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。**S12 实际**：站点 `web_search` 的 `module` 是 `web_search/tool.py`（逻辑调用点；它经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），见 `p7-step-12-decision.md`。 **S13 实际**：站点 `skill_registry` 的 `module` 是 `skills/remote/client.py`（逻辑调用点；经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），`egress_module` 仍是 `mcp/http_transport.py`；需要新增 `Capability.SKILL_FETCH`（只在运维 CLI 主体上，见 §6.1），见 `p7-step-13-decision.md`。 |
 | `SourceTag` 只有 7 种、无网络来源 | `contracts.py` | 新增 `WEB_CONTENT`（信任级别低于 `TOOL_OUTPUT`，不可承载指令；S11）。`INSTRUCTION_BEARING_SOURCES` **不改**。 |
 
 ---
@@ -227,6 +227,15 @@ provider 响应 → 逐条：网址必须能解析为 http(s)、≤ 300 字符�
 5. 安检：复用 `skills/safety.py::check_skill`（注入、铁律否定式改写、`requires_tools` 核对），再加下载专属规则 `SKILL_REMOTE_NO_LINKS`（正文不得含网址 / 邮箱 / 带 shell 的代码围栏）。critical 无覆盖项。
 6. 落隔离区 `<state>/skills-quarantine/<name>@<version>-<sha8>/`（**不在任何加载根下**）：`SKILL.md` + `candidate.json`（取回时间、注册表主机、sha256、size、安检报告）。输出摘要与下一步命令。
 
+> **S13 实际**（详见 `p7-step-13-decision.md`）：
+> - 步骤 4–5 之前先做**字节级预检**（NUL / `\r` / BOM / 非法 UTF-8 / 超限）和**字符正向白名单** `SKILL_REMOTE_CHARSET`——实测 Unicode Tag 字符、变体选择符、西里尔同形字
+>   可以让注入句绕过 `detect_injection` 与 `check_skill` 并原样进入 `skill_context`；黑名单追不上，所以用白名单（对 1 268 385 字符的规范语料误拒 0）。
+>   希腊字母 `ρ ν κ` 是合法工程符号必须放行，它们能替换注入句里的 `p v k`，所以注入检测对原文与折叠版各跑一次——**这仍是确定性映射，覆盖不到语料之外的写法**。
+> - YAML 事件扫描（anchor / alias / 显式 tag / 重复键 / 合并键）先于 `safe_load`（别名炸弹 213 字节展开成 67 182 个节点；重复键 `safe_load` 静默取后者）。
+> - 名字一律 `fullmatch`（既有 `SKILL_NAME_RE.match("ab-cd\n")` 为真）；版本只认三段整数并按整数元组比较。
+> - index **整份**严格校验，任一条目不合法即整份拒绝；身份回显不一致报 `SKILL_REGISTRY_MISMATCH`；降级 / 相等 / 重放被拒（`SKILL_VERSION_NOT_NEWER` / `SKILL_REGISTRY_REPLAY`）。
+> - 新增 `Capability.SKILL_FETCH`：`ProviderGateway.call` 要求每次调用有能力，借 `NETWORK_FETCH`（危险集）或现有能力都不诚实；它只在运维 CLI 构造的主体上。
+
 ### 6.4 `approve name@version --sha256 <完整摘要>`
 
 - **必须 TTY**（`stdin.isatty()`），没有 `--yes`；非 TTY 一律拒绝；
@@ -294,8 +303,8 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 |---|---|---|---|
 | S11 | 外部内容底座：`WEB_CONTENT` 标签、信封 / 归一化库、`governed_get` 内核、回合污点及其效应、P7-I08 + 静态扫描扩展、答案渲染不加载外部图片（F10）、`external_content_p0` | `docs/execution-prompts/P7-S11-external-content-foundation.md` | delivered |
 | S12 | 联网搜索：`web_search` + provider 适配器 + `QueryEgressGuard` + 结果流水线 + 回答纪律 + 逐条消息勾选 + 治理站点 8 → 9 + `web_search_p0` | `docs/execution-prompts/P7-S12-web-search.md` | delivered |
-| S13 | Skill 下载：静态注册表协议 + 隔离区 + 运维 CLI + 第三来源层与加载期哈希重算 + 治理站点 → 10 + `skill_fetch_p0` | `docs/execution-prompts/P7-S13-skill-fetch.md` | planned |
-| S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | planned |
+| S13 | Skill 下载：静态注册表协议 + 隔离区 + 运维 CLI + 第三来源层与加载期哈希重算 + 治理站点 9 → 10 + `skill_fetch_p0` | `docs/execution-prompts/P7-S13-skill-fetch.md` | delivered |
+| S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 10 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | planned |
 
 依赖：S12、S13、S14 都依赖 S11；三者互不依赖，可按需要调整顺序或只做其中一部分。**归属**：沿用 `P7-S<n>` 编号与 `YEK/p7-s<n>-<名>` 分支以复用范围守卫、装配快照与追溯检查（S10 同例，D8）。每一步的执行 Prompt 必须**先合入 main** 再开工。
 
@@ -309,7 +318,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 | P7-I09 | 本地 `ToolSpec` 的 `args_model` 不含 `url` / `uri` / `href` / `endpoint` / `host` 字段 | `tests/test_plugin_invariants.py` | delivered |
 | P7-I10 | provider 适配器模块不 import 任何网络原语（只能由 `governed_get` 驱动）| `tests/test_web_search_adapters.py` | delivered |
 | P7-I11 | 终答网址校验器接进 finalize（S12 实际：由回合污点 / `web_refs` 触发，不另设开关，见 §5.6）| `tests/test_web_search_discipline.py` | delivered |
-| P7-I12 | `skills/remote/`（取 / 批准）只被 `skills/cli.py` 导入；`tools/` 与 `webapp/` 不导入它 | `tests/test_skill_fetch_invariants.py` | planned |
+| P7-I12 | `skills/remote/`（取 / 批准）只被 `skills/cli.py` 导入；`tools/` 与 `webapp/` 不导入它 | `tests/test_skill_fetch_invariants.py` | delivered |
 | P7-I13 | `mcp/registry.py` 不导入 `MCPStdioClient` / `MCPHttpClient` / `open_bridge`（目录模块不连接条目）| `tests/test_mcp_registry_invariants.py` | planned |
 | P7-I14 | `web_tainted` 回合的答案缓存写入资格恒为 false | `tests/test_answer_cache.py` | delivered |
 
@@ -354,17 +363,17 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 | ID | 验收 | 验证（拟）| 状态 |
 |---|---|---|---|
-| P7-S13-A01 | 注册表协议与客户端：仅 https、固定版本、大小上限、index/文件摘要一致、响应身份回显核对；不可达 / 不一致 → 失败关闭且磁盘零写入 | `tests/test_skill_registry_client.py` | planned |
-| P7-S13-A02 | 严格解析与隔离区：单文件、ASCII slug、同形异义拒绝、NUL / 链接拒绝；候选永不出现在任何加载根下 | `tests/test_skill_quarantine.py` | planned |
-| P7-S13-A03 | 安检：既有 `check_skill` + `SKILL_REMOTE_NO_LINKS`；与内置 / 运维同名预检即拒 | `tests/test_skill_remote_safety.py` | planned |
-| P7-S13-A04 | `approve`：必须 TTY、键入名字、摘要三方一致；崩溃注入无半安装；lock 原子更新；旧版进 `.previous/` | `tests/test_skill_approve.py` | planned |
-| P7-S13-A05 | 第三来源层：加载期重算哈希，篡改 → `SKILL_TAMPERED` + 审计 + 不加载；无 lock 项 → `SKILL_UNLOCKED`；lock 损坏 → 装配期失败；遮蔽顺序 | `tests/test_skill_installed_layer.py` | planned |
-| P7-S13-A06 | 无模型 / 面板入口：P7-I12（AST）；工具清单与路由表不含取 / 批准 | `tests/test_skill_fetch_invariants.py` | planned |
-| P7-S13-A07 | 更新 / 回滚 / 卸载均需 TTY；无静默更新；降级与重放被拒 | `tests/test_skill_lifecycle.py` | planned |
-| P7-S13-A08 | 面板：来源徽记与 lock 元数据（无路径）；管理员无取 / 批准控件（前端 node 测试）| `tests/test_web_skills.py`、`web/app/tests/skills.test.mjs` | planned |
-| P7-S13-A09 | 治理：新 `ProviderKind`、站点 → 10、审计字段白名单 | `tests/test_governance_contracts.py` | planned |
-| P7-S13-A10 | 部署：`skills-admin` profile、app 只读挂载且不挂隔离区、注册表基址不进 app 环境 | `tests/test_web_deployment.py` | planned |
-| P7-S13-A11 | `skill_fetch_p0` 门禁 + 基线；快照新增 `session_skills_installed`，现有 profile 逐字不变 | `gate:skill_fetch_p0` | planned |
+| P7-S13-A01 | 注册表协议与客户端：仅 https、固定版本、大小上限、index/文件摘要一致、响应身份回显核对；不可达 / 不一致 → 失败关闭且磁盘零写入 | `tests/test_skill_registry_client.py` | delivered |
+| P7-S13-A02 | 严格解析与隔离区：单文件、ASCII slug、同形异义拒绝、NUL / 链接拒绝；候选永不出现在任何加载根下 | `tests/test_skill_quarantine.py` | delivered |
+| P7-S13-A03 | 安检：既有 `check_skill` + `SKILL_REMOTE_NO_LINKS`；与内置 / 运维同名预检即拒 | `tests/test_skill_remote_safety.py` | delivered |
+| P7-S13-A04 | `approve`：必须 TTY、键入名字、摘要三方一致；崩溃注入无半安装；lock 原子更新；旧版进 `.previous/` | `tests/test_skill_approve.py` | delivered |
+| P7-S13-A05 | 第三来源层：加载期重算哈希，篡改 → `SKILL_TAMPERED` + 审计 + 不加载；无 lock 项 → `SKILL_UNLOCKED`；lock 损坏 → 装配期失败；遮蔽顺序 | `tests/test_skill_installed_layer.py` | delivered |
+| P7-S13-A06 | 无模型 / 面板入口：P7-I12（AST）；工具清单、路由表与前端源码不含取 / 批准 | `tests/test_skill_fetch_invariants.py` | delivered |
+| P7-S13-A07 | 更新 / 回滚 / 卸载均需 TTY；无静默更新；降级与重放被拒 | `tests/test_skill_lifecycle.py` | delivered |
+| P7-S13-A08 | 面板：来源徽记与 lock 元数据（无路径）；管理员无取 / 批准控件（前端 node 测试）| `tests/test_web_skills.py`、`web/app/tests/skills.test.mjs` | delivered |
+| P7-S13-A09 | 治理：新 `Capability.SKILL_FETCH`（不在默认集 / 成员集 / `GRANTABLE`）、新 `ProviderKind` / `CallCategory`、站点 9 → 10、审计字段白名单 | `tests/test_governance_contracts.py` | delivered |
+| P7-S13-A10 | 部署：`skills-admin` profile、app 只读挂载且不挂隔离区、注册表基址不进 app 环境 | `tests/test_web_deployment.py` | delivered |
+| P7-S13-A11 | `skill_fetch_p0` 门禁 + 基线；快照新增 `session_skills_installed`，现有 profile 逐字不变 | `gate:skill_fetch_p0` | delivered |
 | P7-S13-A12 | 真实注册表 / 真实模型是否遵循下载的规程（见 §13）| 无 | untested |
 
 ### S14：MCP 发现
