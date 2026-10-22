@@ -239,3 +239,99 @@ def test_admin_can_disable_a_skill_for_the_next_run(app: Any, database: Database
         load_web_layer(env.web)
     assert exc.value.code == "MCP_CONFIG_INVALID" and "body" in str(exc.value)
     assert member.get("/api/skills").json()["data"]["web_layer_error"] == "MCP_CONFIG_INVALID"
+
+
+# ---------------------------------------------------------------------------
+# P7-S13：已安装来源在面板里的呈现（只读；没有取 / 批准入口）
+# ---------------------------------------------------------------------------
+
+
+def _install_one(tmp: Path, monkeypatch: pytest.MonkeyPatch, name: str = "pump-room-notes") -> bytes:
+    from water_agent.skills.installed import InstalledMeta, sha256_of, write_lock_atomic
+
+    installed = tmp / "installed-skills"
+    (installed / name).mkdir(parents=True)
+    raw = (
+        f"---\nname: {name}\ndescription: 泵房设计复核的补充步骤。\nversion: 1.2.0\nrequires_tools: [retrieve_clauses]\n---\n"
+        "1. 先用 retrieve_clauses 检索泵房布置相关条文。\n"
+    ).encode()
+    (installed / name / "SKILL.md").write_bytes(raw)
+    write_lock_atomic(
+        installed,
+        [InstalledMeta(name, "1.2.0", sha256_of(raw), len(raw), "registry.example.com", "ops-user", "2026-10-22T03:00:00Z", None)],
+    )
+    monkeypatch.setenv("WATER_AGENT_SKILLS_INSTALLED_DIR", str(installed))
+    return raw
+
+
+def test_installed_skills_show_provenance_without_paths(
+    app: Any, database: Database, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S13-A08 ``GET /api/skills``：已安装来源的对象多一个 ``installed``（摘要前 8 位 / 批准人 / 批准时间 / 注册表主机名，来自 lock，
+    **不含路径**）；其余来源的字段集合逐字不变；管理员详情同样带它。摘要只给前 8 位，完整摘要与安装区路径都不出现。"""
+
+    raw = _install_one(env.tmp, monkeypatch)
+    member = _login(app, database, UserRole.MEMBER)
+    response = member.get("/api/skills")
+    assert response.status_code == 200, response.text
+    by_name = {item["name"]: item for item in response.json()["data"]["skills"]}
+
+    installed = by_name["pump-room-notes"]
+    assert installed["source"] == "installed" and installed["version"] == "1.2.0" and installed["status"] == "enabled"
+    import hashlib
+
+    digest = hashlib.sha256(raw).hexdigest()
+    assert installed["installed"] == {
+        "sha8": digest[:8], "approved_by": "ops-user", "approved_at": "2026-10-22T03:00:00Z", "registry_host": "registry.example.com",
+    }
+    assert set(installed) == {"name", "source", "version", "description", "triggers", "requires_tools", "status", "installed"}
+    for name in (*BUILTIN, "pump-room-checklist"):
+        assert "installed" not in by_name[name], "其余来源的字段逐字不变"
+        assert set(by_name[name]) == {"name", "source", "version", "description", "triggers", "requires_tools", "status"}
+    text = response.text
+    assert digest not in text, "完整摘要不出现"
+    assert str(env.tmp) not in text and "installed-skills" not in text, "不回显安装区路径"
+    assert "先用 retrieve_clauses 检索泵房布置" not in text, "列表不含正文"
+
+    admin = _login(app, database, UserRole.ADMIN)
+    detail = admin.get("/api/admin/skills/pump-room-notes").json()["data"]["skill"]
+    assert detail["installed"]["sha8"] == digest[:8] and "先用 retrieve_clauses 检索泵房布置" in detail["body"]
+    assert str(env.tmp) not in admin.get("/api/admin/skills/pump-room-notes").text
+
+
+def test_a_tampered_installed_skill_is_listed_only_by_name_and_code(
+    app: Any, database: Database, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S13-A08 / A05 被篡改的已安装 skill 不加载：面板只显示名字与 ``SKILL_TAMPERED``（不展示任何文本、不展示路径），文件不被删除。"""
+
+    _install_one(env.tmp, monkeypatch)
+    skill_file = env.tmp / "installed-skills" / "pump-room-notes" / "SKILL.md"
+    skill_file.write_bytes(skill_file.read_bytes() + b"tampered")
+    member = _login(app, database, UserRole.MEMBER)
+    data = member.get("/api/skills").json()["data"]
+    assert "pump-room-notes" not in [item["name"] for item in data["skills"]]
+    assert {"name": "pump-room-notes", "status": "SKILL_TAMPERED"} in data["unavailable"]
+    assert "tampered" not in member.get("/api/skills").text and skill_file.exists()
+
+
+def test_the_panel_can_disable_an_installed_skill_but_nothing_else(
+    app: Any, database: Database, env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S13-A08 管理员对已安装 skill 只能停用 / 启用（S9 的 Web 管理层 ``skills`` 键）；PATCH 仍只认 ``disabled`` + ``expected_revision``，
+    塞 ``version`` / ``sha256`` / ``install`` / ``approve`` 之类一律 422；没有任何取回 / 批准 / 安装路由。"""
+
+    _install_one(env.tmp, monkeypatch)
+    admin = _login(app, database, UserRole.ADMIN)
+    for bad in ({"disabled": True, "expected_revision": 0, "approve": True}, {"disabled": True, "expected_revision": 0, "version": "9.9.9"},
+                {"install": True, "expected_revision": 0}, {"sha256": "0" * 64, "disabled": False, "expected_revision": 0}):
+        response = _patch(admin, "pump-room-notes", bad)
+        assert response.status_code == 422, (bad, response.text)
+    ok = _patch(admin, "pump-room-notes", {"disabled": True, "expected_revision": 0})
+    assert ok.status_code == 200, ok.text
+    listing = admin.get("/api/skills").json()["data"]
+    assert "pump-room-notes" not in [item["name"] for item in listing["skills"]] or any(
+        item["name"] == "pump-room-notes" and item["status"] == "SKILL_DISABLED" for item in listing["skills"]
+    )
+    for path in ("/api/skills/fetch", "/api/skills/approve", "/api/admin/skills/pump-room-notes/approve",
+                 "/api/admin/skills/pump-room-notes/install", "/api/admin/skills/fetch", "/api/admin/skills/registry"):
+        assert admin.post(path, json={}, headers=_headers(admin)).status_code in {404, 405}, path

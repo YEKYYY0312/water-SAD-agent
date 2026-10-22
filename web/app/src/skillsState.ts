@@ -1,4 +1,5 @@
-import type { SkillListing, SkillSource, SkillView } from "./skillsApi.ts";
+import { parseInstalledMeta, type SkillListing, type SkillSource, type SkillView } from "./skillsApi.ts";
+import { formatUpdatedAt } from "./settingsState.ts";
 import type { SystemCapabilities } from "./workspaceApi.ts";
 
 /** 面板上的固定说明（与后端 skill_routes.NOTICE 同义；后端没给时用它）。 */
@@ -8,6 +9,7 @@ export const SKILL_LIBRARY_NOTICE =
 const SOURCE_LABELS: Record<SkillSource, string> = {
   builtin: "内置",
   operator: "运维目录",
+  installed: "已安装",
 };
 
 export function sourceLabel(source: SkillSource | string): string {
@@ -60,6 +62,17 @@ export function skillMeta(skill: SkillView): { label: string; value: string }[] 
   const rows = [
     { label: "来源", value: `${sourceLabel(skill.source)} · v${skill.version}` },
   ];
+  if (skill.source === "installed") {
+    // 元数据缺失或畸形就不渲染这一行，不猜
+    const meta = parseInstalledMeta(skill.installed);
+    if (meta) {
+      const approvedAt = formatUpdatedAt(meta.approved_at) ?? meta.approved_at;
+      rows.push({
+        label: "安装信息",
+        value: `摘要 ${meta.sha8} · 批准人 ${meta.approved_by} · 批准时间 ${approvedAt} · 注册表 ${meta.registry_host}`,
+      });
+    }
+  }
   if (skill.triggers.length) rows.push({ label: "触发词", value: skill.triggers.join("、") });
   if (skill.requires_tools.length) rows.push({ label: "依赖工具", value: skill.requires_tools.join("、") });
   return rows;

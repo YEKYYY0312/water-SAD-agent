@@ -1,7 +1,18 @@
 import { csrfToken, WorkspaceApiError, type ApiEnvelope } from "./workspaceApi.ts";
 
-/** skill 来自哪一级（P7-S9）：随包内置（仓库评审）或运维只读目录。 */
-export type SkillSource = "builtin" | "operator";
+/**
+ * skill 来自哪一级：随包内置（仓库评审）、运维只读目录（P7-S9），或运维在主机 shell 里取回并人工批准安装的
+ * `installed`（P7-S13）。面板只展示来源，没有任何取回 / 批准 / 安装入口——那些只在主机上的 CLI。
+ */
+export type SkillSource = "builtin" | "operator" | "installed";
+
+/** `installed` 来源独有的出处信息；后端不给路径。其余来源的对象没有这个键。 */
+export type InstalledSkillMeta = {
+  sha8: string;
+  approved_by: string;
+  approved_at: string;
+  registry_host: string;
+};
 
 /** 列表里的一条：没有正文、没有运维目录路径。status 是 "enabled" 或错误码（如 SKILL_DISABLED）。 */
 export type SkillView = {
@@ -12,6 +23,7 @@ export type SkillView = {
   triggers: string[];
   requires_tools: string[];
   status: string;
+  installed?: InstalledSkillMeta;
 };
 
 /** 未加载的 skill 只有名字与错误码：它们的 frontmatter 可能本身就是坏的，不能当可信文本展示。 */
@@ -34,6 +46,33 @@ export type SkillDetail = SkillView & { body: string; digest: string };
 
 /** 启停请求体：面板只能改 disabled。 */
 export type SkillPatch = { disabled: boolean; expected_revision: number };
+
+/**
+ * 宽容地读 `installed` 元数据：四个字段都得是非空字符串，否则当作没有元数据（不抛）。
+ * 摘要只留前 8 位——面板展示的是出处提示，不是完整校验值。
+ */
+export function parseInstalledMeta(value: unknown): InstalledSkillMeta | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const pick = (key: string): string | null => {
+    const field = record[key];
+    return typeof field === "string" && field.trim() ? field.trim() : null;
+  };
+  const sha8 = pick("sha8");
+  const approvedBy = pick("approved_by");
+  const approvedAt = pick("approved_at");
+  const registryHost = pick("registry_host");
+  if (!sha8 || !approvedBy || !approvedAt || !registryHost) return null;
+  return { sha8: sha8.slice(0, 8), approved_by: approvedBy, approved_at: approvedAt, registry_host: registryHost };
+}
+
+/** 只处理 installed 来源：元数据畸形就去掉该键；其他来源的对象原样返回。 */
+export function normalizeSkill<T extends SkillView>(skill: T): T {
+  if (typeof skill !== "object" || skill === null || skill.source !== "installed") return skill;
+  const { installed, ...rest } = skill;
+  const meta = parseInstalledMeta(installed);
+  return (meta ? { ...rest, installed: meta } : rest) as T;
+}
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -78,12 +117,14 @@ export class SkillsApi {
     return envelope.data;
   }
 
-  listSkills(): Promise<SkillListing> {
-    return this.request("/api/skills");
+  async listSkills(): Promise<SkillListing> {
+    const listing = await this.request<SkillListing>("/api/skills");
+    return Array.isArray(listing.skills) ? { ...listing, skills: listing.skills.map(normalizeSkill) } : listing;
   }
 
-  getSkill(name: string): Promise<{ skill: SkillDetail }> {
-    return this.request(`/api/admin/skills/${encodeURIComponent(name)}`);
+  async getSkill(name: string): Promise<{ skill: SkillDetail }> {
+    const result = await this.request<{ skill: SkillDetail }>(`/api/admin/skills/${encodeURIComponent(name)}`);
+    return result.skill && typeof result.skill === "object" ? { ...result, skill: normalizeSkill(result.skill) } : result;
   }
 
   setDisabled(name: string, patch: SkillPatch): Promise<{ name: string; disabled: boolean; revision: number }> {

@@ -112,8 +112,8 @@ def _library() -> SkillLibrary:
         raise _Problem(SKILL_LIBRARY_UNAVAILABLE, "skill 库不可用：运维 skill 目录配置有误，需运维修复") from exc
 
 
-def _view(skill: Skill, *, status: str) -> dict[str, Any]:
-    return {
+def _view(skill: Skill, *, status: str, library: SkillLibrary | None = None) -> dict[str, Any]:
+    view: dict[str, Any] = {
         "name": skill.name,
         "source": skill.source,
         "version": skill.manifest.version,
@@ -122,6 +122,13 @@ def _view(skill: Skill, *, status: str) -> dict[str, Any]:
         "requires_tools": list(skill.manifest.requires_tools),
         "status": status,
     }
+    # P7-S13：已安装来源多一个 ``installed``（摘要前 8 位 / 批准人 / 批准时间 / 注册表主机名，来自 lock，**不含路径**）。
+    # 其余来源的字段逐字不变。读的是 ``skills/installed.py`` 的只读元数据——本模块不得 import ``skills/remote/``（P7-I12）。
+    if skill.source == "installed" and library is not None:
+        meta = library.installed_meta.get(skill.name)
+        if meta is not None:
+            view["installed"] = meta.panel_view()
+    return view
 
 
 @router.get("/api/skills")
@@ -133,7 +140,10 @@ async def list_skills(auth: tuple = Depends(require_password_changed)) -> JSONRe
         return _error(problem)
     document, layer_error = _document()
     disabled = set(document.disabled_skills()) if document is not None else set()
-    skills = [_view(skill, status=SKILL_DISABLED if skill.name in disabled else "enabled") for skill in library.enabled]
+    skills = [
+        _view(skill, status=SKILL_DISABLED if skill.name in disabled else "enabled", library=library)
+        for skill in library.enabled
+    ]
     # 未加载的 skill 只给名字与错误码（它们的 frontmatter 可能就是坏的，不能当可信文本展示）
     unavailable = [{"name": name, "status": code} for name, code, _detail in library.skipped]
     return _ok(
@@ -156,12 +166,13 @@ async def get_skill(name: str, auth: tuple = Depends(require_admin)) -> JSONResp
     try:
         if not SKILL_NAME_RE.match(name):
             raise _unknown()
-        skill = _library().get(name)
+        library = _library()
+        skill = library.get(name)
         if skill is None:
             raise _unknown()
     except _Problem as problem:
         return _error(problem)
-    return _ok({"skill": {**_view(skill, status="enabled"), "body": skill.body, "digest": skill.digest}})
+    return _ok({"skill": {**_view(skill, status="enabled", library=library), "body": skill.body, "digest": skill.digest}})
 
 
 @router.patch("/api/admin/skills/{name}", dependencies=[Depends(validate_csrf)])
