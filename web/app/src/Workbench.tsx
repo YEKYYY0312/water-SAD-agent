@@ -124,6 +124,7 @@ export function Workbench() {
             <SettingsPanel
               capabilities={workspace.capabilities}
               onCapabilitiesChanged={workspace.refreshCapabilities}
+              onWebSearchChanged={workspace.refreshWebSearch}
               onBack={() => workspace.setSettingsOpen(false)}
             />
           </section>
@@ -146,6 +147,9 @@ export function Workbench() {
             confirmationState={workspace.confirmationState}
             modelCatalog={workspace.modelCatalog}
             messageModel={workspace.messageModel}
+            webSearchReady={workspace.webSearchReady}
+            webSearchOn={workspace.webSearchOn}
+            onWebSearchChange={workspace.setWebSearch}
             onMessageModelChange={workspace.setMessageModel}
             onSessionModelChange={workspace.setSessionModel}
             inspectorOpen={inspectorOpen}

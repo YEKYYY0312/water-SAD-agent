@@ -316,10 +316,11 @@ def test_http_mcp_profile_is_added_and_the_existing_ones_are_untouched(
     assert profile["lifecycle"]["mcp_clients_alive_after_scope"] == 0, "会话收尾后 HTTP 会话已关闭"
     assert profile["surface"]["tools"]["mcp_snaphttp_echo_query"]["schema_chars"] > 0
 
+    # S10 / S15 / S12 之后新增的 profile 不在"S8 时就存在的 16 个"里
     existing = {
         name
         for name in baseline["profiles"]
-        if name not in {"session_http_mcp_fake", "session_endpoint_custom", "session_pick_model_off"}
+        if name not in {"session_http_mcp_fake", "session_endpoint_custom", "session_pick_model_off", "session_web_search_fake"}
     }
     assert len(existing) == 16
     for name in existing:
@@ -344,7 +345,11 @@ def test_endpoint_profile_is_added_and_the_existing_ones_are_untouched(
         "compatibility": "verified",
     }
     assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
-    others = {name for name in baseline["profiles"] if name not in {"session_endpoint_custom", "session_pick_model_off"}}
+    others = {
+        name
+        for name in baseline["profiles"]
+        if name not in {"session_endpoint_custom", "session_pick_model_off", "session_web_search_fake"}
+    }
     assert len(others) == 17
     for name in others:
         assert head["profiles"][name] == baseline["profiles"][name], name
@@ -383,7 +388,7 @@ def test_pick_model_profile_is_added_and_the_existing_ones_are_untouched(
         "extra_body": {"thinking": {"type": "disabled"}},
     }
     assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
-    others = {name for name in baseline["profiles"] if name != "session_pick_model_off"}
+    others = {name for name in baseline["profiles"] if name not in {"session_pick_model_off", "session_web_search_fake"}}
     assert len(others) == 18
     for name in others:
         assert head["profiles"][name] == baseline["profiles"][name], name

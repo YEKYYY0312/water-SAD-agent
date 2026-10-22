@@ -104,6 +104,13 @@ PINNED_ENV_KEYS = (
     "WATER_AGENT_EMBEDDING_API_KEY",
     "WATER_AGENT_EMBEDDING_API_KEY_FILE",
     "WATER_AGENT_RETRIEVAL_MODE",
+    # P7-S12：联网搜索的部署开关 / provider / 基址 / 私网放行与密钥槽位
+    "WATER_AGENT_WEB_SEARCH",
+    "WATER_AGENT_WEB_SEARCH_PROVIDER",
+    "WATER_AGENT_WEB_SEARCH_BASE_URL",
+    "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE",
+    "WATER_AGENT_WEB_SEARCH_API_KEY",
+    "WATER_AGENT_WEB_SEARCH_API_KEY_FILE",
 )
 
 #: Web profile 用的占位 Key：只用来让 ``build_chat_model`` 能构造对象，永远不会被发出去
@@ -114,6 +121,8 @@ CUSTOM_ENDPOINT_BASE_URL = "https://llm.snapshot.invalid/v1"
 CUSTOM_ENDPOINT_MODEL = "snapshot-compatible-model"
 #: P7-S15 ``session_pick_model_off`` 在目录里选中的模型（缺省 DeepSeek 端点上的目录项，思考 ``off``）。
 PICKED_MODEL = "snapshot-picked-model"
+#: P7-S12 ``session_web_search_fake`` 的搜索服务基址（``.invalid`` 顶级域，永远解析不到；快照不调用工具）。
+WEB_SEARCH_BASE_URL = "https://search.snapshot.invalid/"
 
 DrawingMode = Literal["off", "arg", "env", "none"]
 McpMode = Literal["disabled", "empty", "fake", "http_fake", "confirm_skip", "ready_flag", "invalid"]
@@ -142,6 +151,8 @@ class Profile:
     endpoint: bool = False
     #: P7-S15：缺省端点上从模型目录里选一个思考 ``off`` 的模型（目录 + 逐对兼容性报告写进凭据卷，真生成器装配）。
     pick_model: bool = False
+    #: P7-S12：联网搜索部署开关 on + 假 provider（``.invalid`` 基址，永远解析不到；捕获点之后不调用工具）+ 本条消息勾选联网。
+    web_search: bool = False
 
 
 #: 会话侧 ``drawing``：off = ``drawing_root=""``（不注册图纸工具）；arg = 显式目录；
@@ -219,6 +230,12 @@ PROFILES: tuple[Profile, ...] = (
         "session",
         "缺省端点上从目录选 thinking=off 的模型 + 逐对兼容性报告：chat model 指向所选模型并附带关闭思考的 extra_body",
         pick_model=True,
+    ),
+    Profile(
+        "session_web_search_fake",
+        "session",
+        "联网搜索部署开关 on + 假 searxng（.invalid 基址）+ 本条消息勾选联网：多出 web_search（request 组）、主体多 web_search 能力",
+        web_search=True,
     ),
     Profile(
         "session_mcp_register_fault",
@@ -488,8 +505,13 @@ def _exposure_view(policy: Any) -> dict[str, Any] | None:
     if policy is None:
         return None
     probes: dict[str, Any] = {}
-    for label, query in EXPOSURE_PROBES:
-        decision = policy.decide(query)
+    requested = [group.group_id for group in policy.groups if group.rule.mode == "request"]
+    cases: list[tuple[str, str, list[str]]] = [(label, query, []) for label, query in EXPOSURE_PROBES]
+    if requested:
+        # P7-S12：有 request 组时再探一次"本条消息勾选了它"（只对有 request 组的 profile 出现）
+        cases.append(("clause_qa_requested", EXPOSURE_PROBES[0][1], requested))
+    for label, query, enabled in cases:
+        decision = policy.decide(query, request_enabled=enabled) if enabled else policy.decide(query)
         view = decision.to_state()
         if decision.strategy == "intent":
             guide = policy.render_guide(decision.exposed)
@@ -646,6 +668,10 @@ def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int |
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
     if profile.skills:
         os.environ["WATER_AGENT_SKILLS"] = "on"
+    if profile.web_search:
+        os.environ["WATER_AGENT_WEB_SEARCH"] = "on"
+        os.environ["WATER_AGENT_WEB_SEARCH_PROVIDER"] = "searxng"
+        os.environ["WATER_AGENT_WEB_SEARCH_BASE_URL"] = WEB_SEARCH_BASE_URL
     if profile.pick_model:
         from water_agent.generation.compatibility import (
             ENDPOINT_COMPATIBILITY_CHECKS,
@@ -773,6 +799,7 @@ def _drive_session(profile: Profile, workdir: Path, state: _ProfileState) -> Non
                 checkpointer=None if profile.cli_checkpointer else MemorySaver(),
                 retriever=_fixture_retriever(),
                 mcp_enabled=profile.mcp != "disabled",
+                web_search=profile.web_search,
             )
     except SnapshotHarnessError:
         raise

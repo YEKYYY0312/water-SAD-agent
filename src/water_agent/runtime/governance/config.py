@@ -32,7 +32,8 @@ from water_agent.runtime.governance.contracts import (
 #: 配置版本。**改任何阈值都要改它**（trace 用它回溯裁定依据）。
 #: P7-S8 新增 ``MCP_REMOTE`` 画像（工具调用零重试），递进。
 #: P7-S10 ``DEEPSEEK_CHAT`` 画像的语义扩为"OpenAI 兼容对话端点"，超时与价格可由运维覆盖，递进。
-GOVERNANCE_CONFIG_VERSION = "p7-s10-2026-10-13"
+#: P7-S12 新增 ``WEB_SEARCH`` 画像（联网搜索：15 s、瞬时错误只重试一次、每主体每分钟 ≤ 20），递进。
+GOVERNANCE_CONFIG_VERSION = "p7-s12-2026-10-20"
 
 #: P7-S10：对话端点（``ProviderKind.DEEPSEEK_CHAT``——名字保留，语义是"OpenAI 兼容对话端点"，见
 #: ``generation/endpoints.py``）的运维覆盖。缺省 = 现状（60 s、DeepSeek 公开单价）。
@@ -282,6 +283,16 @@ class GovernanceConfig(BaseModel):
                 timeout_seconds=30.0,
                 retry=RetryPolicy(max_attempts=1),
                 rate_limit=RateLimitPolicy(max_requests_per_minute=1200),
+            ),
+            # P7-S12 联网搜索：单次 15 s；**只对瞬时错误（408/429/5xx/超时/连接错误）重试一次**，401/403 零重试且不计熔断
+            # （沿用 gateway 既有分类，换密钥才能解决）；熔断按 provider 主机分桶（``ProviderCall.model`` =
+            # ``web_search:<host>``，一台服务连续失败开路不影响另一台）。限流是**失控保护**量级——每主体每分钟 ≤ 20 次
+            # 搜索，足以挡住模型循环或被投毒文档驱动的搜索风暴；**不是生产调优值**（DAU / 搜索服务配额均未知）。
+            # 搜索不返回 token 用量，usage 记未知，不估算成本。
+            ProviderKind.WEB_SEARCH: ProviderProfile(
+                timeout_seconds=15.0,
+                retry=RetryPolicy(max_attempts=2),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=20),
             ),
         }
     )

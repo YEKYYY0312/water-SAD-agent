@@ -208,6 +208,28 @@ def test_public_base_url_is_passed_to_the_app_only() -> None:
     assert compose.count("\n      WEB_PUBLIC_BASE_URL:") == 1, "只有 app 服务拿到它"
 
 
+def test_web_search_is_off_by_default_and_its_key_never_travels_by_env() -> None:
+    """P7-S12-A12 compose 给 app 透传联网搜索的开关 / provider / 基址 / 私网放行四个变量，**缺省为空 = off**（外发默认关，
+    与 skills 不同）；密钥不经环境变量传（会出现在 ``docker compose config`` 里），在设置面板的只写槽位填写。四个变量与密钥
+    槽位都被装配快照钉住。"""
+
+    from water_agent.harness import tool_assembly_snapshot as snap
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    for name in (
+        "WATER_AGENT_WEB_SEARCH",
+        "WATER_AGENT_WEB_SEARCH_PROVIDER",
+        "WATER_AGENT_WEB_SEARCH_BASE_URL",
+        "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE",
+    ):
+        assert f"      {name}: ${{{name}:-}}\n" in app_block, name
+        assert name in snap.PINNED_ENV_KEYS, name
+    assert "WATER_AGENT_WEB_SEARCH: \"on\"" not in compose
+    assert "WATER_AGENT_WEB_SEARCH_API_KEY:" not in compose
+    assert "WATER_AGENT_WEB_SEARCH_API_KEY" in snap.PINNED_ENV_KEYS
+
+
 def test_endpoint_variables_are_passed_through() -> None:
     """P7-S10-A09 compose 给 app 透传对话 / embedding 端点、兼容性报告、超时、价格与检索模式（缺省为空 = 现状：
     DeepSeek + 百炼 + auto）；冒烟服务拿到检索模式与 embedding 端点，好按同一配置断言 retrieval_mode。Key 一律

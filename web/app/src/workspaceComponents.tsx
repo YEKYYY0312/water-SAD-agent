@@ -7,10 +7,11 @@ import { Icon } from "./icons";
 import { formatBytes, UPLOAD_ACCEPT, uploadNotice, type UploadRecord } from "./uploadApi.ts";
 import type { Attachment, ExportState } from "./useWorkspaceController";
 import type { Project, WorkspaceSession } from "./workspaceApi";
-import { isTerminalStatus, type ConversationMessage, type WorkspaceRunState } from "./workspaceState.ts";
+import { isTerminalStatus, warningDisplayText, type ConversationMessage, type WorkspaceRunState } from "./workspaceState.ts";
 import { AnswerMarkdown } from "./AnswerMarkdown.tsx";
 import { ComposerModelSelect, SessionDefaultModel } from "./ModelChoice.tsx";
 import type { ModelCatalogView } from "./modelChoiceApi.ts";
+import { WebSearchNote, WebSearchToggle } from "./WebSearchToggle.tsx";
 
 export type { ConversationMessage } from "./workspaceState.ts";
 
@@ -301,9 +302,12 @@ export function ConversationPanel({
   confirmationState,
   modelCatalog,
   messageModel,
+  webSearchReady,
+  webSearchOn,
   inspectorOpen,
   onMessageModelChange,
   onSessionModelChange,
+  onWebSearchChange,
   onDraftChange,
   onSubmit,
   onCancel,
@@ -328,9 +332,13 @@ export function ConversationPanel({
   confirmationState: ConfirmationSubmitState;
   modelCatalog: ModelCatalogView | null;
   messageModel: string;
+  /** 运维已配好联网搜索才渲染「联网」开关；勾选只对下一条消息有效（P7-S12）。 */
+  webSearchReady: boolean;
+  webSearchOn: boolean;
   inspectorOpen: boolean;
   onMessageModelChange: (value: string) => void;
   onSessionModelChange: (model: string | null) => void;
+  onWebSearchChange: (on: boolean) => void;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -446,7 +454,7 @@ export function ConversationPanel({
                 {run.draftRetractions > 0 && !answerDraft ? "正在修订回答…" : answerDraft ? "正在生成…" : "正在检索与计算…"}
               </p>
             )}
-            {run.warnings.map((warning) => <div className="warning-state" role="status" key={warning}>{warning}</div>)}
+            {run.warnings.map((warning) => <div className="warning-state" role="status" key={warning}>{warningDisplayText(warning)}</div>)}
             {run.status !== "idle" && run.status !== "succeeded" && isTerminal(run.status) && !answer && (
               <div className="error-state" role="alert">
                 <strong>{run.status === "cancelled" ? "已停止" : "这次没有完成"}</strong>
@@ -502,6 +510,12 @@ export function ConversationPanel({
               disabled={!session || streaming || waiting}
               onChange={onMessageModelChange}
             />
+            <WebSearchToggle
+              ready={webSearchReady}
+              on={webSearchOn}
+              disabled={!session || streaming || waiting}
+              onChange={onWebSearchChange}
+            />
             <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF/DWG 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" />
             </button>
@@ -516,6 +530,7 @@ export function ConversationPanel({
               </button>
             )}
           </div>
+          <WebSearchNote ready={webSearchReady} on={webSearchOn} />
         </form>
         <SessionDefaultModel
           catalog={modelCatalog}

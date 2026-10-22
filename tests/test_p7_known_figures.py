@@ -60,7 +60,10 @@ def test_exposed_tools_always_fit_the_tool_guide(profiles: dict[str, Any]) -> No
             assert probe["guide"]["chars"] <= 800, (name, label)
             assert {"retrieve_clauses", "cite_clauses", "calc_velocity"} <= set(probe["exposed"])
             checked += 1
-    assert checked == 56  # 14 个装配成功的 profile × 4 条探针（P7-S9 新增 session_skills_builtin，P7-S8 新增 session_http_mcp_fake，P7-S10 新增 session_endpoint_custom，P7-S15 新增 session_pick_model_off）
+    # 15 个装配成功的 profile × 4 条探针 + session_web_search_fake 多一条"本条消息勾选了联网"的探针（P7-S9 新增
+    # session_skills_builtin，P7-S8 新增 session_http_mcp_fake，P7-S10 新增 session_endpoint_custom，P7-S15 新增
+    # session_pick_model_off，P7-S12 新增 session_web_search_fake）
+    assert checked == 61
 
     drawing = profiles["session_drawing_arg"]["surface"]
     both = drawing["exposure"]["probes"]["drawing_materials"]
