@@ -109,6 +109,14 @@ services:
       # 检索模式 auto|hybrid|text（空 = auto）：auto 下没配 embedding 或与索引不匹配时走关键词检索（BM25，
       # 不是语义检索，界面如实标出）；hybrid 强制混合检索，缺 embedding 即拒绝提问。
       WATER_AGENT_RETRIEVAL_MODE: ${WATER_AGENT_RETRIEVAL_MODE:-}
+      # 联网搜索（P7-S12）：**缺省关闭**（外发默认关，与 skills 不同）。开启需同时设 provider（searxng / brave）与基址；
+      # 基址是唯一出口，模型只控制搜索词。brave 等有密钥的 provider 在设置面板填 WATER_AGENT_WEB_SEARCH_API_KEY（只写不读，
+      # 不经环境变量传）。searxng 自托管在内网时设 WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE=1（只放行回环与私有网段，
+      # 云元数据地址永远拒绝）。用户还要对每一条消息勾选「联网」才会搜索；查询会发往该服务，数据出境由运维评估。
+      WATER_AGENT_WEB_SEARCH: ${WATER_AGENT_WEB_SEARCH:-}
+      WATER_AGENT_WEB_SEARCH_PROVIDER: ${WATER_AGENT_WEB_SEARCH_PROVIDER:-}
+      WATER_AGENT_WEB_SEARCH_BASE_URL: ${WATER_AGENT_WEB_SEARCH_BASE_URL:-}
+      WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE: ${WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE:-}
     secrets:
       - postgres_password
       - deepseek_api_key

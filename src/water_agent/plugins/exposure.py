@@ -9,10 +9,14 @@ ToolNode 仍持有全部已注册工具——**暴露不是授权边界**，授�
 
 - ``core``：每轮必开、永不因预算丢弃（检索、引用、流速计算——铁律①②）；
 - ``intent``：本轮问题命中关键词 / 正则才开；
+- ``request``（P7-S12）：由**入口标志**决定，不看 query——用户对这一条消息勾选了联网，入口把组 id 交给
+  ``decide(request_enabled=…)`` 才开；没勾选就永远不开，也**不**参与 sticky（上一轮勾选不延续到这一轮）；
 - ``ambient``：不看意图（MCP 每台 server 一组，以及未声明规则的插件），预算不够时最先让位。
 
-入选顺序 core → 命中的 intent → 上一轮实际调用过的组（sticky，只回看一轮）→ ambient，同类按插件
-顺序；按这个顺序逐组入选，放不下的整组跳过并记进 ``dropped``。两项预算：发出的 schema ≤ 4500
+入选顺序 core → 命中的 intent → request（被勾选的）→ 上一轮实际调用过的组（sticky，只回看一轮）→ ambient，同类按插件
+顺序；按这个顺序逐组入选，放不下的整组跳过并记进 ``dropped``。**request 排在 intent 之后**：用户已经明确说了要读图 / 统计
+材料时，这些本地工具优先；预算最紧（读图 + 材料 = 4497）放不下 request 组时它被整组让位，由调用方向用户发
+``WEB_SEARCH_NOT_EXPOSED`` 警告——用户勾选了联网却被静默丢弃，会让用户以为查过了。两项预算：发出的 schema ≤ 4500
 （与 ``tests/test_answer_cache.py`` 同一上限、同一序列化口径），按意图格式渲染的工具指引 ≤ 800
 （``SEGMENT_BUDGETS["tool_guide"]``）。
 
@@ -28,7 +32,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-ExposureMode = Literal["core", "intent", "ambient"]
+ExposureMode = Literal["core", "intent", "request", "ambient"]
 ExposureStrategy = Literal["intent", "full"]
 
 EXPOSURE_ENV = "WATER_AGENT_TOOL_EXPOSURE"
@@ -82,6 +86,8 @@ class ExposureRule:
 
 CORE = ExposureRule(mode="core")
 AMBIENT = ExposureRule(mode="ambient")
+#: 由入口标志决定的组（P7-S12 联网搜索）：不看 query。
+REQUEST = ExposureRule(mode="request")
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +226,15 @@ class ToolExposurePolicy:
         unexposed = [name for name in self.order if name not in exposed]
         return render_guide([self._lines[name] for name in ordered], unexposed)
 
-    def decide(self, query: str, *, previous_turn_tools: Collection[str] = ()) -> ExposureDecision:
+    def decide(
+        self,
+        query: str,
+        *,
+        previous_turn_tools: Collection[str] = (),
+        request_enabled: Collection[str] = (),
+    ) -> ExposureDecision:
+        """``request_enabled``：本条消息由入口标志开启的 ``request`` 组 id（缺省空）。不传时与此前逐字相同。"""
+
         if self.strategy == "full":
             return ExposureDecision(
                 strategy="full",
@@ -246,8 +260,13 @@ class ToolExposurePolicy:
         for group in self.groups:
             if group.rule.mode == "intent" and group.rule.matches(text):
                 offer(group, "intent")
+        requested = set(request_enabled)
         for group in self.groups:
-            if previous & set(group.tools):
+            if group.rule.mode == "request" and group.group_id in requested:
+                offer(group, "request")
+        for group in self.groups:
+            # request 组不参与 sticky：勾选只对那一条消息有效，上一轮调用过 web_search 不得让这一轮自动开放
+            if group.rule.mode != "request" and previous & set(group.tools):
                 offer(group, "sticky")
         for group in self.groups:
             if group.rule.mode == "ambient":
@@ -284,6 +303,7 @@ __all__ = [
     "CORE",
     "EXPOSED_SCHEMA_BUDGET",
     "EXPOSURE_ENV",
+    "REQUEST",
     "ExposureDecision",
     "ExposureMode",
     "ExposureRule",

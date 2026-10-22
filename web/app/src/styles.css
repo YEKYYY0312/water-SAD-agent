@@ -488,3 +488,17 @@ code { font-family: var(--mono); font-size: .92em; }
 
 /* P7-S11：回答里的外部图片不加载，以纯文本占位 */
 .answer-image-blocked { color: var(--muted); font-size: .85em; }
+
+/* P7-S12 联网搜索：输入框旁的逐条开关、勾选后的隐私提示、设置页状态卡（复用设置页卡片与 MCP 区的元数据版式） */
+.web-search-toggle { display: inline-flex; align-items: center; gap: .3rem; min-height: 2rem; padding: .2rem .65rem; border: 1px solid var(--line); border-radius: var(--r-pill); color: var(--muted); background: var(--canvas); font-size: .8rem; white-space: nowrap; flex: none; }
+/* 窄屏底栏放不下时让模型选择器先收缩：底栏是 grid 子项、选择器是 flex 子项，两处的 min-width 缺省都是 auto，
+   不放开就会把发送键挤出输入框卡片（320px 宽 + 长模型名实测溢出，与本开关有无无关，开关多占 66px 使其更明显） */
+.composer-bar { min-width: 0; }
+.composer-bar .composer-model-select { min-width: 0; }
+.composer-bar > .icon-button, .composer-bar > .send-button, .composer-bar > .stop-button { flex: none; }
+.web-search-toggle:hover:not(:disabled) { color: var(--ink); background: var(--surface-strong); }
+.web-search-toggle[aria-pressed="true"] { border-color: var(--ink); color: var(--on-ink); background: var(--ink); }
+.web-search-toggle[aria-pressed="true"]:hover:not(:disabled) { background: var(--ink-soft); }
+.web-search-note { padding: 0 .35rem; color: var(--warn); font-size: .78rem; line-height: 1.5; }
+.web-search-panel { display: grid; gap: 1rem; }
+.web-search-status { display: grid; gap: .65rem; }

@@ -33,13 +33,10 @@ BASE_TOOL_SITES = frozenset({ASSEMBLY_MODULE, "harness/local_model_compat.py"})
 #: P7-I07：只有这两条装配路径构图（装配快照的捕获点前提）。
 AGENTIC_APP_CALLERS = frozenset({"runtime/agentic.py", "harness/runner.py"})
 
-#: P7-I07 的评测白名单（P7-S11）：这些模块**为了验证图本身的行为**直接调用 ``build_agentic_app``，每条要说明为什么不算第二条装配路径。
-#: 它们不进装配快照的捕获点前提（快照只采 ``AGENTIC_APP_CALLERS`` 的 profile）；工具仍经生产的 ``assemble_tools`` 装配，
-#: 只是图的输入里多一个夹具工具——``AgenticSession`` 没有注入额外插件的通道，而 S11 还没有任何生产联网工具可以走会话路径验证。
-#: S12 的 ``web_search`` 接入生产装配后，这条白名单应当收窄或删除（届时评测改走 ``AgenticSession``）。
-EVAL_GRAPH_CALLERS: dict[str, str] = {
-    "harness/external_content_eval.py": "external_content_p0 的回合污点用例：经生产 assemble_tools + 生产图验证夹具联网工具的污点 / 披露 / 缓存 / 网址追溯",
-}
+#: P7-I07 的评测白名单：**为了验证图本身的行为**直接调用 ``build_agentic_app`` 的模块，每条要说明为什么不算第二条装配路径。
+#: P7-S11 曾登记 ``harness/external_content_eval.py``（当时没有生产联网工具，只能直接构图 + 夹具工具）；P7-S12 的 ``web_search``
+#: 接入生产装配后，那批用例改走 ``AgenticSession``（报告与 S11 入仓基线逐字相同），条目已删除。现在为空——新增条目需要评审。
+EVAL_GRAPH_CALLERS: dict[str, str] = {}
 
 
 def _modules() -> Iterator[tuple[str, ast.Module]]:
@@ -107,8 +104,10 @@ def test_invariants_hold(invariant: str) -> None:
     elif invariant == "P7-I04":
         # P7-S9：末尾追加 skills（排在全部工具插件之后——它按先于它的插件贡献的工具核对 requires_tools，
         # 指引里列在最后、预算不够时与 MCP 一样整组让位）
+        # P7-S12：web_search 插在 mcp_gateway 与 skills 之间——skills 仍在最后；web_search 是逐条消息才可能出现的 request 组，
+        # 不参与 skills 的 requires_tools 核对
         assert _assigned_literal("plugins/builtin.py", "BUILTIN_PLUGIN_ORDER") == (
-            "clauses", "hydraulics", "materials", "drawing", "mcp_gateway", "skills"
+            "clauses", "hydraulics", "materials", "drawing", "mcp_gateway", "web_search", "skills"
         )
         from water_agent.plugins import BUILTIN_PLUGIN_ORDER, McpGatewayPlugin, builtin_plugins
 
@@ -120,11 +119,15 @@ def test_invariants_hold(invariant: str) -> None:
         )
         assert not offenders, f"plugins/ 里构造了 ToolSpec（治理清单扫描不到）：{offenders}"
     elif invariant == "P7-I06":
-        assert _assigned_literal_grantable() == {"MCP_INVOKE"}
+        # P7-S12（17 号 SDD 待决 D2）：加入 WEB_SEARCH——"只读外发、目的地由运维写死"，与"目的地由模型决定"的
+        # NETWORK_FETCH 语义不同；后者仍在危险集里，不可授予（下面再断言一次）
+        assert _assigned_literal_grantable() == {"MCP_INVOKE", "WEB_SEARCH"}
         from water_agent.plugins import GRANTABLE_CAPABILITIES
-        from water_agent.runtime.governance.contracts import Capability
+        from water_agent.runtime.governance.contracts import DANGEROUS_CAPABILITIES, Capability
 
-        assert GRANTABLE_CAPABILITIES == frozenset({Capability.MCP_INVOKE})
+        assert GRANTABLE_CAPABILITIES == frozenset({Capability.MCP_INVOKE, Capability.WEB_SEARCH})
+        assert not GRANTABLE_CAPABILITIES & DANGEROUS_CAPABILITIES
+        assert Capability.NETWORK_FETCH in DANGEROUS_CAPABILITIES
     elif invariant == "P7-I07":
         callers = _callers("build_agentic_app")
         assert callers - set(EVAL_GRAPH_CALLERS) == AGENTIC_APP_CALLERS, sorted(callers)

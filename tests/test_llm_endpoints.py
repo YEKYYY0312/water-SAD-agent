@@ -303,8 +303,11 @@ def test_price_override_is_not_a_hard_cap(monkeypatch: pytest.MonkeyPatch, tmp_p
         "bailian_rerank",
         "bailian_vision",
         "mcp_remote",
+        # P7-S12：联网搜索（搜索服务不是对话端点；S10 的"不新增 ProviderKind"只针对对话 / embedding 端点）
+        "web_search",
     ]
-    assert len(PROVIDER_CALL_SITES) == 8
+    # P7-S12 新增联网搜索出口（web_search）：8 → 9；对话端点的四个调用点不变
+    assert len(PROVIDER_CALL_SITES) == 9
     assert sorted(
         site.site_id for site in PROVIDER_CALL_SITES if site.provider is ProviderKind.DEEPSEEK_CHAT
     ) == [

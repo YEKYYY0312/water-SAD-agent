@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
@@ -28,6 +28,14 @@ import { ModelCatalogApi, type ModelCatalogView } from "./modelChoiceApi.ts";
 import { messageModelValue, modelErrorMessage } from "./modelChoiceState.ts";
 import { oauthReturnedToSettings } from "./settingsState.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
+import { WebSearchApi } from "./webSearchApi.ts";
+import {
+  NO_WEB_SEARCH_TOGGLE,
+  isWebSearchReady,
+  messageWebSearchValue,
+  webSearchActive,
+  webSearchToggleReducer,
+} from "./webSearchState.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
 /** 非 404 的连接失败最多重试几次（指数退避，封顶 10 s）。 */
@@ -111,6 +119,12 @@ export type WorkspaceController = {
   messageModel: string;
   setMessageModel: (value: string) => void;
   setSessionModel: (model: string | null) => void;
+  /** 联网搜索（P7-S12）：运维已配好才渲染开关；勾选只对下一条消息有效，发送后与切会话时回到关。 */
+  webSearchReady: boolean;
+  webSearchOn: boolean;
+  setWebSearch: (on: boolean) => void;
+  /** 设置页写入 / 清除联网搜索密钥后调用：重新读取就绪状态。 */
+  refreshWebSearch: () => void;
 };
 
 export function useWorkspaceController(): WorkspaceController {
@@ -119,6 +133,7 @@ export function useWorkspaceController(): WorkspaceController {
   const exportApi = useRef(new ExportApi()).current;
   const confirmationApi = useRef(new ConfirmationApi()).current;
   const modelCatalogApi = useRef(new ModelCatalogApi()).current;
+  const webSearchApi = useRef(new WebSearchApi()).current;
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
@@ -143,6 +158,10 @@ export function useWorkspaceController(): WorkspaceController {
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogView | null>(null);
   // 本条消息选的模型；空串 = 不指定（沿用会话默认，再沿用全局）。切会话时复位
   const [messageModel, setMessageModel] = useState("");
+  // 联网搜索是否已被运维配好（读不到一律当没配好），以及本条消息是否勾选（默认关、不持久化）
+  const [webSearchReady, setWebSearchReady] = useState(false);
+  const [webSearchToggle, dispatchWebSearch] = useReducer(webSearchToggleReducer, NO_WEB_SEARCH_TOGGLE);
+  const webSearchSeq = useRef(0);
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
@@ -369,6 +388,9 @@ export function useWorkspaceController(): WorkspaceController {
     const message = draft.trim() || (attachmentIds.length > 0 ? ATTACHMENT_ONLY_PROMPT : "");
     if (!message) return;
     const sentAttachments = attachments.filter((item) => item.status === "ready" && item.record);
+    // 勾选只管这一条：发出后立刻回到关；没被受理时再放回去（与草稿、附件的回滚一致）
+    const sentWithWebSearch = webSearchActive(webSearchToggle, selectedThreadId, webSearchReady);
+    dispatchWebSearch({ type: "sent", threadId: selectedThreadId });
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
@@ -382,7 +404,13 @@ export function useWorkspaceController(): WorkspaceController {
     runStatus.current = "queued";
     retries.current = 0;
     setStreaming(true);
-    void api.sendMessage(selectedThreadId, message, attachmentIds, messageModelValue(messageModel))
+    void api.sendMessage(
+      selectedThreadId,
+      message,
+      attachmentIds,
+      messageModelValue(messageModel),
+      messageWebSearchValue(sentWithWebSearch),
+    )
       .then((created) => {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");
@@ -395,6 +423,7 @@ export function useWorkspaceController(): WorkspaceController {
         setMessages((current) => withdrawUnsentQuestion(current, message));
         setDraft((current) => current || draft);
         setAttachments((current) => [...sentAttachments, ...current]);
+        dispatchWebSearch({ type: "refused", threadId: selectedThreadId, wasOn: sentWithWebSearch });
       });
   };
 
@@ -407,6 +436,32 @@ export function useWorkspaceController(): WorkspaceController {
       .catch(() => { if (active) setModelCatalog(null); });
     return () => { active = false; };
   }, [modelCatalogApi, settingsOpen]);
+
+  // 联网搜索就绪状态（P7-S12）：加载一次，设置页改了密钥后再读一次。任何失败（403 / 404 / 旧后端没有该接口 / 网络）
+  // 都按"没配好"处理——开关不渲染，不报错、不打断主流程。较晚发出的请求为准，防止乱序返回覆盖新状态。
+  const refreshWebSearch = useCallback(() => {
+    const seq = webSearchSeq.current + 1;
+    webSearchSeq.current = seq;
+    void webSearchApi.get()
+      .then((view) => { if (seq === webSearchSeq.current) setWebSearchReady(isWebSearchReady(view)); })
+      .catch(() => { if (seq === webSearchSeq.current) setWebSearchReady(false); });
+  }, [webSearchApi]);
+
+  useEffect(() => {
+    refreshWebSearch();
+    return () => { webSearchSeq.current += 1; };
+  }, [refreshWebSearch]);
+
+  // 勾选属于它被勾选时的会话：会话变了当场回到关；运维那边变成不可用也回到关，之后恢复就绪不会自己再打开
+  useEffect(() => {
+    dispatchWebSearch({ type: "thread", threadId: selectedThreadId });
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (!webSearchReady) dispatchWebSearch({ type: "unavailable" });
+  }, [webSearchReady]);
+
+  const setWebSearch = (on: boolean) => dispatchWebSearch({ type: "set", threadId: selectedThreadId, on });
 
   const setSessionModel = (model: string | null) => {
     if (!selectedThreadId) return;
@@ -563,5 +618,9 @@ export function useWorkspaceController(): WorkspaceController {
     messageModel,
     setMessageModel,
     setSessionModel,
+    webSearchReady,
+    webSearchOn: webSearchActive(webSearchToggle, selectedThreadId, webSearchReady),
+    setWebSearch,
+    refreshWebSearch,
   };
 }
