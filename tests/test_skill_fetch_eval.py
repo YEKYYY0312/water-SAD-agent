@@ -427,11 +427,13 @@ def test_fake_registry_modes_change_only_the_response_shape() -> None:
         assert len(urllib.request.urlopen(registry.base_url + "/skills/pump-room-notes/1.0.0/SKILL.md").read()) > 64 * 1024
 
 
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="需要 openssl 生成自签证书")
 def test_fake_registry_tls_mode_serves_https_with_a_trusted_self_signed_certificate(tmp_path: Path) -> None:
-    """P7-S13-A01 TLS 模式起 https，客户端上下文信任自签证书（需要 ``openssl``，没有就跳过）。"""
+    """假注册表 TLS 模式起 https，客户端上下文信任自签证书（需要 ``openssl``；没有时由 ``skipif`` 跳过）。
 
-    if shutil.which("openssl") is None:
-        pytest.skip("需要 openssl")
+    **不登记为 P7-S13-A01 的验证项**：追溯检查不允许 ``delivered`` 行引用可能被跳过的测试。这一面由数据集里 ``requires: ["openssl"]`` 的
+    两条用例（``sf-reg-tls-untrusted`` / ``sf-reg-tls-trusted-benign``）承担——无 openssl 时它们结构化 SKIP 并带 ``requires``，不算违规。"""
+
     import urllib.request
 
     module = ev.fake_module()
