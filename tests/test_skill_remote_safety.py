@@ -221,7 +221,7 @@ def test_manifest_and_consistency_rules() -> None:
 
     assert _code(_file(header_extra="evil: 1\n")) == SKILL_INVALID
     assert _code(b"no frontmatter at all\n") == SKILL_INVALID
-    assert _code(f"---\nname: [unterminated\n---\nbody\n".encode()) == SKILL_INVALID
+    assert _code(b"---\nname: [unterminated\n---\nbody\n") == SKILL_INVALID
     assert _code(_file("")) == SKILL_INVALID
     assert _code(_file("长" * 6001)) == SKILL_INVALID
     assert _code(_file(), name="other-skill") == SKILL_REGISTRY_MISMATCH
@@ -243,7 +243,8 @@ def test_names_and_versions_use_fullmatch() -> None:
     assert is_valid_version("1.0.0") and is_valid_version("0001.0.0")
     for bad in ("1.0", "1.0.0.0", "1.0.0\n", "v1.0.0", "1.0.x", "12345.0.0", "１.0.0", ""):
         assert not is_valid_version(bad), bad
-    assert version_tuple("1.10.0") > version_tuple("1.9.0") and "1.10.0" < "1.9.0"
+    newer, older = "1.10.0", "1.9.0"
+    assert version_tuple(newer) > version_tuple(older) and newer < older  # 整数元组正确；字符串比较会得出相反结论
 
 
 # ---------------------------------------------------------------------------

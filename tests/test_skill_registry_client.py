@@ -9,7 +9,7 @@ import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Self
 
 import pytest
 
@@ -68,7 +68,7 @@ class _Registry:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
 
-    def __enter__(self) -> _Registry:
+    def __enter__(self) -> Self:
         self._thread.start()
         return self
 
