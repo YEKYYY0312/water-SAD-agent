@@ -73,15 +73,22 @@ def _definition_chars(description: str, args_model: type[BaseModel]) -> int:
 
 
 def fit_catalog(library: SkillLibrary) -> SkillLibrary:
-    """目录装不下就按字母序从末尾截掉 skill（记 ``SKILL_CATALOG_FULL``），直到工具定义 ≤ 上限。"""
+    """目录装不下就从末尾截掉 skill（记 ``SKILL_CATALOG_FULL``），直到工具定义 ≤ 上限。
+
+    截断顺序（P7-S13）：**先截已安装层**（组内按字母序从末尾起），已安装层截空后才轮到"内置 + 运维"（沿用现行的
+    字母序从末尾截）——第三方来源不得挤掉仓库评审过的规程（Step 0 实测：名字排在前面的已安装 skill 会把内置的
+    ``spec-conflict-handling`` 挤出目录）。没有已安装 skill 时本函数的输出与此前**逐字相同**。
+    """
 
     current = library
     while current.enabled:
         names = current.names
         if _definition_chars(describe(current.enabled), _args_model(names)) <= CATALOG_SCHEMA_BUDGET:
             return current
+        installed = [skill.name for skill in current.enabled if skill.source == "installed"]
+        victim = max(installed) if installed else names[-1]
         current = current.without(
-            [names[-1]], code=SKILL_CATALOG_FULL, detail=f"目录超过 {CATALOG_SCHEMA_BUDGET} 字符上限"
+            [victim], code=SKILL_CATALOG_FULL, detail=f"目录超过 {CATALOG_SCHEMA_BUDGET} 字符上限"
         )
     return current
 
