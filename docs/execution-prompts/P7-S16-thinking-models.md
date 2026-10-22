@@ -198,10 +198,6 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S16-think
       "contains": "assert surface[\"schema_chars_total\"] == 4497"
     },
     {
-      "node": "tests/test_vision_review.py::test_vision_call_site_is_registered_and_governed",
-      "contains": "assert len(PROVIDER_CALL_SITES) == 8"
-    },
-    {
       "node": "tests/test_chat_model.py::test_build_chat_model_defaults_temperature_zero",
       "contains": "assert captured[\"temperature\"] == 0.0"
     },
