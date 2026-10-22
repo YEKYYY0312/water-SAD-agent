@@ -105,7 +105,10 @@ def test_the_model_sees_no_fetch_approve_or_install_tool() -> None:
     from water_agent.plugins.base import AssemblyContext
     from water_agent.retrieval.in_memory import InMemoryRetriever
     from water_agent.runtime.governance.contracts import Capability
-    from water_agent.runtime.governance.inventory import PLUGIN_GRANTED_TOOL_CAPABILITIES, TOOL_CAPABILITIES
+    from water_agent.runtime.governance.inventory import (
+        PLUGIN_GRANTED_TOOL_CAPABILITIES,
+        TOOL_CAPABILITIES,
+    )
 
     registered = {entry.tool_name for entry in (*TOOL_CAPABILITIES, *PLUGIN_GRANTED_TOOL_CAPABILITIES)}
     assert "load_skill" in registered

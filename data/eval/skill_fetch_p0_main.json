@@ -1,0 +1,4859 @@
+{
+  "suite": "skill_fetch_p0",
+  "generated_by": "water_agent.harness.skill_fetch_eval",
+  "report_format": 1,
+  "mechanism": "present",
+  "dataset": "data/eval/skill_fetch_p0.jsonl",
+  "dataset_sha256": "29fc51b782ca1305bf6e09b49620045a3540783af36029ba9d52bebc853e57db",
+  "total": 111,
+  "executed": 111,
+  "skipped": 0,
+  "passed": 111,
+  "metrics": {
+    "hostile_package_rejected_rate": 1.0,
+    "fail_closed_zero_write_rate": 1.0,
+    "approve_requires_human_rate": 1.0,
+    "hash_pin_enforced_rate": 1.0,
+    "quarantine_visible_to_library_count": 0,
+    "model_or_panel_install_surface_count": 0,
+    "partial_install_count": 0,
+    "downgrade_replay_accepted_count": 0,
+    "secret_leak_count": 0,
+    "benign_package_rejected_rate": 0.0,
+    "harness_error_count": 0
+  },
+  "hard_targets": {
+    "hostile_package_rejected_rate": 1.0,
+    "fail_closed_zero_write_rate": 1.0,
+    "approve_requires_human_rate": 1.0,
+    "hash_pin_enforced_rate": 1.0,
+    "quarantine_visible_to_library_count": 0,
+    "model_or_panel_install_surface_count": 0,
+    "partial_install_count": 0,
+    "downgrade_replay_accepted_count": 0,
+    "secret_leak_count": 0,
+    "benign_package_rejected_rate": 0.0,
+    "harness_error_count": 0
+  },
+  "hard_violations": [],
+  "ok": true,
+  "cases": [
+    {
+      "id": "sf-reg-index-missing",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-version-not-in-index",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@9.9.9",
+          "exit": 1,
+          "code": "SKILL_NOT_IN_REGISTRY",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-echo-mismatch",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_MISMATCH",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-size-mismatch",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_MISMATCH",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-sha-mismatch",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_MISMATCH",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-non-https",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-no-url",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-redirect",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-oversize-index",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-oversize-file",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-wrong-ctype",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-junk-index",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-wrong-index-shape",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-traversal-name-in-index",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-homoglyph-name-in-index",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_BAD_RESPONSE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-status-401",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-status-403",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-status-429",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-status-500",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-status-503",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-tls-untrusted",
+      "category": "registry",
+      "requires": [
+        "openssl"
+      ],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-tls-trusted-benign",
+      "category": "registry",
+      "requires": [
+        "openssl"
+      ],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-reg-benign-baseline",
+      "category": "registry",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-unknown-key",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-bad-yaml",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-name-mismatch",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_MISMATCH",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-version-mismatch",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_MISMATCH",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-empty-body",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-oversize-body",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-nul",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-crlf",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-bom",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-bad-utf8",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-tag-smuggle",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-variation-selector",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-zero-width",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-bidi-override",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-cyrillic-homoglyph",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-kelvin-name",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_CHARSET",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-greek-fold-injection",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-yaml-alias-bomb",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_YAML_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-yaml-anchor",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_YAML_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-yaml-tag",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_YAML_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-yaml-duplicate-key",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_YAML_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-yaml-merge-key",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_YAML_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-injection-body",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_UNSAFE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-iron-rule",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_CONFLICTS_IRON_RULE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-links",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_NO_LINKS",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-email",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_NO_LINKS",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-md-link",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_NO_LINKS",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-shell-fence",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_REMOTE_NO_LINKS",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-requires-missing-tool",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_TOOL_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-kelvin",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-Kotes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-newline",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "ab-cd\n@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-traversal",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "../x@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-uppercase",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "Pump-Room@1.0.0",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-latest",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@latest",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-arg-two-at",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0@2",
+          "exit": 1,
+          "code": "SKILL_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "hostile_rejected": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-pkg-benign-cjk-engineering",
+      "category": "package",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-not-visible-to-library",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-roots-must-not-overlap-nested",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "list",
+          "ref": "",
+          "exit": 2,
+          "code": "SKILL_CONFIG_INVALID",
+          "checks": {
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-roots-must-not-overlap-same",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "list",
+          "ref": "",
+          "exit": 2,
+          "code": "SKILL_CONFIG_INVALID",
+          "checks": {
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-overlap-would-expose-candidate",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 2,
+          "code": "SKILL_CONFIG_INVALID",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-misconfigured-as-operator-dir-still-not-loadable",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-name-collides-builtin",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "calc-book-workflow@1.0.0",
+          "exit": 1,
+          "code": "SKILL_NAME_TAKEN",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-q-name-collides-operator",
+      "category": "quarantine",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-checklist@1.0.0",
+          "exit": 1,
+          "code": "SKILL_NAME_TAKEN",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-non-tty",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NO_TTY",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "io_untouched": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-wrong-sha",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_APPROVE_DIGEST_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "hash_pin": true,
+            "io_untouched": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-wrong-typed-name",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NAME_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-eof",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NAME_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-file-changed-after-fetch",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_APPROVE_DIGEST_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "hash_pin": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-no-candidate",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_CANDIDATE_NOT_FOUND",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "hash_pin": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-happy-path",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-first-install-after-stage",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-upgrade-after-stage",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-first-install-after-replace",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-upgrade-after-replace",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-first-install-before-lock-replace",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ap-crash-upgrade-before-lock-replace",
+      "category": "approve",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": null,
+          "code": "CRASH",
+          "checks": {
+            "code": true,
+            "state": true
+          },
+          "counters": {
+            "partial_install": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "no_tmp": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-loads-installed",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-tamper-bytes",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-tamper-size",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-tamper-crlf",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-lock-missing-entry",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-file-removed",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-lock-corrupt",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "raises": true
+          },
+          "counters": {},
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-lock-version",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "hash_pin": true,
+            "raises": true
+          },
+          "counters": {},
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-dir-missing",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "raises": true
+          },
+          "counters": {},
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-digest-changes",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-default-unchanged",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-shadow-builtin",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "tamper",
+          "ref": "calc-book-workflow",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-ld-shadow-operator",
+      "category": "loading",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "tamper",
+          "ref": "pump-room-checklist",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-no-model-tool",
+      "category": "surface",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "surface",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "surface": true
+          },
+          "counters": {
+            "install_surface": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-no-web-route",
+      "category": "surface",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "surface",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "surface": true
+          },
+          "counters": {
+            "install_surface": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-no-panel-control",
+      "category": "surface",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "surface",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "surface": true
+          },
+          "counters": {
+            "install_surface": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-no-member-capability",
+      "category": "surface",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "surface",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "surface": true
+          },
+          "counters": {
+            "install_surface": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-update-is-new-candidate",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "library",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {
+            "library": true,
+            "raises": true
+          },
+          "counters": {
+            "partial_install": 0,
+            "quarantine_visible": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-rollback",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "rollback",
+          "ref": "pump-room-notes",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-rollback-non-tty",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "rollback",
+          "ref": "pump-room-notes",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NO_TTY",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "io_untouched": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-remove",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "remove",
+          "ref": "pump-room-notes",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true,
+            "state": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-remove-non-tty",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "remove",
+          "ref": "pump-room-notes",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NO_TTY",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "io_untouched": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-downgrade-refused",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_VERSION_NOT_NEWER",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "downgrade_replay_accepted": 0,
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-equal-version-refused",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 1,
+          "code": "SKILL_VERSION_NOT_NEWER",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "downgrade_replay_accepted": 0,
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-replay-refused",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "registry",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_REPLAY",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "skill_requests": true,
+            "zero_write": true
+          },
+          "counters": {
+            "downgrade_replay_accepted": 0,
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-rollback-without-previous",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "rollback",
+          "ref": "pump-room-notes",
+          "exit": 1,
+          "code": "SKILL_ROLLBACK_UNAVAILABLE",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-rollback-not-installed",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "rollback",
+          "ref": "pump-room-notes",
+          "exit": 1,
+          "code": "SKILL_NOT_INSTALLED",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-remove-not-installed",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "remove",
+          "ref": "pump-room-notes",
+          "exit": 1,
+          "code": "SKILL_NOT_INSTALLED",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-rollback-wrong-typed-name",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "rollback",
+          "ref": "pump-room-notes",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NAME_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-remove-wrong-typed-name",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "remove",
+          "ref": "pump-room-notes",
+          "exit": 3,
+          "code": "SKILL_APPROVE_NAME_MISMATCH",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "human_gate": true,
+            "state": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-list-readonly",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "list",
+          "ref": "",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "list": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "tamper",
+          "ref": "pump-room-notes",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "list",
+          "ref": "",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "code": true,
+            "exit": true,
+            "list": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "id": "sf-lc-secret-free-trail",
+      "category": "lifecycle",
+      "requires": [],
+      "skipped": false,
+      "passed": true,
+      "error": null,
+      "counters": {
+        "secret_leak": 0
+      },
+      "failures": [],
+      "steps": [
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "candidate": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "approve",
+          "ref": "pump-room-notes@1.0.0",
+          "exit": 0,
+          "code": "ok",
+          "checks": {
+            "benign_ok": true,
+            "code": true,
+            "exit": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        },
+        {
+          "op": "registry",
+          "ref": "",
+          "exit": null,
+          "code": null,
+          "checks": {},
+          "counters": {},
+          "failures": []
+        },
+        {
+          "op": "fetch",
+          "ref": "pump-room-notes@2.0.0",
+          "exit": 1,
+          "code": "SKILL_REGISTRY_UNAVAILABLE",
+          "checks": {
+            "candidate": true,
+            "code": true,
+            "exit": true,
+            "zero_write": true
+          },
+          "counters": {
+            "secret_leak": 0
+          },
+          "failures": []
+        }
+      ]
+    }
+  ]
+}
