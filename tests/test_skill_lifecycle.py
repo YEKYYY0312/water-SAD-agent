@@ -9,11 +9,11 @@ import hashlib
 import io
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Self
 
 import pytest
 
@@ -79,7 +79,7 @@ class Registry:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
 
-    def __enter__(self) -> Registry:
+    def __enter__(self) -> Self:
         self._thread.start()
         return self
 
@@ -127,7 +127,7 @@ def world(tmp_path: Path) -> Any:
             out, err = io.StringIO(), io.StringIO()
             deps = CliDeps(
                 env=env_ if env_ is not None else env, stdout=out, stderr=err, io=io_ or TtyIO(),
-                now=lambda: datetime(2026, 10, 22, 3, 0, tzinfo=timezone.utc), user=lambda: "eval-operator",
+                now=lambda: datetime(2026, 10, 22, 3, 0, tzinfo=UTC), user=lambda: "eval-operator",
                 gateway=ProviderGateway(sleep=lambda seconds: None),
             )
             code = main([*argv, "--json"], deps=deps)
@@ -166,7 +166,7 @@ def test_fetch_approve_update_rollback_remove(world: Any) -> None:
 
     code, rolled, _ = world.run("rollback", NAME)
     assert code == 0 and rolled["version"] == "1.0.0" and world.library().get(NAME).manifest.version == "1.0.0"
-    code, removed, _ = world.run("remove", NAME)
+    code, _removed, _ = world.run("remove", NAME)
     assert code == 0 and world.library().get(NAME) is None and not (world.tmp / "installed" / NAME).exists()
 
 

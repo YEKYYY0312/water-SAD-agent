@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import ast
 import json
-import stat
 import os
+import stat
 from pathlib import Path
 
 import pytest
