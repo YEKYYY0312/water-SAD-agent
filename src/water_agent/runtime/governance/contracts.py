@@ -201,6 +201,11 @@ class Capability(str, Enum):
     #: 勾选了"联网"时，装配期才由插件追加给主体（``GRANTABLE_CAPABILITIES``）。
     #: 与下面的 ``NETWORK_FETCH`` 语义不同：后者是"目的地由模型决定"，仍在危险集里、仍被构造期拒绝。
     WEB_SEARCH = "web_search"
+    #: P7-S13：从运维配置的 skill 注册表取回候选 skill（**只读外发**，目的地由运维写死的基址决定）。
+    #: 它只由运维 CLI（``skills/cli.py``）构造的主体持有；**不在** DEFAULT_LOCAL_CAPABILITIES、Web 成员能力集与
+    #: ``GRANTABLE_CAPABILITIES`` 内，插件、模型与面板都拿不到——取回与批准是主机 shell 上的人工动作（P7-I12）。
+    #: 它不对应任何 ``ToolSpec``（不是模型工具），所以 ``inventory`` 的"能力 → 工具"登记表不变。
+    SKILL_FETCH = "skill_fetch"
     # 以下能力当前**没有任何主体被授予**（见 DEFAULT_LOCAL_CAPABILITIES），
     # 存在的意义是让 Step 14 的"默认拒绝"可被正例/反例测试覆盖。
     WRITE_FILE = "write_file"
@@ -531,6 +536,8 @@ class ProviderKind(str, Enum):
     MCP_REMOTE = "mcp_remote"
     #: P7-S12：联网搜索服务（运维配置的单一基址；searxng 自托管或 brave 公网 API）。
     WEB_SEARCH = "web_search"
+    #: P7-S13：skill 注册表（运维配置的单一基址；静态文件，只有运维 CLI 会取）。
+    SKILL_REGISTRY = "skill_registry"
 
 
 class CallCategory(str, Enum):
@@ -550,6 +557,8 @@ class CallCategory(str, Enum):
     MODEL_LIST = "model_list"
     #: P7-S12：一次联网搜索（``web_search`` 工具发往运维配置的搜索服务的 GET）。
     WEB_SEARCH = "web_search"
+    #: P7-S13：运维 CLI 向 skill 注册表取 ``index.json`` 或某个 ``SKILL.md`` 的一次 GET。
+    SKILL_REGISTRY = "skill_registry"
 
 
 class ProviderCall(BaseModel):
