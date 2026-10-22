@@ -33,7 +33,8 @@ from water_agent.runtime.governance.contracts import (
 #: P7-S8 新增 ``MCP_REMOTE`` 画像（工具调用零重试），递进。
 #: P7-S10 ``DEEPSEEK_CHAT`` 画像的语义扩为"OpenAI 兼容对话端点"，超时与价格可由运维覆盖，递进。
 #: P7-S12 新增 ``WEB_SEARCH`` 画像（联网搜索：15 s、瞬时错误只重试一次、每主体每分钟 ≤ 20），递进。
-GOVERNANCE_CONFIG_VERSION = "p7-s12-2026-10-20"
+#: P7-S13 新增 ``SKILL_REGISTRY`` 画像（运维 CLI 取 skill：20 s、瞬时错误只重试一次、每主体每分钟 ≤ 30），递进。
+GOVERNANCE_CONFIG_VERSION = "p7-s13-2026-10-22"
 
 #: P7-S10：对话端点（``ProviderKind.DEEPSEEK_CHAT``——名字保留，语义是"OpenAI 兼容对话端点"，见
 #: ``generation/endpoints.py``）的运维覆盖。缺省 = 现状（60 s、DeepSeek 公开单价）。
@@ -293,6 +294,15 @@ class GovernanceConfig(BaseModel):
                 timeout_seconds=15.0,
                 retry=RetryPolicy(max_attempts=2),
                 rate_limit=RateLimitPolicy(max_requests_per_minute=20),
+            ),
+            # P7-S13 skill 注册表：只有运维 CLI 在主机 shell 上手动触发（一次 fetch = index + SKILL.md 两个 GET）。单次 20 s
+            # （SKILL.md ≤ 64 KiB，注册表可能是慢速内网静态站）；**只对瞬时错误重试一次**，401/403 零重试且不计熔断；
+            # 熔断按注册表主机分桶（``ProviderCall.model`` = ``skill_registry:<host>``）。限流是失控保护——每主体每分钟 ≤ 30
+            # 次，足以挡住脚本循环，不是生产调优值。注册表不返回 token 用量，usage 记未知，不估算成本。
+            ProviderKind.SKILL_REGISTRY: ProviderProfile(
+                timeout_seconds=20.0,
+                retry=RetryPolicy(max_attempts=2),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=30),
             ),
         }
     )
