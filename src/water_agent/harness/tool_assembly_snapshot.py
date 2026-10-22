@@ -77,6 +77,12 @@ PINNED_ENV_KEYS = (
     "WATER_AGENT_MCP_WEB_LAYER",
     "WATER_AGENT_SKILLS",
     "WATER_AGENT_SKILLS_DIR",
+    # P7-S13：已安装 skill 层 / 隔离区 / 审计目录 / 注册表基址与私网放行（后两者只给运维 CLI，应用进程不读）
+    "WATER_AGENT_SKILLS_INSTALLED_DIR",
+    "WATER_AGENT_SKILLS_QUARANTINE_DIR",
+    "WATER_AGENT_SKILLS_STATE_DIR",
+    "WATER_AGENT_SKILL_REGISTRY_URL",
+    "WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE",
     "WATER_AGENT_TOOL_EXPOSURE",
     "WEB_PUBLIC_BASE_URL",
     "WEB_MOCK_GENERATOR",
@@ -147,6 +153,9 @@ class Profile:
     cli_checkpointer: bool = False
     #: P7-S9：打开 Skill 库（``WATER_AGENT_SKILLS=on``，只用随包分发的内置 skill）。
     skills: bool = False
+    #: P7-S13：Skill 库打开且带一份**已锁定**的已安装 skill（安装区 + ``skills.lock.json`` 在临时目录里现造）：
+    #: ``load_skill`` 的目录多一个 installed 来源的条目。
+    skills_installed: bool = False
     #: P7-S10：非缺省 OpenAI 兼容对话端点 + 一份精确匹配的测试兼容报告（真生成器装配，不调用模型）。
     endpoint: bool = False
     #: P7-S15：缺省端点上从模型目录里选一个思考 ``off`` 的模型（目录 + 逐对兼容性报告写进凭据卷，真生成器装配）。
@@ -211,6 +220,13 @@ PROFILES: tuple[Profile, ...] = (
         "session",
         "Skill 库打开（只有内置 skill）：多出 load_skill（intent，目录在工具描述里）",
         skills=True,
+    ),
+    Profile(
+        "session_skills_installed",
+        "session",
+        "Skill 库打开 + 一份已锁定的已安装 skill（lock 与字节一致）：load_skill 目录多一个 installed 来源条目，其余装配面同 builtin",
+        skills=True,
+        skills_installed=True,
     ),
     Profile(
         "session_http_mcp_fake",
@@ -590,6 +606,30 @@ def _fixture_retriever() -> Any:
     return TriviumRetriever(db_path=None, fallback_clauses=load_clauses_jsonl(FIXTURE_CLAUSES))
 
 
+INSTALLED_SKILL_NAME = "snapshot-installed-notes"
+
+
+def _prepare_installed_skills(directory: Path) -> Path:
+    """造一份**已锁定**的已安装 skill：``<dir>/<name>/SKILL.md`` + 与字节一致的 ``skills.lock.json``。
+
+    内容固定（快照逐字可复现）；批准人 / 时间 / 主机是固定占位，不来自真实运维动作。
+    """
+
+    from water_agent.skills.installed import InstalledMeta, sha256_of, write_lock_atomic
+
+    raw = (
+        f"---\nname: {INSTALLED_SKILL_NAME}\ndescription: 快照用的已安装规程。装配快照的占位。\nversion: 1.0.0\n"
+        "triggers: [快照规程]\nrequires_tools: [retrieve_clauses]\n---\n1. 先用 retrieve_clauses 检索相关条文。\n"
+    ).encode()
+    (directory / INSTALLED_SKILL_NAME).mkdir(parents=True, exist_ok=True)
+    (directory / INSTALLED_SKILL_NAME / "SKILL.md").write_bytes(raw)
+    write_lock_atomic(
+        directory,
+        [InstalledMeta(INSTALLED_SKILL_NAME, "1.0.0", sha256_of(raw), len(raw), "snapshot.invalid", "snapshot", "2026-01-01T00:00:00Z", None)],
+    )
+    return directory
+
+
 def _prepare_drawings(directory: Path) -> Path:
     from water_agent.drawing.synth import build_synthetic_drawing
 
@@ -647,6 +687,7 @@ def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int |
         "WATER_AGENT_MCP_CONFIG",
         "DEEPSEEK_API_KEY",
         "WATER_AGENT_SKILLS",
+        "WATER_AGENT_SKILLS_INSTALLED_DIR",
         "WATER_AGENT_LLM_BASE_URL",
         "WATER_AGENT_LLM_MODEL",
         "WATER_AGENT_LLM_API_KEY",
@@ -668,6 +709,8 @@ def _apply_profile_environment(profile: Profile, workdir: Path, http_port: int |
         os.environ["DEEPSEEK_API_KEY"] = _PLACEHOLDER_API_KEY
     if profile.skills:
         os.environ["WATER_AGENT_SKILLS"] = "on"
+    if profile.skills_installed:
+        os.environ["WATER_AGENT_SKILLS_INSTALLED_DIR"] = str(_prepare_installed_skills(workdir / "skills-installed"))
     if profile.web_search:
         os.environ["WATER_AGENT_WEB_SEARCH"] = "on"
         os.environ["WATER_AGENT_WEB_SEARCH_PROVIDER"] = "searxng"

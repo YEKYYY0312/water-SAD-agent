@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S12：新增联网搜索（web_search 工具 + Capability.WEB_SEARCH，request 组）。只新增 session_web_search_fake 一个 profile；现有 19 个 profile 逐字不变（开关缺省 off）；TOOL_POLICY_VERSION 递进，PROMPT_TEMPLATE_VERSION / MCP_CONFIG_VERSION 不变",
+    "last_write_reason": "P7-S13：新增 session_skills_installed（已安装层）；既有 20 个 profile 与三个版本号逐字不变",
     "python": "3.12.14"
   },
   "profiles": {
@@ -4357,6 +4357,317 @@
             "has_guard": false,
             "schema_chars": 717,
             "schema_sha256": "d0e17d7601ad47cd",
+            "timeout_seconds": 5.0
+          },
+          "material_stats": {
+            "execute": "_execute",
+            "has_guard": false,
+            "schema_chars": 1412,
+            "schema_sha256": "0ca7ba1bd69ed8db",
+            "timeout_seconds": 30.0
+          },
+          "retrieve_clauses": {
+            "execute": "_make_execute.<locals>.execute",
+            "has_guard": false,
+            "schema_chars": 590,
+            "schema_sha256": "49d243f6cf6d66d3",
+            "timeout_seconds": 30.0
+          }
+        }
+      }
+    },
+    "session_skills_installed": {
+      "description": "Skill 库打开 + 一份已锁定的已安装 skill（lock 与字节一致）：load_skill 目录多一个 installed 来源条目，其余装配面同 builtin",
+      "lifecycle": {
+        "app": {
+          "app_kwargs": [
+            "cache_service",
+            "checkpointer",
+            "exposure",
+            "model",
+            "prompt",
+            "request_context",
+            "skill_library",
+            "tools",
+            "trace"
+          ],
+          "cache_service": null,
+          "chat_model_principal": null,
+          "checkpointer": "InMemorySaver",
+          "max_tool_turns": null,
+          "probes": {
+            "cite": {
+              "code": null,
+              "invalid_ids": [
+                "GB00000-0000 9.9.9"
+              ],
+              "registered": false
+            },
+            "retrieve": {
+              "error": false,
+              "ids": [
+                "FIX 1.1.1",
+                "FIX 2.1.1",
+                "FIX 2.2.1"
+              ]
+            },
+            "retriever_chain": [
+              "RerankingRetriever",
+              "TriviumRetriever"
+            ]
+          },
+          "tools_bound_to_prompt_registry": true
+        },
+        "captures": 1,
+        "exception": null,
+        "mcp": [
+          {
+            "exposed": [],
+            "manifest_hash_nonempty": false,
+            "skipped_servers": [],
+            "skipped_tools": []
+          }
+        ],
+        "mcp_clients_alive_after_scope": 0,
+        "stack": [
+          "callback:MCPGatewayAssembly.close"
+        ],
+        "trace_record_calls": []
+      },
+      "side": "session",
+      "surface": {
+        "exposure": {
+          "groups": [
+            [
+              "clauses",
+              "core",
+              [
+                "retrieve_clauses",
+                "cite_clauses"
+              ]
+            ],
+            [
+              "hydraulics",
+              "core",
+              [
+                "calc_velocity"
+              ]
+            ],
+            [
+              "materials",
+              "intent",
+              [
+                "material_stats"
+              ]
+            ],
+            [
+              "skills",
+              "intent",
+              [
+                "load_skill"
+              ]
+            ]
+          ],
+          "probes": {
+            "calc": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 275,
+                "sha256": "a824511094c0323b"
+              },
+              "guide_chars": 275,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "load_skill"
+              ]
+            },
+            "clause_qa": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity"
+              ],
+              "guide": {
+                "chars": 275,
+                "sha256": "a824511094c0323b"
+              },
+              "guide_chars": 275,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ]
+              ],
+              "schema_chars": 2125,
+              "strategy": "intent",
+              "unexposed": [
+                "material_stats",
+                "load_skill"
+              ]
+            },
+            "drawing_materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 319,
+                "sha256": "e955213cdc7f1c20"
+              },
+              "guide_chars": 319,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "load_skill"
+              ]
+            },
+            "materials": {
+              "dropped": [],
+              "exposed": [
+                "retrieve_clauses",
+                "cite_clauses",
+                "calc_velocity",
+                "material_stats"
+              ],
+              "guide": {
+                "chars": 319,
+                "sha256": "e955213cdc7f1c20"
+              },
+              "guide_chars": 319,
+              "reasons": [
+                [
+                  "clauses",
+                  "core"
+                ],
+                [
+                  "hydraulics",
+                  "core"
+                ],
+                [
+                  "materials",
+                  "intent"
+                ]
+              ],
+              "schema_chars": 3539,
+              "strategy": "intent",
+              "unexposed": [
+                "load_skill"
+              ]
+            }
+          },
+          "strategy": "intent"
+        },
+        "model_tool_order": [
+          "calc_velocity",
+          "cite_clauses",
+          "load_skill",
+          "material_stats",
+          "retrieve_clauses"
+        ],
+        "principal": {
+          "auth_domain": "local",
+          "capabilities": [
+            "calculate",
+            "cite_clauses",
+            "embedding",
+            "export_to_allowed_dir",
+            "llm_inference",
+            "load_skill",
+            "material_stats",
+            "read_drawing",
+            "rerank",
+            "retrieve_clauses"
+          ],
+          "kind": "local_cli"
+        },
+        "registration_order": [
+          "retrieve_clauses",
+          "cite_clauses",
+          "calc_velocity",
+          "material_stats",
+          "load_skill"
+        ],
+        "registry_principal": {
+          "auth_domain": "local",
+          "capabilities": [
+            "calculate",
+            "cite_clauses",
+            "embedding",
+            "export_to_allowed_dir",
+            "llm_inference",
+            "load_skill",
+            "material_stats",
+            "read_drawing",
+            "rerank",
+            "retrieve_clauses"
+          ],
+          "kind": "local_cli"
+        },
+        "schema_chars_total": 4325,
+        "system_prompt": {
+          "chars": 1592,
+          "sha256": "88d53fd2f1d25095"
+        },
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n- load_skill：按名加载操作规程。加载后规程进入系统提示、本会话后续轮次持续生效。Use when 用户点名某个规程，或问题明显符合下列某个规程的用途；先加载再动手。Do not use for 检索条文或计算数值（规程只规定怎么做，数值与条文仍走各自的工具）。",
+        "tools": {
+          "calc_velocity": {
+            "execute": "_execute",
+            "has_guard": false,
+            "schema_chars": 953,
+            "schema_sha256": "0309541c963ee650",
+            "timeout_seconds": 30.0
+          },
+          "cite_clauses": {
+            "execute": "build_cite_clauses_tool_with_context_check.<locals>.execute_with_check",
+            "has_guard": false,
+            "schema_chars": 576,
+            "schema_sha256": "56d52ff8c038205a",
+            "timeout_seconds": 30.0
+          },
+          "load_skill": {
+            "execute": "build_load_skill_tool.<locals>._execute",
+            "has_guard": false,
+            "schema_chars": 784,
+            "schema_sha256": "31e42d63cc886a68",
             "timeout_seconds": 5.0
           },
           "material_stats": {
