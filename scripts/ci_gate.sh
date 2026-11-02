@@ -2,7 +2,7 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → external_content_p0 → web_search_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
+#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → external_content_p0 → web_search_p0 → skill_fetch_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
 #      → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
@@ -275,6 +275,32 @@ else
     fi
 fi
 
+# skill_fetch_p0（P7-S13）：Skill 下载。经真实 skills.cli.main（进程内，注入 TTY 替身 / 固定时钟 / 独立网关）对进程内线程假注册表
+# 验证"取回 -> 隔离 -> 人工批准 -> 安装 -> 加载期哈希重算"整条链路：敌意包（Tag 走私 / 同形字 / CRLF / NUL / YAML 炸弹……）一律被拒且
+# 磁盘零写入、非 TTY 与键入名字错误被拒、摘要三方一致、三个崩溃点无半安装、降级与重放被拒、模型 / 面板 / 前端没有取回 / 批准入口。
+# ⚠️ 只对本地假注册表验证：协议是我们自己定义的最小静态协议（unverified_against_real_registry），不证明任何真实注册表可用；
+# 字符白名单 / 正则安检是确定性规则，只覆盖评测语料里的变体，不得据此声称"能防住恶意 skill"；批准人只是 OS 用户名，人审是唯一信任根。
+step "skill_fetch_p0 Skill 下载机制层（111 条，硬指标全达标）"
+SF_HEAD="data/eval/reports/ci_gate/skill_fetch_p0_head.json"
+SF_MAIN="data/eval/skill_fetch_p0_main.json"
+mkdir -p "$(dirname "$SF_HEAD")"
+if ! $PY -m water_agent.harness.skill_fetch_eval data/eval/skill_fetch_p0.jsonl --report-path "$SF_HEAD" > "$LOG_DIR/skill_fetch.log" 2>&1; then
+    tail -30 "$LOG_DIR/skill_fetch.log"
+    fail "skill_fetch_p0 runner"
+else
+    head -4 "$LOG_DIR/skill_fetch.log"
+    if [ -f "$SF_MAIN" ]; then
+        if ! $PY scripts/compare_skill_fetch_p0.py --head "$SF_HEAD" --base "$SF_MAIN" > "$LOG_DIR/skill_fetch_cmp.log" 2>&1; then
+            cat "$LOG_DIR/skill_fetch_cmp.log"
+            fail "skill_fetch_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/skill_fetch_cmp.log"
+        fi
+    else
+        missing_baseline "skill_fetch_p0" "cp $SF_HEAD $SF_MAIN"
+    fi
+fi
+
 # retrieval_colloquial_p0（P7-S10）：口语化 / 同义改写问法上的关键词检索（text 模式，BM25，不调用任何
 # embedding、不要求任何 Key）。从 data/curated 现建纯关键词索引，CI 干净克隆里也能跑；与入仓基线比
 # Recall@1/3/5、MRR、PASS_TO_PASS 与用例消失。门禁只守"不变差"，不设绝对阈值：只配对话 Key 时的口语化召回
@@ -417,4 +443,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + external_content_p0(44/44) + web_search_p0(79/79) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + external_content_p0(44/44) + web_search_p0(79/79) + skill_fetch_p0(111/111) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"

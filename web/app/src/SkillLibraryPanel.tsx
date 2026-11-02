@@ -121,8 +121,9 @@ function SkillCard({
 /**
  * 设置页里的「Skill 库」区（P7-S9）。所有已改密的登录用户都能看有哪些 skill；管理员另有启停与查看正文。
  *
- * 面板不能新增、编辑或上传 skill：内置的走仓库评审，其余只能由运维放进只读目录。启停写进 Web 管理层，
- * 从下一个 run 生效。下方的 MCP 计数来自能力端点（server 清单只在管理员的 MCP 扩展区）。
+ * 面板不能新增、编辑、上传、取回或批准 skill：内置的走仓库评审，其余只能由运维放进只读目录，或在主机 shell 里用
+ * CLI 取回并人工批准安装（P7-S13；批准等于把"写系统策略"交给一段文本，所以不给 Web 入口，这里只展示出处）。
+ * 启停写进 Web 管理层，从下一个 run 生效。下方的 MCP 计数来自能力端点（server 清单只在管理员的 MCP 扩展区）。
  */
 export function SkillLibraryPanel({
   capabilities,

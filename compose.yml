@@ -89,6 +89,11 @@ services:
       # 启停记录写在上面那份 Web 管理层里。
       WATER_AGENT_SKILLS: "on"
       WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills
+      # 已安装 skill（P7-S13）：运维在主机 shell 里用 skills-admin 从注册表取回并**人工批准**的 skill，放在只读卷
+      # app_skills_installed（带 skills.lock.json）。应用侧每次加载都按原始字节重算 sha256 与大小，必须等于 lock，
+      # 否则不加载（SKILL_TAMPERED / SKILL_UNLOCKED）。**app 不挂隔离区、不设注册表 URL**——应用进程不需要出站去取 skill，
+      # 也没有任何取回 / 批准入口。卷是空的也照常启动。
+      WATER_AGENT_SKILLS_INSTALLED_DIR: /var/lib/water-agent-skills-installed
       # MCP 远程 server 的 OAuth 授权（P7-S8）：授权服务器把管理员的浏览器带回的回调地址是
       # <WEB_PUBLIC_BASE_URL>/api/admin/mcp/oauth/callback（要在授权服务器上预先注册、精确匹配）。
       # 必须是 https://（本机调试允许 http://localhost）；不设 = 面板不提供「授权」按钮，不从请求的
@@ -143,6 +148,9 @@ services:
       - app_traces:/var/lib/water-agent-traces
       # 运维 skill 是部署配置不是用户数据：只读挂载，放在 /var/lib/water-agent 之外，不随备份流转。
       - app_skills:/etc/water-agent/skills:ro
+      # 已安装 skill：部署配置不是用户数据，只读挂载，放在 /var/lib/water-agent 之外，不随备份流转
+      # （靠重新 fetch + approve 重建；lock 随卷存在）。写入只发生在 skills-admin 一次性容器里。
+      - app_skills_installed:/var/lib/water-agent-skills-installed:ro
     healthcheck:
       test:
         [
@@ -153,6 +161,33 @@ services:
       timeout: 3s
       retries: 6
       start_period: 10s
+
+  # Skill 下载的运维入口（P7-S13）。**只在 profile `ops` 下**，默认不启动；运维按需起一次性容器：
+  #   docker compose --profile ops run --rm skills-admin fetch <name>@<version>
+  #   docker compose --profile ops run --rm -it skills-admin approve <name>@<version> --sha256 <64 位摘要>
+  # `approve` / `rollback` / `remove` 必须交互终端（`-it`，键入 skill 名确认），没有 --yes，没有任何旁路。
+  # 复用 app 镜像（**不新增构建服务**——check_image.sh 与 .dockerignore 的约束不变）。注册表基址只在这里，不给 app。
+  # 不挂 secrets、不连 postgres：它既不需要密钥也不需要数据库。安装区读写，隔离区与审计各一个卷。
+  skills-admin:
+    image: water-agent-app:local
+    profiles: [ops]
+    restart: "no"
+    command: ["python", "-m", "water_agent.skills.cli", "--help"]
+    environment:
+      WATER_AGENT_SKILL_REGISTRY_URL: ${WATER_AGENT_SKILL_REGISTRY_URL:-}
+      WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE: ${WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE:-}
+      WATER_AGENT_SKILLS_INSTALLED_DIR: /var/lib/water-agent-skills-installed
+      WATER_AGENT_SKILLS_QUARANTINE_DIR: /var/lib/water-agent-skills-quarantine
+      WATER_AGENT_SKILLS_STATE_DIR: /var/lib/water-agent-skills-state
+      # 同名预检要读运维目录（只读）；与 app 看到的是同一份
+      WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - app_skills_installed:/var/lib/water-agent-skills-installed
+      - skills_quarantine:/var/lib/water-agent-skills-quarantine
+      - skills_state:/var/lib/water-agent-skills-state
+      - app_skills:/etc/water-agent/skills:ro
 
   # Smoke test (Step 45).  It is NOT behind a profile on purpose: the task book's
   # acceptance command is a bare `docker compose run --rm smoke`, and Compose v2
@@ -250,6 +285,11 @@ volumes:
   app_credentials:
   app_traces:
   app_skills:
+  # P7-S13：已安装 skill（含 skills.lock.json）/ 隔离区（未批准的第三方文本）/ 审计。三者都在 /var/lib/water-agent 之外，
+  # 不进 scripts/backup.sh 的备份范围（隔离区是未批准文本、审计是运维记录；安装区是部署配置，靠重新 fetch + approve 重建）。
+  app_skills_installed:
+  skills_quarantine:
+  skills_state:
   local_model_data:
   caddy_data:
   caddy_config:

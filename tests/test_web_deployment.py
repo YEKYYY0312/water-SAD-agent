@@ -184,8 +184,14 @@ def test_operator_skills_volume_is_read_only() -> None:
     assert "      WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills\n" in app_block
     assert "      - app_skills:/etc/water-agent/skills:ro\n" in app_block, "必须只读挂载"
     assert "\n  app_skills:\n" in compose, "named volume 必须在顶层 volumes 注册"
-    # 只有 app 拿到：冒烟与一次性服务不开 skill
-    assert compose.count("WATER_AGENT_SKILLS:") == 1 and compose.count("app_skills:/") == 1
+    # 只有 app 拿到：冒烟与一次性服务不开 skill。
+    # P7-S13：``skills-admin``（profile ops 的一次性运维容器）也**只读**挂这个卷——同名预检（SKILL_NAME_TAKEN）要看得到运维目录里
+    # 有哪些 skill。所以"挂载点恰好一个"放宽为"恰好两个，都是只读，且只在 app 与 skills-admin"；开关 ``WATER_AGENT_SKILLS:`` 仍只在 app。
+    assert compose.count("WATER_AGENT_SKILLS:") == 1
+    mounts = [line.strip() for line in compose.splitlines() if "app_skills:/" in line]
+    assert mounts == ["- app_skills:/etc/water-agent/skills:ro"] * 2, "恰好两个挂载点，都必须只读"
+    admin_block = compose.split("\n  skills-admin:\n", 1)[1].split("\n  # Smoke test", 1)[0]
+    assert "app_skills:/etc/water-agent/skills:ro" in admin_block and "app_skills:/" not in compose.split("\n  smoke:\n", 1)[1].split("\n  reverse-proxy:", 1)[0]
 
     # 不在备份范围：备份打包的是 /var/lib/water-agent 整体
     assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认 skill 卷仍不在其中"
@@ -253,3 +259,82 @@ def test_endpoint_variables_are_passed_through() -> None:
         assert f"      {name}: ${{{name}:-}}\n" in smoke_block, name
     assert "WATER_AGENT_LLM_API_KEY:" not in compose
     assert "WATER_AGENT_EMBEDDING_API_KEY:" not in compose
+
+
+def test_skills_download_is_an_ops_only_service_and_its_volumes_stay_out_of_the_backup() -> None:
+    """P7-S13-A10 Skill 下载的部署形状：
+
+    - ``skills-admin`` 在 ``profiles: [ops]`` 下（默认 ``up`` 不启动），复用 ``water-agent-app:local``（不新增构建服务）、
+      只读根文件系统、不挂 secrets、不连 postgres；
+    - 注册表基址（``WATER_AGENT_SKILL_REGISTRY_URL``）与私网放行**只**设在 ``skills-admin``，``app`` 看不到；``app`` 也**不挂隔离区**；
+    - ``app`` 把安装区**只读**挂载并设 ``WATER_AGENT_SKILLS_INSTALLED_DIR``；
+    - 三个新卷（安装区 / 隔离区 / 审计）都在 ``/var/lib/water-agent`` 之外，不进 ``scripts/backup.sh`` 的备份范围；
+    - 新挂载点在镜像里预建并归 ``wateragent``（Docker 只在首次填充空卷时从镜像抄属主）：隔离区与审计 ``chmod 700``。
+    """
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+
+    admin_block = compose.split("\n  skills-admin:\n", 1)[1].split("\n  # Smoke test", 1)[0]
+    assert "    profiles: [ops]\n" in admin_block
+    assert "    image: water-agent-app:local\n" in admin_block and "build:" not in admin_block, "复用 app 镜像，不新增构建服务"
+    assert "    read_only: true\n" in admin_block and "    tmpfs: [/tmp]\n" in admin_block
+    assert "secrets:" not in admin_block and "DATABASE_URL" not in admin_block and "depends_on" not in admin_block
+    assert 'command: ["python", "-m", "water_agent.skills.cli", "--help"]' in admin_block
+    for line in (
+        "      WATER_AGENT_SKILL_REGISTRY_URL: ${WATER_AGENT_SKILL_REGISTRY_URL:-}\n",
+        "      WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE: ${WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE:-}\n",
+        "      - app_skills_installed:/var/lib/water-agent-skills-installed\n",
+        "      - skills_quarantine:/var/lib/water-agent-skills-quarantine\n",
+        "      - skills_state:/var/lib/water-agent-skills-state\n",
+        "      - app_skills:/etc/water-agent/skills:ro\n",
+    ):
+        assert line in admin_block, line
+
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  skills-admin:\n", 1)[0]
+    assert "      - app_skills_installed:/var/lib/water-agent-skills-installed:ro\n" in app_block, "app 只读挂载安装区"
+    assert "      WATER_AGENT_SKILLS_INSTALLED_DIR: /var/lib/water-agent-skills-installed\n" in app_block
+    for forbidden in ("SKILL_REGISTRY", "QUARANTINE", "skills_quarantine", "skills_state", "STATE_DIR"):
+        assert forbidden not in app_block, f"app 不得拿到 {forbidden}"
+    assert compose.count("\n      WATER_AGENT_SKILL_REGISTRY_URL: ") == 1, "注册表基址只出现在 skills-admin"
+    assert "WATER_AGENT_SKILL_REGISTRY_URL" not in app_block
+    assert compose.count("profiles: [ops]") == 1
+
+    for volume in ("app_skills_installed", "skills_quarantine", "skills_state"):
+        assert f"\n  {volume}:\n" in compose, f"{volume} 必须在顶层 volumes 注册"
+    for fragment in ("app_skills_installed:/var/lib/water-agent/", "skills_quarantine:/var/lib/water-agent/", "skills_state:/var/lib/water-agent/"):
+        assert fragment not in compose, "不得挂进 /var/lib/water-agent（会被 backup.sh 打进 user_files.tar）"
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认三个 skills 卷仍不在其中"
+    for mount in ("/var/lib/water-agent-skills-installed", "/var/lib/water-agent-skills-quarantine", "/var/lib/water-agent-skills-state"):
+        assert not mount.startswith("/var/lib/water-agent/")
+
+    def _line(marker: str) -> str:
+        matches = [line for line in dockerfile.splitlines() if marker in line]
+        assert len(matches) == 1, f"Dockerfile 里 {marker!r} 命中 {len(matches)} 行，断言已失焦"
+        return matches[0]
+
+    assert all(
+        mount in _line("mkdir -p /var/lib/water-agent-skills-installed")
+        for mount in ("water-agent-skills-installed", "water-agent-skills-quarantine", "water-agent-skills-state")
+    )
+    assert "water-agent-skills-state" in "\n".join(dockerfile.splitlines()[dockerfile.splitlines().index(_line("chown -R wateragent:wateragent")):][:2])
+    chmod_block = dockerfile.split("&& chmod 700", 1)[1].split("\nCOPY", 1)[0]
+    assert "skills-quarantine" in chmod_block and "skills-state" in chmod_block, "未批准文本与审计不得对其他用户可读"
+    assert "skills-installed" not in chmod_block, "安装区要让 app 进程读到，不 chmod 700"
+    # 只动了目录清单：基础镜像、USER、CMD 不变
+    assert "USER wateragent" in dockerfile and 'CMD ["uvicorn", "water_agent.webapp.app:app"' in dockerfile
+
+
+def test_skill_download_variables_are_pinned_by_the_assembly_snapshot() -> None:
+    """P7-S13-A10 新的环境变量被装配快照钉住（评测机上残留的变量不会让快照漂）。"""
+
+    from water_agent.harness.tool_assembly_snapshot import PINNED_ENV_KEYS
+
+    for key in (
+        "WATER_AGENT_SKILLS_INSTALLED_DIR",
+        "WATER_AGENT_SKILLS_QUARANTINE_DIR",
+        "WATER_AGENT_SKILL_REGISTRY_URL",
+        "WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE",
+    ):
+        assert key in PINNED_ENV_KEYS, key

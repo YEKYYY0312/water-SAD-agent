@@ -62,12 +62,20 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 # which would make JsonTraceRecorder.finish() fail on every run.
 # mcp-admin holds the Web extension panel's MCP layer (P7-S6): no secrets, so it
 # sits inside /var/lib/water-agent and is backed up with the user files.
+# The three skills-* directories (P7-S13) are siblings of /var/lib/water-agent as well:
+# installed skills are deployment config (rebuilt by fetch + approve, not user data),
+# the quarantine holds unapproved third-party text and the state directory holds the
+# operator audit log -- none of them may travel in user_files.tar.  Quarantine and
+# state are 0700; the installed directory stays readable by the app (mounted :ro there).
 RUN groupadd --gid 10001 wateragent \
     && useradd --uid 10001 --gid wateragent --create-home --shell /usr/sbin/nologin wateragent \
     && mkdir -p /var/lib/water-agent/uploads /var/lib/water-agent/exports /var/lib/water-agent/mcp-admin \
     && mkdir -p /var/lib/water-agent-credentials /var/lib/water-agent-traces \
+    && mkdir -p /var/lib/water-agent-skills-installed /var/lib/water-agent-skills-quarantine /var/lib/water-agent-skills-state \
     && chown -R wateragent:wateragent /var/lib/water-agent /var/lib/water-agent-credentials /var/lib/water-agent-traces \
-    && chmod 700 /var/lib/water-agent-credentials /var/lib/water-agent-traces
+        /var/lib/water-agent-skills-installed /var/lib/water-agent-skills-quarantine /var/lib/water-agent-skills-state \
+    && chmod 700 /var/lib/water-agent-credentials /var/lib/water-agent-traces \
+        /var/lib/water-agent-skills-quarantine /var/lib/water-agent-skills-state
 COPY --from=python-build /app/.venv /app/.venv
 COPY --from=python-build /app/alembic.ini /app/alembic.ini
 COPY --from=python-build /app/alembic /app/alembic
