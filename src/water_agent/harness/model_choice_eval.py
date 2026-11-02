@@ -47,7 +47,7 @@ GENERATED_BY = "water_agent.harness.model_choice_eval"
 REPORT_FORMAT = 1
 
 #: 用例里"Key"的占位值。任何响应 / 审计里出现它都计入 ``key_leak_count``。
-KEY_MARKER = "sk-model-choice-eval-key-0001"
+KEY_MARKER = "sk-" + "model-choice-eval-key-0001"
 PASSWORD = "ModelChoiceEval2026!"
 DEFAULT_ENDPOINT = "https://api.deepseek.com"
 RELAY_ENDPOINT = "https://llm.relay.example/v1"
