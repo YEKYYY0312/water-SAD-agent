@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -155,6 +156,45 @@ def test_image_check_declares_the_release_rules() -> None:
     # Never echo a matched secret value.
     assert "grep -rl" in script
     assert "grep -o" in script
+
+
+def test_shipped_sources_pass_the_image_literal_scan() -> None:
+    """Run check_image.sh's literal scan over the sources in the regular gate.
+
+    The script greps the *built image* for credential-shaped literals, but only
+    the tag-triggered p5-compose release gate builds and scans an image, so a
+    source change that trips a rule stays green in p5-ci until release time.
+    The rules are parsed from the script (one source of truth); the files are the
+    tracked ones the Dockerfile copies verbatim into /app.  Build artefacts that
+    also land there -- data/indexes/ and the frontend bundle -- are only covered
+    by the real image scan.
+    """
+
+    script = (REPO_ROOT / "scripts" / "check_image.sh").read_text(encoding="utf-8")
+    plain = re.findall(r"^scan (\w+) '([^']*)'$", script, re.MULTILINE)
+    exempt = re.findall(
+        r"^scan_except_literal (\w+) '([^']*)' \\\n\s*'([^']*)'$", script, re.MULTILINE
+    )
+    assert plain and exempt, "check_image.sh's rule table no longer parses"
+    rules = [(name, re.compile(pattern), "") for name, pattern in plain]
+    rules += [(name, re.compile(pattern), allowed) for name, pattern, allowed in exempt]
+
+    shipped = [REPO_ROOT / "alembic.ini", REPO_ROOT / "data" / "versions.json"]
+    for root in ("src", "alembic", "data/fixtures", "data/curated"):
+        shipped += [
+            path
+            for path in (REPO_ROOT / root).rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+        ]
+
+    hits = []
+    for path in shipped:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for name, pattern, allowed in rules:
+            if {match.group(0) for match in pattern.finditer(text)} - {allowed}:
+                # Paths only, like the script: never echo what matched.
+                hits.append(f"{name}: {path.relative_to(REPO_ROOT)}")
+    assert not hits, hits
 
 
 def test_backups_are_gitignored_and_excluded_from_the_build_context() -> None:
