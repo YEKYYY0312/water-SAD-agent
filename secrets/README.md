@@ -41,8 +41,8 @@ printf 'sk-your-deepseek-key' > secrets/deepseek_api_key   # or fill them in
 printf 'sk-your-dashscope-key' > secrets/dashscope_api_key
 ```
 
-`deepseek_api_key` backs chat generation; `dashscope_api_key` backs embedding and
-reranking.
+`deepseek_api_key` backs chat generation; `dashscope_api_key` backs embedding,
+reranking and the vision review of text-less PDFs.
 
 ## Where a credential may come from
 
@@ -60,9 +60,14 @@ Priority 3 lives at `/var/lib/water-agent-credentials`, deliberately *outside*
 a credential stored inside it would land in `user_files.tar` in plain text.
 Set `WATER_AGENT_CREDENTIALS_DIR` to relocate it (tests and bare `uvicorn` runs do).
 
-A key written through the settings panel takes effect on the next run without a
-restart, and survives restarts because the app backfills the volume into its
-environment at startup.
+Every consumer (chat model, embedding, rerank, vision review) resolves the key
+through this order, so a key written through the settings panel takes effect on
+the next run without a restart and survives restarts — as long as no higher
+priority source is set.  When the environment variable or a non-empty secret
+file is present, it keeps winning: the panel still stores what you type, but the
+status it reports is `env` / `secret_file`, and clearing the key in the panel
+only removes the volume copy.  It never unsets an operator's environment
+variable and never hides a secret file.
 
 ## Optional files (not yet wired)
 

@@ -98,6 +98,11 @@ def _sheet_checks(result: GenerationResult, case: dict[str, Any], reasons: list[
     expect = case["expect"]
     plans: dict[str, SheetPlan] = {sheet.sheet_id: sheet for sheet in result.plan.sheets()}
     sheets: dict[str, Any] = {}
+    # 以期望的图纸清单为准：只遍历实际产出会让"少生成一张图"整体通过（review 2026-09-30）。
+    generated = {sheet.sheet_id for sheet in result.sheets}
+    not_generated = sorted(set(expect["sheets"]) - generated)
+    if not_generated:
+        reasons.append(f"期望的图纸未生成：{not_generated}")
     for sheet in result.sheets:
         want = expect["sheets"][sheet.sheet_id]
         plan = plans[sheet.sheet_id]

@@ -18,12 +18,14 @@ PDF 引擎两条路径
 
 from __future__ import annotations
 
+import codecs
 import io
 import os
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from water_agent.documents.chunking import neutralize_page_markers
 from water_agent.documents.errors import (
     CODE_UPLOAD_EXTRACTION_FAILED,
     CODE_UPLOAD_MAGIC_MISMATCH,
@@ -65,6 +67,9 @@ class ExtractedDocument:
     #: 抽取阶段就已判定的可疑（P5-S50：DXF 图元文字命中注入规则）。审查报告只含规则
     #: 结论、不含图元原文，分块护栏因此看不到那些文字——可疑必须从这里带出来。
     suspicious: bool = False
+    #: 文本是否带本模块写入的页码标记（只有 PDF 路径置真）。分块只信这类标记：
+    #: txt/md/docx 里用户自己写的 ``--- Page n ---`` 是内容，不是分页。
+    paginated: bool = False
 
     @property
     def text_length(self) -> int:
@@ -202,7 +207,7 @@ def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
                 # "这份 PDF 没有文本层"这个用户唯一需要知道的事实就消失了（spec R1）。
                 # 页号仍由 page_count 与后续页的标记如实反映。
                 continue
-            parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + page_text)
+            parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + neutralize_page_markers(page_text))
         page_count = len(pages)
     except UploadError:
         raise
@@ -210,7 +215,9 @@ def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
         raise UploadError(
             CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .pdf 失败：{type(exc).__name__}"
         ) from exc
-    return ExtractedDocument(text="".join(parts).strip(), page_count=page_count, engine="pypdf")
+    return ExtractedDocument(
+        text="".join(parts).strip(), page_count=page_count, engine="pypdf", paginated=True
+    )
 
 
 def _extract_pdf_pymupdf(data: bytes) -> ExtractedDocument:
@@ -231,22 +238,28 @@ def _extract_pdf_pymupdf(data: bytes) -> ExtractedDocument:
                 # 与 pypdf 路径同语义：空页不写页码标记（见那里的说明）。
                 if not page_text.strip():
                     continue
-                parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + page_text)
+                parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + neutralize_page_markers(page_text))
     except UploadError:
         raise
     except Exception as exc:  # 第三方解析异常统一转结构化错误
         raise UploadError(
             CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .pdf 失败：{type(exc).__name__}"
         ) from exc
-    return ExtractedDocument(text="".join(parts).strip(), page_count=page_count, engine="pymupdf")
+    return ExtractedDocument(
+        text="".join(parts).strip(), page_count=page_count, engine="pymupdf", paginated=True
+    )
 
 
 def _extract_plain_text(data: bytes) -> ExtractedDocument:
+    # 带 BOM 的按 BOM 解码：Windows 记事本的"Unicode"是 UTF-16，按 UTF-8 解码会满屏乱码
+    # 外加 NUL（PostgreSQL 的 text 列存不了 NUL）。
     # errors="replace"：编码不是 UTF-8 的文本文件不该整份拒收，坏字节以 U+FFFD
     # 现形，用户看得见"这里乱码了"，而不是拿到一个 400。
-    return ExtractedDocument(
-        text=data.decode("utf-8", errors="replace").strip(), page_count=None, engine="utf-8"
-    )
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        text, engine = data.decode("utf-16", errors="replace"), "utf-16"
+    else:
+        text, engine = data.decode("utf-8-sig", errors="replace"), "utf-8"
+    return ExtractedDocument(text=text.strip(), page_count=None, engine=engine)
 
 
 def extract_text(
@@ -345,14 +358,20 @@ def _with_vision_review(
         )
         text = f"{document.text}\n\n{note}".strip()
         return ExtractedDocument(
-            text=text, page_count=document.page_count, engine=document.engine, suspicious=document.suspicious
+            text=text,
+            page_count=document.page_count,
+            engine=document.engine,
+            suspicious=document.suspicious,
+            paginated=document.paginated,
         )
-    text = f"{document.text}\n\n{review.text}".strip()
+    # 视觉模型的输出同样是正文：形似页码标记的行不得变成分页信号
+    text = f"{document.text}\n\n{neutralize_page_markers(review.text)}".strip()
     return ExtractedDocument(
         text=text,
         page_count=document.page_count,
         engine=f"{document.engine}+vision"[:32],
         suspicious=document.suspicious,
+        paginated=document.paginated,
     )
 
 

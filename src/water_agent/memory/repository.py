@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import exists, or_, select, update
+from sqlalchemy import ColumnElement, and_, exists, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -137,6 +137,48 @@ class MemoryRepository:
             ),
             ((MemoryRecordRow.scope_type == MemoryScopeType.PROJECT.value) & project_write_access),
         )
+
+    @staticmethod
+    def _effective_clause(point: datetime) -> ColumnElement[bool]:
+        """The single "is this memory in effect" predicate.
+
+        ``status='active'`` alone is not enough: nothing sweeps due records in
+        the background, so a record past ``expires_at`` keeps ``status='active'``
+        until a write touches its key.  List, ID resolution, usage and the key
+        occupancy lookup share this clause; the raw recall SQL (``recall.py``
+        for both dialects, ``providers.py`` for pgvector) spells the same
+        predicate, plus a tombstone guard that the status constraint already
+        implies for active rows.
+        """
+
+        return and_(
+            MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+            or_(
+                MemoryRecordRow.expires_at.is_(None),
+                MemoryRecordRow.expires_at > point,
+            ),
+        )
+
+    @staticmethod
+    def _unique_key_conditions(record: MemoryRecord) -> list[ColumnElement[bool]]:
+        """Columns of the partial unique index the record would occupy.
+
+        Mirrors ``uq_memory_records_active_user_key`` (tenant, owner, kind, key)
+        and ``uq_memory_records_active_project_key`` (tenant, project, kind,
+        key) in ``storage/models.py``.
+        """
+
+        conditions = [
+            MemoryRecordRow.tenant_id == str(record.tenant_id),
+            MemoryRecordRow.scope_type == record.scope_type.value,
+            MemoryRecordRow.kind == record.kind.value,
+            MemoryRecordRow.semantic_key == record.semantic_key,
+        ]
+        if record.scope_type is MemoryScopeType.USER:
+            conditions.append(MemoryRecordRow.owner_user_id == str(record.owner_user_id))
+        else:
+            conditions.append(MemoryRecordRow.project_id == str(record.project_id))
+        return conditions
 
     @staticmethod
     def _require_create_access(session: Session, record: MemoryRecord, actor_user_id: str) -> None:
@@ -294,6 +336,19 @@ class MemoryRepository:
         actor = str(_as_uuid(actor_user_id))
         with self._transaction(duplicate_is_conflict=True) as session:
             self._require_create_access(session, record, actor)
+            if record.status is MemoryStatus.ACTIVE:
+                # A due record whose status is still active keeps holding the
+                # partial unique index.  Expire it first, in this transaction and
+                # through the expire_due transition (audit event included), so
+                # the insert below can take the key; an insert failure rolls the
+                # release back too.  A record still in effect is untouched and
+                # the insert keeps failing as a conflict.
+                self._expire_due_rows(
+                    session,
+                    [*self._unique_key_conditions(record), self._write_access_clause(actor)],
+                    point=_now(),
+                    operator=actor,
+                )
             session.add(self._row(record))
             # The event has a foreign key to the record, but the ORM models
             # intentionally do not expose a relationship.  Flush the record
@@ -351,7 +406,15 @@ class MemoryRepository:
         kind: MemoryKind,
         semantic_key: str,
     ) -> MemoryRecord | None:
-        """Return the authorized active key occupant, if one exists."""
+        """Return the authorized key occupant that is still in effect, if any.
+
+        Uses the same predicate as list and recall: a record past its
+        ``expires_at`` does not occupy the key even while its status is still
+        active.  Previously it did, so re-saving the same preference after
+        expiry was previewed as a conflict against an invisible body, and a
+        confirmed "correction" landed on that invisible record.  The write
+        that takes the key releases the due record (see :meth:`create`).
+        """
 
         tenant_key = str(_as_uuid(tenant_id))
         actor = str(_as_uuid(actor_user_id))
@@ -360,7 +423,7 @@ class MemoryRepository:
             MemoryRecordRow.scope_type == scope_type.value,
             MemoryRecordRow.kind == kind.value,
             MemoryRecordRow.semantic_key == semantic_key,
-            MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+            self._effective_clause(_now()),
             self._write_access_clause(actor),
         ]
         if scope_type is MemoryScopeType.USER:
@@ -419,39 +482,48 @@ class MemoryRepository:
         source_message_id: UUID | str | None = None,
         reason: str = "",
     ) -> MemoryRecord:
-        """Append a reaffirm event without duplicating or revising the active record."""
+        """Append a reaffirm event without duplicating or revising the active record.
+
+        Reaffirming a record that is already past ``expires_at`` used to append
+        the event and report success while the memory stayed invisible.  It now
+        expires the record (committed with its audit event, releasing the key)
+        and is refused like any expired record.
+        """
 
         memory_key = str(_as_uuid(memory_id))
         tenant_key = str(_as_uuid(tenant_id))
         actor = str(_as_uuid(actor_user_id))
         with self._transaction() as session:
             row = self._load_for_write(session, memory_key, tenant_key, actor)
-            self._ensure_mutable(row)
-            if row.revision != expected_revision:
-                raise MemoryRevisionConflictError()
-            memory = self._record(row)
-            event_memory = memory.model_copy(
-                update={
-                    "source_thread_id": (
-                        _as_uuid(source_thread_id) if source_thread_id is not None else None
-                    ),
-                    "source_message_id": (
-                        _as_uuid(source_message_id) if source_message_id is not None else None
-                    ),
-                }
-            )
-            digest = content_hash(memory.content)
-            session.add(
-                self._event(
-                    memory=event_memory,
-                    event_type=MemoryEventType.REAFFIRMED,
-                    operator=actor,
-                    before=digest,
-                    after=digest,
-                    reason=reason,
+            if not self._expire_if_due(session, row, operator=actor):
+                self._ensure_mutable(row)
+                if row.revision != expected_revision:
+                    raise MemoryRevisionConflictError()
+                memory = self._record(row)
+                event_memory = memory.model_copy(
+                    update={
+                        "source_thread_id": (
+                            _as_uuid(source_thread_id) if source_thread_id is not None else None
+                        ),
+                        "source_message_id": (
+                            _as_uuid(source_message_id) if source_message_id is not None else None
+                        ),
+                    }
                 )
-            )
-            return memory
+                digest = content_hash(memory.content)
+                session.add(
+                    self._event(
+                        memory=event_memory,
+                        event_type=MemoryEventType.REAFFIRMED,
+                        operator=actor,
+                        before=digest,
+                        after=digest,
+                        reason=reason,
+                    )
+                )
+                return memory
+        # The expiry above was committed with the transaction; refuse afterwards.
+        raise MemoryExpiredError()
 
     def get_for_write(
         self,
@@ -503,11 +575,7 @@ class MemoryRepository:
                 select(MemoryRecordRow)
                 .where(
                     MemoryRecordRow.tenant_id == tenant_key,
-                    MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                    or_(
-                        MemoryRecordRow.expires_at.is_(None),
-                        MemoryRecordRow.expires_at > point,
-                    ),
+                    self._effective_clause(point),
                     exists(
                         select(User.user_id).where(
                             User.user_id == actor,
@@ -542,11 +610,7 @@ class MemoryRepository:
                 .where(
                     MemoryRecordRow.memory_id.in_(ids),
                     MemoryRecordRow.tenant_id == tenant_key,
-                    MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                    or_(
-                        MemoryRecordRow.expires_at.is_(None),
-                        MemoryRecordRow.expires_at > point,
-                    ),
+                    self._effective_clause(point),
                     exists(
                         select(User.user_id).where(
                             User.user_id == actor,
@@ -569,56 +633,67 @@ class MemoryRepository:
         content: str,
         reason: str = "",
     ) -> MemoryRecord:
+        """Correct the body of a record that is still in effect.
+
+        Correcting a record already past ``expires_at`` used to succeed while
+        the corrected memory stayed invisible to list and recall.  It now
+        expires the record (committed with its audit event, releasing the key)
+        and is refused like any expired record.
+        """
+
         memory_key = str(_as_uuid(memory_id))
         tenant_key = str(_as_uuid(tenant_id))
         actor = str(_as_uuid(actor_user_id))
         with self._transaction() as session:
             row = self._load_for_write(session, memory_key, tenant_key, actor)
-            self._ensure_mutable(row)
-            if row.revision != expected_revision:
-                raise MemoryRevisionConflictError()
-            before = row.content
-            new_revision = row.revision + 1
-            result = cast(
-                CursorResult[Any],
-                session.execute(
-                    update(MemoryRecordRow)
-                    .where(
-                        MemoryRecordRow.memory_id == memory_key,
-                        MemoryRecordRow.tenant_id == tenant_key,
-                        MemoryRecordRow.revision == expected_revision,
-                        MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                        self._write_access_clause(actor),
-                    )
-                    .values(
-                        content=content,
-                        revision=new_revision,
-                        updated_at=_now(),
-                    )
-                ),
-            )
-            if result.rowcount != 1:
-                raise MemoryRevisionConflictError()
-            row.content = content
-            row.revision = new_revision
-            row.updated_at = _now()
-            if self.embedding_store is not None:
-                # A correction invalidates the old vector. Re-indexing is an
-                # explicit opt-in operation and must never be part of P0.
-                self.embedding_store.delete_forget(session, memory_key)
-            memory = self._record(row)
-            session.add(
-                self._event(
-                    memory=memory,
-                    event_type=MemoryEventType.CORRECTED,
-                    operator=actor,
-                    before=content_hash(before),
-                    after=content_hash(content),
-                    reason=reason,
-                    body_candidates=(before,),
+            if not self._expire_if_due(session, row, operator=actor):
+                self._ensure_mutable(row)
+                if row.revision != expected_revision:
+                    raise MemoryRevisionConflictError()
+                before = row.content
+                new_revision = row.revision + 1
+                result = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(MemoryRecordRow)
+                        .where(
+                            MemoryRecordRow.memory_id == memory_key,
+                            MemoryRecordRow.tenant_id == tenant_key,
+                            MemoryRecordRow.revision == expected_revision,
+                            MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+                            self._write_access_clause(actor),
+                        )
+                        .values(
+                            content=content,
+                            revision=new_revision,
+                            updated_at=_now(),
+                        )
+                    ),
                 )
-            )
-            return memory
+                if result.rowcount != 1:
+                    raise MemoryRevisionConflictError()
+                row.content = content
+                row.revision = new_revision
+                row.updated_at = _now()
+                if self.embedding_store is not None:
+                    # A correction invalidates the old vector. Re-indexing is an
+                    # explicit opt-in operation and must never be part of P0.
+                    self.embedding_store.delete_forget(session, memory_key)
+                memory = self._record(row)
+                session.add(
+                    self._event(
+                        memory=memory,
+                        event_type=MemoryEventType.CORRECTED,
+                        operator=actor,
+                        before=content_hash(before),
+                        after=content_hash(content),
+                        reason=reason,
+                        body_candidates=(before,),
+                    )
+                )
+                return memory
+        # The expiry above was committed with the transaction; refuse afterwards.
+        raise MemoryExpiredError()
 
     def transition(
         self,
@@ -773,59 +848,96 @@ class MemoryRepository:
         scoped to the tenant.  A caller acting for a user may only expire the
         memories that user is allowed to write, so the sweep can never return
         another owner's body.
+
+        P0 deliberately runs no scheduler: due records are already excluded by
+        :meth:`_effective_clause`, and the writes that need their key release
+        them through the same transition (:meth:`_expire_due_rows`).
         """
 
         point = now or _now()
         tenant_key = str(_as_uuid(tenant_id))
         operator = str(_as_uuid(actor_user_id)) if actor_user_id is not None else "system"
         with self._transaction() as session:
-            conditions = [
-                MemoryRecordRow.tenant_id == tenant_key,
-                MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                MemoryRecordRow.expires_at.is_not(None),
-                MemoryRecordRow.expires_at <= point,
-            ]
+            conditions = [MemoryRecordRow.tenant_id == tenant_key]
             if actor_user_id is not None:
                 conditions.append(self._write_access_clause(operator))
-            rows = list(session.execute(select(MemoryRecordRow).where(*conditions)).scalars())
-            expired: list[MemoryRecord] = []
-            for row in rows:
-                expected_revision = row.revision
-                new_revision = expected_revision + 1
-                result = cast(
-                    CursorResult[Any],
-                    session.execute(
-                        update(MemoryRecordRow)
-                        .where(
-                            MemoryRecordRow.memory_id == row.memory_id,
-                            MemoryRecordRow.revision == expected_revision,
-                            MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                        )
-                        .values(
-                            status=MemoryStatus.EXPIRED.value,
-                            revision=new_revision,
-                            updated_at=_now(),
-                        )
-                    ),
+            return self._expire_due_rows(session, conditions, point=point, operator=operator)
+
+    def _expire_due_rows(
+        self,
+        session: Session,
+        conditions: Sequence[ColumnElement[bool]],
+        *,
+        point: datetime,
+        operator: str,
+    ) -> list[MemoryRecord]:
+        """The one active → expired transition for records past ``expires_at``.
+
+        Shared by the :meth:`expire_due` sweep and by the write paths that
+        release a due key, so every expiry bumps the revision under the same
+        optimistic guard and appends the same ``expired`` audit event.
+        """
+
+        rows = list(
+            session.execute(
+                select(MemoryRecordRow).where(
+                    MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
+                    MemoryRecordRow.expires_at.is_not(None),
+                    MemoryRecordRow.expires_at <= point,
+                    *conditions,
                 )
-                if result.rowcount != 1:
-                    continue
-                row.status = MemoryStatus.EXPIRED.value
-                row.revision = new_revision
-                row.updated_at = _now()
-                memory = self._record(row)
-                session.add(
-                    self._event(
-                        memory=memory,
-                        event_type=MemoryEventType.EXPIRED,
-                        operator=operator,
-                        before=content_hash(row.content),
-                        after=content_hash(row.content),
-                        reason="expiration deadline reached",
+            ).scalars()
+        )
+        expired: list[MemoryRecord] = []
+        for row in rows:
+            expected_revision = row.revision
+            new_revision = expected_revision + 1
+            result = cast(
+                CursorResult[Any],
+                session.execute(
+                    update(MemoryRecordRow)
+                    .where(
+                        MemoryRecordRow.memory_id == row.memory_id,
+                        MemoryRecordRow.revision == expected_revision,
+                        MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
                     )
+                    .values(
+                        status=MemoryStatus.EXPIRED.value,
+                        revision=new_revision,
+                        updated_at=_now(),
+                    )
+                ),
+            )
+            if result.rowcount != 1:
+                continue
+            row.status = MemoryStatus.EXPIRED.value
+            row.revision = new_revision
+            row.updated_at = _now()
+            memory = self._record(row)
+            session.add(
+                self._event(
+                    memory=memory,
+                    event_type=MemoryEventType.EXPIRED,
+                    operator=operator,
+                    before=content_hash(row.content),
+                    after=content_hash(row.content),
+                    reason="expiration deadline reached",
                 )
-                expired.append(memory)
-            return expired
+            )
+            expired.append(memory)
+        return expired
+
+    def _expire_if_due(self, session: Session, row: MemoryRecordRow, *, operator: str) -> bool:
+        """Expire one already-authorized row if it is past ``expires_at``."""
+
+        return bool(
+            self._expire_due_rows(
+                session,
+                [MemoryRecordRow.memory_id == row.memory_id],
+                point=_now(),
+                operator=operator,
+            )
+        )
 
     def record_usage(
         self,
@@ -845,11 +957,7 @@ class MemoryRepository:
                 select(MemoryRecordRow).where(
                     MemoryRecordRow.memory_id == memory_key,
                     MemoryRecordRow.tenant_id == tenant_key,
-                    MemoryRecordRow.status == MemoryStatus.ACTIVE.value,
-                    or_(
-                        MemoryRecordRow.expires_at.is_(None),
-                        MemoryRecordRow.expires_at > _now(),
-                    ),
+                    self._effective_clause(_now()),
                     # Recording usage appends an event row, so it is a write:
                     # a project viewer must not be able to touch the audit log.
                     self._write_access_clause(actor),

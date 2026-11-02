@@ -121,6 +121,8 @@ def test_smoke_service_runs_without_a_profile_and_has_a_stable_image_name() -> N
 
 
 def test_smoke_expected_migration_head_matches_the_code_constant() -> None:
+    """P7-S15-A12 compose 冒烟期望的迁移头与代码里的 ``MIGRATION_HEAD`` 一致（0008 同步到 compose.yml）。"""
+
     from water_agent.storage.database import CHECKPOINT_MIGRATION_HEAD, MIGRATION_HEAD
 
     base = BASE_COMPOSE.read_text(encoding="utf-8")

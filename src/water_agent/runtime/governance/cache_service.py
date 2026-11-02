@@ -109,6 +109,8 @@ class AnswerCacheService:
         reranker: str | None = None,
         version_registry: Any = None,
         mcp_server_manifest: str = "",
+        skill_library_digest: str = "",
+        model_endpoint_digest: str = "",
     ) -> None:
         self._cache = cache if cache is not None else default_answer_cache()
         self._corpus_version = combined_corpus_version(
@@ -119,6 +121,8 @@ class AnswerCacheService:
         )
         self._version_registry = version_registry
         self._mcp_server_manifest = mcp_server_manifest
+        self._skill_library_digest = skill_library_digest
+        self._model_endpoint_digest = model_endpoint_digest
 
     @property
     def corpus_version(self) -> str:
@@ -156,6 +160,8 @@ class AnswerCacheService:
             spec_version_digest=self._global_spec_digest(),
             retrieval_params=self._retrieval_params,
             mcp_server_manifest=self._mcp_server_manifest,
+            skill_library_digest=self._skill_library_digest,
+            model_endpoint_digest=self._model_endpoint_digest,
         )
 
     def _global_spec_digest(self) -> str:
@@ -217,6 +223,7 @@ class AnswerCacheService:
         ctx: RequestContext,
         calc_result_present: bool = False,
         contains_redacted_or_blocked: bool = False,
+        web_tainted: bool = False,
     ) -> StoreEligibility:
         """判定写入资格。规范版本状态由注册表查得，**不由调用方声称**。"""
         statuses = spec_statuses_for(source_ids, self._version_registry)
@@ -229,6 +236,7 @@ class AnswerCacheService:
             answer=answer,
             contains_redacted_or_blocked=contains_redacted_or_blocked,
             calc_result_present=calc_result_present,
+            web_tainted=web_tainted,
             no_store=ctx.no_store,
         )
 

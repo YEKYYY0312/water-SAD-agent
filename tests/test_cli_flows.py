@@ -248,8 +248,15 @@ class TestMultiAgentCli:
         assert brief["hydraulic_cases"][0]["formula"] == "velocity"
         assert brief["hydraulic_cases"][0]["inputs"]["flow_lps"] == 12
         assert brief["hydraulic_cases"][0]["inputs"]["diameter_mm"] == 200
+        # 单系统、单工况：边不声明 system / calc_case_id，由设计 Agent 无歧义自动绑定
         assert brief["topology"] == [
-            {"start_node_id": "n10", "end_node_id": "n11", "length_m": 25.0}
+            {
+                "start_node_id": "n10",
+                "end_node_id": "n11",
+                "length_m": 25.0,
+                "system": None,
+                "calc_case_id": None,
+            }
         ]
         assert brief["spatial_constraints"] == [{"kind": "material", "value": "steel"}]
         assert brief["required_outputs"] == ["drawing"]

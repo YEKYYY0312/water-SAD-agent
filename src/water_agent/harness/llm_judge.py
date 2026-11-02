@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,13 +23,20 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from water_agent.domain.models import TokenUsage
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.runtime.governance.contracts import CallCategory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_JUDGE_CACHE_DIR = REPO_ROOT / "data" / "eval" / "judge_cache"
-DEFAULT_JUDGE_MODEL = "deepseek-chat"
-DEFAULT_JUDGE_BASE_URL = "https://api.deepseek.com"
-DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# 历史名字保留；judge 端点 / 模型 / Key 名没显式给出时按 resolve_chat_endpoint 解析（P7-S10）
+DEFAULT_JUDGE_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_JUDGE_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_JUDGE_API_KEY_ENV = DEFAULT_CHAT_API_KEY
 
 
 # ─── Rubric 定义 ────────────────────────────────────────────────────
@@ -152,16 +158,19 @@ class LLMJudge:
     def __init__(
         self,
         *,
-        judge_model: str = DEFAULT_JUDGE_MODEL,
-        judge_base_url: str = DEFAULT_JUDGE_BASE_URL,
-        judge_api_key_env: str = DEFAULT_JUDGE_API_KEY_ENV,
+        judge_model: str | None = None,
+        judge_base_url: str | None = None,
+        judge_api_key_env: str | None = None,
         criteria: list[str] | None = None,
         cache_dir: str | Path = DEFAULT_JUDGE_CACHE_DIR,
         transport: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        self.judge_model = judge_model
-        self.judge_base_url = judge_base_url
-        self.judge_api_key_env = judge_api_key_env
+        self._endpoint = resolve_chat_endpoint(
+            base_url=judge_base_url, model=judge_model, api_key_env=judge_api_key_env
+        )
+        self.judge_model = self._endpoint.model
+        self.judge_base_url = self._endpoint.base_url
+        self.judge_api_key_env = self._endpoint.api_key_name or DEFAULT_CHAT_API_KEY
         self.criteria = list(criteria) if criteria else list(DEFAULT_CRITERIA)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -171,8 +180,8 @@ class LLMJudge:
     def _resolve_api_key(self) -> str | None:
         if self._api_key is not None:
             return self._api_key
-        raw = os.environ.get(self.judge_api_key_env, "")
-        self._api_key = raw.strip() or None
+        # 三层解析（env → _FILE → 凭据卷），与 build_chat_model 同一口径
+        self._api_key = self._endpoint.api_key()
         return self._api_key
 
     def _build_prompt(self, input_data: JudgeInput) -> list[dict[str, str]]:

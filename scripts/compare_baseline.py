@@ -37,7 +37,12 @@ DEFAULT_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
 
 # 机制层默认对比套件（--init 与对比共用；--suite 可覆盖）。
 # P2 收口后 docgen_p0/material_p0 正式纳入基线（docs/design/11-docgen-materials.md §5）。
-MECHANISM_SUITES: list[str] = ["rag_p0", "calc_p0", "docgen_p0", "material_p0"]
+# governance_p0 早就在 baseline.json 里却不参与对比：删掉两条治理用例整条门禁仍绿
+# （review 2026-09-30），故一并纳入。
+# agentic_p0（mock-agentic，生产 AgenticSession 装配）同理：新增即入基线。
+MECHANISM_SUITES: list[str] = [
+    "rag_p0", "calc_p0", "docgen_p0", "material_p0", "governance_p0", "agentic_p0",
+]
 
 # 单一权威阈值集（单位：pt=百分点）
 # quality_pass_rate_decline_pt 只作用于真实质量层 suite（rag_p1，独立基线文件），
@@ -111,7 +116,12 @@ def compare_suite(
     """
     baseline_suite = baseline.get(suite_key)
     if not baseline_suite:
-        return {"passed": True, "reason": f"suite {suite_key} 无基线记录，跳过", "deltas": {}}
+        # 要对比却没有基线 = 无法判定是否回归，不能当通过（首次接入先 --init 再入仓）。
+        return {
+            "passed": False,
+            "reason": f"suite {suite_key} 无基线记录（先 --init 生成并入仓）",
+            "deltas": {},
+        }
 
     # SKIP 语义：全部用例 SKIP（真实变体无 Key）→ 不参与基线比较
     total = int(new_report.get("total", 0))
@@ -138,6 +148,15 @@ def compare_suite(
         if c.get("case_id") and not c.get("passed", False) and not c.get("skipped", False)
     }
     new_core_failures = sorted(baseline_passed_ids & new_failed_ids)
+    # 用例消失/被跳过同样是回归：只看"新报告里存在且失败"的话，数据集删行或字段改名
+    # （用例变成加载问题）都会静默通过——calc_p0 少了 4 条仍 100%（review 2026-09-30）。
+    present_ids = {
+        c.get("case_id")
+        for c in new_report.get("cases", [])
+        if c.get("case_id") and not c.get("skipped", False)
+    }
+    expected_ids = baseline_passed_ids | set(baseline_suite.get("case_ids", []) or [])
+    vanished = sorted(expected_ids - present_ids)
 
     violations: list[str] = []
     if pass_delta_pt > thresholds["pass_rate_decline_pt"]:
@@ -150,6 +169,8 @@ def compare_suite(
         )
     if new_core_failures:
         violations.append(f"PASS_TO_PASS 违规：基线通过用例新失败 {new_core_failures}")
+    if vanished:
+        violations.append(f"基线用例在新报告中缺失或被跳过 {vanished}")
 
     # 真实质量层（rag_p1 等）：基线含 quality_pass_rate 且新报告真实判定过（judged>0）
     # 才比较质量通过率；无 Key 的全 SKIP 报告在更早分支已返回，不会到这里。
@@ -176,6 +197,7 @@ def compare_suite(
             "new_citation_ok_rate": new_cit_ok,
             "citation_delta_pt": round(cit_delta_pt, 3),
             "new_core_failures": new_core_failures,
+            "vanished_cases": vanished,
         },
     }
 
@@ -204,6 +226,12 @@ def build_baseline(report_dir: Path, suite_keys: list[str]) -> dict:
                 c.get("case_id")
                 for c in report.get("cases", [])
                 if c.get("case_id") and c.get("passed", False) and not c.get("skipped", False)
+            ],
+            # 全部用例（含基线里本就失败的）：用例被删时据此报"缺失"
+            "case_ids": [
+                c.get("case_id")
+                for c in report.get("cases", [])
+                if c.get("case_id") and not c.get("skipped", False)
             ],
             "source_report": latest.name,
         }
@@ -235,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
     baseline_path = Path(args.baseline_path)
     report_dir = Path(args.report_dir)
     suite_keys = args.suite or MECHANISM_SUITES
+    if args.report_path and len(suite_keys) != 1:
+        # 此前一份 --report-path 会被套用到每个套件，彼此错比
+        print(json.dumps({"ok": False, "error": "--report-path 必须配且只配一个 --suite"},
+                         ensure_ascii=False), file=sys.stderr)
+        return 2
 
     if args.init:
         baseline = build_baseline(report_dir, suite_keys)
@@ -258,7 +291,16 @@ def main(argv: list[str] | None = None) -> int:
     for key in suite_keys:
         report_path = Path(args.report_path) if args.report_path else _find_latest_report(report_dir, key)
         if report_path is None or not report_path.exists():
-            results.append({"suite": key, "passed": True, "reason": "无新报告，跳过", "deltas": {}})
+            # 基线里有这个套件、这次却没有报告 = runner 没跑成，不能当通过
+            missing_ok = key not in baseline_suites
+            if not missing_ok:
+                failed_any = True
+            results.append({
+                "suite": key,
+                "passed": missing_ok,
+                "reason": "无新报告，跳过" if missing_ok else "缺少新报告：基线有该套件，本次未产出报告",
+                "deltas": {},
+            })
             continue
         new_report = _load_json(report_path)
         result = compare_suite(key, baseline_suites, new_report, THRESHOLDS)

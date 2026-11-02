@@ -2,8 +2,21 @@ name: p5-compose
 
 # Whole-stack Compose smoke test. Building the app image is slow, so this runs
 # only on manual dispatch and on v* tags: it stays off every pull request.
+#
+# Ubuntu 26.04 的 runner 镜像把 Docker 从 28 升到 29、Compose 从 2.38 跨到 5.x，这个
+# job 用到的 build / up --wait / ps --format / run --rm 全在这条线上，所以默认钉在
+# ubuntu-24.04；手动触发时可以选 ubuntu-26.04 先试跑，再决定是否跟进。tag 触发没有
+# inputs，回落到 ubuntu-24.04。
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: runner 镜像（ubuntu-26.04 只用于试跑新镜像）
+        type: choice
+        options:
+          - ubuntu-24.04
+          - ubuntu-26.04
+        default: ubuntu-24.04
   push:
     tags:
       - "v*"
@@ -13,11 +26,11 @@ permissions:
 
 jobs:
   compose-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install locked dependencies
@@ -134,7 +147,7 @@ jobs:
         run: docker compose down -v
       - name: Upload the backup artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: p5-backup
           path: /tmp/water-agent-backup

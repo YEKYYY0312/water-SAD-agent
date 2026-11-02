@@ -394,11 +394,14 @@ def test_no_model_key_returns_structured_precondition_failure(
 def test_no_embedding_key_returns_its_own_precondition_failure(
     database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """配了对话模型但没配 embedding 凭据时，必须在预检拒绝并给独立错误码。
+    """强制 hybrid 时，配了对话模型但没配 embedding 凭据，必须在预检拒绝并给独立错误码。
 
     此前这种配置会通过预检，然后在装配 embedding provider 时抛 ValueError，浏览器
     只看到通用的 "agent run failed" —— 一个纯配置问题被伪装成运行失败。
+    P7-S10 起 auto 模式下缺 embedding 走关键词检索、不再 424，所以本用例的前提改为强制 hybrid
+    （WATER_AGENT_RETRIEVAL_MODE=hybrid）；auto 的行为见 test_embedding_key_is_optional_in_auto_mode。
     """
+    monkeypatch.setenv("WATER_AGENT_RETRIEVAL_MODE", "hybrid")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-configured-chat-model-key")
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
@@ -429,6 +432,72 @@ def test_no_embedding_key_returns_its_own_precondition_failure(
     }
 
 
+def test_embedding_key_is_optional_in_auto_mode(
+    database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P7-S10-A05 auto 模式（缺省）下有真实索引但没配 embedding：预检不再 424（只配一个对话 Key 也能用 RAG），
+    而是 202，检索走关键词模式；运行结果投影里如实带上 ``retrieval_mode`` 与原因。"""
+    monkeypatch.delenv("WATER_AGENT_RETRIEVAL_MODE", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-configured-chat-model-key")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("WATER_AGENT_CREDENTIALS_DIR", str(tmp_path / "no-credentials"))
+    from contextlib import contextmanager
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from water_agent.ingestion.pipeline import ingest_to_trivium
+
+    index = tmp_path / "index" / "tiny.db"
+    ingest_to_trivium(Path("data/fixtures/rag_fixture.jsonl"), index)
+    monkeypatch.setenv("WATER_AGENT_INDEX_PATH", str(index))
+    client, _, thread_id = _client(database, tmp_path)
+
+    @contextmanager
+    def memory_checkpointer(_database):
+        yield InMemorySaver()
+
+    client.app.state.run_manager.checkpointer_factory = memory_checkpointer
+    # 预检之后真实工厂会在后台建会话、调真实模型：本用例只验预检，建会话一步换成立即失败的替身
+    def not_under_test(**_kwargs):
+        raise RuntimeError("not under test")
+
+    client.app.state.run_manager.session_factory.create = not_under_test
+    response = client.post(
+        f"/api/sessions/{thread_id}/messages",
+        json={"message": "问题"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 202, response.text
+
+    class _KeywordSession(_FakeSession):
+        async def aask(self, query: str, **kwargs) -> dict:
+            payload = await super().aask(query, **kwargs)
+            payload["retriever_runtime_status"] = {
+                "retrieval_mode": "text",
+                "retrieval_mode_reason": "embedding_not_configured",
+            }
+            return payload
+
+    class _KeywordFactory(_FakeFactory):
+        def create(self, **kwargs):
+            session = _KeywordSession(JsonTraceRecorder(self.trace_dir))
+            self.sessions.append(session)
+            return session
+
+    fake_client, _, fake_thread = _client(database, tmp_path, factory=_KeywordFactory(tmp_path / "traces"))
+    created = fake_client.post(
+        f"/api/sessions/{fake_thread}/messages",
+        json={"message": "问题"},
+        headers={"X-CSRF-Token": _csrf(fake_client)},
+    )
+    assert created.status_code == 202
+    events = _parse_sse(fake_client.get(f"/api/runs/{created.json()['data']['run_id']}/events"))
+    finalize = next(event for event in events if event["type"] == "finalize")
+    assert finalize["payload"]["retrieval_mode"] == "text"
+    assert finalize["payload"]["retrieval_mode_reason"] == "embedding_not_configured"
+
+
 def test_embedding_key_is_not_required_without_a_real_index(
     database: Database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -441,6 +510,17 @@ def test_embedding_key_is_not_required_without_a_real_index(
         "water_agent.retrieval.trivium.DEFAULT_INDEX_DIR", tmp_path / "no-indexes"
     )
     client, _, thread_id = _client(database, tmp_path)
+    # 真实工厂会在建 run 之前读 checkpoint 判定会话是否停在确认门（P7-S7）；SQLite 上没有 PG
+    # checkpointer，换成内存实现（空会话 = 未挂起），本用例只验 embedding 凭据这一项预检。
+    from contextlib import contextmanager
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    @contextmanager
+    def memory_checkpointer(_database):
+        yield InMemorySaver()
+
+    client.app.state.run_manager.checkpointer_factory = memory_checkpointer
     response = client.post(
         f"/api/sessions/{thread_id}/messages",
         json={"message": "问题"},

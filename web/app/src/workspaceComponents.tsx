@@ -1,12 +1,17 @@
 import { useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
+import { ConfirmationCard, type ConfirmationSubmitState } from "./ConfirmationCard.tsx";
+import { isWaitingConfirmation } from "./confirmationApi.ts";
 import { availableExports, type ExportFormat } from "./exportApi.ts";
 import { Icon } from "./icons";
 import { formatBytes, UPLOAD_ACCEPT, uploadNotice, type UploadRecord } from "./uploadApi.ts";
 import type { Attachment, ExportState } from "./useWorkspaceController";
 import type { Project, WorkspaceSession } from "./workspaceApi";
-import type { ConversationMessage, WorkspaceRunState } from "./workspaceState";
+import { isTerminalStatus, warningDisplayText, type ConversationMessage, type WorkspaceRunState } from "./workspaceState.ts";
 import { AnswerMarkdown } from "./AnswerMarkdown.tsx";
+import { ComposerModelSelect, SessionDefaultModel } from "./ModelChoice.tsx";
+import type { ModelCatalogView } from "./modelChoiceApi.ts";
+import { WebSearchNote, WebSearchToggle } from "./WebSearchToggle.tsx";
 
 export type { ConversationMessage } from "./workspaceState.ts";
 
@@ -19,6 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
   blocked: "被拦截",
   cancelled: "已取消",
   cancellation_requested: "正在取消",
+  waiting_confirmation: "等待确认",
 };
 
 function mark(status: string): string {
@@ -293,11 +299,20 @@ export function ConversationPanel({
   attachments,
   exportState,
   feedbackState,
+  confirmationState,
+  modelCatalog,
+  messageModel,
+  webSearchReady,
+  webSearchOn,
   inspectorOpen,
+  onMessageModelChange,
+  onSessionModelChange,
+  onWebSearchChange,
   onDraftChange,
   onSubmit,
   onCancel,
   onFeedback,
+  onDecideConfirmation,
   onAttach,
   onDismissAttachment,
   onDownload,
@@ -314,11 +329,21 @@ export function ConversationPanel({
   attachments: Attachment[];
   exportState: ExportState;
   feedbackState: string | null;
+  confirmationState: ConfirmationSubmitState;
+  modelCatalog: ModelCatalogView | null;
+  messageModel: string;
+  /** 运维已配好联网搜索才渲染「联网」开关；勾选只对下一条消息有效（P7-S12）。 */
+  webSearchReady: boolean;
+  webSearchOn: boolean;
   inspectorOpen: boolean;
+  onMessageModelChange: (value: string) => void;
+  onSessionModelChange: (model: string | null) => void;
+  onWebSearchChange: (on: boolean) => void;
   onDraftChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   onFeedback: (rating: "useful" | "not_useful") => void;
+  onDecideConfirmation: (approved: boolean, reason: string) => void;
   onAttach: (files: FileList | File[]) => void;
   onDismissAttachment: (key: string) => void;
   onDownload: (format: ExportFormat) => void;
@@ -328,10 +353,14 @@ export function ConversationPanel({
   const fileInput = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = useState(false);
-  const answer = run.answer || run.tokens;
+  // 收口后只显示 finalize 给出的回答；运行中的草稿另行显示并标明"待校验"，绝不当成回答。
+  const answer = isTerminalStatus(run.status) ? run.answer : "";
+  const answerDraft = isTerminalStatus(run.status) ? "" : run.draft;
+  // 停在人工确认门：先批准或拒绝，再发下一条（后端同样会以 409 WEB_CONFIRMATION_PENDING 拒绝）
+  const waiting = isWaitingConfirmation(run.status);
   const uploading = attachments.some((item) => item.status === "uploading");
   const hasReadyAttachment = attachments.some((item) => item.status === "ready");
-  const empty = session !== null && messages.length === 0 && !answer && !streaming && run.status === "idle";
+  const empty = session !== null && messages.length === 0 && !answer && !answerDraft && !streaming && run.status === "idle";
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter 发送、Shift+Enter 换行；输入法组字时的 Enter 不算。
@@ -405,8 +434,27 @@ export function ConversationPanel({
                 <AnswerActions run={run} exportState={exportState} feedbackState={feedbackState} onDownload={onDownload} onFeedback={onFeedback} />
               </article>
             )}
-            {streaming && <p className="streaming-note"><span className="pulse" aria-hidden="true" />正在检索与计算…</p>}
-            {run.warnings.map((warning) => <div className="warning-state" role="status" key={warning}>{warning}</div>)}
+            {answerDraft && (
+              <article className="message message-agent draft-answer" aria-label="回答草稿（待校验）" aria-busy="true">
+                <p className="draft-note">草稿 · 引用与输出校验完成前可能修改或撤回</p>
+                <AnswerMarkdown text={answerDraft} />
+              </article>
+            )}
+            {run.confirmation && (
+              <ConfirmationCard
+                key={run.confirmation.confirmation_id}
+                request={run.confirmation}
+                state={confirmationState}
+                onDecide={onDecideConfirmation}
+              />
+            )}
+            {streaming && (
+              <p className="streaming-note">
+                <span className="pulse" aria-hidden="true" />
+                {run.draftRetractions > 0 && !answerDraft ? "正在修订回答…" : answerDraft ? "正在生成…" : "正在检索与计算…"}
+              </p>
+            )}
+            {run.warnings.map((warning) => <div className="warning-state" role="status" key={warning}>{warningDisplayText(warning)}</div>)}
             {run.status !== "idle" && run.status !== "succeeded" && isTerminal(run.status) && !answer && (
               <div className="error-state" role="alert">
                 <strong>{run.status === "cancelled" ? "已停止" : "这次没有完成"}</strong>
@@ -434,10 +482,16 @@ export function ConversationPanel({
           <textarea
             id="message"
             value={draft}
-            disabled={!session || streaming}
+            disabled={!session || streaming || waiting}
             onChange={(event) => onDraftChange(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={session ? "描述要检索、计算或审查的问题，Enter 发送" : "先选择一个会话"}
+            placeholder={
+              !session
+                ? "先选择一个会话"
+                : waiting
+                  ? "请先在上方批准或拒绝这次工具调用"
+                  : "描述要检索、计算或审查的问题，Enter 发送"
+            }
             rows={2}
           />
           <div className="composer-bar">
@@ -449,6 +503,19 @@ export function ConversationPanel({
               hidden
               onChange={(event) => { if (event.target.files?.length) onAttach(event.target.files); event.target.value = ""; }}
             />
+            <ComposerModelSelect
+              catalog={modelCatalog}
+              value={messageModel}
+              sessionDefault={session?.model}
+              disabled={!session || streaming || waiting}
+              onChange={onMessageModelChange}
+            />
+            <WebSearchToggle
+              ready={webSearchReady}
+              on={webSearchOn}
+              disabled={!session || streaming || waiting}
+              onChange={onWebSearchChange}
+            />
             <button type="button" className="icon-button" aria-label="上传文件" title="上传 Word、PDF、TXT、DXF/DWG 图纸（10 MB 以内）" disabled={!session} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" />
             </button>
@@ -458,12 +525,19 @@ export function ConversationPanel({
             {streaming ? (
               <button type="button" className="stop-button" onClick={onCancel}><Icon name="stop" />停止</button>
             ) : (
-              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || (!draft.trim() && !hasReadyAttachment)}>
+              <button type="submit" className="send-button" aria-label="发送" disabled={!session || uploading || waiting || (!draft.trim() && !hasReadyAttachment)}>
                 <Icon name="arrowUp" />
               </button>
             )}
           </div>
+          <WebSearchNote ready={webSearchReady} on={webSearchOn} />
         </form>
+        <SessionDefaultModel
+          catalog={modelCatalog}
+          sessionDefault={session?.model}
+          disabled={!session || streaming || waiting}
+          onChange={onSessionModelChange}
+        />
         <p className="composer-scope"><Icon name="folder" />资料范围：{scopeName} · 拖拽文件到输入框也可上传</p>
       </div>
     </section>

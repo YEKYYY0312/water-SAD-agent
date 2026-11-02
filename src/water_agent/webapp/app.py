@@ -35,8 +35,10 @@ from water_agent.storage.database import (
 )
 from water_agent.webapp.auth.routes import router as auth_router
 from water_agent.webapp.auth.storage import configure_database_stores
+from water_agent.webapp.body_limit import RequestBodyLimitMiddleware, UploadPreauthMiddleware
 from water_agent.webapp.drawing_routes import router as drawing_router
 from water_agent.webapp.export_routes import router as export_router
+from water_agent.webapp.mcp_admin_routes import router as mcp_admin_router
 from water_agent.webapp.memory_routes import router as memory_router
 from water_agent.webapp.run_manager import (
     DEFAULT_TENANT_ID,
@@ -45,6 +47,7 @@ from water_agent.webapp.run_manager import (
 )
 from water_agent.webapp.run_routes import router as run_router
 from water_agent.webapp.settings_routes import router as settings_router
+from water_agent.webapp.skill_routes import router as skill_router
 from water_agent.webapp.upload_routes import router as upload_router
 from water_agent.webapp.workspace_routes import router as workspace_router
 
@@ -90,18 +93,55 @@ def create_app(
 ) -> FastAPI:
     """Create the Web app without changing the existing CLI import graph."""
     # Backfill LLM credentials from the Compose secret files and the writable
-    # credential volume into this process' environment.  This is what makes a
-    # key configured before a restart keep working, and it is what lets
-    # embedding.py / retrieval/rerank.py keep reading os.environ unchanged.
+    # credential volume into this process' environment.  In-process consumers
+    # (chat model, embedding, rerank, vision) resolve keys through
+    # resolve_secret() and do not depend on this; it keeps os.environ holding
+    # the effective value for code that still reads the variable by name.
     # Values already present in the environment win and are never overwritten.
     load_credentials_into_environ()
+    # P7-S10：端点配置在启动期就校验（URL 不合法、LOCAL_MODEL_* 与 WATER_AGENT_LLM_* 同时启用即
+    # EndpointConfigError），不等第一次提问才报错。只解析配置，不发请求。面板写的配置出问题时不阻止启动
+    # （管理员要能在面板里改正它）——预检与装配照样拒绝，不会静默回到缺省端点。
+    from water_agent.generation.endpoints import (
+        PanelEndpointError,
+        resolve_chat_endpoint,
+        resolve_embedding_endpoint,
+    )
+
+    try:
+        resolve_chat_endpoint()
+    except PanelEndpointError:
+        pass
+    resolve_embedding_endpoint()
 
     app = FastAPI(title="water-agent Web", version=API_ENVELOPE_VERSION)
+
+    # P7-S8：MCP OAuth 刷新被授权服务器拒绝时没有管理员请求在场，由这里接到结构化审计（只含 server_id / issuer / 原因码）
+    from water_agent.mcp.oauth import set_event_sink
+    from water_agent.webapp.auth.audit import audit_mcp_oauth_refresh_failed
+
+    def _oauth_event(event: str, server_id: str, fields: dict[str, str]) -> None:
+        if event == "refresh_failed":
+            audit_mcp_oauth_refresh_failed(
+                server_id=server_id, issuer=fields.get("issuer", ""), reason=fields.get("reason", "")
+            )
+
+    set_event_sink(_oauth_event)
 
     # No CORSMiddleware: the React bundle is served by this same app (see the
     # StaticFiles mount below), so browsers never issue a cross-origin preflight.
     # The previous 8001-origin exception existed only for the standalone
     # login.html scaffolding, which P5-S47 removed.
+
+    # FastAPI reads a request body -- a multipart form, or a JSON body whole into
+    # memory -- before it solves the route's auth/CSRF dependencies, so the body
+    # guards have to bite below FastAPI: otherwise an anonymous request is
+    # received (and an upload spooled) in full first.
+    # The last one added is the outermost: the byte ceilings (one header) wrap
+    # the upload pre-auth check (a session lookup) and count whatever is read
+    # below.
+    app.add_middleware(UploadPreauthMiddleware)
+    app.add_middleware(RequestBodyLimitMiddleware)
 
     app.include_router(auth_router)
     app.include_router(run_router)
@@ -111,6 +151,8 @@ def create_app(
     app.include_router(upload_router)
     app.include_router(export_router)
     app.include_router(drawing_router)
+    app.include_router(mcp_admin_router)
+    app.include_router(skill_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):
         try:
@@ -259,18 +301,31 @@ def create_app(
         except Exception:  # noqa: BLE001 -- status endpoint must not expose config details
             mcp_config = None
             mcp_invalid = True
+        # P7-S6：普通成员只看到计数，不看到 server 清单（那是部署细节，只在管理员的扩展面板里）。
+        mcp_counts: dict[str, int | None]
         if mcp_invalid:
             mcp_status = "unavailable"
             mcp_detail = "MCP 配置不可用"
             mcp_server_count = None
+            mcp_counts = {"enabled": None, "disabled": None, "confirmation": None, "shared": None}
         elif mcp_config is None:
             mcp_status = "not_configured"
             mcp_detail = "MCP 配置未启用"
             mcp_server_count = 0
+            mcp_counts = {"enabled": 0, "disabled": 0, "confirmation": 0, "shared": 0}
         else:
             mcp_status = "blocked"
-            mcp_detail = "真实 CAD/BIM 与企业库 MCP 尚未验证；危险确认门仍按配置 fail closed"
+            mcp_detail = (
+                "真实 CAD/BIM 与企业库 MCP 尚未验证；需人工确认的 server 在 Web 下每次执行前由 run 所有者确认"
+            )
             mcp_server_count = len(mcp_config.servers)
+            enabled = [server for server in mcp_config.servers if not server.disabled]
+            mcp_counts = {
+                "enabled": len(enabled),
+                "disabled": mcp_server_count - len(enabled),
+                "confirmation": sum(1 for server in enabled if server.human_confirmation),
+                "shared": sum(1 for server in enabled if server.lifecycle == "shared"),
+            }
         payload = _success(
             {
                 "real_llm": _real_llm_configured(),
@@ -293,6 +348,10 @@ def create_app(
                     "status": mcp_status,
                     "message": mcp_detail,
                     "configured_server_count": mcp_server_count,
+                    "enabled_server_count": mcp_counts["enabled"],
+                    "disabled_server_count": mcp_counts["disabled"],
+                    "confirmation_server_count": mcp_counts["confirmation"],
+                    "shared_server_count": mcp_counts["shared"],
                     "real_endpoints_verified": False,
                 },
             }

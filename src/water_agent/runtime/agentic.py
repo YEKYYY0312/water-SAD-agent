@@ -8,7 +8,6 @@ kept here so the CLI and Web cannot silently grow different agent runtimes.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import sqlite3
@@ -23,18 +22,50 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from water_agent.domain.models import RetrievedClause
-from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV, build_chat_model
-from water_agent.graphs.agent_rag import PER_TURN_RESET, astream_agentic, build_agentic_app
-from water_agent.ingestion.version_registry import get_version_registry
-from water_agent.mcp.wiring import (
-    load_mcp_gateway,
-    open_gateway_sessions,
-    principal_with_mcp,
-    register_mcp_tools,
+from water_agent.generation.chat_model import build_chat_model
+from water_agent.generation.compatibility import (
+    PROBE_HINT,
+    endpoint_verification,
+    require_verified_endpoint,
 )
+from water_agent.generation.endpoints import (
+    EndpointConfigError,
+    chat_env_configured,
+    resolve_chat_endpoint,
+)
+from water_agent.generation.model_catalog import extra_body_for
+from water_agent.graphs.agent_rag import (
+    PER_TURN_RESET,
+    _extract_validation_signal,
+    astream_agentic,
+    build_agentic_app,
+    stream_agentic,
+)
+from water_agent.graphs.confirmation import (
+    STATUS_WAITING_CONFIRMATION,
+    ConfirmationRuntime,
+    pending_confirmation_request,
+    public_confirmation_request,
+)
+from water_agent.ingestion.version_registry import get_version_registry
+from water_agent.mcp.http_client import mcp_request_scope
+from water_agent.mcp.pool import McpLease
+from water_agent.mcp.web_layer import disabled_skill_names
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.recall import MemoryRecallResult
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.plugins import (
+    AssemblyContext,
+    DrawingContribution,
+    McpContribution,
+    McpGatewayPlugin,
+    SkillsContribution,
+    assemble_tools,
+    builtin_plugins,
+)
+from water_agent.plugins.builtin import WEB_SEARCH_GROUP, WebSearchContribution
 from water_agent.prompting import PromptAssembler
+from water_agent.prompting.history import RUNTIME_CONTEXT_PREFIX
 from water_agent.prompting.runtime_context import RuntimeContextProjection, default_context_builder
 from water_agent.retrieval.base import Retriever
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -46,23 +77,33 @@ from water_agent.retrieval.rerank import (
 )
 from water_agent.retrieval.trivium import DEFAULT_INDEX_DIR as TRIVIUM_INDEX_DIR
 from water_agent.retrieval.trivium import (
+    MODE_HYBRID,
+    MODE_TEXT,
+    REASON_EMBEDDING_MATCHED,
+    REASON_EMBEDDING_MISMATCH,
+    REASON_EMBEDDING_NOT_CONFIGURED,
+    REASON_FORCED,
+    EmbeddingMismatchError,
+    IndexMetaError,
     IndexSelectionError,
     TriviumRetriever,
+    embedding_mismatch,
+    ensure_embedding_matches,
+    index_dimensions,
+    read_index_meta,
     resolve_index_path,
+    retrieval_mode_setting,
 )
+from water_agent.runtime.cancellation import RunCancelled, cancellation_scope
 from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
 )
 from water_agent.runtime.governance.cache_service import AnswerCacheService
-from water_agent.runtime.governance.contracts import Principal, RequestContext
+from water_agent.runtime.governance.contracts import RequestContext
 from water_agent.session import default_checkpoint_serde, session_db_path
-from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
-from water_agent.tools.material_stats import material_stats_spec
-from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
+from water_agent.web_search.config import resolve_web_search_config
+from water_agent.web_search.runtime import WebSearchRuntime
 
 # This module is one level deeper than water_agent/cli.py, so the repository
 # root is parents[3] here, not parents[2].
@@ -73,18 +114,63 @@ DEFAULT_FIXTURE = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 
 
-def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
-    """Inspect only whether the configured real-model key exists."""
+#: 预检：对话模型没配齐（缺 Key / 端点配置不成立 / 本地模型缺证据）。
+CHAT_MODEL_NOT_CONFIGURED = "WEB_MODEL_NOT_CONFIGURED"
+#: 预检：非缺省对话端点没有通过的兼容性报告（P7-S10 硬门槛，缺省 DeepSeek 免检）。
+CHAT_MODEL_NOT_VERIFIED = "WEB_MODEL_NOT_VERIFIED"
 
-    from water_agent.config.credentials import resolve_secret
+
+def chat_model_problem(
+    environment: Callable[[str], str | None] = os.getenv,
+    *,
+    model: str | None = None,
+) -> tuple[str, str] | None:
+    """对话模型能否装配；不能时返回 ``(错误码, 说明)``。只看配置，不读出也不回显 Key 值。
+
+    与 ``build_chat_model`` 共用 ``resolve_chat_endpoint``（端点 / 模型 / Key 名 + 三层解析）：两处各自
+    判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、真跑 503 的矛盾结果。
+    缺省端点缺 Key 时说明沿用原文；端点改了却没配专用 Key 时写明缺哪一项（不回落 DeepSeek 的 Key）。
+
+    ``model``（P7-S15）：用户逐条 / 按会话选的模型 id，在**同一个端点、同一个 Key 槽**上换模型；为 ``None``
+    就是全局模型（与此前逐字相同）。``LOCAL_MODEL_ENABLED`` 时不允许覆盖——只带 ``model`` 的显式覆盖会跳过
+    本地分支、落到 DeepSeek 缺省端点，等于数据去向翻转。
+    """
+
     from water_agent.generation.local_model import local_model_configured, local_model_ready
 
-    if local_model_configured(environment):
-        return local_model_ready(environment)
-    # 与 build_chat_model 共用同一解析顺序（env → _FILE → 凭据卷）。两处各自
-    # 判断时曾出现「这里认 _FILE、那里只认 env」，配了文件便得到 424 放行、
-    # 真跑 503 的矛盾结果。
-    return resolve_secret("DEEPSEEK_API_KEY", getenv=environment) is not None
+    if local_model_configured(environment) and not chat_env_configured(environment):
+        if model is not None:
+            return CHAT_MODEL_NOT_CONFIGURED, "Model selection is unavailable while the local model path is enabled"
+        if local_model_ready(environment):
+            return None
+        return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
+    try:
+        endpoint = resolve_chat_endpoint(model=model, getenv=environment)
+    except EndpointConfigError as exc:
+        return CHAT_MODEL_NOT_CONFIGURED, f"Real agent model is not configured: {exc}"
+    missing = endpoint.missing_key(getenv=environment)
+    if missing is None:
+        verification = endpoint_verification(endpoint, getenv=environment)
+        if verification.usable:
+            return None
+        unverified = (
+            f"Chat endpoint {endpoint.host} / model {endpoint.model} is not verified "
+            f"({verification.reason}); {PROBE_HINT}"
+        )
+        return CHAT_MODEL_NOT_VERIFIED, unverified
+    if endpoint.is_default:
+        return CHAT_MODEL_NOT_CONFIGURED, "Real agent model is not configured"
+    detail = (
+        f"Real agent model is not configured: {missing} is required for {endpoint.host} "
+        "(keys of other providers are never sent to it)"
+    )
+    return CHAT_MODEL_NOT_CONFIGURED, detail
+
+
+def real_llm_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
+    """Inspect only whether the configured real model can be assembled（见 ``chat_model_problem``）。"""
+
+    return chat_model_problem(environment) is None
 
 
 def embedding_required(args: argparse.Namespace | None = None) -> bool:
@@ -103,18 +189,49 @@ def embedding_required(args: argparse.Namespace | None = None) -> bool:
         return True
 
 
+def retrieval_problem(args: argparse.Namespace | None = None) -> tuple[str, str] | None:
+    """检索能不能跑；不能时返回 ``(错误码, 说明)``（Web 预检用，P7-S10）。
+
+    预检的语义从"必须有 embedding"变为"必须能检索"：``auto`` 下缺 embedding 走关键词检索、不拒绝；只有
+    **强制** ``hybrid`` 时才要求 embedding 已配置且与索引匹配（否则装配必然失败，浏览器只能看到通用的
+    "agent run failed"）。不需要真实 embedding（mock 生成器、没有真实索引）时不检查。
+    """
+
+    try:
+        setting = retrieval_mode_setting(getattr(args, "retrieval_mode", None))
+    except ValueError as exc:
+        return "WEB_RETRIEVAL_MODE_INVALID", str(exc)
+    if setting != MODE_HYBRID or not embedding_required(args):
+        return None
+    if not embedding_configured():
+        return "WEB_EMBEDDING_NOT_CONFIGURED", "Retrieval embedding credential is not configured"
+    try:
+        db_path = _resolve_db_path(args if args is not None else argparse.Namespace())
+        if db_path is not None:
+            resolve_retrieval_plan(db_path, setting=setting, dimensions=index_dimensions(db_path))
+    except EmbeddingMismatchError as exc:
+        return exc.code, f"Retrieval embedding does not match the index: {exc.reason}"
+    except Exception:  # noqa: BLE001 — 选索引 / 只读打开索引出错：预检不替装配下结论，交给装配响亮失败
+        return None
+    return None
+
+
 def embedding_configured(environment: Callable[[str], str | None] = os.getenv) -> bool:
     """Inspect only whether the embedding key exists，解析顺序与 chat model 一致。
 
-    ``embedding.build_embedding_provider`` 直读 ``os.environ``，靠 webapp 启动时的
-    ``load_credentials_into_environ()`` 把 ``_FILE``/凭据卷回填进来；这里改用
-    ``resolve_secret`` 是为了让预检与实际构造**在回填之前也一致**，否则会重演
-    chat model 那个「预检放行、真跑报错」的老问题。
+    与 ``embedding.build_embedding_provider`` 共用 ``resolve_secret``（env → _FILE →
+    凭据卷）：预检与实际构造不依赖启动回填，也不会因面板清掉了进程环境里的注入值
+    而分叉——否则会重演 chat model 那个「预检放行、真跑报错」的老问题。
     """
 
-    from water_agent.config.credentials import resolve_secret
+    from water_agent.generation.endpoints import EndpointConfigError, resolve_embedding_endpoint
 
-    return resolve_secret("DASHSCOPE_API_KEY", getenv=environment) is not None
+    # 端点 / Key 名与 build_embedding_provider 同一来源（P7-S10：端点改了就不回落 DASHSCOPE_API_KEY）
+    try:
+        endpoint = resolve_embedding_endpoint(getenv=environment)
+    except EndpointConfigError:
+        return False
+    return endpoint.missing_key(getenv=environment) is None
 
 
 def _embedding_for(db_path: Path, *, request_context=None, gateway=None) -> tuple[object, int]:
@@ -178,6 +295,100 @@ def _load_fixture_clauses() -> list[RetrievedClause]:
         return []
 
 
+def resolve_retrieval_plan(
+    db_path: Path, *, setting: str, dimensions: int
+) -> tuple[str, str, str | None]:
+    """这份索引用哪种检索：返回 ``(mode, reason, detail)``（P7-S10，规格 §3.11）。
+
+    - ``text``（强制）→ 关键词检索，不碰 embedding；
+    - ``hybrid``（强制）→ embedding 与索引不匹配（模型 / 维度不一致、纯关键词索引、元数据读不出）即
+      :class:`EmbeddingMismatchError`；没配 embedding Key 时由构造 provider 那一步响亮失败；
+    - ``auto`` → embedding 已配置且与索引匹配走 ``hybrid``，否则走 ``text`` 并如实记原因——**不静默继续向量
+      检索，也不把关键词检索说成语义检索**。
+
+    ``detail`` 只在 auto 因不匹配降级时给出（模型名 / 维度，不含任何 Key）。
+    """
+
+    if setting == MODE_TEXT:
+        return MODE_TEXT, REASON_FORCED, None
+    from water_agent.generation.endpoints import resolve_embedding_endpoint
+
+    endpoint = resolve_embedding_endpoint()
+    try:
+        meta = read_index_meta(db_path, dimensions=dimensions)
+        mismatch = embedding_mismatch(meta, model=endpoint.model, dimensions=dimensions)
+    except IndexMetaError as exc:
+        mismatch = str(exc)
+    if setting == MODE_HYBRID:
+        if mismatch is not None:
+            raise EmbeddingMismatchError(mismatch)
+        return MODE_HYBRID, REASON_FORCED, None
+    if endpoint.missing_key() is not None:
+        return MODE_TEXT, REASON_EMBEDDING_NOT_CONFIGURED, None
+    if mismatch is not None:
+        return MODE_TEXT, REASON_EMBEDDING_MISMATCH, mismatch
+    return MODE_HYBRID, REASON_EMBEDDING_MATCHED, None
+
+
+def build_index_retriever(
+    db_path: Path,
+    *,
+    setting: str,
+    dimensions: int | None,
+    hybrid_alpha: float,
+    fallback_clauses: list[RetrievedClause],
+    mock_embedding: bool = False,
+    request_context=None,
+    gateway=None,
+) -> TriviumRetriever:
+    """真实索引上的检索器（会话装配与 runner 真实评测共用，检索模式规则只有这一份）。
+
+    ``mock_embedding``（``--mock-generator``）只在判定为 ``hybrid`` 时用确定性伪向量代替真实 embedding；
+    判定为 ``text`` 时与真实路径一样不碰 embedding。
+    """
+
+    dim = dimensions or index_dimensions(db_path)
+    if mock_embedding and setting == MODE_HYBRID:
+        mode, reason, detail = MODE_HYBRID, REASON_FORCED, None
+    else:
+        mode, reason, detail = resolve_retrieval_plan(db_path, setting=setting, dimensions=dim)
+    if mode == MODE_TEXT:
+        retriever = TriviumRetriever(
+            db_path=db_path,
+            hybrid_alpha=hybrid_alpha,
+            dim=dim,
+            fallback_clauses=fallback_clauses,
+            retrieval_mode=MODE_TEXT,
+            retrieval_mode_reason=reason,
+            retrieval_mode_detail=detail,
+        )
+        retriever._fallback_reason = f"keyword retrieval ({reason})"  # type: ignore[attr-defined]
+        return retriever
+    if mock_embedding:
+        from water_agent.retrieval.trivium import mock_embed
+
+        embedding_fn = lambda text: mock_embed(text, dim=dim)
+        fallback_kind, fallback_reason = "mock", "explicit mock_generator"
+    else:
+        provider, _ = _embedding_for(db_path, request_context=request_context, gateway=gateway)
+        # 构造之后再核一次（provider 的模型 / 维度才是真正要发出去的）：判定与实际调用不分叉
+        ensure_embedding_matches(db_path, model=provider.config.model, dimensions=dim)  # type: ignore[attr-defined]
+        embedding_fn = provider.embed  # type: ignore[attr-defined]
+        fallback_kind, fallback_reason = "none", "real db"
+    retriever = TriviumRetriever(
+        db_path=db_path,
+        embedding_fn=embedding_fn,
+        hybrid_alpha=hybrid_alpha,
+        dim=dim,
+        fallback_clauses=fallback_clauses,
+        retrieval_mode=MODE_HYBRID,
+        retrieval_mode_reason=reason,
+    )
+    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
+    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
+    return retriever
+
+
 def _build_retriever(
     args: argparse.Namespace, *, request_context=None, gateway=None
 ) -> tuple[Retriever, str]:
@@ -187,36 +398,16 @@ def _build_retriever(
     db_path = _resolve_db_path(args)
     if db_path is None:
         return TriviumRetriever(db_path=None, fallback_clauses=fixture), ""
-
-    dim = getattr(args, "dimensions", None)
-    if getattr(args, "mock_generator", False):
-        import triviumdb
-
-        probe = triviumdb.TriviumDB(str(db_path), access_mode="read_only")
-        dim = dim or int(probe.dim())
-        probe.close()
-        from water_agent.retrieval.trivium import mock_embed
-
-        embedding_fn = lambda text: mock_embed(text, dim=dim)
-        fallback_kind = "mock"
-        fallback_reason = "explicit mock_generator"
-    else:
-        provider, detected = _embedding_for(
-            db_path, request_context=request_context, gateway=gateway
-        )
-        dim = detected if dim is None else dim
-        embedding_fn = provider.embed  # type: ignore[attr-defined]
-        fallback_kind = "none"
-        fallback_reason = "real db"
-    retriever = TriviumRetriever(
-        db_path=db_path,
-        embedding_fn=embedding_fn,
+    retriever = build_index_retriever(
+        db_path,
+        setting=retrieval_mode_setting(getattr(args, "retrieval_mode", None)),
+        dimensions=getattr(args, "dimensions", None),
         hybrid_alpha=getattr(args, "hybrid_alpha", 0.7),
-        dim=dim,
         fallback_clauses=fixture,
+        mock_embedding=bool(getattr(args, "mock_generator", False)),
+        request_context=request_context,
+        gateway=gateway,
     )
-    retriever._fallback_kind = fallback_kind  # type: ignore[attr-defined]
-    retriever._fallback_reason = fallback_reason  # type: ignore[attr-defined]
     return retriever, str(db_path)
 
 
@@ -236,15 +427,38 @@ def _build_reranker(args: argparse.Namespace, *, request_context=None, gateway=N
     return None
 
 
-def _build_cache_service(args: argparse.Namespace) -> AnswerCacheService:
+def _build_cache_service(
+    args: argparse.Namespace,
+    *,
+    mcp_server_manifest: str = "",
+    skill_library_digest: str = "",
+    keyword_index: bool = False,
+) -> AnswerCacheService:
+    """``mcp_server_manifest`` 进缓存键（P7-S3，F6）：MCP server 清单 / 白名单 / 命令任一变化，
+    旧回答不该再命中。没有 MCP（或全部停用）时为空串，与历史缓存键同键。
+    ``skill_library_digest``（P7-S9）同理：已启用的 skill 集合或任一份正文变化，键随之变化。
+    ``keyword_index``（P7-S10）：真实索引上走的是关键词检索——语料 / 索引版本因子记成 ``text-only``，
+    与混合检索的回答互不命中（检索方式不同，答案依据就不同）；混合检索时与历史键同键。"""
     reranker = None if getattr(args, "rerank", "local") == "none" else args.rerank
+    # P7-S10：对话端点进缓存键（缺省 DeepSeek 为空串，与历史键同键）
+    endpoint = resolve_chat_endpoint(
+        base_url=getattr(args, "base_url", None),
+        model=getattr(args, "model", None),
+        api_key_env=getattr(args, "api_key_env", None),
+    )
+    from water_agent.generation.endpoints import resolve_embedding_endpoint
+
     return AnswerCacheService(
-        embedding_model="qwen3.7-text-embedding",
+        # 语料 / 索引版本因子：embedding 模型取解析结果（缺省 qwen3.7-text-embedding，与历史键同键）
+        embedding_model="text-only" if keyword_index else resolve_embedding_endpoint().model,
         dimensions=getattr(args, "dimensions", None) or 512,
         top_k=getattr(args, "top_k", 5),
         recall_top_k=getattr(args, "recall_top_k", 20),
         reranker=reranker,
         version_registry=get_version_registry(),
+        mcp_server_manifest=mcp_server_manifest,
+        skill_library_digest=skill_library_digest,
+        model_endpoint_digest=endpoint.cache_digest,
     )
 
 
@@ -297,7 +511,7 @@ class _ScriptedAgenticModel(BaseChatModel):
             if (
                 isinstance(message, HumanMessage)
                 and isinstance(message.content, str)
-                and not message.content.startswith("[运行时上下文]")
+                and not message.content.startswith(RUNTIME_CONTEXT_PREFIX)
             ):
                 return message.content
         return ""
@@ -350,29 +564,72 @@ class _ScriptedAgenticModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
 
 
+def _latest_runtime_context(messages: list[Any]) -> str | None:
+    """会话里最近一次注入的运行时上下文正文（没有则 None）。"""
+    for message in reversed(messages):
+        content = getattr(message, "content", None)
+        if (
+            isinstance(message, HumanMessage)
+            and isinstance(content, str)
+            and content.startswith(RUNTIME_CONTEXT_PREFIX)
+        ):
+            return content[len(RUNTIME_CONTEXT_PREFIX) :].lstrip("\n")
+    return None
+
+
 def _initial_messages_with_runtime_context(
     query: str,
     projection: RuntimeContextProjection,
     *,
     session_refs: list[str] | None = None,
+    history: list[Any] | None = None,
 ) -> list[HumanMessage]:
+    """本轮的输入消息：问题本身，外加"变化才注入"的运行时上下文。
+
+    ``history`` 是这条 thread 已有的消息：上下文与会话里最近一次注入的相同就不再注入。
+    此前只靠 ``projection`` 的进程内哈希判断"变没变"，而 Web 每个 run 新建 session、
+    projection 也随之新建——每一轮都重新注入一遍，6 轮对话 prompt 里就有 6 份相同的前言
+    （review 2026-09-30）。
+    """
     context = default_context_builder(session_refs=session_refs)
-    context_text = projection.project(context)
+    rendered = projection.render(context)
+    if history is not None and _latest_runtime_context(history) == rendered:
+        # 会话里已有同样的前言：记下哈希，让同一 session 的下一轮也走"未变化"分支
+        projection.project(context)
+        context_text = None
+    else:
+        context_text = projection.project(context)
     messages: list[HumanMessage] = [HumanMessage(content=query)]
     if context_text:
-        messages.insert(0, HumanMessage(content=f"[运行时上下文]\n{context_text}"))
+        messages.insert(0, HumanMessage(content=f"{RUNTIME_CONTEXT_PREFIX}\n{context_text}"))
     return messages
 
 
-class RunCancelled(RuntimeError):
-    """Raised by cooperative Agentic streaming when a Web run is cancelled."""
-
-
 class AgenticSession:
-    """One thread, one governed registry and one checkpoint-backed Agentic app."""
+    """One thread, one governed registry and one checkpoint-backed Agentic app.
 
-    #: RunManager 只给声明支持的会话传 ``attachment_context``（AgentSessionFactory 是协议）。
+    ``model`` / ``retriever`` / ``mcp_enabled`` 是评测与测试用的装配注入点：给出时替换
+    按 ``args`` 构建的模型与检索器、关掉 MCP 装配，其余（ToolRegistry、cite 可追溯检查、
+    提示装配、护栏、引用校验回流、checkpoint）仍走同一套生产装配——mock-agentic
+    评测测的就是生产运行时本身，而不是另起一套。
+
+    ``mcp_lease``（P7-S5）：Web 从进程内连接池借来的 MCP 连接。给了就借用它的装配（不打开、
+    不关闭进程），并把 ``release`` 登记到 ``stack``；不给就照旧按配置现开现关（CLI）。
+
+    ``confirmation``（P7-S7）：本入口接了人工确认门（只有 Web 会话工厂传 ``True``）。为 ``True`` 时
+    要求确认的 MCP server 照常暴露（工具以延迟工具出现），图里接入 ``confirmation_gate``；作答停在
+    确认门时返回 ``status="waiting_confirmation"`` 与 ``confirmation`` 请求，由 :meth:`aresume` 继续。
+    为 ``False`` 时装配里出现要求确认的工具即报错（没有确认门就不能有延迟工具）。
+
+    ``web_search``（P7-S12）：用户对**这一条消息**勾选了联网（Web 入口的逐条勾选，与 S7 的 ``confirmation=True`` 同构）。
+    部署开关已开且 provider 配齐时，本次装配注册 ``web_search`` 工具、把 ``WEB_SEARCH`` 追加给主体、本轮开放该组；
+    部署没配好时勾选即 ``ValueError``（入口应先看 :func:`web_search_available`，不让用户勾一个不存在的能力）。
+    ``False``（缺省）时装配面与此前逐字相同。会话对象只服务一个 run（Web 每个 run 新建），所以勾选天然只对这一条消息有效。
+    """
+
+    #: RunManager 只给声明支持的会话传 ``attachment_context`` / ``on_draft``（AgentSessionFactory 是协议）。
     supports_attachment_context = True
+    supports_draft_stream = True
 
     def __init__(
         self,
@@ -382,8 +639,18 @@ class AgenticSession:
         thread_id: str | None = None,
         request_context: RequestContext | None = None,
         checkpointer: Any | None = None,
+        model: BaseChatModel | None = None,
+        retriever: Retriever | None = None,
+        mcp_enabled: bool = True,
+        mcp_lease: McpLease | None = None,
+        confirmation: bool = False,
+        web_search: bool = False,
     ) -> None:
         self.args = args
+        self.confirmation_enabled = confirmation
+        self.web_search_requested = web_search
+        #: 恢复确认时调用方交回的本轮召回结果（只在 aresume 期间非空，见 ConfirmationRuntime.turn_contexts）
+        self._resume_contexts: dict[str, Any] = {}
         self.stack = stack
         self.thread_id = thread_id or uuid4().hex
         self.request_context = request_context or local_request_context(
@@ -391,7 +658,6 @@ class AgenticSession:
         )
         self.recorder = JsonTraceRecorder(Path(args.trace_dir))
         self.gateway = default_gateway_with_sink(self.recorder.record_provider_event)
-        api_key_env = getattr(args, "api_key_env", DEFAULT_API_KEY_ENV)
         api_key = getattr(args, "api_key", None)
         from water_agent.generation.local_model import local_model_configured, local_model_ready
 
@@ -400,27 +666,45 @@ class AgenticSession:
                 "local model is enabled but lacks complete compatibility evidence; "
                 "run the Step 46 compatibility probe before starting an Agent session"
             )
-        if args.mock_generator:
-            self.model: BaseChatModel = _ScriptedAgenticModel()
+        if model is not None:
+            self.model: BaseChatModel = model
+        elif args.mock_generator:
+            self.model = _ScriptedAgenticModel()
         else:
+            # 端点 / 模型 / Key 名的唯一来源（P7-S10）：args 里的值是显式覆盖（CLI），None 即按部署配置
+            endpoint = resolve_chat_endpoint(
+                base_url=getattr(args, "base_url", None),
+                model=getattr(args, "model", None),
+                api_key_env=getattr(args, "api_key_env", None),
+            )
+            # 换对话模型的硬门槛（P7-S10）：非缺省端点没有通过的兼容性报告就不装配（铁律②依赖模型真的
+            # 用 function calling 调 cite_clauses）；缺省 DeepSeek 免检
+            require_verified_endpoint(endpoint)
             try:
                 self.model = build_chat_model(
-                    model=args.model,
-                    base_url=args.base_url,
-                    api_key_env=api_key_env,
+                    model=endpoint.model,
+                    base_url=endpoint.base_url,
+                    api_key_env=endpoint.api_key_name,
                     api_key=api_key,
                     gateway=self.gateway,
                     request_context_factory=lambda: self.request_context,
+                    # P7-S15：目录里这个模型声明的思考配置（缺省/目录外 = 不附加）；兼容性探针带同一份
+                    extra_body=extra_body_for(endpoint.model),
                 )
+            except EndpointConfigError:
+                raise
             except ValueError as exc:
                 raise ValueError(
-                    f"{exc}。agentic 真实模型链路需要 API Key：export {api_key_env}=sk-...，"
+                    f"{exc}。agentic 真实模型链路需要 API Key：export {endpoint.api_key_name}=sk-...，"
                     "或用 --mock-generator 走离线占位链路（不连真实模型，不要求 Key）"
                 ) from exc
 
-        self.retriever, self.db_path = _build_retriever(
-            args, request_context=self.request_context, gateway=self.gateway
-        )
+        if retriever is not None:
+            self.retriever, self.db_path = retriever, ""
+        else:
+            self.retriever, self.db_path = _build_retriever(
+                args, request_context=self.request_context, gateway=self.gateway
+            )
         reranker = _build_reranker(
             args, request_context=self.request_context, gateway=self.gateway
         )
@@ -430,42 +714,91 @@ class AgenticSession:
             else self.retriever
         )
 
-        base_principal = self.request_context.principal
-        mcp_config = load_mcp_gateway()
-        mcp_assembly = open_gateway_sessions(mcp_config)
-        self.mcp_assembly = mcp_assembly
-        stack.callback(mcp_assembly.close)
-        capabilities = (
-            principal_with_mcp(base_principal.capabilities)
-            if mcp_assembly.exposed_tool_names
-            else base_principal.capabilities
+        # 工具装配单入口（P7-S2，docs/design/16-p7-plugin-mcp.md §3）。坏的 MCP 配置在这里、
+        # 任何子进程被拉起之前就抛出 MCP_CONFIG_INVALID；MCP 插件打开装配后立即把关闭登记到
+        # stack（先于下面的 checkpointer 打开，后于它关闭）。
+        # 引用可追溯性检查（Step 8，2026-09-16）的可用条款号取自本 thread 的会话消息（与引用
+        # 校验器同源）：Web 每个 run 新建 session，只靠进程内闭包时第二问引用第一问检索到的
+        # 条款会被当场拒绝（review 2026-09-30）。
+        if mcp_lease is not None:
+            if not mcp_enabled:
+                raise ValueError("mcp_enabled=False 与 mcp_lease 不能同时给出")
+            # 幂等：调用方（Web 会话工厂）通常已在借到时登记过一次
+            stack.callback(mcp_lease.release)
+            mcp_plugin = McpGatewayPlugin.borrowing(mcp_lease.assembly)
+        else:
+            mcp_plugin = McpGatewayPlugin.owning(
+                load_mcp_gateway() if mcp_enabled else None,
+                stack=stack,
+                confirmation_ready=confirmation,
+            )
+        # 联网搜索（P7-S12）：开关 / provider 写错在装配期响亮失败（每条消息都解析，不等到有人勾选才发现）。
+        # 勾选了而部署没就绪不抛错：插件 skipped、本轮不联网，外层图向用户发 WEB_SEARCH_NOT_EXPOSED（入口通常已先拦下）。
+        web_search_config = resolve_web_search_config()
+        #: 联网搜索工具的会话级依赖：本轮私有上下文、调用者主体、网关、trace（全部惰性取，装配完才有）
+        self.web_search_runtime = WebSearchRuntime(
+            request_context=lambda: self.request_context,
+            gateway=lambda: self.gateway,
+            recorder=lambda: self.recorder,
+            checkpoint_messages=self._thread_messages,
         )
-        principal = Principal(
-            kind=base_principal.kind,
-            subject=base_principal.subject,
-            capabilities=capabilities,
-            auth_domain=base_principal.auth_domain,
+        assembly = assemble_tools(
+            AssemblyContext(
+                retriever=tool_retriever,
+                cite_context_source=self._thread_retrieved_source_ids,
+                drawing_root=getattr(args, "drawing_root", None),
+            ),
+            base_principal=self.request_context.principal,
+            trace=self.recorder,
+            plugins=builtin_plugins(
+                mcp=mcp_plugin,
+                skills_disabled=disabled_skill_names(),
+                web_search_runtime=self.web_search_runtime,
+                web_search_config=web_search_config,
+                web_search_requested=web_search,
+            ),
         )
-        self.request_context = self.request_context.model_copy(update={"principal": principal})
-
-        registry = ToolRegistry(principal=principal, trace=self.recorder)
-
-        # 启用引用可追溯性检查（Step 8，2026-09-16）
-        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
-
-        registry.register(build_retrieve_clauses_tool(tool_retriever, context_updater=context_updater))
-        registry.register(cite_tool_spec)
-        registry.register(calc_velocity_spec)
-        registry.register(material_stats_spec)
-        drawing_tool, self.drawing_root_status = maybe_build_read_drawing_tool(
-            getattr(args, "drawing_root", None)
+        self.request_context = self.request_context.model_copy(
+            update={"principal": assembly.principal}
         )
-        if drawing_tool is not None:
-            registry.register(drawing_tool)
-        self.mcp_tool_names = register_mcp_tools(mcp_assembly, registry)
-        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+        self.mcp_assembly = assembly.contribution(McpContribution).assembly
+        self.drawing_root_status = assembly.contribution(DrawingContribution).resolution
+        #: P7-S9：本次装配的 skill 库（开关 off 时为空库）。提示装配与外层图共用这一个实例。
+        self.skill_library = assembly.contribution(SkillsContribution).library
+        self.mcp_tool_names = assembly.registered("mcp_gateway")
+        #: P7-S12：本次装配的联网搜索贡献（``status`` 为 ``active`` 即本条消息可以联网）
+        self.web_search_contribution = assembly.contribution(WebSearchContribution)
+        #: 本条消息由入口开启的 request 组（写进图 state 的 ``request_groups``）。**勾选了就写**，哪怕插件因部署没就绪而
+        #: skipped——外层图据此发现"勾选了却没开放"并告警（不静默丢弃勾选）；没勾选为空。
+        self.request_groups: tuple[str, ...] = (WEB_SEARCH_GROUP,) if web_search else ()
+        registry = assembly.registry
+        tools = assembly.tools
         self.registry = registry
+        #: 要求人工确认、在 ToolNode 里是延迟工具的工具名（P7-S7）
+        self.confirmation_tools = assembly.confirmation_tools
+        if assembly.confirmation_tools and not confirmation:
+            raise ValueError(
+                "装配里有要求人工确认的工具，但本入口没有接确认门（confirmation=False）："
+                f"{sorted(assembly.confirmation_tools)}"
+            )
+        # 只在接了确认门时才把它交给图（不传时 build_agentic_app 的入参与此前逐字相同）
+        confirmation_kwargs: dict[str, Any] = (
+            {
+                "confirmation": ConfirmationRuntime(
+                    registry=registry,
+                    principal=assembly.principal,
+                    tools=assembly.confirmation_tools,
+                    request_context=self.request_context,
+                    turn_contexts=lambda: self._resume_contexts,
+                )
+            }
+            if confirmation
+            else {}
+        )
+        # P7-S9：只在库里有已启用的 skill 时才交给图（开关 off 时 build_agentic_app 的入参与此前逐字相同，
+        # 装配快照的 app_kwargs 被冻结）
+        if self.skill_library.enabled:
+            confirmation_kwargs["skill_library"] = self.skill_library
         self.projection = RuntimeContextProjection()
         self.config = {"configurable": {"thread_id": self.thread_id}}
         saver = checkpointer if checkpointer is not None else build_cli_checkpointer(args.session_dir, stack)
@@ -473,15 +806,111 @@ class AgenticSession:
             model=self.model,
             tools=tools,
             checkpointer=saver,
-            prompt=PromptAssembler(tool_registry=registry),
+            prompt=PromptAssembler(
+                tool_registry=registry, exposure=assembly.exposure, skill_library=self.skill_library
+            ),
             trace=self.recorder,
             request_context=self.request_context,
-            cache_service=_build_cache_service(args) if not args.mock_generator else None,
+            exposure=assembly.exposure,
+            cache_service=(
+                _build_cache_service(
+                    args,
+                    mcp_server_manifest=self.mcp_assembly.manifest_hash,
+                    skill_library_digest=self.skill_library.digest(),
+                    keyword_index=self._keyword_index(),
+                )
+                if not args.mock_generator
+                else None
+            ),
+            **confirmation_kwargs,
         )
 
+    def _turn_config(self) -> dict[str, Any]:
+        """本次运行交给图的 config。勾选了联网时附上私有上下文的捕获回调（随 config 继承进内层 react 子图，
+        在检索 / 读图的输出刚产生时记下它，供查询出口守卫比对）；没勾选时就是 ``self.config`` 本身（逐字不变）。"""
+
+        if not self._web_search_active():
+            return self.config
+        return {**self.config, "callbacks": [self.web_search_runtime.private]}
+
+    def _web_search_active(self) -> bool:
+        return self.web_search_contribution.status == "active"
+
+    def _begin_web_search_turn(self, user_text: str, *contexts: Any) -> None:
+        """新回合：清空并登记本轮用户消息（守卫豁免对象）与私有上下文（长期记忆 / 上传资料 / 附件）。没勾选联网时什么都不做。"""
+
+        if self._web_search_active():
+            self.web_search_runtime.private.begin_turn(user_text, *contexts)
+
+    def _turn_question(self) -> str:
+        """本回合用户的问题（确认后恢复时从 checkpoint 读回；读不到即空串——豁免变窄，只会多拦，不会多放）。"""
+
+        for message in reversed(self._thread_messages()):
+            content = getattr(message, "content", None)
+            if (
+                isinstance(message, HumanMessage)
+                and isinstance(content, str)
+                and not content.startswith(RUNTIME_CONTEXT_PREFIX)
+            ):
+                return content
+        return ""
+
+    def _request_kwargs(self) -> dict[str, Any]:
+        """只在有勾选时才把 ``request_groups`` 交给图入口（缺省路径的调用参数与此前逐字相同）。"""
+
+        return {"request_groups": list(self.request_groups)} if self.request_groups else {}
+
+    def _retrieval_status(self) -> dict[str, Any]:
+        runtime_status = getattr(self.retriever, "runtime_status", None)
+        return runtime_status if isinstance(runtime_status, dict) else {}
+
+    def _keyword_index(self) -> bool:
+        """真实索引上走的是关键词检索（不含 fixture 兜底）。"""
+
+        status = self._retrieval_status()
+        return status.get("retrieval_mode") == MODE_TEXT and bool(status.get("db_opened"))
+
+    def _thread_retrieved_source_ids(self) -> set[str]:
+        """本 thread 历来 ``retrieve_clauses`` 返回过的 source_id（读 checkpoint，不读进程内态）。
+
+        读不到（checkpoint 不可用、首轮尚无记录）就返回空集合：cite 工具此时只用本 session
+        内累积的检索结果判定，不会放宽——空集合不是"全部放行"，见 cite 工具的并集语义。
+        """
+        context_ids, _, _ = _extract_validation_signal({"messages": self._thread_messages()})
+        return set(context_ids)
+
     def start_trace(self, run_id: str, query: str) -> None:
-        if not self.recorder.started:
-            self.recorder.start(run_id=run_id, trace_id=uuid4().hex, query=query)
+        """开启本次 run 的 trace，并在开启的那一次补记 MCP 装配摘要（P7-S3，F13 的后续）。
+
+        装配发生在会话构造时、trace 还没开始；此前 runner 在那时写事件，recorder 尚未
+        start，事件全被吞掉。这里在 trace 真正开始后再写，没有任何 MCP 活动时不写。
+        """
+        if self.recorder.started:
+            return
+        self.recorder.start(run_id=run_id, trace_id=uuid4().hex, query=query)
+        if self.mcp_assembly.has_activity:
+            self.recorder.record(
+                node="mcp", event="mcp_assembly", data=self.mcp_assembly.trace_summary()
+            )
+        status = self._retrieval_status()
+        if "retrieval_mode" in status:
+            # P7-S10：检索模式任何时候都如实记下（text 是关键词检索，不是语义检索）；不含路径与 Key
+            self.recorder.record(
+                node="retrieval",
+                event="retrieval_mode",
+                query="",
+                data={
+                    "retrieval_mode": status.get("retrieval_mode"),
+                    "retrieval_mode_reason": status.get("retrieval_mode_reason"),
+                    "retrieval_mode_detail": status.get("retrieval_mode_detail"),
+                    "index_meta": status.get("index_meta"),
+                },
+            )
+        if self.skill_library.active:
+            # P7-S9：只有名字、来源与错误码（不含正文、不含运维目录路径）；开关 off 时不写
+            self.recorder.record(
+                node="skills", event="skill_library", query="", data=self.skill_library.trace_summary()
+            )
 
     async def aask(
         self,
@@ -493,8 +922,14 @@ class AgenticSession:
         attachment_context: Any | None = None,
         on_token: Callable[[str], None] | None = None,
         on_event: Callable[[str, Any], None] | None = None,
+        on_draft: Callable[[str, dict[str, Any]], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        """异步作答（Web 与流式路径）。
+
+        ``on_token`` 收本轮已过输出护栏的草稿文本；``on_draft`` 收草稿事件（delta/retract/
+        closed），草稿可撤回，最终回答以返回值的 ``answer`` 为准（见 ``agent_rag.DraftPump``）。
+        """
         effective_run_id = run_id or uuid4().hex
         self.start_trace(effective_run_id, query)
 
@@ -510,54 +945,187 @@ class AgenticSession:
             if on_event is not None:
                 on_event(mode, payload)
 
-        initial_messages = _initial_messages_with_runtime_context(
-            query, self.projection, session_refs=[self.thread_id]
-        )
-        result = await astream_agentic(
-            self.app,
-            query,
-            self.config,
-            on_token=checked_token,
-            on_event=checked_event,
-            messages=initial_messages,
-            memory_context=memory_context,
-            upload_context=upload_context,
-            attachment_context=attachment_context,
-        )
+        initial_messages = self._initial_messages(query)
+        self._begin_web_search_turn(query, memory_context, upload_context, attachment_context)
+        # 取消检查经 ContextVar 下传到模型调用与工具执行（runtime/cancellation.py）：此前只在
+        # 事件回调里检查，内层工具循环取消后照样把剩下的模型/工具调用跑完。
+        # 远程 MCP（Streamable HTTP）的 tools/call 按调用者主体做能力校验 / 限流：同样经 ContextVar 下传
+        with cancellation_scope(cancel_check), mcp_request_scope(self.request_context):
+            result = await astream_agentic(
+                self.app,
+                query,
+                self._turn_config(),
+                on_token=checked_token if on_token is not None else None,
+                on_event=checked_event,
+                on_draft=on_draft,
+                messages=initial_messages,
+                memory_context=memory_context,
+                upload_context=upload_context,
+                attachment_context=attachment_context,
+                request_context=self.request_context,
+                **self._request_kwargs(),
+            )
         if cancel_check is not None and cancel_check():
             raise RunCancelled()
-        return self._payload(result, query=query, streamed=on_token is not None)
+        return self._turn_payload(result, query=query, streamed=on_token is not None)
+
+    async def aresume(
+        self,
+        decision: dict[str, Any],
+        *,
+        run_id: str | None = None,
+        memory_context: MemoryRecallResult | None = None,
+        upload_context: Any | None = None,
+        attachment_context: Any | None = None,
+        on_token: Callable[[str], None] | None = None,
+        on_event: Callable[[str, Any], None] | None = None,
+        on_draft: Callable[[str, dict[str, Any]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """对挂起的确认请求给出决定，继续同一轮（P7-S7，Web 恢复路径）。
+
+        ``decision`` 原样交给确认门（``{"confirmation_id", "approved", "reason"}``）；非法值不会让
+        会话出错，而是带 ``error`` 再次挂起（返回值仍是 ``waiting_confirmation``）。事件、草稿与
+        取消语义与 :meth:`aask` 相同。
+
+        三个 ``*_context`` 是这一轮挂起前的召回结果（同进程恢复时由调用方原样交回），经
+        ``ConfirmationRuntime.turn_contexts`` 交给 agent_loop，不写进状态。没交回而本轮原本有召回时
+        （进程重启过），本轮剩下的部分不带它们作答，``warnings`` 与 trace 如实记一条
+        ``turn_recall_context_unavailable``——降级必须可见。
+        """
+        if not self.confirmation_enabled:
+            raise ValueError("本会话没有接人工确认门（confirmation=False），不能恢复确认")
+        self.start_trace(run_id or uuid4().hex, "")
+        self._resume_contexts = {
+            key: value
+            for key, value in (
+                ("memory_context", memory_context),
+                ("upload_context", upload_context),
+                ("attachment_context", attachment_context),
+            )
+            if value is not None
+        }
+
+        def checked_token(token: str) -> None:
+            if cancel_check is not None and cancel_check():
+                raise RunCancelled()
+            if on_token is not None:
+                on_token(token)
+
+        def checked_event(mode: str, payload: Any) -> None:
+            if cancel_check is not None and cancel_check():
+                raise RunCancelled()
+            if on_event is not None:
+                on_event(mode, payload)
+
+        self._begin_web_search_turn(self._turn_question(), memory_context, upload_context, attachment_context)
+        try:
+            with cancellation_scope(cancel_check), mcp_request_scope(self.request_context):
+                result = await astream_agentic(
+                    self.app,
+                    "",
+                    self._turn_config(),
+                    on_token=checked_token if on_token is not None else None,
+                    on_event=checked_event,
+                    on_draft=on_draft,
+                    request_context=self.request_context,
+                    resume=decision,
+                )
+        finally:
+            self._resume_contexts = {}
+        if cancel_check is not None and cancel_check():
+            raise RunCancelled()
+        return self._turn_payload(
+            result, query=str(result.get("query") or ""), streamed=on_token is not None
+        )
+
+    def pending_confirmation(self) -> dict[str, Any] | None:
+        """本 thread 挂起在确认门的请求（读 checkpoint 的 interrupts，不只看 ``next``）。
+
+        没有接确认门时恒为 ``None``。读 checkpoint 出错时**上抛**：把挂起的会话报成"没挂起"，
+        调用方会把 run 当成失败收口，而会话其实还停在确认门。
+        """
+        if not self.confirmation_enabled:
+            return None
+        snapshot = self.app.get_state(self.config)
+        return pending_confirmation_request(getattr(snapshot, "interrupts", ()) or ())
+
+    def _turn_payload(self, state: dict[str, Any], *, query: str, streamed: bool) -> dict[str, Any]:
+        payload = self._payload(state, query=query, streamed=streamed)
+        pending = self.pending_confirmation()
+        if pending is not None:
+            payload.update(
+                status=STATUS_WAITING_CONFIRMATION,
+                answer="",
+                confirmation=public_confirmation_request(pending),
+            )
+        return payload
 
     def ask(self, query: str) -> dict[str, Any]:
-        streamed = bool(getattr(self.args, "stream", False)) and not self.args.mock_generator
+        """同步作答（CLI）。``--stream`` 时逐句打印已过护栏的草稿。
+
+        CLI 的会话 checkpointer 是同步 ``SqliteSaver``：LangGraph 拒绝经由它的 async 方法驱动
+        图，所以流式也走同步 ``stream_agentic``（此前走 ``aask``，``--mode agentic --stream``
+        接真实模型必然 ``NotImplementedError``）。被撤回的草稿在终端里如实标出，最终回答以
+        payload 的 ``answer`` 为准。
+        """
+        # 先开 trace（与 aask 对齐）：此前同步路径由图的首个节点开启 trace，装配摘要无处可写
+        self.start_trace(uuid4().hex, query)
+        streamed = bool(getattr(self.args, "stream", False))
         if not streamed:
-            # The CLI keeps the synchronous graph invocation it has always used:
-            # the session checkpointer is a sync SqliteSaver, which LangGraph
-            # refuses to drive through its async methods.  Only the streaming
-            # and Web paths need ``aask``.
             # 显式清空两个召回段：CLI 不做召回，但同一 thread 可能被 Web 用过，
             # 不清空就会读到 checkpoint 里上一轮残留的值（见 astream_agentic 的说明）。
-            state = self.app.invoke(
-                {
-                    "messages": self._initial_messages(query),
-                    "query": query,
-                    "memory_context": None,
-                    "upload_context": None,
-                    "attachment_context": None,
-                    **PER_TURN_RESET,
-                },
-                config=self.config,
-            )
+            with mcp_request_scope(self.request_context):
+                state = self.app.invoke(
+                    {
+                        "messages": self._initial_messages(query),
+                        "query": query,
+                        "memory_context": None,
+                        "upload_context": None,
+                        "attachment_context": None,
+                        **PER_TURN_RESET,
+                    },
+                    config=self.config,
+                )
             return self._payload(state, query=query, streamed=False)
-        payload = asyncio.run(
-            self.aask(query, on_token=lambda token: print(token, end="", flush=True))
-        )
+
+        def on_draft(kind: str, payload: dict[str, Any]) -> None:
+            if kind == "draft_delta":
+                print(payload.get("text", ""), end="", flush=True)
+            elif kind == "draft_retract":
+                print("\n[以上草稿已撤回]", flush=True)
+
+        with mcp_request_scope(self.request_context):
+            state = stream_agentic(
+                self.app,
+                query,
+                self.config,
+                on_draft=on_draft,
+                messages=self._initial_messages(query),
+                request_context=self.request_context,
+            )
         print(flush=True)
-        return payload
+        return self._payload(state, query=query, streamed=True)
+
+    def _thread_values(self) -> dict[str, Any]:
+        """本 thread 已持久化的状态；读不到（首轮、checkpoint 不可用）就当作空会话。"""
+        try:
+            snapshot = self.app.get_state(self.config)
+        except Exception:  # noqa: BLE001 — 读不到历史只影响"变化才注入"等判断，不影响作答
+            return {}
+        values = getattr(snapshot, "values", None) or {}
+        return dict(values)
+
+    def _thread_messages(self) -> list[Any]:
+        """本 thread 已持久化的消息；读不到（首轮、checkpoint 不可用）就当作空会话。"""
+        return list(self._thread_values().get("messages", []) or [])
 
     def _initial_messages(self, query: str) -> list[Any]:
         return _initial_messages_with_runtime_context(
-            query, self.projection, session_refs=[self.thread_id]
+            query,
+            self.projection,
+            session_refs=[self.thread_id],
+            history=self._thread_messages(),
         )
 
     def _payload(self, state: dict[str, Any], *, query: str, streamed: bool) -> dict[str, Any]:
@@ -601,6 +1169,9 @@ def build_agentic_session(
     thread_id: str | None = None,
     request_context: RequestContext | None = None,
     checkpointer: Any | None = None,
+    mcp_lease: McpLease | None = None,
+    confirmation: bool = False,
+    web_search: bool = False,
 ) -> AgenticSession:
     """Single assembly function used by CLI and Web adapters."""
 
@@ -610,7 +1181,24 @@ def build_agentic_session(
         thread_id=thread_id,
         request_context=request_context,
         checkpointer=checkpointer,
+        mcp_lease=mcp_lease,
+        confirmation=confirmation,
+        web_search=web_search,
     )
+
+
+def web_search_available(environ: Any | None = None) -> bool:
+    """部署层面能不能联网搜索（开关已开、provider / 基址 [/ 密钥] 配齐）。Web 预检与能力端点用它决定用户能不能勾选。
+
+    配置非法时返回 ``False``（不在预检里抛错——非法配置会在装配期响亮失败，这里只回答"能不能勾"）。
+    """
+
+    from water_agent.web_search.config import WebSearchConfigError
+
+    try:
+        return resolve_web_search_config(environ).ready
+    except WebSearchConfigError:
+        return False
 
 
 __all__ = [
@@ -624,9 +1212,13 @@ __all__ = [
     "_initial_messages_with_runtime_context",
     "build_agentic_session",
     "build_cli_checkpointer",
+    "chat_model_problem",
     "embedding_configured",
     "embedding_required",
     "real_llm_configured",
+    "resolve_retrieval_plan",
+    "retrieval_problem",
+    "web_search_available",
 ]
 
 # Compatibility alias retained for CLI's existing private import surface.
