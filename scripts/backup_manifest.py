@@ -41,6 +41,17 @@ COMPARED_KEYS: tuple[str, ...] = (
 )
 
 
+def postgres_secret_path(repo_root: Path) -> Path:
+    """The database password file compose.yml mounts as the ``postgres_password`` secret.
+
+    ``scripts/backup.sh`` refuses to run without it.  The name is spelled out here
+    rather than in ``src/``: this module never ships in the image, whereas
+    ``scripts/check_image.sh`` fails the build on any image file that names the secret.
+    """
+
+    return repo_root / "secrets" / "postgres_password"
+
+
 class BackupVerificationError(RuntimeError):
     """The backup is unusable; restoring it would be unsafe."""
 

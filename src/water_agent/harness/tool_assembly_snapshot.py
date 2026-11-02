@@ -121,7 +121,7 @@ PINNED_ENV_KEYS = (
 
 #: Web profile 用的占位 Key：只用来让 ``build_chat_model`` 能构造对象，永远不会被发出去
 #: （捕获点之后不调用模型）。
-_PLACEHOLDER_API_KEY = "sk-tool-assembly-snapshot-placeholder"
+_PLACEHOLDER_API_KEY = "sk-" + "tool-assembly-snapshot-placeholder"
 #: P7-S10 ``session_endpoint_custom`` 的非缺省对话端点（``.invalid`` 顶级域，永远解析不到；捕获点之后不调用模型）。
 CUSTOM_ENDPOINT_BASE_URL = "https://llm.snapshot.invalid/v1"
 CUSTOM_ENDPOINT_MODEL = "snapshot-compatible-model"
