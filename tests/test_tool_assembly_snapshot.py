@@ -55,7 +55,8 @@ def _profile_diff(baseline: dict[str, Any], partial: dict[str, Any]) -> list[str
 
 def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any]) -> None:
     """P7-S0-A03 / P7-S3-A12 / P7-S4-A10 / P7-S7-A08 / P7-S6-A10 / P7-S9-A11 / P7-S8-A13 / P7-S10-A10 当前代码的装配快照与入仓基线
-    逐字段一致（S8 新增 ``session_http_mcp_fake``，其余 16 个 profile 不变；S10 新增 ``session_endpoint_custom``，其余 17 个不变）；S9 新增的 ``session_skills_builtin`` 在基线里，且它是唯一注册了 ``load_skill`` 的 profile
+    逐字段一致（S8 新增 ``session_http_mcp_fake``，其余 16 个 profile 不变；S10 新增 ``session_endpoint_custom``，其余 17 个不变）；S9 新增的 ``session_skills_builtin`` 在基线里，它与 S13 新增的 ``session_skills_installed``（多一份已锁定的已安装 skill；
+    S13 新增时现有 20 个 profile 与三个版本号逐字不变）是仅有的两个注册了 ``load_skill`` 的 profile
     （其余 profile 开关 off，只有主体能力集多了 ``load_skill``）。"""
 
     lines = snap.diff_snapshots(baseline, head)
@@ -67,7 +68,8 @@ def test_snapshot_matches_baseline(head: dict[str, Any], baseline: dict[str, Any
         for name, profile in baseline["profiles"].items()
         if profile["surface"] is not None and "load_skill" in profile["surface"]["registration_order"]
     )
-    assert with_skill_tool == ["session_skills_builtin"]
+    # P7-S13：session_skills_installed 同样打开 Skill 库（多一份已锁定的已安装 skill），所以也注册了 load_skill
+    assert with_skill_tool == ["session_skills_builtin", "session_skills_installed"]
 
 
 def test_snapshot_is_hermetic_and_deterministic(
@@ -320,7 +322,8 @@ def test_http_mcp_profile_is_added_and_the_existing_ones_are_untouched(
     existing = {
         name
         for name in baseline["profiles"]
-        if name not in {"session_http_mcp_fake", "session_endpoint_custom", "session_pick_model_off", "session_web_search_fake"}
+        if name not in {"session_http_mcp_fake", "session_endpoint_custom", "session_pick_model_off", "session_web_search_fake",
+                        "session_skills_installed"}
     }
     assert len(existing) == 16
     for name in existing:
@@ -348,7 +351,7 @@ def test_endpoint_profile_is_added_and_the_existing_ones_are_untouched(
     others = {
         name
         for name in baseline["profiles"]
-        if name not in {"session_endpoint_custom", "session_pick_model_off", "session_web_search_fake"}
+        if name not in {"session_endpoint_custom", "session_pick_model_off", "session_web_search_fake", "session_skills_installed"}
     }
     assert len(others) == 17
     for name in others:
@@ -388,7 +391,10 @@ def test_pick_model_profile_is_added_and_the_existing_ones_are_untouched(
         "extra_body": {"thinking": {"type": "disabled"}},
     }
     assert profile["surface"] == head["profiles"]["session_mock_default"]["surface"]
-    others = {name for name in baseline["profiles"] if name not in {"session_pick_model_off", "session_web_search_fake"}}
+    others = {
+        name for name in baseline["profiles"]
+        if name not in {"session_pick_model_off", "session_web_search_fake", "session_skills_installed"}
+    }
     assert len(others) == 18
     for name in others:
         assert head["profiles"][name] == baseline["profiles"][name], name

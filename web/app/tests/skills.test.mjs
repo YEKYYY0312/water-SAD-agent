@@ -1,9 +1,11 @@
 // P7-S9-A12：设置页的 Skill 库区（成员只读列表、管理员启停与查看正文、MCP 计数卡片）。
+// P7-S13：第三个来源 installed 只展示出处；取回 / 批准 / 安装没有任何 Web 入口（入口封闭断言）。
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-import { SkillsApi } from "../src/skillsApi.ts";
+import { SkillsApi, normalizeSkill, parseInstalledMeta } from "../src/skillsApi.ts";
+import { formatUpdatedAt } from "../src/settingsState.ts";
 import {
   SKILL_LIBRARY_NOTICE,
   canToggle,
@@ -189,4 +191,229 @@ test("panel shows the list to everyone, admin controls only to admins, and no wa
   const ownBlock = block.slice(0, block.indexOf("/* ----------", 10));
   assert.ok(ownBlock.length > 0);
   assert.doesNotMatch(ownBlock, /#[0-9a-fA-F]{3,8}\b|rgb\(/);
+});
+
+const INSTALLED_META = {
+  sha8: "ab12cd34",
+  approved_by: "ops",
+  approved_at: "2026-10-22T03:00:00Z",
+  registry_host: "registry.example.com",
+};
+
+function installedSkill(overrides = {}) {
+  return skill({ name: "fetched-flow", source: "installed", installed: { ...INSTALLED_META }, ...overrides });
+}
+
+test("P7-S13 source label for installed skills, existing labels unchanged", () => {
+  assert.equal(sourceLabel("installed"), "已安装");
+  assert.equal(sourceLabel("builtin"), "内置");
+  assert.equal(sourceLabel("operator"), "运维目录");
+  assert.equal(sourceLabel("something-else"), "something-else", "未登记的来源原样显示");
+});
+
+test("P7-S13 installed detail row carries digest prefix, approver, approval time and registry host", () => {
+  const rows = skillMeta(installedSkill());
+  assert.deepEqual(rows.map((row) => row.label), ["来源", "安装信息", "触发词", "依赖工具"]);
+  assert.equal(rows[0].value, "已安装 · v1.0.0");
+
+  const detail = rows[1].value;
+  assert.match(detail, /ab12cd34/);
+  assert.match(detail, /ops/);
+  assert.match(detail, /registry\.example\.com/);
+  // 批准时间沿用设置页既有的本地时间格式化（formatUpdatedAt）
+  assert.ok(detail.includes(formatUpdatedAt(INSTALLED_META.approved_at)), detail);
+
+  // 摘要只留前 8 位
+  const long = skillMeta(installedSkill({ installed: { ...INSTALLED_META, sha8: "ab12cd34ef567890" } }));
+  assert.match(long[1].value, /ab12cd34/);
+  assert.doesNotMatch(long[1].value, /ef56/);
+});
+
+test("P7-S13 builtin and operator detail rows stay exactly as before", () => {
+  assert.deepEqual(skillMeta(skill()), [
+    { label: "来源", value: "内置 · v1.0.0" },
+    { label: "触发词", value: "计算书" },
+    { label: "依赖工具", value: "calc_velocity、retrieve_clauses" },
+  ]);
+  assert.deepEqual(skillMeta(skill({ source: "operator", triggers: [], requires_tools: [] })), [
+    { label: "来源", value: "运维目录 · v1.0.0" },
+  ]);
+  // 非 installed 来源即使带了多余的 installed 键也不渲染安装信息行
+  const stray = skillMeta(skill({ installed: { ...INSTALLED_META } }));
+  assert.deepEqual(stray.map((row) => row.label), ["来源", "触发词", "依赖工具"]);
+});
+
+test("P7-S13 missing or malformed installed metadata neither throws nor renders the row", () => {
+  const malformed = [
+    undefined,
+    null,
+    "ab12cd34",
+    42,
+    [],
+    {},
+    { sha8: "ab12cd34" },
+    { ...INSTALLED_META, registry_host: undefined },
+    { ...INSTALLED_META, approved_by: "" },
+    { ...INSTALLED_META, approved_at: "   " },
+    { ...INSTALLED_META, sha8: 12345678 },
+    { ...INSTALLED_META, approved_by: { name: "ops" } },
+  ];
+  for (const installed of malformed) {
+    assert.equal(parseInstalledMeta(installed), null, JSON.stringify(installed));
+    const rows = skillMeta(installedSkill({ installed }));
+    assert.deepEqual(rows.map((row) => row.label), ["来源", "触发词", "依赖工具"], JSON.stringify(installed));
+    assert.equal(rows[0].value, "已安装 · v1.0.0");
+  }
+  assert.doesNotThrow(() => {
+    const bare = installedSkill();
+    delete bare.installed;
+    skillMeta(bare);
+  });
+  // 无法解析的时间原样显示，不抛
+  const odd = skillMeta(installedSkill({ installed: { ...INSTALLED_META, approved_at: "昨天下午" } }));
+  assert.match(odd[1].value, /昨天下午/);
+});
+
+test("P7-S13 api normalizes installed metadata and leaves other sources untouched", async () => {
+  const builtinWithStrayKey = skill({ name: "stray-key", installed: { junk: true } });
+  const { fetchImpl } = recordingFetch([
+    {
+      status: 200,
+      body: {
+        version: "v1",
+        ok: true,
+        data: listing({
+          skills: [
+            skill(),
+            installedSkill(),
+            installedSkill({ name: "bad-meta", installed: { sha8: "ab12cd34" } }),
+            installedSkill({ name: "no-meta", installed: undefined }),
+            builtinWithStrayKey,
+          ],
+        }),
+      },
+    },
+    {
+      status: 200,
+      body: { version: "v1", ok: true, data: { skill: { ...installedSkill(), body: "正文", digest: "0123456789abcdef" } } },
+    },
+    {
+      status: 200,
+      body: { version: "v1", ok: true, data: { skill: { ...installedSkill({ installed: "oops" }), body: "正文", digest: "0123456789abcdef" } } },
+    },
+  ]);
+  const api = new SkillsApi(fetchImpl);
+
+  const data = await api.listSkills();
+  const byName = Object.fromEntries(data.skills.map((item) => [item.name, item]));
+  assert.deepEqual(byName["fetched-flow"].installed, INSTALLED_META);
+  assert.ok(!("installed" in byName["bad-meta"]), "畸形元数据被去掉");
+  assert.ok(!("installed" in byName["no-meta"]));
+  assert.deepEqual(byName["calc-book-workflow"], skill(), "builtin 对象逐字不变");
+  assert.deepEqual(byName[builtinWithStrayKey.name], builtinWithStrayKey, "其他来源不动");
+
+  const detail = await api.getSkill("fetched-flow");
+  assert.deepEqual(detail.skill.installed, INSTALLED_META);
+  assert.equal(detail.skill.body, "正文");
+  const odd = await api.getSkill("fetched-flow");
+  assert.ok(!("installed" in odd.skill));
+
+  // 直接调用也宽容
+  assert.equal(normalizeSkill(null), null);
+  assert.deepEqual(normalizeSkill(skill()), skill());
+});
+
+// ---- 入口封闭：取回 / 批准 / 安装只在主机 shell 的 CLI，Web 前端不得出现任何对应入口 ----
+
+const FORBIDDEN_ENTRY_SNIPPETS = [
+  "/skills/fetch",
+  "/skills/approve",
+  "/skills/install",
+  "/skills/candidate",
+  "/skills/registry",
+  "skill_registry",
+  "approveSkill",
+  "fetchSkill",
+  "installSkill",
+];
+
+function forbiddenHits(text) {
+  const lowered = text.toLowerCase();
+  return FORBIDDEN_ENTRY_SNIPPETS.filter((snippet) => lowered.includes(snippet.toLowerCase()));
+}
+
+async function sourceFiles(dir) {
+  const found = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+    if (entry.isDirectory()) found.push(...(await sourceFiles(path)));
+    else if (/\.(ts|tsx)$/.test(entry.name)) found.push(path);
+  }
+  return found;
+}
+
+function buttonLabels(source) {
+  const labels = [];
+  for (const match of source.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)) {
+    const inner = match[1];
+    for (const expression of inner.matchAll(/\{([^}]*)\}/g)) {
+      const literals = [...expression[1].matchAll(/"([^"]*)"/g)].map((item) => item[1]);
+      if (literals.length) labels.push(...literals);
+      else labels.push(expression[1].trim().replace(/\(.*$/, ""));
+    }
+    const text = inner.replace(/\{[^}]*\}/g, "").trim();
+    if (text) labels.push(text);
+  }
+  return labels.sort();
+}
+
+test("P7-S13 no front-end source can reach fetch / approve / install endpoints for skills", async () => {
+  // 反证：扫描器自己确实认得这些字符串（大小写不敏感），否则下面的"零命中"没有意义
+  for (const snippet of FORBIDDEN_ENTRY_SNIPPETS) {
+    assert.deepEqual(forbiddenHits(`x "${snippet.toUpperCase()}" y`), [snippet], snippet);
+  }
+  assert.deepEqual(forbiddenHits("`/api/admin/skills/${name}`"), []);
+
+  const files = await sourceFiles(new URL("../src/", import.meta.url));
+  const names = files.map((file) => file.pathname.split("/").pop());
+  for (const required of ["skillsApi.ts", "skillsState.ts", "SkillLibraryPanel.tsx", "SettingsPanel.tsx", "mcpAdminApi.ts"]) {
+    assert.ok(names.includes(required), `扫描没有覆盖 ${required}`);
+  }
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    assert.deepEqual(forbiddenHits(text), [], `${file.pathname} 出现了取回 / 批准 / 安装类入口`);
+  }
+
+  // skill 相关接口只有列表、管理员看正文与启停（后两者同一路径，PATCH 只发两个键，见上面的测试）
+  const api = await readFile(new URL("../src/skillsApi.ts", import.meta.url), "utf8");
+  const paths = [...new Set([...api.matchAll(/\/api\/[^"`\s]*/g)].map((item) => item[0]))].sort();
+  assert.deepEqual(paths, ["/api/admin/skills/${encodeURIComponent(name)}", "/api/skills"]);
+  assert.doesNotMatch(api, /method: "(POST|PUT|DELETE)"/);
+  assert.deepEqual([...api.matchAll(/method: "(\w+)"/g)].map((item) => item[1]), ["PATCH"]);
+});
+
+test("P7-S13 the skill panel keeps exactly its existing controls", async () => {
+  const panel = await readFile(new URL("../src/SkillLibraryPanel.tsx", import.meta.url), "utf8");
+  const state = await readFile(new URL("../src/skillsState.ts", import.meta.url), "utf8");
+
+  // 白名单：启停（文案来自 toggleLabel）、查看 / 收起正文、跳到 MCP 扩展页
+  assert.equal((panel.match(/<button\b/g) ?? []).length, 3);
+  assert.deepEqual(buttonLabels(panel), ["toggleLabel", "收起正文", "查看正文", "查看 MCP 扩展"].sort());
+  // 反证：解析器认得出新增的按钮
+  assert.deepEqual(buttonLabels('<button type="button">安装</button>'), ["安装"]);
+  assert.deepEqual(buttonLabels("<button>{approveLabel(skill)}</button>"), ["approveLabel"]);
+
+  // toggleLabel 只会给出启用 / 停用
+  const toggleBody = state.slice(state.indexOf("export function toggleLabel"), state.indexOf("export function skillMeta"));
+  assert.deepEqual([...toggleBody.matchAll(/"([^"]*)"/g)].map((item) => item[1]).sort(), ["SKILL_DISABLED", "启用", "停用"].sort());
+  for (const status of ["enabled", "SKILL_DISABLED", "SKILL_UNSAFE", "SKILL_SHADOWED"]) {
+    assert.ok(["启用", "停用"].includes(toggleLabel(skill({ status }))), status);
+  }
+  for (const source of ["builtin", "operator", "installed"]) {
+    assert.ok(["启用", "停用"].includes(toggleLabel(skill({ source }))), source);
+  }
+
+  // 面板只调这三个接口方法；表单控件一个都没有
+  assert.deepEqual([...new Set([...panel.matchAll(/\bapi\.(\w+)\(/g)].map((item) => item[1]))].sort(), ["getSkill", "listSkills", "setDisabled"]);
+  assert.doesNotMatch(panel, /<(input|textarea|select|form)\b/);
 });

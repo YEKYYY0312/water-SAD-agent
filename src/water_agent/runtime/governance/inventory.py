@@ -270,6 +270,31 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         target_gateway_method="ProviderGateway.call",
         governed=True,
     ),
+    ProviderCallSite(
+        site_id="skill_registry",
+        module="water_agent/skills/remote/client.py",
+        # 与 web_search、mcp_streamable_http 同构：逻辑调用点在 skills/remote/，实际开连接的原语在 open_exchange 所在
+        # 模块（skills/remote/ 经 external/http_get.py::governed_get，不直接调用 open_exchange）
+        egress_module="water_agent/mcp/http_transport.py",
+        symbol="skills.remote.client → external.http_get.governed_get → http_transport.open_exchange",
+        provider=ProviderKind.SKILL_REGISTRY,
+        category=CallCategory.SKILL_REGISTRY,
+        required_capability=Capability.SKILL_FETCH,
+        # 请求里只有 ``/index.json`` 与 ``/skills/<name>/<version>/SKILL.md``（名字与版本经严格校验），没有用户问题。
+        data_class=DATA_CLASS_PUBLIC_CLAUSE,
+        principal_source=(
+            "运维 CLI（skills/cli.py）构造的本地主体 skills-cli，只持有 Capability.SKILL_FETCH；"
+            "模型、Web 成员与面板都没有该能力，也没有入口（P7-I12）"
+        ),
+        current_timeout_seconds=20.0,
+        current_retry=(
+            "ProviderGateway：max_attempts=2——只对瞬时错误（408/429/5xx/超时/连接错误）重试一次；"
+            "401/403 零重试且不计熔断；熔断按注册表主机（skill_registry:<host>）；失败不回退到任何别的地址"
+        ),
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
 )
 
 #: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
