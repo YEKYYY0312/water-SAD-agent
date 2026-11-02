@@ -307,10 +307,12 @@ def test_price_override_is_not_a_hard_cap(monkeypatch: pytest.MonkeyPatch, tmp_p
         "web_search",
         # P7-S13：skill 注册表（只有运维 CLI 取 skill，不是对话端点）
         "skill_registry",
+        # P7-S14：管理员带外搜索 MCP 目录，同样不是对话端点
+        "mcp_registry",
     ]
     # P7-S12 新增联网搜索出口（web_search）：8 → 9；对话端点的四个调用点不变
-    # P7-S13：skill 注册表（skill_registry，运维 CLI 取 skill）9 → 10
-    assert len(PROVIDER_CALL_SITES) == 10
+    # P7-S13 / S14：skill 注册表 9 → 10，MCP 目录 10 → 11
+    assert len(PROVIDER_CALL_SITES) == 11
     assert sorted(
         site.site_id for site in PROVIDER_CALL_SITES if site.provider is ProviderKind.DEEPSEEK_CHAT
     ) == [

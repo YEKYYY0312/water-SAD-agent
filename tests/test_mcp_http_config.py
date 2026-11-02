@@ -205,13 +205,14 @@ def test_web_layer_cannot_write_transport_fields() -> None:
 
 
 def test_new_error_codes_are_registered_and_stable() -> None:
-    """MCP_ERROR_CODES 只增不减：本步新增 5 个。"""
+    """MCP_ERROR_CODES 只增不减：本步新增 5 个。P7-S14 又新增 8 个 ``MCP_REGISTRY_*``（总数 20 → 28，见
+    ``tests/test_mcp_registry_client.py::test_new_error_codes_are_registered``）。"""
 
     new = {
         "MCP_DESTINATION_FORBIDDEN", "MCP_PROTOCOL_UNSUPPORTED", "MCP_OAUTH_REQUIRED",
         "MCP_OAUTH_UNAVAILABLE", "MCP_OAUTH_INSUFFICIENT_SCOPE",
     }
     assert new <= MCP_ERROR_CODES
-    assert len(MCP_ERROR_CODES) == 20
+    assert len(MCP_ERROR_CODES) == 28
     for code in new:
         assert MCPError(code, "x").code == code

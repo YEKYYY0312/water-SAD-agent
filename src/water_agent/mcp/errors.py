@@ -62,6 +62,24 @@ MCP_OAUTH_UNAVAILABLE = "MCP_OAUTH_UNAVAILABLE"
 #: 访问令牌的 scope 不够（403 ``insufficient_scope``）：如实报出所需 scope，不自动升级授权（P7-S8）。
 MCP_OAUTH_INSUFFICIENT_SCOPE = "MCP_OAUTH_INSUFFICIENT_SCOPE"
 
+# ---- P7-S14：MCP 目录（管理员带外搜索 / 提案；``mcp/registry.py``）-----------------------------------------------
+#: 运维没有配置目录基址（``WATER_AGENT_MCP_REGISTRY_URL`` 为空）：功能关闭。
+MCP_REGISTRY_NOT_CONFIGURED = "MCP_REGISTRY_NOT_CONFIGURED"
+#: 目录不可达 / 超时 / 5xx / 目的地被禁止（零字节发出）。**不含**上游正文、网址或主机。
+MCP_REGISTRY_UNAVAILABLE = "MCP_REGISTRY_UNAVAILABLE"
+#: 目录拒绝了本次请求（401 / 403）。本部署不向目录发送任何凭据，所以这是目录自己的访问策略。
+MCP_REGISTRY_AUTH = "MCP_REGISTRY_AUTH"
+#: 目录（或本部署的失控保护）触发限流。
+MCP_REGISTRY_RATE_LIMITED = "MCP_REGISTRY_RATE_LIMITED"
+#: 目录返回了无法接受的响应：不是 JSON / 形状不对 / 条目或总量超限 / 重定向。整页被拒，不部分采纳。
+MCP_REGISTRY_BAD_RESPONSE = "MCP_REGISTRY_BAD_RESPONSE"
+#: 服务端重新取目录后，找不到请求的 ``name@version``。
+MCP_REGISTRY_ENTRY_NOT_FOUND = "MCP_REGISTRY_ENTRY_NOT_FOUND"
+#: 条目被标为 ``unsafe``（描述疑似注入 / 含不允许的字符 / 重名等），不可生成提案。
+MCP_REGISTRY_ENTRY_UNSAFE = "MCP_REGISTRY_ENTRY_UNSAFE"
+#: 条目没有可生成提案的 ``streamable-http`` https 域名地址（stdio / 包类、IP 字面量、明文 http ……）。
+MCP_REGISTRY_NOT_PROPOSABLE = "MCP_REGISTRY_NOT_PROPOSABLE"
+
 #: 全部 MCP 稳定错误码（测试锁死不缩小）。
 MCP_ERROR_CODES: frozenset[str] = frozenset(
     {
@@ -85,6 +103,14 @@ MCP_ERROR_CODES: frozenset[str] = frozenset(
         MCP_OAUTH_REQUIRED,
         MCP_OAUTH_UNAVAILABLE,
         MCP_OAUTH_INSUFFICIENT_SCOPE,
+        MCP_REGISTRY_NOT_CONFIGURED,
+        MCP_REGISTRY_UNAVAILABLE,
+        MCP_REGISTRY_AUTH,
+        MCP_REGISTRY_RATE_LIMITED,
+        MCP_REGISTRY_BAD_RESPONSE,
+        MCP_REGISTRY_ENTRY_NOT_FOUND,
+        MCP_REGISTRY_ENTRY_UNSAFE,
+        MCP_REGISTRY_NOT_PROPOSABLE,
     }
 )
 
@@ -112,6 +138,14 @@ _CODE_HINTS: dict[str, str] = {
     MCP_OAUTH_REQUIRED: "MCP server 需要 OAuth 授权：",
     MCP_OAUTH_UNAVAILABLE: "MCP OAuth 授权流程无法进行：",
     MCP_OAUTH_INSUFFICIENT_SCOPE: "MCP 访问令牌 scope 不足：",
+    MCP_REGISTRY_NOT_CONFIGURED: "MCP 目录未配置：",
+    MCP_REGISTRY_UNAVAILABLE: "MCP 目录暂时不可用：",
+    MCP_REGISTRY_AUTH: "MCP 目录拒绝了本次请求：",
+    MCP_REGISTRY_RATE_LIMITED: "MCP 目录触发限流：",
+    MCP_REGISTRY_BAD_RESPONSE: "MCP 目录返回了无法接受的响应：",
+    MCP_REGISTRY_ENTRY_NOT_FOUND: "MCP 目录里没有该条目：",
+    MCP_REGISTRY_ENTRY_UNSAFE: "MCP 目录条目不安全，不可生成提案：",
+    MCP_REGISTRY_NOT_PROPOSABLE: "MCP 目录条目没有可生成提案的远程地址：",
 }
 
 
@@ -153,6 +187,14 @@ __all__ = [
     "MCP_OAUTH_UNAVAILABLE",
     "MCP_PROTOCOL_ERROR",
     "MCP_PROTOCOL_UNSUPPORTED",
+    "MCP_REGISTRY_AUTH",
+    "MCP_REGISTRY_BAD_RESPONSE",
+    "MCP_REGISTRY_ENTRY_NOT_FOUND",
+    "MCP_REGISTRY_ENTRY_UNSAFE",
+    "MCP_REGISTRY_NOT_CONFIGURED",
+    "MCP_REGISTRY_NOT_PROPOSABLE",
+    "MCP_REGISTRY_RATE_LIMITED",
+    "MCP_REGISTRY_UNAVAILABLE",
     "MCP_RESPONSE_TOO_LARGE",
     "MCP_SERVER_DISABLED",
     "MCP_TIMEOUT",
