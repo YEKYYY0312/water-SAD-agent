@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import { parseSseBlock, streamRunEvents, WorkspaceApi, WorkspaceApiError } from "../src/workspaceApi.ts";
 import { applyRunEvent, emptyRunState } from "../src/workspaceState.ts";
@@ -145,6 +146,27 @@ test("a withheld history answer stays withheld", () => {
   assert.equal(agent.status, "blocked");
 });
 
+// ---------------------------------------------------------------------------
+// review 2026-09-30: a refused send (e.g. 409 WEB_RUN_IN_PROGRESS) is rolled back
+// ---------------------------------------------------------------------------
+
+import { withdrawUnsentQuestion } from "../src/workspaceState.ts";
+
+test("a refused send withdraws the optimistic question", () => {
+  const history = [
+    { role: "user", text: "问 1" },
+    { role: "agent", text: "答 1", status: "succeeded" },
+    { role: "user", text: "问 2" },
+  ];
+  assert.deepEqual(withdrawUnsentQuestion(history, "问 2"), history.slice(0, 2));
+});
+
+test("withdrawing never removes anything but the question that failed to send", () => {
+  const history = [{ role: "user", text: "问 1" }, { role: "agent", text: "答 1" }];
+  assert.deepEqual(withdrawUnsentQuestion(history, "问 2"), history);
+  assert.deepEqual(withdrawUnsentQuestion([], "问 2"), []);
+});
+
 test("sendMessage only sends attachments when there are some", async () => {
   const bodies = [];
   const originalFetch = globalThis.fetch;
@@ -203,6 +225,112 @@ test("a ready attachment alone is enough to send", async () => {
   const { readFile } = await import("node:fs/promises");
   const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
   const controller = await readFile(new URL("../src/useWorkspaceController.ts", import.meta.url), "utf8");
-  assert.match(components, /disabled=\{!session \|\| uploading \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
+  // P7-S7：停在人工确认门时也不能发（waiting），其余条件不变
+  assert.match(components, /disabled=\{!session \|\| uploading \|\| waiting \|\| \(!draft\.trim\(\) && !hasReadyAttachment\)\}/);
   assert.match(controller, /draft\.trim\(\) \|\| \(attachmentIds\.length > 0 \? ATTACHMENT_ONLY_PROMPT : ""\)/);
+});
+
+// ---------------------------------------------------------------------------
+// review 2026-09-30: streamed text is never the answer of a finished run
+// ---------------------------------------------------------------------------
+
+test("a blocked run never shows streamed text as its answer", () => {
+  // 旧后端会先把模型原文当 token 推过来；输出护栏在 finalize 拦截后 answer 为空。
+  let state = applyRunEvent(emptyRunState(), event("token", { text: "执行 rm -rf / 清理缓存" }));
+  state = applyRunEvent(state, event("finalize", { status: "blocked", answer: "", errors: ["输出未通过护栏校验"] }, "2"));
+  assert.equal(state.status, "blocked");
+  assert.equal(state.answer, "");
+  assert.deepEqual(archiveRun([], state), [{ role: "agent", text: "", status: "blocked" }]);
+});
+
+test("a finished run's answer is exactly what finalize delivered", () => {
+  let state = applyRunEvent(emptyRunState(), event("token", { text: "{\"hits\": []} 草稿" }));
+  state = applyRunEvent(state, event("finalize", { status: "succeeded", answer: "最终回答" }, "2"));
+  assert.equal(state.answer, "最终回答");
+});
+
+// ---------------------------------------------------------------------------
+// review 2026-09-30 batch 4: guarded drafts stream, can be retracted, never become the answer
+// ---------------------------------------------------------------------------
+
+test("drafts accumulate in order and are never the answer of a finished run", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "依据 FIX 1.1.1，", offset: 0 }));
+  state = applyRunEvent(state, event("draft_delta", { text: "设计秒流量按建筑类型确定。", offset: "依据 FIX 1.1.1，".length }, "2"));
+  assert.equal(state.draft, "依据 FIX 1.1.1，设计秒流量按建筑类型确定。");
+  assert.equal(state.answer, "");
+  state = applyRunEvent(state, event("finalize", { status: "succeeded", answer: "最终回答" }, "3"));
+  assert.equal(state.answer, "最终回答");
+  assert.equal(state.draft, "");
+});
+
+test("a retracted draft disappears and the rewrite starts from scratch", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "第一版草稿。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_retract", { reason: "revised" }, "2"));
+  assert.equal(state.draft, "");
+  assert.equal(state.draftRetractions, 1);
+  state = applyRunEvent(state, event("draft_delta", { text: "重写后的回答。", offset: 0 }, "3"));
+  assert.equal(state.draft, "重写后的回答。");
+});
+
+test("a draft retracted by the guardrail never comes back as the answer of a blocked run", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "前面一句。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_retract", { reason: "guardrail" }, "2"));
+  state = applyRunEvent(state, event("draft_closed", {}, "3"));
+  state = applyRunEvent(state, event("finalize", { status: "blocked", answer: "", errors: ["输出未通过护栏校验"] }, "4"));
+  assert.equal(state.answer, "");
+  assert.equal(state.draft, "");
+  assert.deepEqual(archiveRun([], state), [{ role: "agent", text: "", status: "blocked" }]);
+});
+
+test("draft deltas that do not continue the draft exactly are dropped (replay or gap)", () => {
+  let state = applyRunEvent(emptyRunState(), event("draft_delta", { text: "一。", offset: 0 }));
+  state = applyRunEvent(state, event("draft_delta", { text: "一。", offset: 0 }, "2")); // replayed
+  state = applyRunEvent(state, event("draft_delta", { text: "三。", offset: 10 }, "3")); // gap
+  assert.equal(state.draft, "一。");
+});
+
+test("the conversation shows the draft separately and only the finalized answer as the reply", async () => {
+  const components = await readFile(new URL("../src/workspaceComponents.tsx", import.meta.url), "utf8");
+  assert.match(components, /const answer = isTerminalStatus\(run\.status\) \? run\.answer : "";/);
+  assert.match(components, /draft-answer/);
+  assert.doesNotMatch(components, /run\.tokens/);
+});
+
+test("history keeps a failed answer's status so the unverified banner survives a reload", () => {
+  const history = [
+    { role: "user", text: "问 1" },
+    { role: "agent", text: "按 FIX 9.9.9 条……", status: "failed" },
+    { role: "user", text: "问 2" },
+    { role: "agent", text: "依据 FIX 1.1.1。", status: "succeeded" },
+    { role: "user", text: "问 3" },
+    { role: "agent", text: "旧会话的回答（没有状态标记）" },
+  ];
+  const merged = mergeHistory(history, false);
+  assert.deepEqual(merged.filter((m) => m.role === "agent").map((m) => m.status), ["failed", "succeeded", "succeeded"]);
+});
+
+import { retrievalModeView } from "../src/workspaceState.ts";
+
+test("P7-S10 keyword retrieval is labelled honestly, never as semantic retrieval", () => {
+  const state = applyRunEvent(emptyRunState(), event("finalize", {
+    status: "succeeded",
+    answer: "回答",
+    citations: [],
+    retrieval_mode: "text",
+    retrieval_mode_reason: "embedding_not_configured",
+  }, "5"));
+  assert.deepEqual(state.retrieval, { mode: "text", reason: "embedding_not_configured" });
+  const view = retrievalModeView(state.retrieval);
+  assert.equal(view.label, "检索：关键词模式（未配置向量模型）");
+  assert.match(view.warning, /未配置向量模型时，口语化问法可能检索不到/);
+  assert.doesNotMatch(view.label + view.warning, /语义检索/);
+
+  const mismatch = retrievalModeView({ mode: "text", reason: "embedding_mismatch" });
+  assert.equal(mismatch.label, "检索：关键词模式（向量模型与索引不匹配）");
+  assert.match(mismatch.warning, /重建索引/);
+  const hybrid = retrievalModeView({ mode: "hybrid", reason: "embedding_matched" });
+  assert.equal(hybrid.tone, "succeeded");
+  assert.equal(hybrid.warning, null);
+  assert.equal(retrievalModeView(null), null);
+  assert.equal(applyRunEvent(emptyRunState(), event("finalize", { status: "succeeded" }, "6")).retrieval, null);
 });

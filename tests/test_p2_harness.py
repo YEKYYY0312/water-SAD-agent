@@ -154,6 +154,63 @@ class TestDocgenScoring:
         assert result.actual_status == "invalid_input"
         assert "未知文档类型" in result.failure_reason
 
+    # ── review 2026-09-30：判分必须看渲染出来的正文，不能只看输入的拷贝 ──
+
+    def test_wrong_numbers_in_the_body_fail(self) -> None:
+        """模板缺陷模拟：正文打印成 1500 mm / 11.3177 m/s，calc_values 仍是输入拷贝。
+
+        此前判分只比 ``rendered.calc_values``（就是输入 dict 的拷贝），正文数字全错也 11/11。
+        """
+        case = _docgen_case(required_values={"diameter_mm": 150, "velocity_mps": 1.131768})
+        rendered = _render_for(case)
+        params = next(section for section in rendered.sections if section.key == "计算参数与结果")
+        params.lines = [
+            line.replace("= 150 mm", "= 1500 mm").replace("= 1.13177 m/s", "= 11.3177 m/s")
+            for line in params.lines
+        ]
+        result = score_case(case, rendered=rendered)
+        assert not result.passed
+        assert "diameter_mm" in result.failure_reason and "1500" in result.failure_reason
+
+    def test_values_outside_required_ones_are_also_checked(self) -> None:
+        """未列入 required_values 的键同样不许改：正文每个 ``key = value`` 都要对得上输入。"""
+        case = _docgen_case(required_values={"velocity_mps": 1.131768})
+        rendered = _render_for(case)
+        params = next(section for section in rendered.sections if section.key == "计算参数与结果")
+        params.lines = [line.replace("flow_lps = 20 L/s", "flow_lps = 200 L/s") for line in params.lines]
+        result = score_case(case, rendered=rendered)
+        assert not result.passed
+        assert "flow_lps" in result.failure_reason
+
+    def test_emptied_body_fails(self) -> None:
+        """模板缺陷模拟：所有章节只剩标题、正文清空——结构"齐全"但什么都没写。"""
+        case = _docgen_case()
+        rendered = _render_for(case)
+        for section in rendered.sections:
+            section.lines = []
+        result = score_case(case, rendered=rendered)
+        assert not result.passed
+        assert "empty section" in result.failure_reason
+
+    def test_required_citation_must_be_rendered_under_basis(self) -> None:
+        """引用只在 citation_ids 映射里、设计依据章节正文却没有 → 判失败。"""
+        case = _docgen_case()
+        rendered = _render_for(case)
+        basis = next(section for section in rendered.sections if section.key == "设计依据")
+        basis.lines = ["- （未声明规范依据：不得在文档中自行补充未经检索的条款）"]
+        result = score_case(case, rendered=rendered)
+        assert not result.passed
+        assert "FIX 1.1.1" in result.failure_reason
+
+    def test_forbidden_citation_anywhere_in_the_text_fails(self) -> None:
+        """禁止条款出现在正文任何位置都算（不只看结构化 citation_ids）。"""
+        case = _docgen_case(citations_forbidden=["FIX 9.9.9"])
+        rendered = _render_for(case)
+        rendered.sections[-1].lines.append("- 另见 FIX 9.9.9")
+        result = score_case(case, rendered=rendered)
+        assert not result.passed
+        assert "FIX 9.9.9" in result.failure_reason
+
 
 class TestMaterialScoring:
     def test_passing_case(self) -> None:
@@ -233,6 +290,34 @@ class TestMaterialScoring:
         result = score_case(case, table=table)
         assert not result.passed
         assert "raw_quantity" in result.failure_reason
+
+    def test_relabelled_row_with_wrong_quantity_fails(self) -> None:
+        """引擎缺陷模拟：DN100 行被标成 DN125 且数量翻倍，行数不变 → 必须判失败。
+
+        此前只比行数：gold 行在实际输出里找不到就 ``continue``，口径审计又按新标签查
+        不到基准而跳过——规格与采购数量全错也判通过（review 2026-09-30 变异：
+        material_p0 10/10、全量 pytest 绿、整条门禁放行）。
+        """
+        case = _material_case()
+        table = aggregate_materials(case.segments)
+        table.rows[0].spec = "DN125"
+        table.rows[0].quantity *= 2
+        table.rows[0].raw_quantity *= 2
+        result = score_case(case, table=table)
+        assert not result.passed
+        assert "球墨铸铁 DN100" in result.failure_reason
+        assert "DN125" in result.failure_reason
+
+    def test_audit_flags_rows_without_a_segment_group(self) -> None:
+        """口径审计：输出行的 (材质, 规格) 在管段表里根本不存在 → 判失败，而不是跳过。"""
+        case = _material_case(gold_rows=[])
+        table = aggregate_materials(case.segments)
+        table.rows[0].material = "钢管"
+        result = score_case(case.model_copy(update={"gold_rows": [
+            {"material": "钢管", "spec": "DN100", "unit": "m", "quantity": 200},
+        ]}), table=table)
+        assert not result.passed
+        assert "口径审计" in result.failure_reason
 
 
 class TestRunnerEndToEnd:

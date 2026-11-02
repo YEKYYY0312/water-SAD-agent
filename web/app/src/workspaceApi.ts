@@ -25,6 +25,8 @@ export type WorkspaceSession = {
   thread_id: string;
   project_id: string | null;
   title: string;
+  /** 会话默认模型（P7-S15）；没设置的会话没有这个键。 */
+  model?: string;
   created_at: string;
   updated_at: string;
   runs?: RunSummary[];
@@ -51,6 +53,11 @@ export type SystemCapabilities = {
     status: "blocked" | "not_configured" | "unavailable";
     message: string;
     configured_server_count: number | null;
+    /** P7-S6：普通成员只看到计数，server 清单只在管理员的 MCP 扩展面板里。 */
+    enabled_server_count?: number | null;
+    disabled_server_count?: number | null;
+    confirmation_server_count?: number | null;
+    shared_server_count?: number | null;
     real_endpoints_verified: false;
   };
 };
@@ -130,7 +137,7 @@ async function decodeEnvelope<T>(response: Response): Promise<T> {
 }
 
 /** 历史对话的一条（后端只投影用户问题与每轮最终回答，被输出护栏拦下的回答 withheld）。 */
-export type HistoryMessage = { role: "user" | "agent"; text: string; withheld?: boolean };
+export type HistoryMessage = { role: "user" | "agent"; text: string; withheld?: boolean; status?: string };
 
 export class WorkspaceApi {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -172,17 +179,38 @@ export class WorkspaceApi {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}`);
   }
 
-  sendMessage(threadId: string, message: string, attachments: string[] = []): Promise<MessageRun> {
+  sendMessage(
+    threadId: string,
+    message: string,
+    attachments: string[] = [],
+    model?: string,
+    webSearch?: boolean,
+  ): Promise<MessageRun> {
     // 附件 id 随消息寄出：后端校验归属后把这些文件按原文顺序读进提示词（P5-S49）。
-    // 空数组不发送，保持与旧后端的请求体兼容。
-    const body = attachments.length > 0 ? { message, attachments } : { message };
+    // 空数组不发送，保持与旧后端的请求体兼容；model 同理——只有用户选了才带（P7-S15）。
+    // web_search 同理：只有用户勾选了「联网」才带 true，未勾选时请求体与此前逐字相同（P7-S12）。
+    const body: { message: string; attachments?: string[]; model?: string; web_search?: true } = { message };
+    if (attachments.length > 0) body.attachments = attachments;
+    if (model) body.model = model;
+    if (webSearch) body.web_search = true;
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`, {
       method: "POST",
       body: JSON.stringify(body),
     });
   }
 
-  getMessages(threadId: string): Promise<{ thread_id: string; messages: HistoryMessage[] }> {
+  /** 改会话默认模型；`null` = 清除，回到全局模型（P7-S15）。 */
+  setSessionModel(threadId: string, model: string | null): Promise<WorkspaceSession> {
+    return this.request(`/api/sessions/${encodeURIComponent(threadId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ model }),
+    });
+  }
+
+  /** ``pending_confirmation``（P7-S7）：会话停在人工确认门时的请求，刷新后据此恢复确认卡片。 */
+  getMessages(
+    threadId: string,
+  ): Promise<{ thread_id: string; messages: HistoryMessage[]; pending_confirmation?: unknown }> {
     return this.request(`/api/sessions/${encodeURIComponent(threadId)}/messages`);
   }
 

@@ -20,7 +20,9 @@ from __future__ import annotations
 import io
 import queue
 import selectors
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -86,6 +88,8 @@ class StdioProcess:
     inbox: queue.Queue[dict[str, Any] | None]
     #: 读取线程遇到的不可恢复错误（协议/超限）：随 EOF 哨兵一并上报。
     reader_error: MCPError | None = None
+    #: 读取线程已结束（EOF / 崩溃 / 协议错误）。之后这条连接不可再用（P7-S5 健康检查）。
+    reader_done: bool = False
     stderr_lines: list[bytes] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -119,7 +123,13 @@ class MCPStdioClient:
         self._connected = False
         self._next_id = 0
         self._write_lock = threading.Lock()
+        #: 请求锁（P7-S5）：同一连接上的 JSON-RPC 请求串行。"发请求 → 等匹配 id 的响应"整段
+        #: 在锁内——此前各请求共用一个 inbox，读到别人的响应时当成通知存起来继续等，真正的
+        #: 请求方只能超时（server 乱序应答时必然发生）。
+        self._request_lock = threading.Lock()
         self._notifications: list[dict[str, Any]] = []
+        #: 本连接自己建的临时工作目录（配置没给 ``cwd`` 时）；连接关闭时删除。
+        self._scratch_dir: str | None = None
 
     # ------------------------------------------------------------------ 连接
 
@@ -128,9 +138,39 @@ class MCPStdioClient:
         return self._connected
 
     @property
+    def alive(self) -> bool:
+        """连接仍可用：已握手、子进程未退出、读取线程未结束（P7-S5 连接池的健康检查）。"""
+        handle = self._proc
+        return (
+            self._connected
+            and handle is not None
+            and handle.proc.poll() is None
+            and not handle.reader_done
+        )
+
+    @property
     def notifications(self) -> tuple[RpcMessage, ...]:
         """收到的 server 通知（可观测；本网关不响应它们）。"""
         return tuple(RpcMessage(m) for m in self._notifications)
+
+    def _working_directory(self) -> str:
+        """子进程工作目录（P7-S3，F15/F16）。
+
+        配置给了 ``cwd`` 就用它；没给就为本连接新建一个空临时目录，**不继承 agent 自己的工作
+        目录**——模型能借 MCP 工具参数里的相对路径读文件，而护栏刻意不管相对路径。这不是沙箱：
+        server 进程照样能读进程用户能读的一切，隔离靠容器；这里只关掉"相对路径解析到 agent
+        仓库"这一条缝。
+        """
+        if self.config.cwd is not None:
+            return self.config.cwd
+        if self._scratch_dir is None:
+            self._scratch_dir = tempfile.mkdtemp(prefix="wa-mcp-")
+        return self._scratch_dir
+
+    def _remove_scratch_dir(self) -> None:
+        scratch, self._scratch_dir = self._scratch_dir, None
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     def _spawn(self) -> StdioProcess:
         command = [self.config.command, *self.config.args]
@@ -141,9 +181,11 @@ class MCPStdioClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=child_env(self.config),
+                cwd=self._working_directory(),
                 text=False,
             )
         except (OSError, MCPError) as exc:
+            self._remove_scratch_dir()
             if isinstance(exc, MCPError):
                 raise
             raise MCPError(
@@ -241,6 +283,7 @@ class MCPStdioClient:
             except (OSError, ValueError, KeyError):
                 pass
             sel.close()
+            handle.reader_done = True
             handle.inbox.put(None)
 
     def connect(self) -> dict[str, Any]:
@@ -306,15 +349,38 @@ class MCPStdioClient:
             ) from exc
 
     def _request(self, method: str, params: dict[str, Any] | None, *, deadline: float) -> Any:
-        """发送请求并等待**匹配 id** 的响应；忽略通知、回绝 server 请求。"""
+        """发送请求并等待**匹配 id** 的响应；忽略通知、回绝 server 请求。
+
+        同一连接上的请求串行（``_request_lock``）；等锁的时间计入 ``deadline``——前一个调用
+        占着连接时，后一个调用按自己的 deadline 超时并说明 server 正忙，不无限排队。
+        """
+        deadline_at = time.monotonic() + deadline
+        if not self._request_lock.acquire(timeout=max(deadline, 0.0)):
+            raise MCPError(
+                MCP_TIMEOUT,
+                f"MCP server {self.config.server_id!r} 正忙：等待前一个调用超过 {deadline:.1f}s",
+            )
+        try:
+            return self._request_locked(method, params, deadline=deadline, deadline_at=deadline_at)
+        finally:
+            self._request_lock.release()
+
+    def _request_locked(
+        self, method: str, params: dict[str, Any] | None, *, deadline: float, deadline_at: float
+    ) -> Any:
         proc = self._proc
         if proc is None:
             raise MCPError(MCP_NOT_INITIALIZED, f"MCP server {self.config.server_id!r} 未连接")
+        if proc.reader_done and proc.inbox.empty():
+            # 读取线程已结束、EOF 哨兵也已被取走：不再空等到超时
+            raise MCPError(
+                MCP_CONNECT_FAILED,
+                f"MCP server {self.config.server_id!r} 连接已关闭（进程退出或协议错误）",
+            )
         self._next_id += 1
         request_id = self._next_id
         self._send(make_request(request_id, method, params))
 
-        deadline_at = time.monotonic() + deadline
         while True:
             remaining = deadline_at - time.monotonic()
             if remaining <= 0:
@@ -449,6 +515,7 @@ class MCPStdioClient:
         self._proc = None
         self._connected = False
         if handle is None:
+            self._remove_scratch_dir()
             return
         proc = handle.proc
         if proc.poll() is None:
@@ -466,6 +533,7 @@ class MCPStdioClient:
                     stream.close()
             except OSError:
                 pass
+        self._remove_scratch_dir()
 
     def close(self) -> None:
         """终止子进程并释放资源。幂等。"""

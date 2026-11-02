@@ -88,6 +88,40 @@ def test_compose_gives_traces_a_writable_volume_outside_the_backup_scope() -> No
     assert "/var/lib/water-agent-traces" in _line("chmod 700"), "trace 含用户原文，不得对其他用户可读"
 
 
+def test_mcp_admin_layer_volume_is_backed_up() -> None:
+    """P7-S6-A08 Web 扩展面板的第三层 MCP 配置有可写的卷，且在备份范围内；凭据值仍只在 app_credentials。
+
+    层文件只有启停与工具白名单（没有密钥），所以挂在 ``/var/lib/water-agent`` 之下、随
+    ``scripts/backup.sh`` 的 ``tar -C /var/lib/water-agent .`` 一起备份。镜像根文件系统只读，层文件只能
+    落在卷里；挂载点必须在镜像里预建并归 wateragent，否则 named volume 首次挂载是 root 所有。
+    """
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+
+    assert "app_mcp_admin:/var/lib/water-agent/mcp-admin" in compose
+    assert "\n  app_mcp_admin:\n" in compose, "named volume 必须在顶层 volumes 注册"
+    assert "WATER_AGENT_MCP_WEB_LAYER: /var/lib/water-agent/mcp-admin/web_layer.json" in compose
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认层文件仍被备份"
+
+    # 环境变量与卷挂载在同一个服务里（app），不是只有冒烟或别的服务拿到
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert "WATER_AGENT_MCP_WEB_LAYER:" in app_block
+    assert "app_mcp_admin:/var/lib/water-agent/mcp-admin" in app_block
+
+    def _line(marker: str) -> str:
+        matches = [line for line in dockerfile.splitlines() if marker in line]
+        assert len(matches) == 1, f"Dockerfile 里 {marker!r} 命中 {len(matches)} 行，断言已失焦"
+        return matches[0]
+
+    assert "/var/lib/water-agent/mcp-admin" in _line("mkdir -p /var/lib/water-agent/uploads")
+    assert "/var/lib/water-agent " in _line("chown -R wateragent:wateragent"), "chown -R 覆盖 mcp-admin"
+
+    # 凭据槽位的值仍只在 app_credentials 卷，那个卷不在备份范围内
+    assert "app_credentials:/var/lib/water-agent-credentials" in compose
+    assert "app_credentials:/var/lib/water-agent/" not in compose
+
+
 def test_container_uses_a_non_root_runtime_user_and_a_multistage_build() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
@@ -133,3 +167,89 @@ def test_production_proxy_requires_a_domain_and_sets_http_boundaries() -> None:
     assert "max_size 16MB" in caddyfile
     assert "Content-Security-Policy" in caddyfile
     assert "Strict-Transport-Security" in caddyfile
+
+
+def test_operator_skills_volume_is_read_only() -> None:
+    """P7-S9-A09 运维 skill 目录是只读挂载的 ``app_skills`` 卷，不在备份范围（在 ``/var/lib/water-agent`` 之外）；
+    开关与目录变量都只设在 app 服务上；内置 skill 随包分发（package-data），镜像里不靠 ``data/``。"""
+
+    import tomllib
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    backup = (REPO_ROOT / "scripts" / "backup.sh").read_text(encoding="utf-8")
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert '      WATER_AGENT_SKILLS: "on"\n' in app_block
+    assert "      WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills\n" in app_block
+    assert "      - app_skills:/etc/water-agent/skills:ro\n" in app_block, "必须只读挂载"
+    assert "\n  app_skills:\n" in compose, "named volume 必须在顶层 volumes 注册"
+    # 只有 app 拿到：冒烟与一次性服务不开 skill
+    assert compose.count("WATER_AGENT_SKILLS:") == 1 and compose.count("app_skills:/") == 1
+
+    # 不在备份范围：备份打包的是 /var/lib/water-agent 整体
+    assert "tar -cf - -C /var/lib/water-agent ." in backup, "备份范围变了，请重新确认 skill 卷仍不在其中"
+    assert not "/etc/water-agent/skills".startswith("/var/lib/water-agent")
+
+    # 内置 skill 随包分发；.dockerignore 收 src/，镜像里有这几份文件
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+    assert package_data["water_agent.skills"] == ["builtin/*/SKILL.md"]
+    builtin = sorted((REPO_ROOT / "src" / "water_agent" / "skills" / "builtin").glob("*/SKILL.md"))
+    assert len(builtin) == 4
+    assert "!src/**" in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+
+def test_public_base_url_is_passed_to_the_app_only() -> None:
+    """P7-S8-A08：回调地址的唯一来源 ``WEB_PUBLIC_BASE_URL`` 只传给 app 服务；缺省为空（面板不提供授权）。"""
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    assert "      WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}\n" in app_block
+    assert compose.count("\n      WEB_PUBLIC_BASE_URL:") == 1, "只有 app 服务拿到它"
+
+
+def test_web_search_is_off_by_default_and_its_key_never_travels_by_env() -> None:
+    """P7-S12-A12 compose 给 app 透传联网搜索的开关 / provider / 基址 / 私网放行四个变量，**缺省为空 = off**（外发默认关，
+    与 skills 不同）；密钥不经环境变量传（会出现在 ``docker compose config`` 里），在设置面板的只写槽位填写。四个变量与密钥
+    槽位都被装配快照钉住。"""
+
+    from water_agent.harness import tool_assembly_snapshot as snap
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    for name in (
+        "WATER_AGENT_WEB_SEARCH",
+        "WATER_AGENT_WEB_SEARCH_PROVIDER",
+        "WATER_AGENT_WEB_SEARCH_BASE_URL",
+        "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE",
+    ):
+        assert f"      {name}: ${{{name}:-}}\n" in app_block, name
+        assert name in snap.PINNED_ENV_KEYS, name
+    assert "WATER_AGENT_WEB_SEARCH: \"on\"" not in compose
+    assert "WATER_AGENT_WEB_SEARCH_API_KEY:" not in compose
+    assert "WATER_AGENT_WEB_SEARCH_API_KEY" in snap.PINNED_ENV_KEYS
+
+
+def test_endpoint_variables_are_passed_through() -> None:
+    """P7-S10-A09 compose 给 app 透传对话 / embedding 端点、兼容性报告、超时、价格与检索模式（缺省为空 = 现状：
+    DeepSeek + 百炼 + auto）；冒烟服务拿到检索模式与 embedding 端点，好按同一配置断言 retrieval_mode。Key 一律
+    不经环境变量传（会出现在 ``docker compose config`` 里），在设置面板的只写槽位填写。"""
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    smoke_block = compose.split("\n  smoke:\n", 1)[1].split("\n  reverse-proxy:\n", 1)[0]
+    for name in (
+        "WATER_AGENT_LLM_BASE_URL",
+        "WATER_AGENT_LLM_MODEL",
+        "WATER_AGENT_LLM_COMPATIBILITY_REPORT",
+        "WATER_AGENT_LLM_TIMEOUT_SECONDS",
+        "WATER_AGENT_LLM_PRICE",
+        "WATER_AGENT_EMBEDDING_BASE_URL",
+        "WATER_AGENT_EMBEDDING_MODEL",
+        "WATER_AGENT_RETRIEVAL_MODE",
+    ):
+        assert f"      {name}: ${{{name}:-}}\n" in app_block, name
+    for name in ("WATER_AGENT_RETRIEVAL_MODE", "WATER_AGENT_EMBEDDING_BASE_URL", "WATER_AGENT_EMBEDDING_MODEL"):
+        assert f"      {name}: ${{{name}:-}}\n" in smoke_block, name
+    assert "WATER_AGENT_LLM_API_KEY:" not in compose
+    assert "WATER_AGENT_EMBEDDING_API_KEY:" not in compose

@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -93,6 +94,10 @@ class ToolCapabilityEntry(BaseModel):
 
 #: 远程 provider 调用点清单。**新增远程调用必须先加到这里**。
 #:
+#: P7-S10：``ProviderKind.DEEPSEEK_CHAT`` 的语义扩为"OpenAI 兼容对话端点"——端点 / 模型由
+#: ``generation/endpoints.py::resolve_chat_endpoint`` 决定（缺省仍是 DeepSeek），出站模块与调用点不变（还是
+#: 下面这四个 ``deepseek_chat_*``，名字保留）；限流 / 熔断 / 预算键里本来就含 ``model``，换模型自然分桶。
+#:
 #: P2.5 Step 12 后 ``governed=True``：每个出口都经 ``ProviderGateway``。
 #: ``current_timeout_seconds`` / ``current_retry`` 记录的是**接入后**的真实口径
 #: （统一取自 ``GovernanceConfig`` 的 provider 画像，不再各处硬编码）。
@@ -117,16 +122,19 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         site_id="deepseek_chat_agentic_loop",
         module="water_agent/generation/chat_model.py",
         egress_module="water_agent/generation/chat_model.py",
-        symbol="build_chat_model → GovernedChatModel._generate",
+        symbol="build_chat_model → GovernedChatModel._generate / _stream",
         provider=ProviderKind.DEEPSEEK_CHAT,
         category=CallCategory.AGENTIC_LOOP,
         required_capability=Capability.LLM_INFERENCE,
         data_class=DATA_CLASS_USER_QUERY,
         principal_source="AgenticSession thread_id → 本地主体",
         current_timeout_seconds=60.0,
-        current_retry="ProviderGateway：max_attempts=3；ChatOpenAI 自带重试已关（max_retries=0，避免叠乘）",
+        current_retry=(
+            "ProviderGateway：max_attempts=3（流式只在首个 chunk 之前重试）；"
+            "ChatOpenAI 自带重试已关（max_retries=0，避免叠乘）"
+        ),
         cache_eligible=False,
-        target_gateway_method="ProviderGateway.call",
+        target_gateway_method="ProviderGateway.call / ProviderGateway.stream_call",
         governed=True,
     ),
     ProviderCallSite(
@@ -214,6 +222,54 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         target_gateway_method="ProviderGateway.call",
         governed=True,
     ),
+    ProviderCallSite(
+        site_id="mcp_streamable_http",
+        module="water_agent/mcp/http_client.py",
+        egress_module="water_agent/mcp/http_transport.py",
+        symbol="MCPHttpClient._governed / mcp.oauth → http_transport.open_exchange",
+        provider=ProviderKind.MCP_REMOTE,
+        category=CallCategory.MCP_TOOL_CALL,
+        required_capability=Capability.MCP_INVOKE,
+        # 工具参数来自用户问题与模型的推理；OAuth 请求只含授权码 / 令牌 / 客户端注册信息。
+        data_class=DATA_CLASS_USER_QUERY,
+        principal_source=(
+            "tools/call：调用者主体（会话 / runner / Web 的 RequestContext，经 mcp_request_scope 下传）；"
+            "initialize / tools/list / DELETE / 授权端点：server 级服务主体（运维配置驱动）"
+        ),
+        current_timeout_seconds=30.0,
+        current_retry=(
+            "ProviderGateway：max_attempts=1——工具调用不重试（可能有副作用）；401/403 零重试且不计熔断；"
+            "仅 404（会话已终止、请求未处理）与一次 401 后的令牌刷新会重发被拒绝的那个请求"
+        ),
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
+    ProviderCallSite(
+        site_id="web_search",
+        module="water_agent/web_search/tool.py",
+        # 与 mcp_streamable_http、四个 deepseek_chat_* 同构：逻辑调用点在 web_search/，实际开连接的原语在
+        # open_exchange 所在模块（web_search/ 经 external/http_get.py::governed_get，不直接调用 open_exchange）
+        egress_module="water_agent/mcp/http_transport.py",
+        symbol="web_search → external.http_get.governed_get → http_transport.open_exchange",
+        provider=ProviderKind.WEB_SEARCH,
+        category=CallCategory.WEB_SEARCH,
+        required_capability=Capability.WEB_SEARCH,
+        # 搜索词来自用户问题与模型的推理（先过 QueryEgressGuard：PII / 凭据 / 私有上下文回显 / 网址形态一律拦下）。
+        data_class=DATA_CLASS_USER_QUERY,
+        principal_source=(
+            "调用者主体（会话 / Web 的 RequestContext）；部署开关已开且用户对该条消息勾选联网时，"
+            "装配期由 WebSearchPlugin 追加 Capability.WEB_SEARCH"
+        ),
+        current_timeout_seconds=15.0,
+        current_retry=(
+            "ProviderGateway：max_attempts=2——只对瞬时错误（408/429/5xx/超时/连接错误）重试一次；"
+            "401/403 零重试且不计熔断；熔断按 provider 主机（web_search:<host>）；显式配置的 provider 失败不回退"
+        ),
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
 )
 
 #: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
@@ -222,7 +278,16 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: P3 Step 18：新增 `Capability.READ_DRAWING` 与 `ToolPolicy.allowed_read_dirs`，
 #: capability 映射面已变，故递进版本号。
 #: P3 Step 20：新增 `read_drawing` 工具，可用工具集已变，再次递进。
-TOOL_POLICY_VERSION = "p3-step20-2026-09-07"
+#: P7 S1：`confirmation_handler_ready=true` 配置期拒绝 + 需确认的 MCP 工具执行期拒绝，
+#: 可用工具集已变（这类 server 不再能被暴露），递进。
+#: P7 S4：按意图最小暴露——每轮发给模型的工具集随问题变化（注册集与 capability 映射不变），
+#: 递进。
+#: P7 S7：确认门接线——Web 入口下 human_confirmation=true 的 server 可以暴露（以延迟工具出现），
+#: 新增凭证放行路径，可用工具集已变，递进。
+#: P7 S9：新增 `load_skill` 工具与 `Capability.LOAD_SKILL`（进默认能力集），可用工具集与能力映射已变，递进。
+#: P7 S12：新增 `web_search` 工具与 `Capability.WEB_SEARCH`（不进默认能力集，装配期按"部署开关 + 本条消息勾选"追加），
+#: 可用工具集与能力映射已变，递进。
+TOOL_POLICY_VERSION = "p7-step12-2026-10-20"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
@@ -274,8 +339,37 @@ TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
         ),
         guardrail_validated=True,
     ),
+    ToolCapabilityEntry(
+        tool_name="load_skill",
+        module="water_agent/tools/load_skill.py",
+        required_capability=Capability.LOAD_SKILL,
+        effect=(
+            "只读（按名取 skill 库里已过安检的规程；名字是目录枚举，模型表达不出目录之外的名字。"
+            "正文由提示装配器放进系统提示，不进工具结果）"
+        ),
+        guardrail_validated=True,
+    ),
 )
 
+
+#: 由**插件按需授予能力**的工具（P7-S12）。与 ``TOOL_CAPABILITIES`` 的区别只有一条：这里的工具所需能力**不在**默认
+#: 本地能力集与 Web 成员能力集里——只有部署开关已开、用户对这一条消息勾选了联网时，装配期才由插件把它追加给主体
+#: （``plugins/base.py::GRANTABLE_CAPABILITIES``）。登记在这里而不是并进 ``TOOL_CAPABILITIES``，是因为后者有一条
+#: 断言"清单里每个工具所需能力都在默认能力集内，否则正常路径全断"（``test_every_inventoried_tool_capability_is_granted_locally``），
+#: 它对**默认就该可用**的工具是对的，对"需要显式开启"的工具则恰好相反。``capability_for_tool`` 同时查两张表，
+#: 未登记仍 fail closed；``guardrail_validated`` 的含义不变（调用路径已被护栏覆盖）。
+PLUGIN_GRANTED_TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
+    ToolCapabilityEntry(
+        tool_name="web_search",
+        module="water_agent/web_search/tool.py",
+        required_capability=Capability.WEB_SEARCH,
+        effect=(
+            "只读外发（GET 运维配置的搜索服务，目的地由运维写死的基址决定，模型只控制查询字符串；"
+            "查询先过 QueryEgressGuard，结果过 envelope 归一化并标为 WEB_CONTENT；无写入、无 shell）"
+        ),
+        guardrail_validated=True,
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # 运行时 MCP 绑定登记（P4 Step 23）
@@ -305,8 +399,10 @@ class McpToolBinding(BaseModel):
     remote_tool: str = Field(min_length=1)
     capability: Capability
     #: server 配置是否显式声明了该工具的写/危险操作需人工确认。
-    #: 桥接层据此把工具标记为 ``requires_human_confirmation``；未确认前调用
-    #: 一律被护栏拒绝（P4 验收"危险操作需人工确认"的登记面）。
+    #: 为 ``True`` 的绑定，``GuardrailPipeline.validate_tool_call`` 没有执行凭证时一律以
+    #: ``tool.confirmation_required`` 拒绝调用（P7-S1）；唯一的放行路径是外层确认门在人工批准后
+    #: 签发的一次性凭证（P7-S7，``ToolRegistry.invoke_confirmed``）。装配时这类工具在 ToolNode 里
+    #: 是延迟工具（``plugins/assembly.py``）。
     requires_human_confirmation: bool = False
 
 
@@ -342,6 +438,11 @@ def mcp_tool_bindings() -> frozenset[McpToolBinding]:
     return frozenset(_MCP_RUNTIME_BINDINGS.values())
 
 
+def mcp_tool_binding(tool_name: str) -> McpToolBinding | None:
+    """按工具名查运行时 MCP 绑定；不是 MCP 工具（或未登记）返回 ``None``。"""
+    return _MCP_RUNTIME_BINDINGS.get(tool_name)
+
+
 def clear_mcp_tool_bindings() -> None:
     """清空 MCP 绑定登记。**仅供测试**（隔离进程级状态）；生产代码不得调用。"""
     _MCP_RUNTIME_BINDINGS.clear()
@@ -358,12 +459,42 @@ _EGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bOpenAIEmbeddings\s*\("),
     re.compile(r"\bhttpx\.(?:get|post|request|Client)\s*\("),
     re.compile(r"\brequests\.(?:get|post|request|Session)\s*\("),
+    # P7-S8：标准库 ``http.client`` 的连接类——直接调用、子类化、或 ``from http.client import …`` 都算。
+    # MCP 远程出口只有 ``mcp/http_transport.py`` 一个模块开这种连接。（刻意写成 ``http.client.`` 限定：
+    # starlette 的 ``HTTPConnection`` 是入站请求视图，不是出站连接。）
+    re.compile(r"\bhttp\.client\.HTTPS?Connection\b"),
+    re.compile(r"from\s+http\.client\s+import[^\n]*\bHTTPS?Connection\b"),
+    # P7-S11：原始套接字、``urllib.request`` 的请求 / opener 构造、``aiohttp`` 客户端。此前这些写法扫描是看不见的
+    # （只抓 ``urlopen(``）。**不加** ``ssl.create_default_context(``（它只是 TLS 配置，不是出站本身），
+    # **不加** ``open_exchange(``（它是出站内核而非原始原语，加了会误伤 MCP 现有调用方——它的调用方由
+    # ``tests/test_plugin_invariants.py`` 的 SDD17-I08 用 AST 单独约束）。
+    re.compile(r"\bsocket\.create_connection\s*\("),
+    re.compile(r"\bsocket\.socket\s*\("),
+    re.compile(r"\burllib\.request\.(?:Request|build_opener)\b"),
+    re.compile(r"\baiohttp\.ClientSession\b"),
 )
 
-#: 扫描豁免：治理层自身、以及只做离线确定性计算的模块。
+#: 通过子进程调外部下载器的程序名（以 ``curl`` / ``wget`` 作为首个参数起子进程）。用 AST 判定首个参数字面量，
+#: 不用文本正则：``rules.py`` 的护栏规则里有 ``curl`` / ``wget`` 字面量，那是检测对象，不是调用。
+_DOWNLOADER_PROGRAMS = frozenset({"curl", "wget"})
+_SUBPROCESS_FUNCTIONS = frozenset({"run", "Popen", "call", "check_call", "check_output", "system", "popen"})
+
+#: 扫描豁免：治理层自身、以及只连**部署方 / harness 自己指定的回环或 compose 内服务**、从不处理用户问题的模块。
+#: 每一项都必须写明理由；新增豁免等于承认"这里有出站但不进治理清单"，要评审。
+#:
+#: - ``inventory.py``：治理层自身（含上面的模式字面量）。
+#: - ``harness/mcp_http_eval.py``（P7-S11 裁决）：评测里代浏览器访问**本地假授权服务器**的原始 socket
+#:   （``browser_authorize``，注释里早已写明为何不用 ``http.client``）；目的地是 harness 自己起的回环假服务，
+#:   无任何生产调用方，也不经过用户输入。
+#: - ``webapp/smoke.py``（P7-S11 裁决）：compose 冒烟探针的 ``urllib.request``，**此前扫描只抓 ``urlopen(``，
+#:   所以一直没看见它**。目的地是 ``SMOKE_BASE_URL``（compose 内的 ``app:8000``，部署方设定，不是模型或用户
+#:   输入），只在 ``docker compose run smoke`` 里执行，不在应用进程内。**不登记成出站站点**：登记会让人以为
+#:   它走限流 / 预算 / 熔断，而冒烟探针本来就不该经过 ``ProviderGateway``。
 _EGRESS_SCAN_EXEMPT: frozenset[str] = frozenset(
     {
         "water_agent/runtime/governance/inventory.py",
+        "water_agent/harness/mcp_http_eval.py",
+        "water_agent/webapp/smoke.py",
     }
 )
 
@@ -383,10 +514,49 @@ def registered_call_site_modules() -> frozenset[str]:
     return frozenset(site.egress_module for site in PROVIDER_CALL_SITES)
 
 
+def _spawns_downloader(text: str) -> bool:
+    """模块里是否有 ``subprocess`` / ``os.system`` 类调用，且其首个参数（字面量字符串或字面量列表 / 元组的首项）
+    是 ``curl`` / ``wget``。解析失败的文件按"不命中"处理（语法错误由别处的测试暴露）。"""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else "")
+        if name not in _SUBPROCESS_FUNCTIONS or not node.args:
+            continue
+        first = node.args[0]
+        if isinstance(first, (ast.List, ast.Tuple)) and first.elts:
+            first = first.elts[0]
+        literal = _leftmost_string_literal(first)
+        if literal is not None:
+            words = literal.strip().split()
+            if words and words[0].rsplit("/", 1)[-1] in _DOWNLOADER_PROGRAMS:
+                return True
+    return False
+
+
+def _leftmost_string_literal(node: ast.expr) -> str | None:
+    """表达式最左边的字符串字面量：``'wget ' + url``、``f'curl {url}'``、``'curl %s' % url`` 都取到程序名那一段。
+    取不到（变量、调用结果）返回 ``None``——静态判定看不见运行时才拼出来的程序名，这是已知局限。"""
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp):
+        return _leftmost_string_literal(node.left)
+    if isinstance(node, ast.JoinedStr) and node.values:
+        return _leftmost_string_literal(node.values[0])  # type: ignore[arg-type]
+    return None
+
+
 def scan_remote_egress_modules() -> frozenset[str]:
     """静态扫描包内实际发起远程调用的模块（相对 `src/` 的 posix 路径）。
 
-    只做代码特征匹配，不导入模块——避免扫描本身触发 provider 构造。
+    代码特征匹配（正则）加一条 AST 判定（子进程调 ``curl`` / ``wget``），不导入模块——避免扫描本身触发 provider 构造。
     """
     found: set[str] = set()
     for path in _iter_package_modules():
@@ -394,7 +564,7 @@ def scan_remote_egress_modules() -> frozenset[str]:
         if rel in _EGRESS_SCAN_EXEMPT:
             continue
         text = path.read_text(encoding="utf-8")
-        if any(pattern.search(text) for pattern in _EGRESS_PATTERNS):
+        if any(pattern.search(text) for pattern in _EGRESS_PATTERNS) or _spawns_downloader(text):
             found.add(rel)
     return frozenset(found)
 
@@ -404,20 +574,31 @@ def ungoverned_egress_modules() -> frozenset[str]:
     return scan_remote_egress_modules() - registered_call_site_modules()
 
 
+#: 允许声明 ``ToolSpec`` 的包目录。``plugins/`` 不在其中（P7-I05：在那里构造 ToolSpec 会让新工具绕过"必须登记能力"）。
+#: ``web_search/``（P7-S12）在其中：联网搜索工具的定义紧挨着它的适配器与守卫；范围块禁止改 ``tools/**``，
+#: 所以扩展的是**扫描范围**而不是把定义挪走——放进 ``web_search/`` 的 ToolSpec 同样必须登记能力，否则 ``undeclared_tool_names`` 红灯。
+TOOLSPEC_SCAN_DIRS: tuple[str, ...] = ("tools", "web_search")
+
+
 def scan_tool_spec_names() -> frozenset[str]:
-    """静态扫描 `tools/` 下声明的 ToolSpec 名称。"""
+    """静态扫描 ``TOOLSPEC_SCAN_DIRS`` 下声明的 ToolSpec 名称。"""
     found: set[str] = set()
-    tools_dir = PACKAGE_ROOT / "tools"
-    for path in sorted(tools_dir.rglob("*.py")):
-        if "__pycache__" in path.parts:
+    for directory in TOOLSPEC_SCAN_DIRS:
+        root = PACKAGE_ROOT / directory
+        if not root.is_dir():
             continue
-        found.update(_TOOLSPEC_NAME_RE.findall(path.read_text(encoding="utf-8")))
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            found.update(_TOOLSPEC_NAME_RE.findall(path.read_text(encoding="utf-8")))
     return frozenset(found)
 
 
 def undeclared_tool_names() -> frozenset[str]:
     """代码里存在但**未登记** capability 的工具——必须为空。"""
-    return scan_tool_spec_names() - frozenset(entry.tool_name for entry in TOOL_CAPABILITIES)
+    return scan_tool_spec_names() - frozenset(
+        entry.tool_name for entry in (*TOOL_CAPABILITIES, *PLUGIN_GRANTED_TOOL_CAPABILITIES)
+    )
 
 
 def capability_for_tool(tool_name: str) -> Capability:
@@ -429,7 +610,7 @@ def capability_for_tool(tool_name: str) -> Capability:
     Step 14 的 ``GuardrailPipeline`` 用它在 ``ToolRegistry.invoke`` 前做能力校验：
     未登记 = 不可判定 = 拒绝，而不是"默认放行"。
     """
-    for entry in TOOL_CAPABILITIES:
+    for entry in (*TOOL_CAPABILITIES, *PLUGIN_GRANTED_TOOL_CAPABILITIES):
         if entry.tool_name == tool_name:
             return entry.required_capability
     binding = _MCP_RUNTIME_BINDINGS.get(tool_name)
@@ -455,8 +636,10 @@ def governance_coverage() -> dict[str, int]:
     return {
         "provider_call_sites": len(PROVIDER_CALL_SITES),
         "provider_governed": sum(1 for s in PROVIDER_CALL_SITES if s.governed),
-        "tools": len(TOOL_CAPABILITIES),
-        "tools_guardrail_validated": sum(1 for t in TOOL_CAPABILITIES if t.guardrail_validated),
+        "tools": len(TOOL_CAPABILITIES) + len(PLUGIN_GRANTED_TOOL_CAPABILITIES),
+        "tools_guardrail_validated": sum(
+            1 for t in (*TOOL_CAPABILITIES, *PLUGIN_GRANTED_TOOL_CAPABILITIES) if t.guardrail_validated
+        ),
     }
 
 
@@ -465,7 +648,9 @@ __all__ = [
     "DATA_CLASS_PUBLIC_CLAUSE",
     "DATA_CLASS_USER_QUERY",
     "PACKAGE_ROOT",
+    "PLUGIN_GRANTED_TOOL_CAPABILITIES",
     "PROVIDER_CALL_SITES",
+    "TOOLSPEC_SCAN_DIRS",
     "TOOL_CAPABILITIES",
     "TOOL_POLICY_VERSION",
     "McpToolBinding",
@@ -475,6 +660,7 @@ __all__ = [
     "capability_for_tool",
     "clear_mcp_tool_bindings",
     "governance_coverage",
+    "mcp_tool_binding",
     "mcp_tool_bindings",
     "register_mcp_tool_binding",
     "registered_call_site_modules",

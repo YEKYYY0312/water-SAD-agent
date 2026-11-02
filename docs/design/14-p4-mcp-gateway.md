@@ -38,8 +38,11 @@
   属后续步骤（§6 分步交付 Step 24）。本步只做**客户端**。
 - **不做 HTTP/SSE transport**：只支持 stdio（`command + args` 子进程）。
   远程 MCP 端点（`http(s)://`）需网络出口，且要新开 `NETWORK_FETCH` 类能力，
-  属后续 blocked 待办。
-- **不做 OAuth/外部认证**：`Principal.authenticated()` 仍是"无调用方"占位。
+  属后续 blocked 待办。**→ P7-S8 已解除（只对 Streamable HTTP）**：出口由运维写死的 URL 决定、远程工具仍持
+  `MCP_INVOKE`、`NETWORK_FETCH` 仍在危险集不授予任何主体，见 `docs/design/16-p7-plugin-mcp.md` §3.10；
+  已废弃的 HTTP+SSE（2024-11-05）仍不做。
+- **不做 OAuth/外部认证**（**→ P7-S8 已解除 OAuth 2.1 服务级授权**：管理员授权一次、所有用户的 run 共用该身份，
+  见规格 §3.10；仍不做按终端用户的委托授权）：`Principal.authenticated()` 仍是"无调用方"占位。
   本步所有主体仍走 `Principal.local(thread_id, capabilities=...)`；server 自己的
   凭据由配置的 `env`/`env_file` **显式给值**注入，**不默认转发本机任何其他
   环境变量**。
@@ -79,7 +82,7 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 - **不接受 JSON-RPC 批量（数组）消息**：MCP stdio 不用批处理，接受只会扩大
   攻击面（一次注入多条消息），解码层直接判协议错误。
 
-### 2.3 稳定错误码（`mcp/errors.py`，13 个）
+### 2.3 稳定错误码（`mcp/errors.py`，15 个；P7-S3 新增 `MCP_SERVER_DISABLED`，P7-S6 新增 `MCP_CREDENTIAL_MISSING`）
 
 | 错误码 | 触发条件 |
 |---|---|
@@ -96,6 +99,8 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 | `MCP_CONFIRMATION_UNAVAILABLE` | server 配置需人工确认但确认门未接线 → 不暴露 |
 | `MCP_NAME_COLLISION` | 桥接后的本地工具名与既有登记冲突 |
 | `MCP_NOT_IN_ALLOWLIST` | 工具不在 server 配置的 `allow` 白名单内（None=全拒） |
+| `MCP_SERVER_DISABLED` | server 在配置中停用（`disabled=true`，P7-S3）：不 spawn、不暴露 |
+| `MCP_CREDENTIAL_MISSING` | server 声明的凭据槽位（`credential_env`，P7-S6）还没填值：连接前跳过、不 spawn |
 
 **错误语义分层**：远端业务失败（`isError=true`）是**结果**不是异常 ——
 `client.call_tool` 返回 `{"ok": False, "code": MCP_TOOL_REMOTE_ERROR, ...}`；
@@ -106,26 +111,56 @@ client → tools/call（带参数）→ {content, structuredContent?, isError?}
 
 ## 3. 配置契约（`mcp/config.py`）
 
-- 配置文件路径：`WATER_AGENT_MCP_CONFIG` 环境变量 → 默认 `data/mcp_servers.json`。
+- 配置文件路径：`WATER_AGENT_MCP_CONFIG` 环境变量 → 默认 `data/mcp_servers.json`（仓库默认层）。
+- **部署覆盖层（P7-S3）**：`WATER_AGENT_MCP_OVERLAY` 指向的文件，不入库。按 `server_id`
+  合并：默认层没有的 id 是新增 server，有的 id 逐字段覆盖；`allow` / `args` / `env` **整体替换、
+  不合并**。覆盖层顶层只能写 `version` / `servers`，写 `confirmation_handler_ready` 即
+  `MCP_CONFIG_INVALID`；覆盖层路径给了但文件不存在同样报错。只有覆盖层时默认层按空骨架处理。
+  合并规则见 `docs/design/16-p7-plugin-mcp.md` 与 `docs/execution-prompts/P7-S3-layered-mcp-config.md`。
+- **Web 管理层（P7-S6）**：`WATER_AGENT_MCP_WEB_LAYER` 指向的文件，合并在部署覆盖层**之后**，由 Web 扩展面板
+  写（`mcp/web_layer.py`）。每台 server 只能写 `server_id` / `disabled` / `allow`（`allow` 整体替换），顶层只认
+  `version` / `revision` / `servers`；**不能新增 server**（下层没有的 id 是孤立条目，加载时忽略）；损坏 / 写了不允许的键即
+  `MCP_CONFIG_INVALID`。未设变量 = 没有这一层；设了但文件不存在 = 空层。设了该变量时路径存在性在三层合并后的最终配置上
+  检查（停用的 server 不查）。规则见 `docs/design/16-p7-plugin-mcp.md` §3.8。
 - **文件不存在 = 功能关闭**（特性开关，不是错误）；**文件存在但坏 = `MCP_CONFIG_INVALID`**
   （响亮失败，防止"写错了却静默跳过全部 server"）；**显式指定路径但文件不存在**
   也是错误（显式给路径却找不到，与"没配"是两件事）。
-- 仓库根提供 `data/mcp_servers.json` 骨架（空 servers + `confirmation_handler_ready: false`），
-  作为接入模板。
+- 仓库根提供 `data/mcp_servers.json` 骨架（空 servers + `confirmation_handler_ready: false`）。
+  真实 server 写进部署覆盖层；`data/mcp_servers.example.json` 是写覆盖层的参考（占位路径，
+  不被任何代码加载、不进镜像）。
 - `MCPGatewayConfig`（`extra="forbid"`，版本化）：
-  - `version`（`p4-step23-2026-09-08`）；
-  - `confirmation_handler_ready`：危险操作确认门是否接线（本步恒 `False`）；
+  - `version`（`p7-s8-2026-10-12`；加载时不比对）；
+  - `confirmation_handler_ready`：历史字段，配置里只接受 `False`（`true` 加载期 `MCP_CONFIG_INVALID`）。
+    P7-S7 起确认门是否可用由**入口**决定，不由配置声明：只有 Web 会话工厂接了确认门
+    （`open_gateway_sessions` / `McpConnectionPool.lease` 的 `confirmation_ready=True`），CLI 与评测 runner 没有；
   - `servers: tuple[MCPServerConfig, ...]`，`server_id` 唯一。
 - `MCPServerConfig`（`extra="forbid"`）：
   - `server_id`：`^[a-z][a-z0-9_]{1,31}$`，命名空间前缀来源；
   - `command` + `args`：**list 形式** spawn（无 shell、无字符串插值）；
   - `transport`：本步只支持 `stdio`；
-  - `env`（内联 dict）+ `env_file`（key=value 文件，相对路径按配置目录解析，
-    内联覆盖文件）：**显式给值**的环境注入。子进程默认只透传 `PATH`/`HOME`，
-    其余本机变量（含 API Key）一律不进 server 进程；
+  - `command`：绝对路径，或不含 `/` 的裸命令名（按 `PATH` 查找）；含 `/` 的相对路径拒绝（P7-S3）；
+  - `env`（内联 dict）+ `env_file`（key=value 文件，相对路径按**定义它的那一层配置文件所在目录**
+    解析，文件缺失在加载期即 `MCP_CONFIG_INVALID`，内联覆盖文件）：**显式给值**的环境注入。
+    子进程默认只透传 `PATH`/`HOME`，其余本机变量（含 API Key）一律不进 server 进程；
+  - `cwd`（P7-S3）：子进程工作目录，必须是绝对路径、加载期校验存在。**不配置时每次连接新建
+    空临时目录**，连接关闭即删除——子进程不继承 agent 的工作目录（F15）。这不是沙箱；
+  - `disabled`（P7-S3）：`true` 时不 spawn、不暴露、记 `MCP_SERVER_DISABLED`、不进 manifest；
+  - `lifecycle`（P7-S5）：`per_run`（缺省，每个 run 现开现关）或 `shared`（Web 进程内连接池长驻、
+    所有用户的 run 复用同一进程）。**声明 `shared` 即声明这台 server 不持有按用户区分的状态**
+    （例如"当前打开的文档"）——共享的是进程，进程里的状态对所有用户可见，agent 无法替运维验证。
+    复用的是进程不是授权：每次调用仍经 `ToolRegistry.invoke`。同一连接上的请求串行；单台 server
+    的配置或子进程 env 变化后，下一个 run 换新进程。CLI 与评测 runner 不看这个字段；
   - `allow`：工具白名单，**`None` = 全拒（fail closed）**，列名与 tools/list
     **精确匹配**；
-  - `human_confirmation`：`true` 且确认门未接线时整台 server 的工具不暴露；
+  - `human_confirmation`：`true` 表示这台 server 的工具**每次执行前**须人工确认（P7-S7）。接了确认门的入口
+    （Web）照常暴露，工具在 ToolNode 里是 `return_direct` 延迟工具，由 run 所有者在确认卡片上批准后凭
+    一次性凭证执行一次（`docs/design/16-p7-plugin-mcp.md` §3.7）；没有确认门的入口（CLI、runner）整台
+    server 不暴露（`MCP_CONFIRMATION_UNAVAILABLE`、不 spawn）。粒度仍是 server 级，不能按工具声明；
+  - `credential_env`（P7-S6）：凭据槽位——运维声明要注入子进程的**环境变量名**（大写；不与内联 `env` 重名；拒绝
+    `PATH` / `HOME` 与加载器、解释器会读来执行代码的变量，如 `LD_*`、`DYLD_*`、`PYTHON*`、`NODE_*`、`PERL*`、`RUBY*`、
+    `BASH_ENV`、`ENV`、`JAVA_TOOL_OPTIONS`），值由管理员在 Web 扩展面板填写（只写不读，存凭据卷
+    `<credentials_dir>/mcp/<server_id>/<NAME>`，0600，不进备份），只能写在仓库默认层或部署覆盖层。子进程 env 注入顺序
+    `env_file` < 槽位 < 内联 `env`；有槽位没填值的 server 连接前跳过（`MCP_CREDENTIAL_MISSING`、不 spawn）；
   - `startup_timeout_seconds = 10.0`、`call_timeout_seconds = 30.0`、
     `max_response_bytes = 65536`。
 
@@ -259,9 +294,9 @@ MCP 工具是**动态**的（来自外部 server），无法静态进 `TOOL_CAPA
 2. **真实 CAD/BIM 与企业库 blocked**：本机无天正/Revit/中望，无企业库端点。
    Step 23 的 fake server 是**机制验证**，**不构成**路线图"至少接通 1 个 CAD/BIM
    工具与 1 个企业数据源"的验收证据。
-3. **`human_confirmation` 只是拒绝位**：危险操作确认的完整 HITL
-   （interrupt → 人工批准 → resume）在 Step 25 接线，本步该字段唯一语义是
-   "不暴露"。
+3. **`human_confirmation` 的确认门只在 Web 入口接线**（P7-S7 交付，取代原计划的 Step 25）：
+   interrupt → run 所有者批准 / 拒绝 → 同一个 run 上 resume，执行凭证单次有效、绑定参数摘要与主体。
+   CLI / runner 没有确认门，该字段在那里仍等于"不暴露"。管理员代批、多人会签、超时自动拒绝不在范围内。
 4. **工具描述投毒防御是确定性正则规则集**，不是分类器，必然存在未覆盖的改写
    变体（与 P2.5 Step 14、P3 §9.4 同一口径）。不得声称"能拦住任意工具投毒"。
 5. **不冒充认证**：`Principal.authenticated()` 仍无调用方；本步不把"配置了

@@ -8,12 +8,13 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import create_engine, event, inspect, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.memory.contracts import (
     MemoryConflictRequiresConfirmationError,
     MemoryEventType,
+    MemoryExpiredError,
     MemoryForgottenError,
     MemoryKind,
     MemoryOrigin,
@@ -26,7 +27,7 @@ from water_agent.memory.contracts import (
 from water_agent.memory.repository import MemoryRepository
 from water_agent.memory.service import MemoryService
 from water_agent.storage.database import MIGRATION_HEAD, Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
 
 
@@ -99,7 +100,7 @@ def _create_user_memory(
 
 def test_alembic_head_and_memory_tables_are_declared() -> None:
     migration = Path("alembic/versions/0002_step39_memory.py").read_text(encoding="utf-8")
-    assert MIGRATION_HEAD == "0007_step51_dwg_uploads"
+    assert MIGRATION_HEAD == "0008_step15_model_choice"
     for table in ("memory_records", "memory_events", "memory_usage"):
         assert f'"{table}"' in migration
     assert 'down_revision = "0001_step38"' in migration
@@ -534,3 +535,318 @@ def test_expire_due_stays_inside_the_requested_tenant(database: Database) -> Non
         record_b.memory_id, tenant_id=tenant_b, actor_user_id=owner
     )
     assert untouched.status is MemoryStatus.ACTIVE
+
+
+# ---------------------------------------------------------------------------
+# 到期记录释放 semantic_key
+#
+# 回归：expire_due 在生产代码里没有调用方，到期的记录 status 一直是 active。
+# list / recall 早已按 expires_at 过滤，占键查询与部分唯一索引却只认 status，
+# 于是到期记录永远占着 key：重存同类偏好时界面显示成功，实际永远召回不到。
+# ---------------------------------------------------------------------------
+
+
+def _pass_deadline(database: Database, memory_id: UUID) -> None:
+    """模拟到期：只把 expires_at 改到过去，不跑任何清扫（与生产无调度时一致）。"""
+
+    with database.transaction() as session:
+        session.execute(
+            update(MemoryRecordRow)
+            .where(MemoryRecordRow.memory_id == str(memory_id))
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+
+def _key_occupant(service: MemoryService, *, tenant_id: UUID, owner: UUID, key: str = "units"):
+    return service.find_active_by_key(
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        scope_type=MemoryScopeType.USER,
+        project_id=None,
+        kind=MemoryKind.USER_PREFERENCE,
+        semantic_key=key,
+    )
+
+
+def _soon() -> datetime:
+    return datetime.now(UTC) + timedelta(hours=1)
+
+
+def test_time_expired_record_no_longer_occupies_its_key(database: Database) -> None:
+    """占键查询与 list / recall 用同一个「是否有效」判定。"""
+
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    record = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, expires_at=_soon()
+    )
+    occupant = _key_occupant(service, tenant_id=tenant_id, owner=owner)
+    assert occupant is not None and occupant.memory_id == record.memory_id
+
+    _pass_deadline(database, record.memory_id)
+
+    assert service.list_active(tenant_id=tenant_id, actor_user_id=owner) == []
+    assert _key_occupant(service, tenant_id=tenant_id, owner=owner) is None
+
+
+def test_not_yet_expired_record_still_holds_its_key(database: Database) -> None:
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    _create_user_memory(service, tenant_id=tenant_id, actor_user_id=owner, expires_at=_soon())
+
+    with pytest.raises(MemoryConflictRequiresConfirmationError):
+        _create_user_memory(
+            service, tenant_id=tenant_id, actor_user_id=owner, content="Imperial"
+        )
+
+
+def test_create_on_an_expired_key_expires_the_old_record_in_the_same_transaction(
+    database: Database,
+) -> None:
+    """新建先把同 key 的到期记录转为 expired（与 expire_due 同一转换），再插入。"""
+
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    old = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, content="SI", expires_at=_soon()
+    )
+    _pass_deadline(database, old.memory_id)
+
+    created = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, content="Imperial"
+    )
+
+    assert created.status is MemoryStatus.ACTIVE
+    listed = service.list_active(tenant_id=tenant_id, actor_user_id=owner)
+    assert [item.memory_id for item in listed] == [created.memory_id]
+    released = service.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert released.status is MemoryStatus.EXPIRED
+    assert released.revision == 2
+    assert released.content == "SI", "expired 保留正文，只有 forget 才清空"
+    events = service.list_events(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert [event.event_type for event in events] == [
+        MemoryEventType.CREATED,
+        MemoryEventType.EXPIRED,
+    ]
+    assert events[-1].reason == "expiration deadline reached"
+    assert events[-1].revision == 2
+
+
+def test_failed_create_rolls_back_the_release_of_the_old_record(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """释放与插入同一事务：插入之后才失败，旧记录的转换也一并回滚。"""
+
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    old = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, content="SI", expires_at=_soon()
+    )
+    _pass_deadline(database, old.memory_id)
+    real_event = MemoryRepository._event
+
+    def failing_created_event(**kwargs):
+        if kwargs["event_type"] is MemoryEventType.CREATED:
+            raise SQLAlchemyError("simulated failure after the key was released")
+        return real_event(**kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(MemoryRepository, "_event", staticmethod(failing_created_event))
+        with pytest.raises(MemoryStoreUnavailableError):
+            _create_user_memory(
+                service, tenant_id=tenant_id, actor_user_id=owner, content="Imperial"
+            )
+
+    untouched = service.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert untouched.status is MemoryStatus.ACTIVE and untouched.revision == 1
+    assert _count_memory_rows(database) == 1
+    events = service.list_events(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert [event.event_type for event in events] == [MemoryEventType.CREATED]
+
+
+def _count_memory_rows(database: Database) -> int:
+    with database.engine.connect() as connection:
+        return int(connection.execute(text("SELECT count(*) FROM memory_records")).scalar_one())
+
+
+def test_project_key_held_by_an_expired_record_is_released_for_another_member(
+    database: Database,
+) -> None:
+    """项目级唯一索引不含 owner：别的成员留下的到期记录同样要释放。"""
+
+    owner, member = uuid4(), uuid4()
+    _insert_users(database, owner, member)
+    projects = ProjectRepository(database)
+    project = projects.create(owner, "expiry-project")
+    projects.add_member(project.project_id, owner, member, role="member")
+    service = _service(database)
+    tenant_id = uuid4()
+
+    def remember(actor: UUID, content: str, expires_at: datetime | None = None):
+        return service.create_memory(
+            tenant_id=tenant_id,
+            actor_user_id=actor,
+            scope_type=MemoryScopeType.PROJECT,
+            project_id=UUID(project.project_id),
+            kind=MemoryKind.PROJECT_FACT,
+            semantic_key="pump room",
+            content=content,
+            origin=MemoryOrigin.EXPLICIT_USER,
+            expires_at=expires_at,
+        )
+
+    old = remember(owner, "variable speed", _soon())
+    _pass_deadline(database, old.memory_id)
+
+    created = remember(member, "fixed speed")
+
+    listed = service.list_active(tenant_id=tenant_id, actor_user_id=owner)
+    assert [item.content for item in listed] == ["fixed speed"]
+    assert created.owner_user_id == member
+    assert (
+        service.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+        is MemoryStatus.EXPIRED
+    )
+
+
+@pytest.mark.parametrize("operation", ["correct", "reaffirm"])
+def test_writing_to_a_time_expired_record_expires_it_and_is_refused(
+    database: Database, operation: str
+) -> None:
+    """回归：更正/重申到期记录曾返回成功，结果仍不可见（静默丢失）。
+
+    现在先把它转为 expired 并落审计事件（释放 key），再按 expired 记录的既有语义
+    拒绝（MEMORY_EXPIRED，Web 映射为 410）。
+    """
+
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    record = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, content="SI", expires_at=_soon()
+    )
+    _pass_deadline(database, record.memory_id)
+
+    with pytest.raises(MemoryExpiredError):
+        if operation == "correct":
+            service.correct_memory(
+                record.memory_id,
+                tenant_id=tenant_id,
+                actor_user_id=owner,
+                expected_revision=1,
+                content="Imperial",
+            )
+        else:
+            service.reaffirm_memory(
+                record.memory_id,
+                tenant_id=tenant_id,
+                actor_user_id=owner,
+                expected_revision=1,
+            )
+
+    current = service.get_memory(record.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert current.status is MemoryStatus.EXPIRED
+    assert current.content == "SI"
+    events = service.list_events(record.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert [event.event_type for event in events] == [
+        MemoryEventType.CREATED,
+        MemoryEventType.EXPIRED,
+    ]
+    # key 已释放：同 key 的新记忆直接落库。
+    renewed = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, content="Imperial"
+    )
+    assert renewed.status is MemoryStatus.ACTIVE
+
+
+def test_forget_and_disable_still_work_on_a_time_expired_record(database: Database) -> None:
+    """释放逻辑不改 forget / 停用：到期记录照样可以被遗忘或停用。"""
+
+    owner = uuid4()
+    _insert_users(database, owner)
+    service = _service(database)
+    tenant_id = uuid4()
+    forget_me = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, semantic_key="a", expires_at=_soon()
+    )
+    disable_me = _create_user_memory(
+        service, tenant_id=tenant_id, actor_user_id=owner, semantic_key="b", expires_at=_soon()
+    )
+    _pass_deadline(database, forget_me.memory_id)
+    _pass_deadline(database, disable_me.memory_id)
+
+    forgotten = service.forget_memory(
+        forget_me.memory_id, tenant_id=tenant_id, actor_user_id=owner, expected_revision=1
+    )
+    disabled = service.expire_memory(
+        disable_me.memory_id, tenant_id=tenant_id, actor_user_id=owner, expected_revision=1
+    )
+
+    assert forgotten.status is MemoryStatus.FORGOTTEN and forgotten.content == ""
+    assert disabled.status is MemoryStatus.EXPIRED
+
+
+def test_postgres_expired_key_is_released_in_the_create_transaction() -> None:
+    """PG 的部分唯一索引：同一事务内先 UPDATE 转 expired，再 INSERT 新记录。"""
+
+    database = _postgres_database()
+    try:
+        owner = uuid4()
+        _insert_users(database, owner)
+        service = _service(database)
+        tenant_id = uuid4()
+        key = f"postgres-expiry-{uuid4()}"
+        old = _create_user_memory(
+            service,
+            tenant_id=tenant_id,
+            actor_user_id=owner,
+            semantic_key=key,
+            content="SI",
+            expires_at=_soon(),
+        )
+        _pass_deadline(database, old.memory_id)
+        assert _key_occupant(service, tenant_id=tenant_id, owner=owner, key=key) is None
+
+        created = _create_user_memory(
+            service, tenant_id=tenant_id, actor_user_id=owner, semantic_key=key, content="metric"
+        )
+
+        assert created.status is MemoryStatus.ACTIVE
+        assert (
+            service.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+            is MemoryStatus.EXPIRED
+        )
+
+        # 更正一条到期但仍是 active 的记录：FOR UPDATE 加锁后先转 expired 并提交，再拒绝。
+        stale = _create_user_memory(
+            service,
+            tenant_id=tenant_id,
+            actor_user_id=owner,
+            semantic_key=f"{key}-correct",
+            content="SI",
+            expires_at=_soon(),
+        )
+        _pass_deadline(database, stale.memory_id)
+        with pytest.raises(MemoryExpiredError):
+            service.correct_memory(
+                stale.memory_id,
+                tenant_id=tenant_id,
+                actor_user_id=owner,
+                expected_revision=1,
+                content="metric",
+            )
+        assert (
+            service.get_memory(stale.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+            is MemoryStatus.EXPIRED
+        )
+    finally:
+        database.dispose()

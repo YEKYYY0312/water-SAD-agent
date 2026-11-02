@@ -1,8 +1,9 @@
 """Step 34 multi-agent P0 harness driven by the production graph.
 
-The harness may inject faults into real agent outputs, but it never constructs
-approval records, review packages, exports, or trace events. Those facts must
-come from ``MultiAgentOrchestrator`` and its persisted interrupt/resume path.
+The harness may inject faults into real agent outputs (or skip the approval node
+to model an unapproved export attempt), but it never constructs approval records,
+review packages, exports, or trace events. Those facts must come from
+``MultiAgentOrchestrator`` and its persisted interrupt/resume path.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from collections.abc import Callable
@@ -311,8 +313,40 @@ def _review_package(state: dict[str, Any], registry: dict[str, Any]) -> Any | No
     return ReviewPackage.model_validate(envelope.payload) if envelope is not None else None
 
 
+def _declared_dn_values(project_brief: dict[str, Any]) -> set[int]:
+    """DN values the user stated explicitly (spatial diameter constraints or ``DN…`` text)."""
+    values: set[int] = set()
+    for constraint in project_brief.get("spatial_constraints") or []:
+        if not isinstance(constraint, dict):
+            continue
+        raw = constraint.get("value")
+        if str(constraint.get("kind", "")).lower() not in {"diameter_mm", "dn_mm"} or not isinstance(
+            raw, (int, float, str)
+        ):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value.is_integer():
+            values.add(int(value))
+    for text in project_brief.get("user_constraints") or []:
+        values.update(int(match) for match in re.findall(r"(?i)DN\s*(\d+)", str(text)))
+    return values
+
+
 def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple[bool, bool]:
-    """Check active design references against active programmatic calculations."""
+    """Check active design numbers trace to programmatic calculations or user input.
+
+    Task book §15.3: every design number must trace to an input or a programmatic
+    result.  A segment bound to calc cases must match them; a segment bound to
+    none (its calc case is ambiguous) is acceptable only when it honestly says
+    ``not_verified`` and carries no DN other than one the user stated.
+
+    Slope follows the same rule: a bound segment's slope is its case's computed
+    ``outputs.slope`` when the formula produces one (``slope_manning``), otherwise
+    the case's ``slope`` input; an unbound segment has no slope source at all.
+    """
     from water_agent.multi_agent.contracts import CalcPackage, DesignPackage
 
     active = state.get("active_artifact_ids") or {}
@@ -329,15 +363,32 @@ def _numeric_integrity(state: dict[str, Any], registry: dict[str, Any]) -> tuple
         for case in calc_package.cases
         if case.status == "verified" and case.outputs
     }
+    declared_dns = _declared_dn_values(state.get("project_brief") or {})
     valid = True
     for segment in design_package.segments:
-        if not segment.calc_case_ids or not set(segment.calc_case_ids).issubset(verified):
+        if not segment.calc_case_ids:
+            if (
+                segment.hydraulic_status != "not_verified"
+                or (segment.dn_mm is not None and segment.dn_mm not in declared_dns)
+                or segment.slope is not None
+            ):
+                valid = False
+            continue
+        if not set(segment.calc_case_ids).issubset(verified):
             valid = False
             continue
         for calc_case_id in segment.calc_case_ids:
-            diameter = verified[calc_case_id].inputs.get("diameter_mm")
+            case = verified[calc_case_id]
+            diameter = case.inputs.get("diameter_mm")
             if diameter is not None and segment.dn_mm is not None:
                 valid = valid and int(float(diameter)) == segment.dn_mm
+            if segment.slope is not None:
+                source = case.outputs.get("slope", case.inputs.get("slope"))
+                valid = valid and (
+                    isinstance(source, (int, float))
+                    and not isinstance(source, bool)
+                    and float(source) == segment.slope
+                )
     review = _review_package(state, registry)
     if review is not None and any(
         issue.rule_id in {"doc_value_mismatch", "doc_value_untraceable"}
@@ -446,6 +497,69 @@ def _check(name: str, expected: Any, actual: Any) -> dict[str, Any]:
     return {"name": name, "expected": expected, "actual": actual, "passed": actual == expected}
 
 
+_SEGMENT_FIELDS = (
+    "start_node_id",
+    "end_node_id",
+    "system",
+    "dn_mm",
+    "calc_case_ids",
+    "hydraulic_status",
+)
+
+
+def _segment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Comparable segment↔case binding rows (order-independent)."""
+    normalized = [{key: row.get(key) for key in _SEGMENT_FIELDS} for row in rows]
+    return sorted(
+        normalized,
+        key=lambda row: (str(row["start_node_id"]), str(row["end_node_id"]), str(row["system"])),
+    )
+
+
+def _active_design_segments(state: dict[str, Any], registry: dict[str, Any]) -> list[dict[str, Any]] | None:
+    from water_agent.multi_agent.contracts import DesignPackage
+
+    design_id = (state.get("active_artifact_ids") or {}).get("design")
+    design = registry.get(design_id) if isinstance(design_id, str) else None
+    if design is None:
+        return None
+    package = DesignPackage.model_validate(design.payload)
+    return _segment_rows([segment.model_dump(mode="json") for segment in package.segments])
+
+
+def _approval_rejection_recorded(state: dict[str, Any], trace_events: list[dict[str, Any]]) -> bool:
+    """A human rejection is persisted in state and visible as such in the trace."""
+    from pydantic import ValidationError
+
+    from water_agent.multi_agent.contracts import ApprovalRecord
+
+    try:
+        record = ApprovalRecord.model_validate(state.get("approval_record"))
+    except ValidationError:
+        return False
+    return (
+        record.approved is False
+        and bool(record.reason.strip())
+        and record.final_package_hash is not None
+        and record.final_package_hash == state.get("approval_context_hash")
+        and any(
+            _event_name(event) == "approval_resumed" and event.get("approval_decision") == "rejected"
+            for event in trace_events
+        )
+    )
+
+
+def _normalized_brief(raw: Any) -> dict[str, Any] | None:
+    from pydantic import ValidationError
+
+    from water_agent.multi_agent.contracts import ProjectBrief
+
+    try:
+        return ProjectBrief.model_validate(raw).model_dump(mode="json")
+    except ValidationError:
+        return None
+
+
 def _drift_drawing_plan(app: Any, config: dict[str, Any], paused: dict[str, Any]) -> None:
     """Change the approved DrawingPlan itself after the real interrupt."""
     from water_agent.multi_agent.contracts import (
@@ -527,16 +641,24 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
         )
         paused = dict(app.invoke(initial, config=config))
         interrupt_observed = bool(paused.get("__interrupt__"))
+        interrupt_request = paused["__interrupt__"][0].value if interrupt_observed else {}
         resume_observed = False
         result = paused
         if interrupt_observed:
             if scenario == "approval_drift":
                 _drift_drawing_plan(app, config, paused)
-            decision = {
-                "approved": scenario != "unapproved_export",
-                "reason": "approved by mechanism harness" if scenario != "unapproved_export" else "not approved",
-            }
-            result = dict(app.invoke(Command(resume=decision), config=config))
+            if scenario == "unapproved_export":
+                # 注入的未审批导出：跳过人工审批节点（没有任何人工决定、也不构造批准记录），
+                # 直接把运行推向发布门。拦不拦得住完全由生产 release_gate 决定。
+                app.update_state(config, {"status": "running"}, as_node="approval")
+                result = dict(app.invoke(None, config=config))
+            else:
+                rejected = scenario == "approval_rejected"
+                decision = {
+                    "approved": not rejected,
+                    "reason": "rejected by mechanism harness" if rejected else "approved by mechanism harness",
+                }
+                result = dict(app.invoke(Command(resume=decision), config=config))
             resume_observed = True
 
         safe_events = [
@@ -599,6 +721,29 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                     ),
                 )
             )
+        if "review_issue_rule_ids" in expected:
+            present = {issue.rule_id for issue in (review.issues if review else [])}
+            checks.append(
+                _check(
+                    "review_issue_rule_ids",
+                    sorted(expected["review_issue_rule_ids"]),
+                    sorted(set(expected["review_issue_rule_ids"]) & present),
+                )
+            )
+        if "interrupt_disclosed_contains" in expected:
+            # 披露项必须出现在**审批请求**里（批准人看过才能批准），只进审查包不算
+            disclosed = list(interrupt_request.get("disclosed_limitations") or [])
+            checks.append(
+                _check(
+                    "interrupt_disclosed_contains",
+                    list(expected["interrupt_disclosed_contains"]),
+                    [
+                        fragment
+                        for fragment in expected["interrupt_disclosed_contains"]
+                        if any(fragment in item for item in disclosed)
+                    ],
+                )
+            )
         if "routing_unchanged" in expected:
             checks.append(_check("routing_unchanged", expected["routing_unchanged"], routing_value))
         if "has_recalc_request" in expected:
@@ -611,6 +756,24 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                 and int((result.get("revision_counts") or {}).get("hydraulic", 0)) > 0
             )
             checks.append(_check("has_recalc_request", expected["has_recalc_request"], recalculated))
+        if "design_segments" in expected:
+            # 管段 ↔ 工况绑定逐段对账：哪段管、哪个系统、DN、引用哪个工况、是否 verified
+            checks.append(
+                _check(
+                    "design_segments",
+                    _segment_rows(list(expected["design_segments"])),
+                    _active_design_segments(result, registry),
+                )
+            )
+        if "project_brief_unchanged" in expected:
+            # 用户输入（工况/拓扑）不得被自动重算悄悄改写
+            checks.append(
+                _check(
+                    "project_brief_unchanged",
+                    bool(expected["project_brief_unchanged"]),
+                    _normalized_brief(result.get("project_brief")) == brief.model_dump(mode="json"),
+                )
+            )
 
         release_expected = scenario in {
             "standard",
@@ -630,17 +793,23 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                     _check("exported_file_exists", True, exported_file_exists),
                 ]
             )
-        if scenario in {"approval_drift", "unapproved_export"}:
+        if scenario in {"approval_drift", "unapproved_export", "approval_rejected"}:
+            # 审批漂移与人工拒绝在 approval 节点收口、不进发布门；只有被注入的"绕过审批的
+            # 导出尝试"才到发布门，由它拦下。三者都不得调用导出器。
             checks.extend(
                 [
                     _check("interrupt_observed", True, interrupt_observed),
                     _check("resume_observed", True, resume_observed),
-                    _check("release_gate_observed", True, "release_gate_checked" in event_names),
+                    _check(
+                        "release_gate_observed",
+                        scenario == "unapproved_export",
+                        "release_gate_checked" in event_names,
+                    ),
                     _check("exporter_not_called", 0, calls["export"]),
                     _check("no_exported_file", False, exported_file_exists),
                 ]
             )
-        if scenario in {"stale_reuse", "drawing_length_mismatch"}:
+        if scenario in {"stale_reuse", "drawing_length_mismatch", "binding_ambiguous"}:
             checks.extend(
                 [
                     _check("interrupt_not_observed", False, interrupt_observed),
@@ -666,10 +835,30 @@ def run_one_case(case: dict[str, Any], *, staging_dir: str, final_dir: str) -> d
                 )
             )
 
+        if "errors" in expected:
+            checks.append(_check("errors", list(expected["errors"]), list(result.get("errors") or [])))
+        if "approval_rejection_recorded" in expected:
+            checks.append(
+                _check(
+                    "approval_rejection_recorded",
+                    bool(expected["approval_rejection_recorded"]),
+                    _approval_rejection_recorded(result, safe_events),
+                )
+            )
+
         detectors = [
             {"detector_id": finding["detector_id"], "event_hash": finding["event_hash"]}
             for finding in detect_multi_agent_events(safe_events)
         ]
+        if "detectors_absent" in expected:
+            fired = {detector["detector_id"] for detector in detectors}
+            checks.append(
+                _check(
+                    "detectors_absent",
+                    sorted(expected["detectors_absent"]),
+                    sorted(set(expected["detectors_absent"]) - fired),
+                )
+            )
         if "detector" in expected:
             actual_detector = next(
                 (

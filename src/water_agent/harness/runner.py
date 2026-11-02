@@ -10,14 +10,16 @@ citation_ok 恒真、pass_rate 实际等于检索 recall@k——保留仅供改�
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import os
 import re
 import sys
 import time
 import traceback
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from water_agent.docgen import (
@@ -28,6 +30,7 @@ from water_agent.docgen import (
 )
 from water_agent.docgen.quality import PolishTransport
 from water_agent.domain.models import (
+    AgenticCase,
     CalcCase,
     DocgenCase,
     DocgenQualityCase,
@@ -39,17 +42,30 @@ from water_agent.domain.models import (
 )
 from water_agent.domain.state import default_state
 from water_agent.generation.chat_model import build_chat_model
+from water_agent.generation.compatibility import require_verified_endpoint
 from water_agent.generation.cost import estimate_deepseek_cost
+from water_agent.generation.endpoints import (
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
-from water_agent.graphs.agent_rag import _extract_validation_signal, build_agentic_app
+from water_agent.graphs.agent_rag import (
+    _extract_validation_signal,
+    _payload_of,
+    build_agentic_app,
+    current_turn_messages,
+)
 from water_agent.graphs.calc import build_calc_graph
 from water_agent.graphs.rag import build_rag_graph
-from water_agent.harness.doubles import BadCitationGenerator
+from water_agent.harness.doubles import BadCitationGenerator, ScriptedChatModel
 from water_agent.harness.llm_judge import LLMJudge
 from water_agent.harness.loader import EvalLoadBundle, EvalLoadError, load_eval_bundle
 from water_agent.harness.retrieval_metrics import aggregate_retrieval_metrics
 from water_agent.harness.scorer import (
+    score_agentic_turn,
     score_calc_case,
     score_docgen_case,
     score_docgen_quality_case,
@@ -58,7 +74,18 @@ from water_agent.harness.scorer import (
     score_material_case,
 )
 from water_agent.materials import aggregate_materials
+from water_agent.mcp.http_client import mcp_request_scope
+from water_agent.mcp.web_layer import disabled_skill_names
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.observability.json_trace import JsonTraceRecorder
+from water_agent.plugins import (
+    AssemblyContext,
+    McpContribution,
+    McpGatewayPlugin,
+    SkillsContribution,
+    assemble_tools,
+    builtin_plugins,
+)
 from water_agent.prompting import PromptAssembler
 from water_agent.retrieval.in_memory import InMemoryRetriever
 from water_agent.retrieval.loader import load_clauses_jsonl
@@ -69,13 +96,7 @@ from water_agent.runtime.governance.binding import (
     default_gateway_with_sink,
     local_request_context,
 )
-from water_agent.tools.calc_velocity import calc_velocity_spec
-from water_agent.tools.ds_adapters import tool_spec_to_base_tool
 from water_agent.tools.hydraulics import run_calc
-from water_agent.tools.material_stats import material_stats_spec
-from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
-from water_agent.tools.registry import ToolRegistry
-from water_agent.tools.retrieve_clauses import build_retrieve_clauses_tool
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EVAL_REPORT_DIR = REPO_ROOT / "data" / "eval" / "reports"
@@ -84,72 +105,18 @@ DEFAULT_FIXTURE_PATH = REPO_ROOT / "data" / "fixtures" / "rag_fixture.jsonl"
 # 索引目录与选择规则归 retrieval.trivium 统一维护；别名保留既有引用点。
 DEFAULT_INDEX_DIR = TRIVIUM_INDEX_DIR
 DEFAULT_DB_DIMENSIONS = 512
-DEFAULT_MODEL = "deepseek-chat"
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
-DEFAULT_JUDGE_MODEL = "deepseek-chat"
-DEFAULT_JUDGE_BASE_URL = "https://api.deepseek.com"
-DEFAULT_JUDGE_API_KEY_ENV = "DEEPSEEK_API_KEY"
+# 历史名字保留（mock-agentic 装配参数与既有引用）；真实评测的端点 / 模型 / Key 名没显式给出时按
+# resolve_chat_endpoint 解析（P7-S10，缺省仍是 DeepSeek）。
+DEFAULT_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_API_KEY_ENV = DEFAULT_CHAT_API_KEY
+DEFAULT_JUDGE_MODEL = DEFAULT_CHAT_MODEL
+DEFAULT_JUDGE_BASE_URL = DEFAULT_CHAT_BASE_URL
+DEFAULT_JUDGE_API_KEY_ENV = DEFAULT_CHAT_API_KEY
 
 # 退出码语义（与 SKIP 明确区分）：
 #   0 全部通过或全部 SKIP；1 有用例失败；2 评测集加载问题；3 有 Key 但真实组件构建失败
 EXIT_REAL_COMPONENTS_FAILED = 3
-
-# P4 Step 25 性能优化：模块级 MCP 装配缓存，避免评测时每条用例重复 I/O
-_MCP_ASSEMBLY_CACHE: tuple[object, str, float] | None = None  # (assembly, config_path, config_mtime)
-
-
-def _get_or_create_mcp_assembly() -> object | None:
-    """获取或创建 MCP 装配，配置文件 mtime 变化时重建（模块级缓存）。
-
-    文件不存在 = 功能关闭（返回 None）；文件坏 = MCP_CONFIG_INVALID 上抛（响亮失败）。
-    缓存键 = (实际读取的配置路径, mtime)，与 load_mcp_gateway() 的数据源一致。
-    """
-    global _MCP_ASSEMBLY_CACHE
-
-    # 确定实际配置路径（与 load_mcp_gateway 逻辑一致：环境变量 → 默认路径）
-    from water_agent.mcp.config import default_config_path
-    config_path = default_config_path()
-
-    if not config_path.exists():
-        return None
-
-    try:
-        current_mtime = config_path.stat().st_mtime
-    except OSError:
-        return None
-
-    # 缓存命中且配置未变化（路径与 mtime 同时匹配）
-    if _MCP_ASSEMBLY_CACHE is not None:
-        cached_assembly, cached_path, cached_mtime = _MCP_ASSEMBLY_CACHE
-        if cached_path == str(config_path) and cached_mtime == current_mtime:
-            return cached_assembly
-        # 配置已变化：关闭旧装配的子进程，避免资源泄漏
-        try:
-            cached_assembly.close()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001, S110
-            pass  # 关闭失败不阻塞重建，但已尽力清理
-
-    # 缓存未命中或配置已变化，重新装配
-    # 配置错误（MCP_CONFIG_INVALID / MCPError）必须上抛，不得静默降级为 None
-    from water_agent.mcp.wiring import load_mcp_gateway, open_gateway_sessions
-    mcp_cfg = load_mcp_gateway()
-    mcp_assembly = open_gateway_sessions(mcp_cfg)
-    _MCP_ASSEMBLY_CACHE = (mcp_assembly, str(config_path), current_mtime)
-    return mcp_assembly
-
-
-def _cleanup_mcp_assembly_cache() -> None:
-    """清理模块级 MCP 装配缓存，关闭全部子进程（评测结束时调用）。"""
-    global _MCP_ASSEMBLY_CACHE
-    if _MCP_ASSEMBLY_CACHE is not None:
-        cached_assembly, _, _ = _MCP_ASSEMBLY_CACHE
-        try:
-            cached_assembly.close()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001, S110
-            pass
-        _MCP_ASSEMBLY_CACHE = None
-
 
 class RealComponentsError(RuntimeError):
     """有 Key 但真实组件（索引/embedding/模型/judge）构建失败——是失败，不是 SKIP。"""
@@ -209,13 +176,13 @@ class HarnessRunner:
         rerank_model: str | None = None,
         rerank_base_url: str | None = None,
         rerank_api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
-        api_key_env: str = DEFAULT_API_KEY_ENV,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key_env: str | None = None,
         judge: bool = False,
-        judge_model: str = DEFAULT_JUDGE_MODEL,
-        judge_base_url: str = DEFAULT_JUDGE_BASE_URL,
-        judge_api_key_env: str = DEFAULT_JUDGE_API_KEY_ENV,
+        judge_model: str | None = None,
+        judge_base_url: str | None = None,
+        judge_api_key_env: str | None = None,
         real_graph: str = "agentic",
         max_tool_turns: int = 10,
     ) -> None:
@@ -243,9 +210,13 @@ class HarnessRunner:
         self.rerank_model = rerank_model
         self.rerank_base_url = rerank_base_url
         self.rerank_api_key = rerank_api_key
-        self.model = model
-        self.base_url = base_url
-        self.api_key_env = api_key_env
+        # 端点唯一来源（P7-S10）：参数是显式覆盖，None 即按部署配置；Key 名的回落规则同 CLI / Web
+        self._chat_endpoint = resolve_chat_endpoint(
+            base_url=base_url, model=model, api_key_env=api_key_env
+        )
+        self.model = self._chat_endpoint.model
+        self.base_url = self._chat_endpoint.base_url
+        self.api_key_env = self._chat_endpoint.api_key_name or DEFAULT_CHAT_API_KEY
         self.judge = judge
         self.judge_model = judge_model
         self.judge_base_url = judge_base_url
@@ -261,53 +232,65 @@ class HarnessRunner:
     # ── 真实组件装配 ────────────────────────────────────────────────
 
     def _probe_real_skip(self) -> str | None:
-        """检测真实质量层运行前置条件，返回跳过原因（None=可运行）。"""
-        deepseek = os.environ.get(self.api_key_env, "").strip()
-        dashscope = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+        """检测真实质量层运行前置条件，返回跳过原因（None=可运行）。
+
+        P7-S10：embedding Key 只在**强制** ``WATER_AGENT_RETRIEVAL_MODE=hybrid`` 时是前置条件；``auto`` 下没配
+        embedding 时真实评测走关键词检索（与 CLI / Web 同一规则），报告与 stderr 如实标出检索模式。
+        """
+        from water_agent.generation.endpoints import resolve_embedding_endpoint
+        from water_agent.retrieval.trivium import MODE_HYBRID, retrieval_mode_setting
+
         missing: list[str] = []
-        if not deepseek:
+        if self._chat_endpoint.missing_key():
             missing.append(self.api_key_env)
-        if not dashscope:
-            missing.append("DASHSCOPE_API_KEY")
+        embedding_key = resolve_embedding_endpoint().missing_key()
+        if retrieval_mode_setting() == MODE_HYBRID and embedding_key:
+            missing.append(embedding_key)
         if missing:
-            return f"SKIP: 缺少 API Key: {', '.join(missing)}。真实质量层需配置 DASHSCOPE_API_KEY（embedding）与 {self.api_key_env}（LLM）。"
+            return (
+                f"SKIP: 缺少 API Key: {', '.join(missing)}。真实质量层需配置 {self.api_key_env}（LLM）；"
+                "强制 hybrid 检索时还需要 embedding Key。"
+            )
         index = _pick_index(self.db_path)
         if index is None:
             return "SKIP: 无 TriviumDB 索引（data/indexes/ 下无可用的 .db 文件）。"
         return None
 
     def _build_real_retriever(self) -> TriviumRetriever:
-        """构建真实 TriviumDB 检索器（需 DASHSCOPE_API_KEY 与索引）。"""
-        import triviumdb
-
-        from water_agent.embedding import build_embedding_provider
+        """构建真实 TriviumDB 检索器：与会话装配同一个构造函数（检索模式规则只有一份，P7-S10）。"""
+        from water_agent.retrieval.trivium import retrieval_mode_setting
+        from water_agent.runtime.agentic import build_index_retriever
 
         index = _pick_index(self.db_path)
         assert index is not None, "real retriever requires an index"
-        dim = self.dimensions
-        if dim is None:
-            # 只读打开：探测只需要 dim()，read_write 会要求索引可写（见
-            # TriviumRetriever 的说明），在只读挂载的索引上会无谓失败。
-            probe = triviumdb.TriviumDB(str(index), access_mode="read_only")
-            try:
-                dim = int(probe.dim())
-            finally:
-                probe.close()
-        dim = dim or DEFAULT_DB_DIMENSIONS
-        provider = build_embedding_provider(dimensions=dim)
-        return TriviumRetriever(
-            db_path=index,
-            embedding_fn=provider.embed,
+        retriever = build_index_retriever(
+            Path(index),
+            setting=retrieval_mode_setting(),
+            dimensions=self.dimensions,
             hybrid_alpha=self.hybrid_alpha,
-            dim=dim,
             fallback_clauses=self._clauses,
         )
+        status = retriever.runtime_status
+        if status.get("retrieval_mode") != "hybrid":
+            print(
+                json.dumps(
+                    {
+                        "warning": "真实评测的检索是关键词模式（不是语义检索）",
+                        "retrieval_mode": status.get("retrieval_mode"),
+                        "retrieval_mode_reason": status.get("retrieval_mode_reason"),
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+        return retriever
 
     def _build_real_generator(self):
         """构建真实 LLM 生成器（需 DEEPSEEK_API_KEY）。"""
         assembler = PromptAssembler()
         sys_content = assembler.assemble_prompt().content
         system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        require_verified_endpoint(self._chat_endpoint)
         return build_llm_generator(
             model=self.model,
             base_url=self.base_url,
@@ -316,6 +299,8 @@ class HarnessRunner:
 
     def _build_real_chat_model(self):
         """构建真实 chat model（ChatOpenAI/DeepSeek function calling，agentic 图用）。"""
+        # 非缺省端点没有通过的兼容性报告即 RealComponentsError（有 Key 但建不起来，exit 3，不是 SKIP）
+        require_verified_endpoint(self._chat_endpoint)
         return build_chat_model(model=self.model, base_url=self.base_url, api_key_env=self.api_key_env)
 
     def _ensure_real_components(self):
@@ -432,11 +417,13 @@ class HarnessRunner:
         )
 
     def _run_calc_case(self, case: CalcCase, *, line_no: int | None = None) -> EvalResult:
-        """calc 端到端：走计算子图（真工具 + 确定性解释器），判分仍用 Step 1 run_calc。
+        """calc 端到端：计算子图与 ``run_calc`` 分发器两层都要与用例期望一致。
 
-        子图 compute 内部调 run_calc 使用与评测一致的输入，故数值与直接判分同源；
-        缺参/非法路径可能短路（无 compute 产物），回退 run_calc 取结构化 CalcResult，
-        保证判分确定性与 Step 1 一致。
+        - 子图层：状态、缺参清单与数值全部取自子图产物；缺参/口径外在解析阶段短路时
+          没有 ``calc_result``，这是合法的，由状态判分。此前短路时回退直调 ``run_calc``
+          判分，于是子图路由坏掉、报"成功"却没有任何数值也照样 28/28（review 2026-09-30）；
+        - 分发器层：子图按自己的必需参数表短路缺参，不经过 ``run_calc``，而多 Agent 水力
+          Agent 与 MCP 水力服务直接调它——同一份期望对它再判一次，失败原因带 ``run_calc:``。
         """
         app = build_calc_graph()
         state: dict = {
@@ -456,10 +443,20 @@ class HarnessRunner:
         started = time.perf_counter()
         graph_result = app.invoke(state)
         latency_ms = (time.perf_counter() - started) * 1000
-        calc_result = graph_result.get("calc_result")
-        if calc_result is None:
-            calc_result = run_calc(case.formula, case.input)
-        result = score_calc_case(case, calc_result=calc_result, latency_ms=latency_ms, line_no=line_no)
+        result = score_calc_case(
+            case,
+            calc_result=graph_result.get("calc_result"),
+            graph_status=str(graph_result.get("status") or ""),
+            graph_missing_inputs=graph_result.get("missing_inputs") or [],
+            latency_ms=latency_ms,
+            line_no=line_no,
+        )
+        dispatcher = score_calc_case(case, calc_result=run_calc(case.formula, case.input))
+        if not dispatcher.passed:
+            result.passed = False
+            result.failure_reason = "; ".join(
+                reason for reason in (result.failure_reason, f"run_calc: {dispatcher.failure_reason}") if reason
+            )
         result.variant = self._effective_variant(case)
         return result
 
@@ -564,7 +561,7 @@ class HarnessRunner:
 
         variant = self._effective_variant(case)
         if variant == "real":
-            if not os.environ.get(self.api_key_env, "").strip():
+            if self._chat_endpoint.missing_key():
                 verdict = run_quality_polish(rendered, api_key_env=self.api_key_env)
             else:
                 if self._real_polisher is None:
@@ -616,7 +613,127 @@ class HarnessRunner:
         scored.variant = "programmatic"
         return scored
 
+    def _agentic_args(self) -> argparse.Namespace:
+        """mock-agentic 用的装配参数：与 Web 默认一致（本地 rerank、同一 top_k），但不连真实模型。
+
+        ``drawing_root=""`` 明确不注册图纸工具（``None`` 会去读 ``DRAWING_ROOT``，工具清单
+        随本机环境漂移）；模型与检索器由调用方注入，MCP 装配关闭。
+        """
+        return argparse.Namespace(
+            db_path=None,
+            dimensions=None,
+            rerank="local",
+            rerank_model=None,
+            rerank_base_url=None,
+            rerank_api_key=None,
+            top_k=5,
+            recall_top_k=20,
+            hybrid_alpha=0.7,
+            model=DEFAULT_MODEL,
+            base_url=DEFAULT_BASE_URL,
+            api_key_env=DEFAULT_API_KEY_ENV,
+            api_key=None,
+            mock_generator=True,
+            session_dir=str(self.trace_dir),
+            trace_dir=str(self.trace_dir),
+            stream=False,
+            drawing_root="",
+        )
+
+    def _run_agentic_case(self, case: AgenticCase, *, line_no: int | None = None) -> EvalResult:
+        """mock-agentic 机制层：生产 ``AgenticSession`` 装配 + 逐步脚本模型 + fixture 语料。
+
+        每轮新建一个 session、共用同一 checkpointer 与 thread（与 Web RunManager 同构），
+        checkpoint 用生产 serde（只放行 CitationClaim）——跨轮 state 残留、回流计数、
+        可追溯检查作用域这类只在真实装配下才暴露的行为在这里能被看见。PR 门禁此前对
+        生产 Web 走的 agentic 图没有任何 harness 级覆盖（review 2026-09-30）。
+        """
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        from water_agent.runtime.agentic import AgenticSession
+        from water_agent.session import default_checkpoint_serde
+
+        saver = InMemorySaver(serde=default_checkpoint_serde())
+        thread_id = f"{case.id}-{uuid4().hex[:8]}"
+        reasons: list[str] = []
+        last: dict[str, Any] = {}
+        context: list[str] = []
+        trace_id = ""
+        started = time.perf_counter()
+        for number, turn in enumerate(case.turns, start=1):
+            model = ScriptedChatModel(
+                steps=[step.model_dump(mode="json") for step in turn.script],
+                id_prefix=f"{case.id}-t{number}",
+            )
+            final_state: dict[str, Any] = {}
+            tokens: list[str] = []
+
+            def capture(mode: str, payload: Any, _sink: dict[str, Any] = final_state) -> None:
+                if mode == "values" and isinstance(payload, dict):
+                    _sink.clear()
+                    _sink.update(payload)
+
+            with ExitStack() as stack:
+                session = AgenticSession(
+                    self._agentic_args(),
+                    stack=stack,
+                    thread_id=thread_id,
+                    checkpointer=saver,
+                    model=model,
+                    retriever=TriviumRetriever(db_path=None, fallback_clauses=self._clauses),
+                    mcp_enabled=False,
+                )
+                last = asyncio.run(
+                    session.aask(turn.query, run_id=uuid4().hex, on_token=tokens.append, on_event=capture)
+                )
+                trace_id = session.recorder.trace_id or trace_id
+            messages = final_state.get("messages", []) or []
+            context, _, _ = _extract_validation_signal({"messages": messages})
+            rejected_by_tool = [
+                str(cid)
+                for message in current_turn_messages(messages)
+                if getattr(message, "name", None) == "cite_clauses"
+                and _payload_of(message).get("registered") is False
+                for cid in _payload_of(message).get("invalid_ids", []) or []
+            ]
+            turn_reasons = score_agentic_turn(
+                turn,
+                actual_status=str(last.get("status") or ""),
+                answer=str(last.get("answer") or ""),
+                citations=[str(item.get("source_id") or "") for item in last.get("citations", [])],
+                context_articles=context,
+                errors=last.get("errors", []) or [],
+                warnings=last.get("warnings", []) or [],
+                tool_rejected_citations=rejected_by_tool,
+                script_steps_used=int(model.state["calls"]),
+                model_inputs=[
+                    message.content if isinstance(message.content, str) else str(message.content)
+                    for call in model.state["received"]
+                    for message in call
+                ],
+                streamed="".join(tokens),
+            )
+            reasons.extend(f"turn {number}: {reason}" for reason in turn_reasons)
+        latency_ms = (time.perf_counter() - started) * 1000
+        final_turn = case.turns[-1]
+        return EvalResult(
+            case_id=case.id,
+            passed=not reasons,
+            expected_status=case.expected_status,
+            actual_status=str(last.get("status") or ""),
+            expected_articles=[*final_turn.gold_articles_any, *final_turn.gold_articles_all],
+            actual_citations=[str(item.get("source_id") or "") for item in last.get("citations", [])],
+            context_articles=list(dict.fromkeys(context)),
+            failure_reason="; ".join(reasons),
+            latency_ms=round(latency_ms, 3),
+            trace_id=trace_id,
+            line_no=line_no,
+            variant=case.variant,
+        )
+
     def _run_case(self, case, *, line_no: int | None = None):
+        if isinstance(case, AgenticCase):
+            return self._run_agentic_case(case, line_no=line_no)
         if isinstance(case, CalcCase):
             return self._run_calc_case(case, line_no=line_no)
         if isinstance(case, DocgenCase):
@@ -683,6 +800,7 @@ class HarnessRunner:
             trace_id=result.get("trace_id", trace_id),
             retry_count=retry_count,
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = _variant
 
@@ -731,87 +849,84 @@ class HarnessRunner:
         request_context = local_request_context(
             thread_id=case_thread_id, request_id=f"req-{case_thread_id[:12]}"
         )
-        # 让缓存的真实 chat model 用本条用例的主体（GovernedChatModel 经 _BudgetChatModel
-        # 持有内层引用，这里直接置位其 request_context 即可逐用例生效）。
         gateway = default_gateway_with_sink(recorder.record_provider_event)
-        if hasattr(self._real_chat_model, "request_context"):
-            self._real_chat_model.request_context = request_context
-        if hasattr(self._real_chat_model, "gateway"):
-            self._real_chat_model.gateway = gateway
-        # 先创建带本地工具的基础 registry（异常恢复路径保留本地工具）
-        base_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
+        thread_config = {"configurable": {"thread_id": case_thread_id}}
+        app_holder: dict[str, Any] = {}
 
-        # 启用引用可追溯性检查（Step 8，2026-09-16）
-        from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
-        cite_tool_spec, context_updater = build_cite_clauses_tool_with_context_check()
-
-        base_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater))
-        base_registry.register(cite_tool_spec)
-        base_registry.register(calc_velocity_spec)
-        base_registry.register(material_stats_spec)
-        drawing_tool, _ = maybe_build_read_drawing_tool()
-        if drawing_tool is not None:
-            base_registry.register(drawing_tool)
-
-        registry = base_registry  # 默认使用基础 registry
-        # P4 Step 25：MCP 网关装配（装配期单入口，manifest hash 进 trace；单台故障不拖垮其余）。
-        # 性能优化：使用模块级缓存避免每条用例重复 I/O
-        mcp_assembly = _get_or_create_mcp_assembly()
-        try:
-            from water_agent.mcp.wiring import register_mcp_tools
-            from water_agent.runtime.governance.contracts import Capability as _Cap
-            if mcp_assembly is not None:
-                try:
-                    recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.summary())  # type: ignore[arg-type]
-                except Exception:  # noqa: BLE001, S110
-                    pass
-                if mcp_assembly.sessions:  # type: ignore[attr-defined]
-                    # 先尝试注册 MCP 工具，只有成功注册后才发放能力（时序漏洞修复）
-                    temp_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-                    tool_count = register_mcp_tools(mcp_assembly, temp_registry)
-                    if tool_count:
-                        # 只有成功注册工具后才更新主体能力
-                        caps2 = frozenset(request_context.principal.capabilities) | {_Cap.MCP_INVOKE}
-                        request_context = request_context.model_copy(update={"principal": request_context.principal.model_copy(update={"capabilities": caps2})})
-                        # 主体能力更新后重建 registry（护栏按新主体校验），再把所有工具注进去
-                        new_registry = ToolRegistry(principal=request_context.principal, trace=recorder)
-
-                        # 启用引用可追溯性检查（Step 8，2026-09-16）
-                        cite_tool_spec2, context_updater2 = build_cite_clauses_tool_with_context_check()
-
-                        new_registry.register(build_retrieve_clauses_tool(retriever, context_updater=context_updater2))
-                        new_registry.register(cite_tool_spec2)
-                        new_registry.register(calc_velocity_spec)
-                        new_registry.register(material_stats_spec)
-                        drawing_tool2, _ = maybe_build_read_drawing_tool()
-                        if drawing_tool2 is not None:
-                            new_registry.register(drawing_tool2)
-                        register_mcp_tools(mcp_assembly, new_registry)
-                        # 只有全部成功后才切换到新 registry（异常恢复时保留 base_registry）
-                        registry = new_registry
-        except Exception as exc:  # noqa: BLE001
-            # 异常时 registry 仍是 base_registry（带本地工具）
+        def thread_retrieved_source_ids() -> set[str]:
+            """本用例 thread 至今检索到的 source_id（读 checkpoint，与会话路径同语义）；
+            图还没构造、或 checkpoint 读不到时为空集合——空集合不是"全部放行"。"""
+            app = app_holder.get("app")
+            if app is None:
+                return set()
             try:
-                recorder.record(node="mcp", event="mcp_assembly_error", data={"error": str(exc)[:400]})
-            except Exception:  # noqa: BLE001, S110
-                pass
-        tools = [tool_spec_to_base_tool(registry, name) for name in registry.list_all_names()]
+                values = getattr(app.get_state(thread_config), "values", None) or {}
+            except Exception:  # noqa: BLE001 — 读不到历史只影响可追溯集合，不影响作答
+                return set()
+            context_ids, _, _ = _extract_validation_signal(
+                {"messages": list(values.get("messages", []) or [])}
+            )
+            return set(context_ids)
 
-        started = time.perf_counter()
-        with MemorySaver() as saver:
+        # 工具装配单入口（P7-S2，规格 §3.5）：与会话路径同语义——MCP 每条用例现开现关
+        # （与 Web 每个 run 同构）、坏配置或注册冲突响亮失败（由 run_bundle 按用例隔离）、
+        # 图纸根读 DRAWING_ROOT、cite 可追溯集合读本用例 thread。评测仍不接回答缓存。
+        with ExitStack() as stack, MemorySaver() as saver:
+            mcp_config = load_mcp_gateway()
+            assembly = assemble_tools(
+                AssemblyContext(
+                    retriever=retriever,
+                    cite_context_source=thread_retrieved_source_ids,
+                    drawing_root=None,
+                ),
+                base_principal=request_context.principal,
+                trace=recorder,
+                plugins=builtin_plugins(
+                    mcp=McpGatewayPlugin.owning(mcp_config, stack=stack),
+                    skills_disabled=disabled_skill_names(),
+                ),
+            )
+            request_context = request_context.model_copy(
+                update={"principal": assembly.principal}
+            )
+            # 让缓存的真实 chat model 用本条用例**授权后**的主体（GovernedChatModel 经
+            # _BudgetChatModel 持有内层引用，这里直接置位其 request_context 即可逐用例生效）。
+            if hasattr(self._real_chat_model, "request_context"):
+                self._real_chat_model.request_context = request_context
+            if hasattr(self._real_chat_model, "gateway"):
+                self._real_chat_model.gateway = gateway
+            # 先开 trace 再写装配摘要（P7-S3，F13 的后续）：此前 trace 由图的首个节点开启，
+            # 装配期写的事件在 recorder 尚未 start 时全被吞掉。
+            recorder.start(run_id=uuid4().hex, trace_id=uuid4().hex, query=case.query)
+            mcp_assembly = assembly.contribution(McpContribution).assembly
+            # P7-S9：开关 off（缺省）时是空库，下面两处都不变
+            skill_library = assembly.contribution(SkillsContribution).library
+            if mcp_assembly.has_activity:
+                recorder.record(node="mcp", event="mcp_assembly", data=mcp_assembly.trace_summary())
+            # 延迟口径与改造前一致：从构图开始计时，不含工具装配与 MCP 子进程启动
+            started = time.perf_counter()
             app = build_agentic_app(
                 model=self._real_chat_model,
-                tools=tools,
+                tools=assembly.tools,
                 checkpointer=saver,
-                prompt=PromptAssembler(tool_registry=registry),
+                prompt=PromptAssembler(
+                    tool_registry=assembly.registry,
+                    exposure=assembly.exposure,
+                    skill_library=skill_library,
+                ),
                 max_tool_turns=self.max_tool_turns,
                 trace=recorder,
                 request_context=request_context,
+                exposure=assembly.exposure,
+                **({"skill_library": skill_library} if skill_library.enabled else {}),
             )
-            result = app.invoke(
-                {"messages": [HumanMessage(content=case.query)], "query": case.query},
-                config={"configurable": {"thread_id": case_thread_id}},
-            )
+            app_holder["app"] = app
+            # 远程 MCP 的 tools/call 按本用例的（授权后）主体做能力校验（P7-S8）
+            with mcp_request_scope(request_context):
+                result = app.invoke(
+                    {"messages": [HumanMessage(content=case.query)], "query": case.query},
+                    config=thread_config,
+                )
         latency_ms = (time.perf_counter() - started) * 1000
 
         context_articles, _, _ = _extract_validation_signal(result)
@@ -825,6 +940,7 @@ class HarnessRunner:
             trace_id=recorder.trace_id or "",
             retry_count=int(result.get("retry_count", 0)),
             line_no=line_no,
+            errors=result.get("errors", []),
         )
         scored.variant = "real"
         if not scored.passed and result.get("errors"):
@@ -1063,13 +1179,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db-path", default=None, help="TriviumDB 索引路径（默认用 data/indexes 下最新库）")
     p.add_argument("--dimensions", type=int, default=None, choices=[256, 512, 768, 1024], help="embedding 维度")
     p.add_argument("--rerank", choices=["local", "bailian", "none"], default="local", help="rerank 策略")
-    p.add_argument("--model", default=DEFAULT_MODEL, help="LLM 模型名")
-    p.add_argument("--base-url", default=DEFAULT_BASE_URL, help="LLM base_url")
-    p.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV, help="真实模型 API Key 环境变量名")
+    p.add_argument("--model", default=None, help="LLM 模型名（缺省按部署配置，未配置时 deepseek-chat）")
+    p.add_argument("--base-url", default=None, help="LLM base_url（缺省按部署配置，未配置时 DeepSeek）")
+    p.add_argument("--api-key-env", default=None, help="真实模型 API Key 环境变量名（缺省按端点解析）")
     p.add_argument("--judge", action="store_true", help="启用 LLM-as-judge 回答质量评分（仅 --variant real 有效）")
-    p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="Judge 模型名")
-    p.add_argument("--judge-base-url", default=DEFAULT_JUDGE_BASE_URL, help="Judge base_url")
-    p.add_argument("--judge-api-key-env", default=DEFAULT_JUDGE_API_KEY_ENV, help="Judge API Key 环境变量名")
+    p.add_argument("--judge-model", default=None, help="Judge 模型名（缺省同对话端点解析）")
+    p.add_argument("--judge-base-url", default=None, help="Judge base_url（缺省同对话端点解析）")
+    p.add_argument("--judge-api-key-env", default=None, help="Judge API Key 环境变量名（缺省按端点解析）")
     p.add_argument("--real-graph", choices=["agentic", "legacy"], default="agentic",
                    help="--variant real 走哪条图：agentic（默认，模型自己声明引用、校验器真判）/ legacy（引用系统代填，仅供对比）")
     p.add_argument("--max-tool-turns", type=int, default=10, help="agentic 图每轮工具调用预算")
@@ -1113,9 +1229,6 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, EvalLoadError, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
-    finally:
-        # P4 Step 25：评测结束时清理 MCP 装配缓存，关闭全部子进程
-        _cleanup_mcp_assembly_cache()
 
     output = {
         "ok": True,
@@ -1137,14 +1250,24 @@ def main(argv: list[str] | None = None) -> int:
         "report_path": str(report_path),
         "load_issues": load_issues,
     }
+    # P7-S10：真实评测用了哪种检索如实写出（关键词模式的分数不能当成混合检索的分数）
+    real_retriever = runner._real_retriever
+    status = getattr(real_retriever, "runtime_status", None) if real_retriever is not None else None
+    if isinstance(status, dict):
+        output["retrieval_mode"] = status.get("retrieval_mode")
+        output["retrieval_mode_reason"] = status.get("retrieval_mode_reason")
     # SKIP 全量时添加标记
     if report.skipped == report.total and report.skipped > 0:
         output["skipped_all"] = True
         if report.cases and report.cases[0].failure_reason:
             output["skip_reason"] = report.cases[0].failure_reason
+    # 0 条用例不是"全部通过"：数据集被清空或整份改坏时，failed=0 会被读成绿灯。
+    # ``ok`` 仍只表示 runner 本身跑完；是否可信看退出码（此处为 2，同加载问题）。
+    if report.total == 0:
+        output["error"] = "评测集没有任何可执行用例"
 
     print(json.dumps(output, ensure_ascii=False, indent=2))
-    if load_issues:
+    if load_issues or report.total == 0:
         return 2
     return 0 if report.failed == 0 else 1
 

@@ -40,6 +40,28 @@ MCP_NAME_COLLISION = "MCP_NAME_COLLISION"
 #: 工具不在 server 配置的 allow 白名单内（None=全拒）。
 MCP_NOT_IN_ALLOWLIST = "MCP_NOT_IN_ALLOWLIST"
 
+#: server 在配置里被停用（``disabled=true``，P7-S3）：不 spawn、不暴露任何工具。
+MCP_SERVER_DISABLED = "MCP_SERVER_DISABLED"
+
+#: server 声明的凭据槽位（``credential_env``，P7-S6）还没填值：连接前跳过、不 spawn。
+MCP_CREDENTIAL_MISSING = "MCP_CREDENTIAL_MISSING"
+
+#: 远程 MCP 的目标地址（URL 主机名解析出的任一地址）落在禁止段——回环 / 私有 / 链路本地（含云元数据）/
+#: CGNAT / 未指定 / 组播 / 保留段（P7-S8）。拒绝发生在发出第一个字节之前。
+MCP_DESTINATION_FORBIDDEN = "MCP_DESTINATION_FORBIDDEN"
+
+#: server 只讲 2026-07-28 的无状态协议，本网关只实现 2025-11-25 的会话制（P7-S8，只识别不实现）。
+MCP_PROTOCOL_UNSUPPORTED = "MCP_PROTOCOL_UNSUPPORTED"
+
+#: server 要求 OAuth 授权而本部署还没有（或已失效的）令牌，需管理员在 Web 扩展面板（重新）授权（P7-S8）。
+MCP_OAUTH_REQUIRED = "MCP_OAUTH_REQUIRED"
+
+#: 授权流程无法进行：授权服务器元数据缺 PKCE（S256）、issuer 不在白名单、客户端注册方式缺失……（P7-S8）。
+MCP_OAUTH_UNAVAILABLE = "MCP_OAUTH_UNAVAILABLE"
+
+#: 访问令牌的 scope 不够（403 ``insufficient_scope``）：如实报出所需 scope，不自动升级授权（P7-S8）。
+MCP_OAUTH_INSUFFICIENT_SCOPE = "MCP_OAUTH_INSUFFICIENT_SCOPE"
+
 #: 全部 MCP 稳定错误码（测试锁死不缩小）。
 MCP_ERROR_CODES: frozenset[str] = frozenset(
     {
@@ -56,6 +78,13 @@ MCP_ERROR_CODES: frozenset[str] = frozenset(
         MCP_CONFIRMATION_UNAVAILABLE,
         MCP_NAME_COLLISION,
         MCP_NOT_IN_ALLOWLIST,
+        MCP_SERVER_DISABLED,
+        MCP_CREDENTIAL_MISSING,
+        MCP_DESTINATION_FORBIDDEN,
+        MCP_PROTOCOL_UNSUPPORTED,
+        MCP_OAUTH_REQUIRED,
+        MCP_OAUTH_UNAVAILABLE,
+        MCP_OAUTH_INSUFFICIENT_SCOPE,
     }
 )
 
@@ -76,6 +105,13 @@ _CODE_HINTS: dict[str, str] = {
     MCP_CONFIRMATION_UNAVAILABLE: "MCP 工具需人工确认但确认门未接线：",
     MCP_NAME_COLLISION: "MCP 工具本地名冲突：",
     MCP_NOT_IN_ALLOWLIST: "MCP 工具不在 allow 白名单：",
+    MCP_SERVER_DISABLED: "MCP server 已在配置中停用：",
+    MCP_CREDENTIAL_MISSING: "MCP server 的凭据槽位未填写：",
+    MCP_DESTINATION_FORBIDDEN: "MCP 远程目标地址被禁止：",
+    MCP_PROTOCOL_UNSUPPORTED: "MCP server 的协议版本本网关不支持：",
+    MCP_OAUTH_REQUIRED: "MCP server 需要 OAuth 授权：",
+    MCP_OAUTH_UNAVAILABLE: "MCP OAuth 授权流程无法进行：",
+    MCP_OAUTH_INSUFFICIENT_SCOPE: "MCP 访问令牌 scope 不足：",
 }
 
 
@@ -105,13 +141,20 @@ __all__ = [
     "MCP_CONFIG_INVALID",
     "MCP_CONFIRMATION_UNAVAILABLE",
     "MCP_CONNECT_FAILED",
+    "MCP_CREDENTIAL_MISSING",
     "MCP_DESCRIPTION_UNSAFE",
+    "MCP_DESTINATION_FORBIDDEN",
     "MCP_ERROR_CODES",
     "MCP_NAME_COLLISION",
     "MCP_NOT_INITIALIZED",
     "MCP_NOT_IN_ALLOWLIST",
+    "MCP_OAUTH_INSUFFICIENT_SCOPE",
+    "MCP_OAUTH_REQUIRED",
+    "MCP_OAUTH_UNAVAILABLE",
     "MCP_PROTOCOL_ERROR",
+    "MCP_PROTOCOL_UNSUPPORTED",
     "MCP_RESPONSE_TOO_LARGE",
+    "MCP_SERVER_DISABLED",
     "MCP_TIMEOUT",
     "MCP_TOOL_NOT_FOUND",
     "MCP_TOOL_REMOTE_ERROR",

@@ -5,12 +5,12 @@ from __future__ import annotations
 import base64
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 
 from water_agent.memory import (
     CandidateDisposition,
@@ -18,11 +18,13 @@ from water_agent.memory import (
     ExplicitMemoryWriteService,
     MemoryConfirmation,
     MemoryConflictRequiresConfirmationError,
+    MemoryExpiredError,
     MemoryInjectionBlockedError,
     MemoryKind,
     MemoryKindInvalidError,
     MemoryNotFoundError,
     MemoryPiiBlockedError,
+    MemoryRecallService,
     MemoryRepository,
     MemoryRevisionConflictError,
     MemoryScopeDeniedError,
@@ -34,12 +36,13 @@ from water_agent.memory import (
     MemoryWriteAction,
     MemoryWriteGuard,
     adapt_remember_command,
+    pending_candidates,
 )
 from water_agent.memory.pending_candidates import PendingCandidateStore
 from water_agent.observability.json_trace import JsonTraceRecorder
 from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
 from water_agent.storage.database import Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
 
 
@@ -221,6 +224,122 @@ def test_pending_candidates_are_bounded_and_expire_without_persistence(
     with pytest.raises(MemoryNotFoundError, match="candidate not found"):
         store.get(second.candidate_id)
     assert _count_rows(database, "memory_records") == 0
+
+
+# ---------------------------------------------------------------------------
+# 待确认候选按用户设配额
+#
+# 回归（已复现）：上限 256 是全局共享的，超限时按插入顺序淘汰最旧的候选，不看是谁的。
+# bob 连发 256 个预览后，alice 确认自己的预览返回 404 MEMORY_NOT_FOUND——任何登录
+# 用户都能让别人的「保存记忆」确认失败。
+# ---------------------------------------------------------------------------
+
+
+def _copies(candidate, count: int) -> list:
+    return [candidate.model_copy(update={"candidate_id": uuid4()}) for _ in range(count)]
+
+
+def _held(store: PendingCandidateStore, candidate) -> bool:
+    try:
+        store.get(candidate.candidate_id)
+    except MemoryNotFoundError:
+        return False
+    return True
+
+
+def _template(database: Database, tenant_id: UUID, actor: UUID):
+    _insert_users(database, actor)
+    return _candidate(_write_service(database), tenant_id=tenant_id, actor_user_id=actor)
+
+
+def test_one_users_preview_flood_never_evicts_another_users_candidate(
+    database: Database,
+) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore()
+    (mine,) = _copies(template, 1)
+    store.put(mine, tenant_id=tenant_id, actor_user_id=alice)
+
+    flood = _copies(template, pending_candidates.PENDING_CANDIDATE_LIMIT)
+    for item in flood:
+        store.put(item, tenant_id=tenant_id, actor_user_id=bob)
+
+    assert _held(store, mine), "别的用户的预览不得挤掉我的候选"
+    quota = pending_candidates.PENDING_CANDIDATE_PER_USER_LIMIT
+    assert all(_held(store, item) for item in flood[-quota:])
+    assert not any(_held(store, item) for item in flood[:-quota]), "超额只淘汰 bob 自己最旧的"
+
+
+def test_per_user_quota_evicts_only_that_users_oldest_candidate(database: Database) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=10, per_user_limit=2)
+    (theirs,) = _copies(template, 1)
+    a1, a2, a3 = _copies(template, 3)
+    store.put(theirs, tenant_id=tenant_id, actor_user_id=bob)
+    for item in (a1, a2, a3):
+        store.put(item, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, a1)
+    assert _held(store, a2) and _held(store, a3)
+    assert _held(store, theirs)
+
+
+def test_global_cap_evicts_only_the_heaviest_users_oldest_candidate(
+    database: Database,
+) -> None:
+    """总上限仍在（防内存无界），但超限时只拿占用最多的那个用户开刀。"""
+
+    alice, bob, carol, tenant_id = uuid4(), uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=3)
+    b1, b2, b3 = _copies(template, 3)
+    a1, c1 = _copies(template, 2)
+    for item in (b1, b2, b3):
+        store.put(item, tenant_id=tenant_id, actor_user_id=bob)
+    store.put(a1, tenant_id=tenant_id, actor_user_id=alice)
+
+    store.put(c1, tenant_id=tenant_id, actor_user_id=carol)
+
+    assert not _held(store, b1)
+    assert all(_held(store, item) for item in (b2, b3, a1, c1))
+
+
+def test_global_cap_tie_evicts_the_submitters_own_oldest_first(database: Database) -> None:
+    alice, bob, tenant_id = uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=3)
+    a1, a2, a3 = _copies(template, 3)
+    b1, b2 = _copies(template, 2)
+    for item, owner in ((a1, alice), (b1, bob), (a2, alice), (b2, bob)):
+        store.put(item, tenant_id=tenant_id, actor_user_id=owner)
+
+    store.put(a3, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, a1), "并列最多时先淘汰提交者自己的"
+    assert all(_held(store, item) for item in (a2, a3, b1, b2))
+
+
+def test_global_cap_tie_among_others_evicts_the_longest_waiting_users_oldest(
+    database: Database,
+) -> None:
+    alice, bob, carol, tenant_id = uuid4(), uuid4(), uuid4(), uuid4()
+    template = _template(database, tenant_id, alice)
+    store = PendingCandidateStore(limit=4, per_user_limit=4)
+    b1, c1, b2, c2, a1 = _copies(template, 5)
+    for item, owner in ((b1, bob), (c1, carol), (b2, bob), (c2, carol)):
+        store.put(item, tenant_id=tenant_id, actor_user_id=owner)
+
+    store.put(a1, tenant_id=tenant_id, actor_user_id=alice)
+
+    assert not _held(store, b1)
+    assert all(_held(store, item) for item in (c1, b2, c2, a1))
+
+
+def test_pending_store_rejects_a_non_positive_per_user_limit() -> None:
+    with pytest.raises(ValueError):
+        PendingCandidateStore(per_user_limit=0)
 
 
 @pytest.mark.parametrize(
@@ -1061,3 +1180,175 @@ def test_postgres_confirm_reaffirm_and_forget_use_step40_transactions() -> None:
         assert forgotten.memory.content == ""
     finally:
         database.dispose()
+
+
+# ---------------------------------------------------------------------------
+# 到期记录不再占着 semantic_key
+#
+# 回归（已复现）：2 秒后过期的偏好到期后，列表与召回都看不到它，可对同一 key 新建
+# 候选得到 conflict 并展示已过期的正文；不选处理方式确认返回 409；选
+# correct_existing 返回 201 corrected，列表与检索却仍为空——界面显示成功，实际
+# 永远召回不到（静默数据丢失）。
+# ---------------------------------------------------------------------------
+
+
+def _pass_deadline(database: Database, memory_id: UUID) -> None:
+    """模拟到期：只把 expires_at 改到过去，不跑任何清扫（与生产无调度时一致）。"""
+
+    with database.transaction() as session:
+        session.execute(
+            update(MemoryRecordRow)
+            .where(MemoryRecordRow.memory_id == str(memory_id))
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+
+def _remember_until(
+    app: ExplicitMemoryWriteService,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID,
+    content: str = "默认使用 SI 单位",
+    semantic_key: str = "units",
+):
+    candidate = app.candidate(
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        scope_type=MemoryScopeType.USER,
+        kind=MemoryKind.USER_PREFERENCE,
+        semantic_key=semantic_key,
+        content=content,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    result = _confirm(app, candidate, tenant_id=tenant_id, actor_user_id=actor_user_id)
+    assert result.action is MemoryWriteAction.CREATED and result.memory is not None
+    return result.memory
+
+
+def test_saving_again_after_expiry_is_ready_and_the_new_body_is_recallable(
+    database: Database,
+) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    _pass_deadline(database, old.memory_id)
+
+    renewed = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content="默认使用英制单位")
+
+    assert renewed.disposition is CandidateDisposition.READY
+    assert renewed.conflict is None, "预览不得展示已过期的正文"
+    result = _confirm(app, renewed, tenant_id=tenant_id, actor_user_id=owner)
+    assert result.action is MemoryWriteAction.CREATED
+    assert [item.content for item in raw.list_active(tenant_id=tenant_id, actor_user_id=owner)] == [
+        "默认使用英制单位"
+    ]
+    recalled = MemoryRecallService(database).recall(
+        tenant_id=tenant_id, actor_user_id=owner, query="英制单位"
+    )
+    assert [hit.memory.content for hit in recalled.hits] == ["默认使用英制单位"]
+    released = raw.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    assert released.status is MemoryStatus.EXPIRED
+    assert [
+        event.event_type.value
+        for event in raw.list_events(old.memory_id, tenant_id=tenant_id, actor_user_id=owner)
+    ] == ["created", "expired"]
+
+
+def test_identical_body_after_expiry_creates_a_new_memory_instead_of_reaffirming(
+    database: Database,
+) -> None:
+    """同正文重存曾被判 reaffirm：只给到期记录追加一条事件，新偏好照样不可见。"""
+
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    _pass_deadline(database, old.memory_id)
+
+    again = _candidate(app, tenant_id=tenant_id, actor_user_id=owner)
+
+    assert again.disposition is CandidateDisposition.READY
+    result = _confirm(app, again, tenant_id=tenant_id, actor_user_id=owner)
+    assert result.action is MemoryWriteAction.CREATED
+    assert result.memory is not None and result.memory.memory_id != old.memory_id
+    assert [item.memory_id for item in raw.list_active(tenant_id=tenant_id, actor_user_id=owner)] == [
+        result.memory.memory_id
+    ]
+
+
+@pytest.mark.parametrize("disposition", ["conflict", "reaffirm"])
+def test_confirming_a_preview_whose_target_expired_meanwhile_is_refused(
+    database: Database, disposition: str
+) -> None:
+    """预览时目标还有效、确认时已到期：不得回报成功，先转 expired 再拒绝。"""
+
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    old = _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    content = "默认使用英制单位" if disposition == "conflict" else "默认使用 SI 单位"
+    preview = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content=content)
+    assert preview.disposition.value == disposition
+    _pass_deadline(database, old.memory_id)
+
+    with pytest.raises(MemoryExpiredError):
+        _confirm(
+            app,
+            preview,
+            tenant_id=tenant_id,
+            actor_user_id=owner,
+            resolution=(
+                ConflictResolution.CORRECT_EXISTING if disposition == "conflict" else None
+            ),
+            expected_revision=old.revision,
+        )
+
+    assert (
+        raw.get_memory(old.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+        is MemoryStatus.EXPIRED
+    )
+    retry = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content=content)
+    assert retry.disposition is CandidateDisposition.READY
+    assert _confirm(app, retry, tenant_id=tenant_id, actor_user_id=owner).action is (
+        MemoryWriteAction.CREATED
+    )
+
+
+def test_keep_both_may_take_an_alternative_key_held_by_an_expired_record(
+    database: Database,
+) -> None:
+    owner, tenant_id = uuid4(), uuid4()
+    _insert_users(database, owner)
+    app = _write_service(database)
+    raw = _raw_service(database)
+    _remember_until(app, tenant_id=tenant_id, actor_user_id=owner)
+    stale = _remember_until(
+        app,
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        content="旧的备选单位偏好",
+        semantic_key="units.alt",
+    )
+    _pass_deadline(database, stale.memory_id)
+    conflict = _candidate(app, tenant_id=tenant_id, actor_user_id=owner, content="默认使用英制单位")
+    assert conflict.disposition is CandidateDisposition.CONFLICT
+
+    result = _confirm(
+        app,
+        conflict,
+        tenant_id=tenant_id,
+        actor_user_id=owner,
+        resolution=ConflictResolution.KEEP_BOTH,
+        alternative_semantic_key="units.alt",
+    )
+
+    assert result.action is MemoryWriteAction.CREATED
+    assert result.memory is not None and result.memory.semantic_key == "units.alt"
+    assert (
+        raw.get_memory(stale.memory_id, tenant_id=tenant_id, actor_user_id=owner).status
+        is MemoryStatus.EXPIRED
+    )

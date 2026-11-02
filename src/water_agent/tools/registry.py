@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from water_agent.runtime.governance.contracts import Principal
+from water_agent.runtime.governance.contracts import ConfirmationGrant, Principal
 from water_agent.runtime.governance.pipeline import (
     GuardrailPipeline,
     default_guardrail_pipeline,
@@ -140,6 +140,23 @@ class ToolRegistry:
         P2.5 Step 15：每条返回路径都写一条工具事件（``executed`` 区分"真跑了"
         与"被拦在执行前"），护栏裁定事件与之共享 ``invocation_id``。
         """
+        return self._invoke(name, args, grant=None)
+
+    def invoke_confirmed(
+        self, name: str, args: dict[str, Any], *, grant: ConfirmationGrant
+    ) -> dict:
+        """经人工确认的执行（P7-S7）：与 :meth:`invoke` 同一条路径，只多把凭证交给护栏。
+
+        只有外层确认门在合法的批准之后调用它。凭证绑定工具名、参数摘要与主体，单次有效；
+        不一致或重放都由护栏拒绝（``GUARDRAIL_BLOCKED``），与其他护栏拒绝同一种返回形态。
+        参数是独立的 dict 而不是 ``**args``：``invoke`` 的关键字参数全是工具参数，凭证若混在
+        里面会与工具字段撞名。
+        """
+        return self._invoke(name, dict(args), grant=grant)
+
+    def _invoke(
+        self, name: str, args: dict[str, Any], *, grant: ConfirmationGrant | None
+    ) -> dict:
         invocation_id = uuid4().hex[:16]
         args_hash = _hash_args(args)
 
@@ -164,7 +181,7 @@ class ToolRegistry:
         # 越权/注入参数不应有机会通过 pydantic 后进入执行路径。
         guard_started = time.monotonic()
         outcome = self._resolve_pipeline().validate_tool_call(
-            name, dict(args), self._resolve_principal()
+            name, dict(args), self._resolve_principal(), confirmation_grant=grant
         )
         guard_ms = (time.monotonic() - guard_started) * 1000
         payload = outcome.trace_payload()

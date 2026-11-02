@@ -124,6 +124,7 @@ export function Workbench() {
             <SettingsPanel
               capabilities={workspace.capabilities}
               onCapabilitiesChanged={workspace.refreshCapabilities}
+              onWebSearchChanged={workspace.refreshWebSearch}
               onBack={() => workspace.setSettingsOpen(false)}
             />
           </section>
@@ -143,11 +144,20 @@ export function Workbench() {
             attachments={workspace.attachments}
             exportState={workspace.exportState}
             feedbackState={workspace.feedbackState}
+            confirmationState={workspace.confirmationState}
+            modelCatalog={workspace.modelCatalog}
+            messageModel={workspace.messageModel}
+            webSearchReady={workspace.webSearchReady}
+            webSearchOn={workspace.webSearchOn}
+            onWebSearchChange={workspace.setWebSearch}
+            onMessageModelChange={workspace.setMessageModel}
+            onSessionModelChange={workspace.setSessionModel}
             inspectorOpen={inspectorOpen}
             onDraftChange={workspace.setDraft}
             onSubmit={workspace.sendMessage}
             onCancel={workspace.cancelRun}
             onFeedback={workspace.submitFeedback}
+            onDecideConfirmation={workspace.decideConfirmation}
             onAttach={workspace.attachFiles}
             onDismissAttachment={workspace.dismissAttachment}
             onDownload={workspace.downloadExport}
@@ -165,7 +175,7 @@ export function Workbench() {
         />
       )}
       {!panelOpen && (
-        <Inspector run={workspace.run} capabilities={workspace.capabilities} open={inspectorOpen} onClose={() => setInspectorOpen(false)} />
+        <Inspector run={workspace.run} capabilities={workspace.capabilities} modelCatalog={workspace.modelCatalog} open={inspectorOpen} onClose={() => setInspectorOpen(false)} />
       )}
     </main>
   );

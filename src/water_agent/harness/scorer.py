@@ -1,6 +1,7 @@
 """确定性评测判分器。"""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,7 @@ from water_agent.docgen import (
     validate_citation_policy,
 )
 from water_agent.domain.models import (
+    AgenticTurn,
     CalcCase,
     CalcTolerances,
     DocgenCase,
@@ -61,14 +63,27 @@ def score_eval_case(
     trace_id: str = "",
     retry_count: int = 0,
     line_no: int | None = None,
+    errors: Iterable[str] | None = None,
 ) -> EvalResult:
+    """RAG 用例判分。
+
+    ``errors`` 是运行时的错误文本（引用校验器的拒绝原因就在这里）。陷阱用例
+    （``expected_rejected_citations``）只有在运行失败**且**错误里点名了伪造引用时才通过，
+    这些引用本身不再计入"不在上下文"的判负——它们就是陷阱要校验器拒绝的东西。
+    """
     actual_citation_list = _dedupe(actual_citations)
     context_article_list = _dedupe(context_articles or [])
     expected_articles = _dedupe([*case.gold_articles_any, *case.gold_articles_all])
+    error_texts = [str(error) for error in errors or []]
+    trap_citations = set(case.expected_rejected_citations)
 
     citation_set = set(actual_citation_list)
     context_set = set(context_article_list)
-    invalid_citations = [citation for citation in actual_citation_list if citation not in context_set]
+    invalid_citations = [
+        citation
+        for citation in actual_citation_list
+        if citation not in context_set and citation not in trap_citations
+    ]
 
     gold_any_hit = [article for article in case.gold_articles_any if article in citation_set]
     gold_all_hit = [article for article in case.gold_articles_all if article in citation_set]
@@ -77,6 +92,10 @@ def score_eval_case(
     reasons: list[str] = []
     if actual_status != case.expected_status:
         reasons.append(f"expected status {case.expected_status}, got {actual_status}")
+    for trap in case.expected_rejected_citations:
+        # 错误文本里的引用号是 repr 形态（'FAKE 0.0.0'），按子串匹配即可。
+        if not any(trap in text for text in error_texts):
+            reasons.append(f"trap citation {trap!r} was not rejected by the citation validator")
     if invalid_citations:
         reasons.append(f"citations not present in retrieved context: {invalid_citations}")
     if case.gold_articles_any and not gold_any_hit:
@@ -113,6 +132,77 @@ def score_eval_case(
     )
 
 
+def score_agentic_turn(
+    turn: AgenticTurn,
+    *,
+    actual_status: str,
+    answer: str,
+    citations: Iterable[str],
+    context_articles: Iterable[str],
+    errors: Iterable[str],
+    warnings: Iterable[str],
+    tool_rejected_citations: Iterable[str],
+    script_steps_used: int,
+    model_inputs: Iterable[str] = (),
+    streamed: str = "",
+) -> list[str]:
+    """mock-agentic 用例一轮的判分原因（空 = 通过）。
+
+    RAG 口径（状态 / 引用 ⊆ 跨轮检索上下文 / gold / forbidden / 陷阱）与
+    :func:`score_eval_case` 同源；陷阱引用被 cite 工具当场拒绝（可追溯检查）与被
+    校验器拒绝同样算"点名拒绝"。在此之上再查 agentic 专有的收口纪律：成功必须有
+    非空回答、引用集合精确、warnings / errors 期望、脚本恰好用完。
+    """
+    citation_list = _dedupe(citations)
+    warning_list = [str(item) for item in warnings]
+    error_list = [str(item) for item in errors]
+    evidence = [
+        *error_list,
+        *(f"cite_clauses 拒绝了引用 {cid!r}" for cid in tool_rejected_citations),
+    ]
+    rag_case = EvalCase(
+        id="agentic-turn",
+        query=turn.query,
+        gold_articles_any=turn.gold_articles_any,
+        gold_articles_all=turn.gold_articles_all,
+        forbidden_articles=turn.forbidden_articles,
+        expected_rejected_citations=turn.expected_rejected_citations,
+        expected_status=turn.expected_status,
+    )
+    scored = score_eval_case(
+        rag_case,
+        actual_status=actual_status,
+        actual_citations=citation_list,
+        context_articles=context_articles,
+        errors=evidence,
+    )
+    reasons = [scored.failure_reason] if scored.failure_reason else []
+    if actual_status == "succeeded" and not answer.strip():
+        reasons.append("succeeded with an empty answer")
+    if turn.expected_citations is not None and citation_list != turn.expected_citations:
+        reasons.append(f"citations {citation_list} != expected {turn.expected_citations}")
+    for expected in turn.expected_warnings:
+        if expected not in warning_list:
+            reasons.append(f"expected warning missing: {expected}")
+    for fragment in turn.expected_error_substrings:
+        if not any(fragment in error for error in error_list):
+            reasons.append(f"expected error containing {fragment!r}, got {error_list}")
+    for fragment in turn.answer_must_not_contain:
+        if fragment in answer:
+            reasons.append(f"answer must not contain {fragment!r}")
+    seen_by_model = "\n".join(model_inputs)
+    for fragment in turn.model_input_must_not_contain:
+        if fragment in seen_by_model:
+            reasons.append(f"model input must not contain {fragment!r}")
+    for fragment in turn.stream_must_not_contain:
+        if fragment in streamed:
+            reasons.append(f"streamed tokens must not contain {fragment!r}")
+    unused = len(turn.script) - script_steps_used
+    if unused > 0:
+        reasons.append(f"script has {unused} unused step(s): the loop stopped earlier than scripted")
+    return reasons
+
+
 def _within_tolerance(actual: float, gold: float, tolerances: CalcTolerances) -> bool:
     abs_err = abs(actual - gold)
     rel_err = abs_err / abs(gold) if gold else 0.0
@@ -122,24 +212,47 @@ def _within_tolerance(actual: float, gold: float, tolerances: CalcTolerances) ->
 def score_calc_case(
     case: CalcCase,
     *,
-    calc_result: CalcResult,
+    calc_result: CalcResult | None,
     latency_ms: float = 0.0,
     line_no: int | None = None,
+    graph_status: str | None = None,
+    graph_missing_inputs: Iterable[str] | None = None,
 ) -> EvalResult:
     """程序化数值判分：状态匹配 + 每个 gold 键双阈值比对。
 
     - 缺参用例：gold 为空 + expected_status == "missing_inputs" 时按通过计；
     - 非法输入用例：gold 为空 + expected_status == "invalid_input" 时按通过计；
     - 正常用例：expected_status == "succeeded"，逐键数值比对。
-    """
-    actual_status = "succeeded" if calc_result.ok else ("missing_inputs" if calc_result.missing_inputs else "invalid_input")
-    reasons: list[str] = []
-    values = calc_result.values
 
+    端到端（runner 驱动计算子图）传 ``graph_status`` / ``graph_missing_inputs``：状态以子图
+    自己报告的为准，``calc_result`` 为子图产物（缺参/口径外在解析阶段短路时为 None）；
+    报 succeeded 却没有有效计算结果即判负。只传 ``calc_result`` 时是工具级判分，状态由
+    结果推出。
+    """
+    if graph_status is not None:
+        actual_status = graph_status
+        missing_inputs = list(graph_missing_inputs or [])
+    elif calc_result is not None:
+        actual_status = "succeeded" if calc_result.ok else ("missing_inputs" if calc_result.missing_inputs else "invalid_input")
+        missing_inputs = list(calc_result.missing_inputs)
+    else:
+        raise ValueError(f"calc case {case.id} 需要 calc_result 或 graph_status 才能判分")
+    reasons: list[str] = []
+    values = calc_result.values if calc_result is not None else {}
+
+    if actual_status == "succeeded" and (calc_result is None or not calc_result.ok):
+        reasons.append("calc graph reported succeeded without a valid calc_result")
     if actual_status != case.expected_status:
         reasons.append(f"expected status {case.expected_status}, got {actual_status}")
-        reasons.append(f"tool detail: missing_inputs={calc_result.missing_inputs} errors={calc_result.errors}")
-    elif calc_result.ok:
+        if calc_result is not None:
+            reasons.append(f"tool detail: missing_inputs={calc_result.missing_inputs} errors={calc_result.errors}")
+    elif actual_status == "missing_inputs" and case.expected_missing_inputs:
+        if set(missing_inputs) != set(case.expected_missing_inputs):
+            reasons.append(
+                f"missing_inputs mismatch: expected {sorted(case.expected_missing_inputs)}, "
+                f"got {sorted(missing_inputs)}"
+            )
+    elif calc_result is not None and calc_result.ok:
         for key, gold_value in case.gold.items():
             actual_value = values.get(key)
             if actual_value is None:
@@ -168,6 +281,30 @@ def score_calc_case(
         latency_ms=round(latency_ms, 3),
         line_no=line_no,
     )
+
+
+# 模板数值行形如 "- velocity_mps = 1.13177 m/s"（templates.render_docgen_doc 的唯一写法）
+_RENDERED_KEY_VALUE_RE = re.compile(r"^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S+)")
+
+
+def _rendered_key_values(rendered: RenderedDoc) -> dict[str, str]:
+    """正文里的 ``key = value`` 行（首次出现为准）。"""
+    shown: dict[str, str] = {}
+    for section in rendered.sections:
+        for line in section.lines:
+            match = _RENDERED_KEY_VALUE_RE.match(line)
+            if match:
+                shown.setdefault(match.group(1), match.group(2))
+    return shown
+
+
+def _shows_value(raw: str, expected: float, tolerances: CalcTolerances) -> bool:
+    """正文展示值是否就是 ``expected``：模板按 ``:g``（≤6 位有效数字）展示，按展示刻度比。"""
+    try:
+        shown = float(raw)
+    except ValueError:
+        return False
+    return _within_tolerance(shown, float(f"{expected:g}"), tolerances)
 
 
 def score_docgen_case(
@@ -225,10 +362,19 @@ def score_docgen_case(
         )
 
     # 结构：canonical 必需章节（按 doc_type 恒查）+ 用例级追加（只能更严，不能清空）
+    required_section_names = set(REQUIRED_SECTIONS[rendered.doc_type]) | set(case.required_sections)
     present = {normalize_heading(section.heading) for section in rendered.sections}
-    missing = sorted((set(REQUIRED_SECTIONS[rendered.doc_type]) | set(case.required_sections)) - present)
+    missing = sorted(required_section_names - present)
     if missing:
         reasons.append(f"required sections missing: {missing}")
+    # 章节在、正文空 = 什么都没写（模板对每个必需章节至少写一行，缺依据/缺数值也会写明）
+    empty = sorted(
+        normalize_heading(section.heading)
+        for section in rendered.sections
+        if normalize_heading(section.heading) in required_section_names and not section.lines
+    )
+    if empty:
+        reasons.append(f"empty section: {empty}")
 
     values = rendered.calc_values
     for key, gold_value in case.required_values.items():
@@ -241,12 +387,42 @@ def score_docgen_case(
                 f"tol(rel={case.tolerances.relative}, abs={case.tolerances.absolute})"
             )
 
+    # 正文：结构化映射之外，还要核对渲染出来的文字。calc_values / citation_ids 就是输入的
+    # 拷贝，只比它们等于同义反复——正文数字全错或被清空也判通过（review 2026-09-30）。
+    input_values = {
+        key: float(value)
+        for key, value in (case.calc_result or {}).items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    shown = _rendered_key_values(rendered)
+    for key, raw in shown.items():
+        if key not in input_values:
+            reasons.append(f"rendered value for a key not in the input: {key} = {raw}")
+        elif not _shows_value(raw, input_values[key], case.tolerances):
+            reasons.append(f"rendered value mismatch: {key} = {raw}（输入 {input_values[key]:g}）")
+    for key in case.required_values:
+        if key not in shown:
+            reasons.append(f"required value {key!r} not shown in the rendered text")
+        elif not _shows_value(shown[key], case.required_values[key], case.tolerances):
+            reasons.append(
+                f"rendered value mismatch: {key} = {shown[key]}（gold {case.required_values[key]:g}）"
+            )
+
     actual_ids = rendered.citation_ids
+    basis_text = "\n".join(
+        line
+        for section in rendered.sections
+        if normalize_heading(section.heading) == "设计依据"
+        for line in section.lines
+    )
     for required in case.citations_required:
         if required not in actual_ids:
             reasons.append(f"required citation not rendered: {required}")
+        elif required not in basis_text:
+            reasons.append(f"required citation not rendered under 设计依据: {required}")
+    rendered_text = rendered.text
     for forbidden in case.citations_forbidden:
-        if forbidden in actual_ids:
+        if forbidden in actual_ids or forbidden in rendered_text:
             reasons.append(f"forbidden citation rendered: {forbidden}")
 
     for problem in validate_citation_policy(rendered):
@@ -379,6 +555,11 @@ def score_governance_case(
     )
 
 
+def _material_row_label(key: tuple[str, str, str], quantity: float) -> str:
+    material, spec, unit = key
+    return f"{material} {spec}：{quantity:g} {unit}"
+
+
 def _expected_group_sums(segments: list[dict[str, Any]]) -> dict[tuple[str, str], float] | None:
     """从原始管段表按 (材质, 规格) 重算组内长度和，作为 ``raw_quantity`` 的口径审计基准。
 
@@ -440,14 +621,19 @@ def score_material_case(
             key = (str(gold.get("material", "")), str(gold.get("spec", "")), str(gold.get("unit", "m")))
             gold_by_key[key] = float(gold.get("quantity", 0.0))
 
-        if len(actual_by_key) != len(gold_by_key):
-            extra = sorted(set(actual_by_key) - set(gold_by_key))
-            missing = sorted(set(gold_by_key) - set(actual_by_key))
-            reasons.append(f"row set mismatch: extra={extra}, missing={missing}")
+        # 按键集合比，不按行数比：行数相同时一行被改了规格/材质（数量随之错）也必须报出。
+        extra = sorted(set(actual_by_key) - set(gold_by_key))
+        missing = sorted(set(gold_by_key) - set(actual_by_key))
+        if extra or missing:
+            reasons.append(
+                "row set mismatch: "
+                f"extra={[_material_row_label(key, actual_by_key[key].quantity) for key in extra]}, "
+                f"missing={[_material_row_label(key, gold_by_key[key]) for key in missing]}"
+            )
         for key, gold_qty in gold_by_key.items():
             actual_row = actual_by_key.get(key)
             if actual_row is None:
-                continue
+                continue  # 已在 row set mismatch 里点名
             if not _within_tolerance(actual_row.quantity, gold_qty, case.tolerances):
                 reasons.append(
                     f"{key[0]} {key[1]}: actual={actual_row.quantity}, gold={gold_qty}, "
@@ -476,7 +662,11 @@ def score_material_case(
         if expected_sums is not None:
             for row in table.rows:
                 expected_raw = expected_sums.get((row.material, row.spec))
-                if expected_raw is not None and not _within_tolerance(row.raw_quantity, expected_raw, case.tolerances):
+                if expected_raw is None:
+                    reasons.append(
+                        f"row {row.material} {row.spec}: 管段表中没有这一 (材质, 规格) 分组（口径审计）"
+                    )
+                elif not _within_tolerance(row.raw_quantity, expected_raw, case.tolerances):
                     reasons.append(
                         f"row {row.material} {row.spec}: raw_quantity={row.raw_quantity} 与管段表重算"
                         f" {expected_raw} 不一致（口径审计）"

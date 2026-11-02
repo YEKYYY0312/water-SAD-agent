@@ -104,8 +104,162 @@ def audit_bootstrap_admin_created(*, user_id: str) -> None:
     _emit("auth.bootstrap_admin_created", {"user_id": user_id})
 
 
-def audit_bootstrap_admin_skipped() -> None:
-    _emit("auth.bootstrap_admin_skipped", {})
+def audit_bootstrap_admin_skipped(*, reason: str = "active_admin_exists") -> None:
+    """reason is a category ('active_admin_exists' / 'admin_exists_inactive'), never a username."""
+    _emit("auth.bootstrap_admin_skipped", {"reason": reason})
+
+
+# ---------------------------------------------------------------------------
+# P7-S6: Web 扩展面板（MCP 管理）。只记谁、哪台 server、改了哪些字段名、allow 增减的
+# 工具名；凭据只记槽位名与动作，**永不记值**。不新建审计表，与上面同一个出口。
+# ---------------------------------------------------------------------------
+
+
+def audit_mcp_server_updated(
+    *,
+    actor_user_id: str,
+    server_id: str,
+    fields: list[str],
+    allow_added: list[str],
+    allow_removed: list[str],
+    revision: int,
+) -> None:
+    _emit(
+        "mcp.server_updated",
+        {
+            "actor_user_id": actor_user_id,
+            "server_id": server_id,
+            "fields": sorted(fields),
+            "allow_added": sorted(allow_added),
+            "allow_removed": sorted(allow_removed),
+            "revision": revision,
+        },
+    )
+
+
+def audit_mcp_override_removed(
+    *, actor_user_id: str, server_id: str, orphan: bool, revision: int
+) -> None:
+    _emit(
+        "mcp.override_removed",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "orphan": orphan, "revision": revision},
+    )
+
+
+def audit_mcp_web_layer_reset(*, actor_user_id: str, existed: bool) -> None:
+    _emit("mcp.web_layer_reset", {"actor_user_id": actor_user_id, "existed": existed})
+
+
+def audit_mcp_credential_changed(
+    *, actor_user_id: str, server_id: str, slot: str, action: str
+) -> None:
+    """action is 'set' or 'cleared'; the value itself is never passed in."""
+    _emit(
+        "mcp.credential_changed",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "slot": slot, "action": action},
+    )
+
+
+def audit_mcp_server_probed(*, actor_user_id: str, server_id: str, status: str) -> None:
+    """探测会按需 spawn 运维配置的命令：不是配置变更，但留一条记录。"""
+    _emit("mcp.server_probed", {"actor_user_id": actor_user_id, "server_id": server_id, "status": status})
+
+
+def audit_mcp_oauth_authorized(*, actor_user_id: str, server_id: str, issuer: str, scope: str | None) -> None:
+    """P7-S8：管理员完成了一次服务级授权。**永不记令牌、授权码、verifier、state**。"""
+    _emit(
+        "mcp.oauth_authorized",
+        {"actor_user_id": actor_user_id, "server_id": server_id, "issuer": issuer, "scope": scope or ""},
+    )
+
+
+def audit_mcp_oauth_revoked(*, actor_user_id: str, server_id: str) -> None:
+    _emit("mcp.oauth_revoked", {"actor_user_id": actor_user_id, "server_id": server_id})
+
+
+def audit_mcp_oauth_failed(*, actor_user_id: str, server_id: str, code: str) -> None:
+    """授权流程在回调或发起阶段失败：只记稳定错误码。"""
+    _emit("mcp.oauth_failed", {"actor_user_id": actor_user_id, "server_id": server_id, "code": code})
+
+
+def audit_mcp_oauth_refresh_failed(*, server_id: str, issuer: str, reason: str) -> None:
+    """刷新令牌被授权服务器拒绝（令牌已清除，需重新授权）。没有管理员请求在场，所以没有 actor。"""
+    _emit("mcp.oauth_refresh_failed", {"server_id": server_id, "issuer": issuer, "reason": reason})
+
+
+def audit_skill_updated(*, actor_user_id: str, name: str, disabled: bool, revision: int) -> None:
+    """P7-S9：管理员停用 / 启用一个 skill。只记名字与动作，不记正文。"""
+    _emit(
+        "skill.updated",
+        {"actor_user_id": actor_user_id, "name": name, "disabled": disabled, "revision": revision},
+    )
+
+
+def audit_llm_endpoint_updated(*, actor_user_id: str, host: str, model: str, changed: bool) -> None:
+    """P7-S10：管理员在设置面板改了对话端点。只记主机名与模型名，**不记 Key、不记完整 URL**。"""
+    _emit(
+        "settings.llm_endpoint_updated",
+        {"actor_user_id": actor_user_id, "host": host, "model": model, "changed": changed},
+    )
+
+
+def audit_llm_compatibility_checked(*, actor_user_id: str, host: str, model: str, result: str) -> None:
+    """P7-S10：管理员运行了对话端点兼容性检查。只记主机名、模型名与结果码。"""
+    _emit(
+        "settings.llm_compatibility_checked",
+        {"actor_user_id": actor_user_id, "host": host, "model": model, "result": result},
+    )
+
+
+def audit_llm_models_listed(*, actor_user_id: str, host: str, result: str, count: int) -> None:
+    """设置面板「获取模型」：只记主机名、结果码与条数，**不记 Key、不记完整 URL、不记模型名列表**。"""
+    _emit(
+        "settings.llm_models_listed",
+        {"actor_user_id": actor_user_id, "host": host, "result": result, "count": count},
+    )
+
+
+def audit_llm_models_updated(*, actor_user_id: str, ids: list[str], count: int) -> None:
+    """P7-S15：管理员改了模型目录。只记模型 id 与条数（id 不是密钥），**不记价格 / 角色细节，更不记 Key**。"""
+    _emit(
+        "settings.llm_models_updated",
+        {"actor_user_id": actor_user_id, "count": count, "ids": ids[:64]},
+    )
+
+
+def audit_web_search_performed(
+    *,
+    principal_hash: str,
+    query_hash: str,
+    query_length: int,
+    provider: str,
+    host: str,
+    count: int,
+    result: str,
+) -> None:
+    """P7-S12：一次联网搜索。**只记**主体哈希、查询哈希 + 长度、provider、主机名、条数、结果码——**不记查询原文、不记网址、
+    不记密钥**（审计长期留存，比 trace 更敏感）。由 ``web_search/events.py`` 的 sink 调用，字段在那里先过白名单。"""
+    _emit(
+        "web_search.performed",
+        {
+            "principal_hash": principal_hash,
+            "query_hash": query_hash,
+            "query_length": int(query_length),
+            "provider": provider,
+            "host": host,
+            "count": int(count),
+            "result": result,
+        },
+    )
+
+
+def _register_web_search_sink() -> None:
+    from water_agent.web_search.events import set_audit_sink
+
+    set_audit_sink(audit_web_search_performed)
+
+
+_register_web_search_sink()
 
 
 # ---------------------------------------------------------------------------

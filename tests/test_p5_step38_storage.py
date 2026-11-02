@@ -317,6 +317,34 @@ def test_database_auth_and_session_records_survive_store_restart(tmp_path: Path)
     assert second_sessions.get(created.session_id).user_id == user.user_id
 
 
+def test_database_user_store_never_deactivates_the_last_active_admin(tmp_path: Path) -> None:
+    """The guard and the write are one transaction (admin rows locked FOR UPDATE on PG)."""
+
+    from water_agent.webapp.auth.db_store import PostgresUserStore
+    from water_agent.webapp.auth.models import UserRole
+    from water_agent.webapp.auth.user_store import LastActiveAdminError, UserNotFoundError
+
+    database = _database(tmp_path)
+    users = PostgresUserStore(database)
+    first = users.create_user("guard-admin-1", "GuardAdminPass2026!", UserRole.ADMIN)
+    second = users.create_user("guard-admin-2", "GuardAdminPass2026!", UserRole.ADMIN)
+    member = users.create_user("guard-member", "GuardMemberPass2026!", UserRole.MEMBER)
+
+    users.deactivate(member.user_id)
+    users.deactivate(second.user_id)
+    with pytest.raises(LastActiveAdminError):
+        users.deactivate(first.user_id)
+
+    assert users.get_by_id(first.user_id).is_active is True
+    assert users.get_by_id(second.user_id).is_active is False
+    assert users.get_by_id(member.user_id).is_active is False
+    assert users.has_admin() is True
+    # An already inactive account is a no-op, not a guard trip; unknown ids stay 404.
+    users.deactivate(second.user_id)
+    with pytest.raises(UserNotFoundError):
+        users.deactivate(uuid4())
+
+
 def test_sqlite_cli_legacy_checkpointer_remains_available(tmp_path: Path) -> None:
     from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -563,3 +591,41 @@ def test_postgres_transaction_failure_leaves_no_partial_business_records() -> No
             {"thread_id": thread_id},
         ).scalar_one() == 0
     database.dispose()
+
+
+def test_step15_migration_adds_and_removes_the_nullable_model_columns() -> None:
+    """P7-S15-A06 迁移 0008 在 SQLite 上真跑：两张表各加一个可空 ``model`` 列，既有行读出为 ``None``
+    （= 用全局模型）；降级后列消失、既有行仍在。版本链接在 0007 之后。"""
+
+    import importlib.util
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = Path("alembic/versions/0008_step15_model_choice.py")
+    spec = importlib.util.spec_from_file_location("migration_0008", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.revision == "0008_step15_model_choice"
+    assert module.down_revision == "0007_step51_dwg_uploads"
+
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(sa.text("CREATE TABLE web_sessions (thread_id VARCHAR(36) PRIMARY KEY, title VARCHAR(200))"))
+        connection.execute(sa.text("CREATE TABLE runs (run_id VARCHAR(36) PRIMARY KEY, status VARCHAR(32))"))
+        connection.execute(sa.text("INSERT INTO web_sessions VALUES ('t1', 'old')"))
+        connection.execute(sa.text("INSERT INTO runs VALUES ('r1', 'succeeded')"))
+
+        def columns(table: str) -> list[str]:
+            return [column["name"] for column in sa.inspect(connection).get_columns(table)]
+
+        with Operations.context(MigrationContext.configure(connection)):
+            module.upgrade()
+            assert "model" in columns("web_sessions") and "model" in columns("runs")
+            assert connection.execute(sa.text("SELECT model FROM web_sessions")).scalar() is None
+            assert connection.execute(sa.text("SELECT model FROM runs")).scalar() is None
+            module.downgrade()
+        assert "model" not in columns("web_sessions") and "model" not in columns("runs")
+        assert connection.execute(sa.text("SELECT title FROM web_sessions")).scalar() == "old"
