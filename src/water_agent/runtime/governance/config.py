@@ -17,6 +17,8 @@
 """
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,7 +30,18 @@ from water_agent.runtime.governance.contracts import (
 )
 
 #: 配置版本。**改任何阈值都要改它**（trace 用它回溯裁定依据）。
-GOVERNANCE_CONFIG_VERSION = "p5-step50-2026-09-29"
+#: P7-S8 新增 ``MCP_REMOTE`` 画像（工具调用零重试），递进。
+#: P7-S10 ``DEEPSEEK_CHAT`` 画像的语义扩为"OpenAI 兼容对话端点"，超时与价格可由运维覆盖，递进。
+#: P7-S12 新增 ``WEB_SEARCH`` 画像（联网搜索：15 s、瞬时错误只重试一次、每主体每分钟 ≤ 20），递进。
+GOVERNANCE_CONFIG_VERSION = "p7-s12-2026-10-20"
+
+#: P7-S10：对话端点（``ProviderKind.DEEPSEEK_CHAT``——名字保留，语义是"OpenAI 兼容对话端点"，见
+#: ``generation/endpoints.py``）的运维覆盖。缺省 = 现状（60 s、DeepSeek 公开单价）。
+CHAT_TIMEOUT_ENV = "WATER_AGENT_LLM_TIMEOUT_SECONDS"
+CHAT_PRICE_ENV = "WATER_AGENT_LLM_PRICE"
+DEFAULT_CHAT_TIMEOUT_SECONDS = 60.0
+#: 超时上限：再长就不是"慢"而是"挂起"，失控保护要能兜住。
+MAX_CHAT_TIMEOUT_SECONDS = 600.0
 
 
 class RetryPolicy(BaseModel):
@@ -174,6 +187,63 @@ _DEEPSEEK_CHAT_PRICE = ModelPrice(
 )
 
 
+def chat_timeout_seconds(getenv: Callable[[str], str | None] = os.getenv) -> float:
+    """对话端点超时：``WATER_AGENT_LLM_TIMEOUT_SECONDS``（缺省 60 s，(0, 600]）。写错即响亮失败。"""
+
+    raw = (getenv(CHAT_TIMEOUT_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_CHAT_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{CHAT_TIMEOUT_ENV} 必须是秒数（如 90）") from exc
+    if not 0 < value <= MAX_CHAT_TIMEOUT_SECONDS:
+        raise ValueError(f"{CHAT_TIMEOUT_ENV} 必须在 (0, {MAX_CHAT_TIMEOUT_SECONDS:g}] 秒之间")
+    return value
+
+
+def chat_price_override(
+    getenv: Callable[[str], str | None] = os.getenv,
+) -> tuple[str, ModelPrice] | None:
+    """``WATER_AGENT_LLM_PRICE=input_per_1m,output_per_1m[,cached_input_per_1m]``（USD / 1M token）。
+
+    价格挂在**当前对话模型名**上（与 ``resolve_chat_endpoint`` 同一解析），``confirmed=False``：只用于
+    成本估算显示与软预警，不做硬拒绝（与"未核对价格不做硬上限"同一口径；``daily_cost_cap_usd`` 缺省不启用）。
+    未设时返回 ``None``——未登记的模型成本记 ``None``，不猜价。
+    """
+
+    raw = (getenv(CHAT_PRICE_ENV) or "").strip()
+    if not raw:
+        return None
+    parts = [part.strip() for part in raw.split(",")]
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError(f"{CHAT_PRICE_ENV} 的格式是 input_per_1m,output_per_1m[,cached_input_per_1m]") from exc
+    if len(numbers) not in (2, 3) or any(number < 0 for number in numbers):
+        raise ValueError(f"{CHAT_PRICE_ENV} 的格式是 input_per_1m,output_per_1m[,cached_input_per_1m]（非负）")
+    from water_agent.generation.endpoints import resolve_chat_endpoint
+
+    model = resolve_chat_endpoint(getenv=getenv).model
+    return model, ModelPrice(
+        input_per_1m=numbers[0],
+        output_per_1m=numbers[1],
+        cached_input_per_1m=numbers[2] if len(numbers) == 3 else None,
+        confirmed=False,
+    )
+
+
+def _default_prices() -> dict[str, ModelPrice]:
+    prices = {
+        "deepseek-chat": _DEEPSEEK_CHAT_PRICE,
+        "deepseek-reasoner": _DEEPSEEK_CHAT_PRICE,
+    }
+    override = chat_price_override()
+    if override is not None:
+        prices[override[0]] = override[1]
+    return prices
+
+
 class GovernanceConfig(BaseModel):
     """治理配置根。按 provider 取画像，按模型名取价格。"""
 
@@ -183,8 +253,9 @@ class GovernanceConfig(BaseModel):
     budget: BudgetConfig = BudgetConfig()
     profiles: dict[ProviderKind, ProviderProfile] = Field(
         default_factory=lambda: {
-            # 60s：沿用 generation/llm.py 既有超时口径。
-            ProviderKind.DEEPSEEK_CHAT: ProviderProfile(timeout_seconds=60.0),
+            # 60s：沿用 generation/llm.py 既有超时口径；P7-S10 起运维可用
+            # WATER_AGENT_LLM_TIMEOUT_SECONDS 覆盖（换了服务商，超时口径未必还合适）。
+            ProviderKind.DEEPSEEK_CHAT: ProviderProfile(timeout_seconds=chat_timeout_seconds()),
             # 60s + 6 次重试：沿用 embedding.py 既有口径（当前最健康的一路）。
             # 限流用 INGEST_RATE_LIMIT：入库要对整个语料库逐块嵌入，属合法批量作业。
             ProviderKind.BAILIAN_EMBEDDING: ProviderProfile(
@@ -203,14 +274,29 @@ class GovernanceConfig(BaseModel):
                 timeout_seconds=120.0,
                 retry=RetryPolicy(max_attempts=2),
             ),
+            # P7-S8 远程 MCP：**max_attempts=1——工具调用不重试**（MCP 工具可能有副作用，重放即重复执行；
+            # 超时 / 连接中断后远端状态未知，交给模型和人判断）。超时由 server 配置的
+            # ``call_timeout_seconds`` / ``startup_timeout_seconds`` 逐次决定，这里的值只是画像默认。
+            # 熔断按单台 server 计（``ProviderCall.model`` = ``mcp:<server_id>``）；限流额度是失控保护：
+            # 一个 run 的 initialize / 通知 / tools/list / DELETE 都算请求，放宽到每分钟 1200。
+            ProviderKind.MCP_REMOTE: ProviderProfile(
+                timeout_seconds=30.0,
+                retry=RetryPolicy(max_attempts=1),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=1200),
+            ),
+            # P7-S12 联网搜索：单次 15 s；**只对瞬时错误（408/429/5xx/超时/连接错误）重试一次**，401/403 零重试且不计熔断
+            # （沿用 gateway 既有分类，换密钥才能解决）；熔断按 provider 主机分桶（``ProviderCall.model`` =
+            # ``web_search:<host>``，一台服务连续失败开路不影响另一台）。限流是**失控保护**量级——每主体每分钟 ≤ 20 次
+            # 搜索，足以挡住模型循环或被投毒文档驱动的搜索风暴；**不是生产调优值**（DAU / 搜索服务配额均未知）。
+            # 搜索不返回 token 用量，usage 记未知，不估算成本。
+            ProviderKind.WEB_SEARCH: ProviderProfile(
+                timeout_seconds=15.0,
+                retry=RetryPolicy(max_attempts=2),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=20),
+            ),
         }
     )
-    prices: dict[str, ModelPrice] = Field(
-        default_factory=lambda: {
-            "deepseek-chat": _DEEPSEEK_CHAT_PRICE,
-            "deepseek-reasoner": _DEEPSEEK_CHAT_PRICE,
-        }
-    )
+    prices: dict[str, ModelPrice] = Field(default_factory=_default_prices)
     #: 各调用分类的默认输出上限（token）。None = 不设限（由 provider 默认裁定）。
     max_output_tokens: dict[CallCategory, int | None] = Field(default_factory=dict)
 
@@ -233,6 +319,8 @@ class GovernanceConfig(BaseModel):
 DEFAULT_GOVERNANCE_CONFIG = GovernanceConfig()
 
 __all__ = [
+    "CHAT_PRICE_ENV",
+    "CHAT_TIMEOUT_ENV",
     "DEFAULT_GOVERNANCE_CONFIG",
     "GOVERNANCE_CONFIG_VERSION",
     "BudgetConfig",
@@ -242,4 +330,6 @@ __all__ = [
     "ProviderProfile",
     "RateLimitPolicy",
     "RetryPolicy",
+    "chat_price_override",
+    "chat_timeout_seconds",
 ]

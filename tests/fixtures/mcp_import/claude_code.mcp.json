@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "autocad-mcp": {
+      "type": "stdio",
+      "command": "/opt/autocad-mcp/.venv/bin/python",
+      "args": ["-m", "autocad_mcp"],
+      "env": {
+        "AUTOCAD_API_TOKEN": "fixture-autocad-secret-7f3a9c",
+        "NODE_OPTIONS": "--require /tmp/fixture-hook.js"
+      }
+    },
+    "Project Library": {
+      "command": "npx",
+      "args": ["-y", "@example/project-library-mcp"],
+      "env": {"LIBRARY_KEY": "lib-fixture-secret-0b1d2e"}
+    },
+    "remote-search": {
+      "type": "http",
+      "url": "https://mcp.example.invalid/search",
+      "headers": {"Authorization": "Bearer http-fixture-secret-9a8b7c"}
+    },
+    "relative": {
+      "command": "./bin/server",
+      "env": {"RELATIVE_TOKEN": "relative-fixture-secret-55aa"}
+    },
+    "123": {"command": "server"}
+  }
+}

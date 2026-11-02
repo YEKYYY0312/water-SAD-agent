@@ -251,6 +251,33 @@ def test_project_member_reads_runs_but_only_the_owner_may_own_them(
     ]
 
 
+def test_project_viewer_cannot_create_a_run_in_a_project_session(
+    database: Database, tmp_path: Path
+) -> None:
+    """Regression: ``RunRepository.create`` accepted any project member, viewer included.
+
+    Starting a run writes a run row and the session's checkpoint, so it needs
+    the same write role as creating a project session.  Reads are unchanged.
+    """
+
+    _, owner_id = _login(database, tmp_path, f"owner-{uuid4()}")
+    _, viewer_id = _login(database, tmp_path, f"viewer-{uuid4()}")
+    projects = ProjectRepository(database)
+    project = projects.create(owner_id, "共享项目")
+    projects.add_member(project.project_id, owner_id, viewer_id, role="viewer")
+    session = WebSessionRepository(database).create(
+        owner_id, project_id=project.project_id, title="共享会话"
+    )
+    runs = RunRepository(database)
+
+    with pytest.raises(ResourceNotFoundError):
+        runs.create(session.thread_id, viewer_id)
+    assert runs.list_for_session(session.thread_id, owner_id) == []
+
+    owner_run = runs.create(session.thread_id, owner_id)
+    assert runs.get_for_user(owner_run.run_id, viewer_id).run_id == owner_run.run_id
+
+
 # ---------------------------------------------------------------------------
 # 4. Two clients in one process must not share a session
 # ---------------------------------------------------------------------------

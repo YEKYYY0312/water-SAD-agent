@@ -105,6 +105,9 @@ class EvalCase(BaseModel):
     gold_articles_any: list[str] = Field(default_factory=list)
     gold_articles_all: list[str] = Field(default_factory=list)
     forbidden_articles: list[str] = Field(default_factory=list)
+    #: 陷阱用例：生成器会给出这些伪造引用，判通过要求运行失败且错误里点名拒绝了它们
+    #: （证明是引用校验器拦下的，而不是别处先坏了）。
+    expected_rejected_citations: list[str] = Field(default_factory=list)
     expected_status: str = "succeeded"
     eval: str = "citation_exists"
     variant: str = "mock"
@@ -135,6 +138,8 @@ class CalcCase(BaseModel):
     tolerances: CalcTolerances = Field(default_factory=CalcTolerances)
     expected_status: str = "succeeded"
     expected_assumptions: list[str] = Field(default_factory=list)
+    #: 缺参用例期望子图报告的缺失参数（集合比对）；空 = 不比对。
+    expected_missing_inputs: list[str] = Field(default_factory=list)
     variant: str = "programmatic"
     spec_ref: str = ""
 
@@ -252,6 +257,78 @@ class GovernanceCase(BaseModel):
     rationale: str = ""
     expected_status: str = "succeeded"
     variant: str = "programmatic"
+
+
+class AgenticToolCall(BaseModel):
+    """脚本模型发起的一次工具调用（工具名 + 参数，参数照原样交给 ToolRegistry 校验）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgenticScriptStep(BaseModel):
+    """脚本模型的一次响应：调用工具（``tool_calls``）或给出文本回答（``content``）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = ""
+    tool_calls: list[AgenticToolCall] = Field(default_factory=list)
+
+
+class AgenticTurn(BaseModel):
+    """多轮 agentic 用例的一轮：用户问题 + 这一轮模型的逐次响应脚本 + 期望。
+
+    脚本必须**恰好**用完：模型被多调一次（脚本耗尽）或少调（有剩余步）都判失败——
+    回流次数本身就是 loop 的行为，写错一步意味着循环多转或少转了一圈。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    #: 允许为空：输入护栏应在调用模型之前拦截的轮次，模型一次都不该被调用。
+    script: list[AgenticScriptStep] = Field(default_factory=list)
+    expected_status: str = "succeeded"
+    gold_articles_any: list[str] = Field(default_factory=list)
+    gold_articles_all: list[str] = Field(default_factory=list)
+    forbidden_articles: list[str] = Field(default_factory=list)
+    #: 陷阱：模型给出的伪造/越界引用，判通过要求运行失败且被 cite 工具或校验器点名拒绝。
+    expected_rejected_citations: list[str] = Field(default_factory=list)
+    #: 给出时最终 citations 必须与之完全一致（例如上一轮的引用不得带进这一轮）。
+    expected_citations: list[str] | None = None
+    #: 最终 warnings 必须包含的条目。
+    expected_warnings: list[str] = Field(default_factory=list)
+    #: 最终 errors 中必须出现的子串（每条至少命中一条 error）。
+    expected_error_substrings: list[str] = Field(default_factory=list)
+    #: 返回的 answer 不得包含的片段（例如上一轮的回答不得被当成本轮答案）。
+    answer_must_not_contain: list[str] = Field(default_factory=list)
+    #: 这一轮模型实际收到的全部消息里不得出现的片段（例如被护栏拦下的上一轮内容）。
+    model_input_must_not_contain: list[str] = Field(default_factory=list)
+    #: 这一轮 ``on_token`` 流式通道里不得出现的片段（工具原始输出、校验器回流提示等）。
+    stream_must_not_contain: list[str] = Field(default_factory=list)
+
+
+class AgenticCase(BaseModel):
+    """mock-agentic 机制层用例（type == "agentic"）。
+
+    经生产装配 ``AgenticSession`` 运行（真实 ToolRegistry / cite 可追溯检查 / 提示装配 /
+    引用校验回流 / 生产 checkpoint serde），只把"写字的模型"换成逐步脚本、语料换成
+    fixture；多轮时每轮新建一个 session、共用同一 checkpointer 与 thread——与 Web 的
+    RunManager 同构。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str = "agentic"
+    description: str = ""
+    turns: list[AgenticTurn] = Field(min_length=1)
+    variant: str = "mock_agentic"
+
+    @property
+    def expected_status(self) -> str:
+        return self.turns[-1].expected_status
 
 
 class TokenUsage(BaseModel):

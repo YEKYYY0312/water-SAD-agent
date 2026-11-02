@@ -126,38 +126,37 @@ def build_cite_clauses_tool(
 
 def build_cite_clauses_tool_with_context_check(
     claims_sink: list[CitationClaim] | None = None,
+    *,
+    context_source: Callable[[], set[str] | None] | None = None,
 ) -> tuple[ToolSpec, Callable]:
     """构建带可追溯性检查的 cite_clauses 工具，返回 (ToolSpec, context_updater)。
 
-    由于检索上下文在运行时才产生，本函数返回：
-    1. ToolSpec：工具规范，execute 会从闭包中读取最新的 available_ids
-    2. context_updater：调用方在检索后调用此函数更新可用条款号
+    可用条款号有两个来源：
 
-    使用示例：
-        tool_spec, update_context = build_cite_clauses_tool_with_context_check(claims_sink)
-        # 注册 tool_spec 到 registry
-        # 在 retrieve_clauses 返回后：
-        update_context(retrieved_source_ids)
+    1. ``context_source``（推荐）：调用时返回**这条 thread** 至今检索到的 source_id。
+       ``AgenticSession`` 传入从会话消息推导的函数——与引用校验器
+       ``_extract_validation_signal`` 同源，"这条引用可不可追溯"只有一个定义；
+    2. ``context_updater``：检索工具每次检索后把结果累积进本闭包（进程内、按 session）。
 
-    Args:
-        claims_sink: 可选的声明输出列表
-
-    Returns:
-        (ToolSpec, context_updater 函数)
+    两者取并集。只用第 2 条时，作用域就是一个 ``AgenticSession`` 对象的寿命：Web 每个
+    run 新建一个 session，于是第二问引用第一问检索到的条款会被当场拒绝（而校验器认为它
+    合法，CLI 复用 session 时也是成功的；review 2026-09-30 实测）。
     """
-    # 使用闭包共享可变状态
     context_holder: dict[str, set[str]] = {"available_ids": set()}
 
     def update_context(source_ids: set[str] | list[str]):
         """更新可用的检索上下文条款号（累积模式）"""
-        if isinstance(source_ids, list):
-            context_holder["available_ids"].update(source_ids)
-        else:
-            context_holder["available_ids"].update(source_ids)
+        context_holder["available_ids"].update(source_ids)
+
+    def _available_ids() -> set[str]:
+        available = set(context_holder["available_ids"])
+        if context_source is not None:
+            available |= set(context_source() or ())
+        return available
 
     def execute_with_check(args: CiteArgs) -> dict:
         """执行引用声明，带可追溯性检查"""
-        available_ids = context_holder["available_ids"]
+        available_ids = _available_ids()
 
         # 如果有检索上下文，进行校验
         if available_ids:
@@ -208,4 +207,3 @@ def build_cite_clauses_tool_with_context_check(
     )
 
     return tool_spec, update_context
-

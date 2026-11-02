@@ -1,14 +1,14 @@
 {
   "flow": "multi-agent",
-  "schema_version": "p4.5-2026-09-10",
-  "description": "multi_agent_p0 12 用例合成机制层（offline deterministic）",
+  "schema_version": "p4.5-2026-10-01",
+  "description": "multi_agent_p0 19 用例合成机制层（offline deterministic）",
   "cases": [
     {
       "case_id": "ma-p0-01",
       "scenario": "standard",
-      "title": "给水正常→schematic DXF→批准（P0 闭环）",
+      "title": "给水正常→schematic DXF→批准（P0 闭环）；P3 给水规则缺口须在审批请求里披露",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
-      "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0},
+      "expected": {"status": "succeeded", "roundtrip_segment_recall": 1.0, "interrupt_disclosed_contains": ["给水管段"]},
       "project_brief": {
         "project_id": "proj-ma-p0-01",
         "request": "给水管段设计，DN150 PE 管 10m，流量 10L/s",
@@ -132,9 +132,9 @@
     {
       "case_id": "ma-p0-08",
       "scenario": "approval_drift",
-      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift）",
+      "title": "批准后改 DrawingPlan→旧批准失效（approval_drift），在 approval 收口、只记一次 STALE、不算导出尝试",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
-      "expected": {"status": "blocked", "detector": "approval_drift"},
+      "expected": {"status": "blocked", "detector": "approval_drift", "errors": ["MULTI_APPROVAL_STALE"], "detectors_absent": ["unapproved_export"]},
       "project_brief": {
         "project_id": "proj-ma-p0-08",
         "request": "已批准后图纸被改，旧批准应失效",
@@ -150,9 +150,9 @@
     {
       "case_id": "ma-p0-09",
       "scenario": "unapproved_export",
-      "title": "未审批导出→unapproved_export + reviewer_bypassed",
+      "title": "注入的未审批导出（跳过人工审批节点直奔发布门）→发布门拦下，MULTI_APPROVAL_REQUIRED，unapproved_export",
       "retrieved_source_ids": ["GB50015-2019 3.2.1"],
-      "expected": {"status": "blocked", "detector": "unapproved_export"},
+      "expected": {"status": "blocked", "detector": "unapproved_export", "errors": ["MULTI_APPROVAL_REQUIRED"]},
       "project_brief": {
         "project_id": "proj-ma-p0-09",
         "request": "未审批尝试导出正式图",
@@ -217,6 +217,176 @@
         "spatial_constraints": [{"kind": "material", "value": "PE"}],
         "required_outputs": ["drawing"],
         "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-13",
+      "scenario": "p3_defect",
+      "title": "排水 DN200：P3 最小管径缺陷成为人工问题，停在 waiting，不进批准",
+      "retrieved_source_ids": [],
+      "expected": {"status": "waiting", "review_issue_rule_ids": ["p3_drain.min_diameter"]},
+      "project_brief": {
+        "project_id": "proj-ma-p0-13",
+        "request": "室外排水管段设计，DN200，坡度 0.003，流量 5L/s",
+        "systems": ["drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-drain-1", "formula": "velocity", "inputs": {"flow_lps": 5, "diameter_mm": 200, "slope": 0.003}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN200"]
+      }
+    },
+    {
+      "case_id": "ma-p0-14",
+      "scenario": "standard",
+      "title": "给水 DN50 走 50 L/s：越界提示写进审批请求，批准后才导出",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "succeeded", "interrupt_disclosed_contains": ["25.465 m/s 高于给水常用区间"]},
+      "project_brief": {
+        "project_id": "proj-ma-p0-14",
+        "request": "给水管段设计，DN50，流量 50L/s",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-hi", "formula": "velocity", "inputs": {"flow_lps": 50, "diameter_mm": 50}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN50"]
+      }
+    },
+    {
+      "case_id": "ma-p0-15",
+      "scenario": "binding_ambiguous",
+      "title": "两工况两 DN、边未声明 calc_case_id：不把一个工况的 DN 套给另一个、不自动重算改写用户输入，两段管 not_verified 转人工",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "missing_inputs",
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": null, "calc_case_ids": [], "hydraulic_status": "not_verified"},
+          {"start_node_id": "n2", "end_node_id": "n3", "system": "water_supply", "dn_mm": null, "calc_case_ids": [], "hydraulic_status": "not_verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-15",
+        "request": "给水两段管：一段 2L/s DN100、一段 10L/s DN150，拓扑未写明各段对应哪个工况",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [
+          {"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 2, "diameter_mm": 100}},
+          {"case_id": "case-vel-2", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}
+        ],
+        "topology": [
+          {"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0},
+          {"start_node_id": "n2", "end_node_id": "n3", "length_m": 8.0}
+        ],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE"]
+      }
+    },
+    {
+      "case_id": "ma-p0-16",
+      "scenario": "standard",
+      "title": "两工况两 DN、每条边显式声明 calc_case_id：各段用各自工况的 DN，不重算，批准后导出",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "succeeded",
+        "roundtrip_segment_recall": 1.0,
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": 100, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "verified"},
+          {"start_node_id": "n2", "end_node_id": "n3", "system": "water_supply", "dn_mm": 150, "calc_case_ids": ["case-vel-2"], "hydraulic_status": "verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-16",
+        "request": "给水两段管：n1-n2 按工况 1（2L/s DN100），n2-n3 按工况 2（10L/s DN150）",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [
+          {"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 2, "diameter_mm": 100}},
+          {"case_id": "case-vel-2", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}
+        ],
+        "topology": [
+          {"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0, "calc_case_id": "case-vel-1"},
+          {"start_node_id": "n2", "end_node_id": "n3", "length_m": 8.0, "calc_case_id": "case-vel-2"}
+        ],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE"]
+      }
+    },
+    {
+      "case_id": "ma-p0-17",
+      "scenario": "binding_ambiguous",
+      "title": "一条边、给水+排水两个系统、边未声明 system：不做系统×拓扑笛卡尔积，两根候选管都不得 verified，转人工",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {
+        "status": "missing_inputs",
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "drainage", "dn_mm": 200, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "not_verified"},
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "water_supply", "dn_mm": 200, "calc_case_ids": ["case-vel-1"], "hydraulic_status": "not_verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-17",
+        "request": "给排水管段设计，DN200，坡度 0.003，流量 5L/s，未说明这段管属于给水还是排水",
+        "systems": ["water_supply", "drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 5, "diameter_mm": 200, "slope": 0.003}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["drawing"],
+        "user_constraints": ["DN200"]
+      }
+    },
+    {
+      "case_id": "ma-p0-18",
+      "scenario": "approval_rejected",
+      "title": "人工拒绝审批：停在 approval，只记 MULTI_APPROVAL_REQUIRED，不进发布门、不触发 unapproved_export，拒绝原因写进状态",
+      "retrieved_source_ids": ["GB50015-2019 3.2.1"],
+      "expected": {"status": "blocked", "errors": ["MULTI_APPROVAL_REQUIRED"], "detectors_absent": ["unapproved_export", "approval_drift"], "approval_rejection_recorded": true},
+      "project_brief": {
+        "project_id": "proj-ma-p0-18",
+        "request": "给水管段设计，DN150 PE 管 10m，流量 10L/s，审批人拒绝发布",
+        "systems": ["water_supply"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-vel-1", "formula": "velocity", "inputs": {"flow_lps": 10, "diameter_mm": 150}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 10.0}],
+        "spatial_constraints": [{"kind": "material", "value": "PE"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["material: PE", "DN150"]
+      }
+    },
+    {
+      "case_id": "ma-p0-19",
+      "scenario": "standard",
+      "title": "排水 DN300 用 slope_manning 由程序算出坡度：设计取绑定工况的 outputs.slope，不再报缺坡度，排水主路径走到批准与导出",
+      "retrieved_source_ids": ["GB50014-2021 5.1.1"],
+      "expected": {
+        "status": "succeeded",
+        "roundtrip_segment_recall": 1.0,
+        "has_recalc_request": false,
+        "project_brief_unchanged": true,
+        "design_segments": [
+          {"start_node_id": "n1", "end_node_id": "n2", "system": "drainage", "dn_mm": 300, "calc_case_ids": ["case-drain-mn"], "hydraulic_status": "verified"}
+        ]
+      },
+      "project_brief": {
+        "project_id": "proj-ma-p0-19",
+        "request": "室外排水管段设计，DN300，流量 30L/s，充满度 0.5，n=0.013，坡度由曼宁公式计算",
+        "systems": ["drainage"],
+        "unit_system": "SI",
+        "hydraulic_cases": [{"case_id": "case-drain-mn", "formula": "slope_manning", "inputs": {"flow_lps": 30, "diameter_mm": 300, "fill_ratio": 0.5, "manning_n": 0.013}}],
+        "topology": [{"start_node_id": "n1", "end_node_id": "n2", "length_m": 30.0}],
+        "spatial_constraints": [{"kind": "material", "value": "钢筋混凝土"}],
+        "required_outputs": ["calculation_book", "drawing"],
+        "user_constraints": ["DN300"]
       }
     }
   ]

@@ -573,3 +573,189 @@ def test_compose_mounts_a_writable_uploads_volume() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
     assert "/var/lib/water-agent/uploads" in dockerfile
     assert "chown -R wateragent:wateragent /var/lib/water-agent" in dockerfile
+
+
+# ---------------------------------------------------------------------------
+# review 2026-09-30：上传链路健壮性
+# ---------------------------------------------------------------------------
+
+
+def _chunk_pages(database: Database, upload_id: str) -> list[int | None]:
+    with database.transaction() as session:
+        rows = session.execute(
+            select(UploadChunkRow).where(UploadChunkRow.upload_id == upload_id).order_by(UploadChunkRow.ordinal)
+        ).scalars().all()
+        return [row.page for row in rows]
+
+
+def _chunk_contents(database: Database, upload_id: str) -> list[str]:
+    with database.transaction() as session:
+        rows = session.execute(
+            select(UploadChunkRow).where(UploadChunkRow.upload_id == upload_id).order_by(UploadChunkRow.ordinal)
+        ).scalars().all()
+        return [row.content for row in rows]
+
+
+def test_page_marker_text_in_a_txt_is_content_not_a_page(
+    database: Database, tmp_path: Path, upload_root: Path
+) -> None:
+    """页码标记是 PDF 提取器的内部信号。此前 txt/md/docx 里写一行 ``--- Page 0 ---`` 就被当成
+    分页：页号 0 撞 ``page >= 1`` 约束 → 500，且盘上留下孤儿文件；``--- Page 42 ---`` 能伪造
+    检索出处的页码。"""
+    client, _ = _login(database, tmp_path, upload_root)
+    body = "--- Page 0 ---\n污水管道设计坡度说明。\n\n--- Page 42 ---\n给水管道设计秒流量说明。"
+    response = _post_upload(client, filename="notes.txt", payload=body.encode("utf-8"))
+    assert response.status_code == 201, response.text
+    upload_id = response.json()["data"]["upload_id"]
+    assert set(_chunk_pages(database, upload_id)) == {None}
+    assert "Page 42" in "".join(_chunk_contents(database, upload_id))
+
+
+def _pdf_with_lines(pages: list[list[str]]) -> bytes:
+    """与 _pdf_bytes 同构，但一页可写多行（第二行起用 Td 换行）。"""
+
+    rendered = []
+    for lines in pages:
+        ops = f"({lines[0]}) Tj " + " ".join(f"0 -20 Td ({line}) Tj" for line in lines[1:])
+        rendered.append(ops)
+    original = _pdf_bytes(["PLACEHOLDER"] * len(pages))
+    out = original
+    for ops in rendered:
+        out = out.replace(b"(PLACEHOLDER) Tj", ops.encode(), 1)
+    # 内容流长度变了：重算 /Length 与 xref（直接重建最省事）
+    return _rebuild_pdf(out)
+
+
+def _rebuild_pdf(data: bytes) -> bytes:
+    import re
+
+    bodies = re.findall(rb"\d+ 0 obj\n(.*?)\nendobj\n", data, flags=re.S)
+    fixed = []
+    for body in bodies:
+        match = re.match(rb"<< /Length \d+ >>\nstream\n(.*)\nendstream", body, flags=re.S)
+        if match:
+            content = match.group(1)
+            body = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        fixed.append(body)
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for index, body in enumerate(fixed, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(fixed) + 1}\n".encode() + b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {len(fixed) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+def test_a_marker_lookalike_inside_a_pdf_page_cannot_move_its_page(
+    database: Database, tmp_path: Path, upload_root: Path
+) -> None:
+    """PDF 文字层里的一行 ``--- Page 42 ---`` 同样不能把后面的内容挪到"第 42 页"。"""
+    client, _ = _login(database, tmp_path, upload_root)
+    payload = _pdf_with_lines([["--- Page 42 ---", "forged body on page one"], ["second page text"]])
+    response = _post_upload(client, filename="calc.pdf", payload=payload)
+    assert response.status_code == 201, response.text
+    data = response.json()["data"]
+    assert data["page_count"] == 2
+    pages = _chunk_pages(database, data["upload_id"])
+    assert pages and set(pages) <= {1, 2}, pages
+
+
+def test_utf16_text_file_is_decoded_instead_of_stored_with_nul(
+    database: Database, tmp_path: Path, upload_root: Path
+) -> None:
+    """Windows 记事本的"Unicode"是带 BOM 的 UTF-16：按 UTF-8 解码会满屏 NUL，
+    PostgreSQL 的 text 列存不了 NUL → 500 + 孤儿文件（SQLite 能存，所以离线测试一直看不见）。"""
+    client, _ = _login(database, tmp_path, upload_root)
+    payload = "给水管道设计秒流量说明".encode("utf-16")
+    response = _post_upload(client, filename="unicode.txt", payload=payload)
+    assert response.status_code == 201, response.text
+    contents = _chunk_contents(database, response.json()["data"]["upload_id"])
+    assert contents == ["给水管道设计秒流量说明"]
+
+
+def test_nul_bytes_never_reach_persistence(
+    database: Database, tmp_path: Path, upload_root: Path
+) -> None:
+    client, _ = _login(database, tmp_path, upload_root)
+    response = _post_upload(client, filename="nul.txt", payload=b"abc\x00def\x00 ghi")
+    assert response.status_code == 201, response.text
+    data = response.json()["data"]
+    assert all("\x00" not in text for text in _chunk_contents(database, data["upload_id"]))
+    stored = (upload_root / data["upload_id"] / "extracted.txt").read_text(encoding="utf-8")
+    assert "\x00" not in stored
+
+
+def test_a_failed_database_write_leaves_no_orphan_files(
+    database: Database, tmp_path: Path, upload_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """此前先落盘后入库，入库失败时盘上文件不清理，列表里又看不到——无法经 API 删除。"""
+    from sqlalchemy.exc import OperationalError
+
+    from water_agent.documents import service as upload_service
+
+    client, _ = _login(database, tmp_path, upload_root)
+
+    def fail_create(self, **_kwargs):
+        raise OperationalError("INSERT INTO uploads", {}, Exception("connection lost"))
+
+    monkeypatch.setattr(upload_service.UploadRepository, "create", fail_create)
+    response = _post_upload(client, filename="notes.txt", payload="污水管道设计说明".encode())
+    assert response.status_code == 503, response.text
+    assert list(upload_root.iterdir()) == []
+
+
+def test_upload_parsing_does_not_block_the_event_loop(
+    database: Database, tmp_path: Path, upload_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """解析（pypdf/docx、DWG 转换子进程、逐页视觉审阅）此前直接跑在 async 路由里：单 worker
+    下一份 CAD 导出 PDF 就能冻结全站几十秒（review 实测 3 s 视觉桩 → /health/live 2.7 s）。"""
+    import asyncio
+    import time
+
+    import httpx
+
+    from water_agent.webapp import upload_routes
+
+    username = f"upload-{uuid4()}"
+    PostgresUserStore(database).create_user(username, _PASSWORD, UserRole.MEMBER)
+    app = create_app(
+        static_dir=tmp_path,
+        database=database,
+        memory_enabled=False,
+        trace_dir=tmp_path / "traces",
+        session_dir=tmp_path / "sessions",
+        upload_dir=upload_root,
+    )
+
+    def slow_ingest(**_kwargs):
+        time.sleep(0.5)
+        raise UploadError("UPLOAD_EXTRACTION_FAILED", "slow parser")
+
+    monkeypatch.setattr(upload_routes, "ingest_upload", slow_ingest)
+
+    async def scenario() -> float:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            login = await client.post("/api/auth/login", json={"username": username, "password": _PASSWORD})
+            assert login.status_code == 200
+            csrf = client.cookies.get(CSRF_COOKIE_NAME) or ""
+            started = time.perf_counter()
+            upload = asyncio.create_task(
+                client.post(
+                    "/api/uploads",
+                    files={"file": ("slow.txt", b"slow", "text/plain")},
+                    headers={"X-CSRF-Token": csrf},
+                )
+            )
+            await asyncio.sleep(0.05)
+            health = await client.get("/health/live")
+            elapsed = time.perf_counter() - started
+            assert health.status_code == 200
+            assert (await upload).status_code == 400
+            return elapsed
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed < 0.3, f"上传解析阻塞了事件循环：/health/live 用了 {elapsed:.2f}s"

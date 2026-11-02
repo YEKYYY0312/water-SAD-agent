@@ -205,6 +205,34 @@ def test_xlsx_export_of_material_statistics(setup, export_root: Path) -> None:
     assert list(export_root.iterdir()) == []
 
 
+@pytest.mark.parametrize("range_header", ["bytes=999999999-", "bytes=abc", "bytes=0-9"])
+def test_range_request_does_not_leave_a_staging_directory(
+    setup, export_root: Path, range_header: str
+) -> None:
+    """回归：FileResponse 遇到非法 Range 直接回 416/400，不执行 background 清理任务。
+
+    此前每个这样的请求在导出卷上留下一个暂存目录（实测 416 留 1 个、400 再留 1 个）。
+    现在导出整份读进内存后即删目录；Range 不再被处理，总是 200 返回完整文件。
+    """
+
+    factory, _, client, _, thread_id = setup
+    factory.script = {
+        "answer": "材料清单见附件。",
+        "messages": _material_messages(_ROWS, "call-m"),
+    }
+    run_id = _run(client, thread_id)
+
+    response = client.get(
+        f"/api/runs/{run_id}/export?format=xlsx", headers={"Range": range_header}
+    )
+
+    assert list(export_root.iterdir()) == []
+    assert response.status_code == 200, response.text
+    assert "content-range" not in response.headers
+    workbook = openpyxl.load_workbook(io.BytesIO(response.content))
+    assert [cell.value for cell in workbook["材料清单"][2]][:3] == [1, "球墨铸铁管", "DN150"]
+
+
 def test_xlsx_uses_only_the_last_material_table(setup) -> None:
     factory, _, client, _, thread_id = setup
     second = [dict(_ROWS[0], quantity=80.0, raw_quantity=80.0, segments=["S2"], detail="S2(80m)")]
@@ -263,7 +291,9 @@ def test_docx_export_of_a_text_answer_is_a_design_note(setup) -> None:
     assert "雨污分流" in text
 
 
-def test_answer_citing_an_undeclared_clause_is_refused_not_exported(setup) -> None:
+def test_answer_citing_an_undeclared_clause_is_refused_not_exported(
+    setup, export_root: Path
+) -> None:
     factory, _, client, _, thread_id = setup
     factory.script = {
         "answer": "最小管径按 GB50014-2021 5.2.10 取值。",
@@ -275,6 +305,7 @@ def test_answer_citing_an_undeclared_clause_is_refused_not_exported(setup) -> No
     body = response.json()["error"]
     assert body["code"] == "WEB_EXPORT_SELF_CHECK_FAILED"
     assert "GB50014-2021 5.2.10" in body["message"]
+    assert list(export_root.iterdir()) == []
 
 
 def test_non_owner_project_member_gets_403(

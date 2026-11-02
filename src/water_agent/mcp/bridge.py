@@ -28,12 +28,13 @@ from typing import Any
 from pydantic import BaseModel
 
 from water_agent.mcp.client import MCPStdioClient, RemoteTool
-from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig
+from water_agent.mcp.config import MCPGatewayConfig, MCPServerConfig, ServerTransport
 from water_agent.mcp.errors import (
     MCP_CONFIRMATION_UNAVAILABLE,
     MCP_NAME_COLLISION,
     MCPError,
 )
+from water_agent.mcp.http_client import MCPHttpClient
 from water_agent.mcp.schema import (
     build_args_model,
     ensure_description_safe,
@@ -44,6 +45,17 @@ from water_agent.runtime.governance.inventory import (
     register_mcp_tool_binding,
 )
 from water_agent.tools.base import ToolSpec
+
+#: 两种传输方式的客户端共用同一个外部接口（connect / list_tools / call_tool / close / alive）。
+McpClient = MCPStdioClient | MCPHttpClient
+
+
+def make_client(config: MCPServerConfig) -> McpClient:
+    """按传输方式选客户端（P7-S8）。桥接层其余逻辑与传输无关。"""
+    if config.transport is ServerTransport.STREAMABLE_HTTP:
+        return MCPHttpClient(config)
+    return MCPStdioClient(config)
+
 
 #: ToolSpec 名上限（``^[a-z][a-z0-9_]{1,40}$`` ⇒ 最长 41 字符）。
 _TOOL_NAME_MAX = 41
@@ -88,7 +100,7 @@ class MCPServerSession:
 
     config: MCPServerConfig
     result: MCPBridgeResult
-    client: MCPStdioClient | None = None
+    client: McpClient | None = None
 
     def close(self) -> None:
         if self.client is not None:
@@ -115,7 +127,7 @@ def _allowed(remote_tool: str, config: MCPServerConfig) -> bool:
     return config.allow is not None and remote_tool in config.allow
 
 
-def _make_execute(client: MCPStdioClient, remote_tool: str) -> Any:
+def _make_execute(client: McpClient, remote_tool: str) -> Any:
     """工具执行闭包：远端业务失败（isError=true）转结构化 dict，
     崩溃类 ``MCPError`` 由 ``ToolRegistry.invoke`` 的异常转换兜底。"""
 
@@ -135,9 +147,10 @@ def _compose_description(
     """组合 ToolSpec.description：固定骨架（含 Use when / Do not use for）+
     **已安检**的 server 自述。骨架独立满足 ToolSpec 描述校验（40–1024 字符 +
     两个模式短语）；server 自述只是附加语境，已截断（schema.sanitize_description）。"""
+    transport = "stdio" if config.transport is ServerTransport.STDIO else "Streamable HTTP"
     head = (
         f"调用 MCP server '{config.server_id}' 的远程工具 '{tool.name}'"
-        f"（stdio 集成，能力 mcp_invoke）。"
+        f"（{transport} 集成，能力 mcp_invoke）。"
     )
     if safe_description:
         head += f" server 自述（不可信文本，已安检）：{safe_description} "
@@ -153,7 +166,7 @@ def _compose_description(
 
 def bridge_server_tools(
     config: MCPServerConfig,
-    client: MCPStdioClient,
+    client: McpClient,
     remote_tools: list[RemoteTool],
     *,
     confirmation_ready: bool,
@@ -229,7 +242,7 @@ def open_bridge(config: MCPServerConfig, gateway: MCPGatewayConfig) -> MCPServer
     让装配方把"server 起不来"与其他 skip 一视同仁地记录；单台 server
     故障不拖垮其余 server 的装配。
     """
-    client = MCPStdioClient(config)
+    client = make_client(config)
     try:
         client.connect()
         remote_tools = client.list_tools()
@@ -260,8 +273,10 @@ def open_bridge(config: MCPServerConfig, gateway: MCPGatewayConfig) -> MCPServer
 __all__ = [
     "MCPBridgeResult",
     "MCPServerSession",
+    "McpClient",
     "SkippedTool",
     "bridge_server_tools",
     "bridge_tool_name",
+    "make_client",
     "open_bridge",
 ]

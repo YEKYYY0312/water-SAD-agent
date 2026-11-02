@@ -19,6 +19,13 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.graphs.agent_rag import current_turn_messages
+from water_agent.graphs.confirmation import (
+    STATUS_WAITING_CONFIRMATION,
+    is_pending_confirmation,
+    pending_confirmation_request,
+)
+from water_agent.mcp.pool import McpConnectionPool
+from water_agent.mcp.wiring import load_mcp_gateway
 from water_agent.memory.contracts import MemoryError as DomainMemoryError
 from water_agent.memory.contracts import MemoryStoreUnavailableError
 from water_agent.memory.providers import MemoryProvider
@@ -36,8 +43,14 @@ from water_agent.storage.repository import (
 from water_agent.storage.scoped_checkpoint import ScopedPostgresSaver
 
 RUN_EVENT_PAYLOAD_VERSION = "v1"
-RUN_STATUSES = frozenset({"queued", "running", "succeeded", "failed", "blocked", "cancelled"})
+#: ``waiting_confirmation``（P7-S7）：作答停在人工确认门。不是终态——线程互斥释放、SSE 流结束，
+#: 决定之后同一个 run 经 ``queued → running`` 继续。
+RUN_STATUSES = frozenset(
+    {"queued", "running", "succeeded", "failed", "blocked", "cancelled", STATUS_WAITING_CONFIRMATION}
+)
 TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "blocked", "cancelled"})
+#: 确认请求里参数文本的上限（SSE / 历史投影）：超出截断并标出。
+MAX_CONFIRMATION_ARGUMENTS_TEXT = 4_000
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 MAX_SSE_TEXT = 16_000
 
@@ -61,6 +74,19 @@ class RunManagerError(RuntimeError):
 
 class RunNotManagedError(RunManagerError):
     """The process has no event log for the requested run."""
+
+
+class ConfirmationStaleError(RunManagerError):
+    """The run is not waiting for this confirmation (decided already, or never suspended here)."""
+
+
+class ThreadBusyError(RunManagerError):
+    """The thread already has a queued or running run in this process.
+
+    Two runs on one thread write the same checkpoint and the later writer wins:
+    the earlier question and answer silently vanish from the history and from
+    every later turn's context (review 2026-09-30, reproduced).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,8 +137,20 @@ class _RunHandle:
     material_table: dict[str, Any] | None = None
     # P5-S49：本条消息点名的附件（路由层已校验归属）。
     attachment_ids: list[str] = field(default_factory=list)
+    # P7-S15：本次运行**实际选用**的模型 id（消息 > 会话默认；路由层已按目录 / 角色 / 逐对验证校验）。
+    # ``None`` = 全局模型。恢复确认时以库里的 ``runs.model`` 为准，不会静默换回默认模型。
+    model: str | None = None
+    # P7-S12：本条消息是否勾选了联网。**只在进程内**，不进 runs 表、不进会话默认（与 S15 的模型选择刻意不同：
+    # 勾选是逐条消息的瞬时同意）。确认门挂起后同进程恢复时沿用；进程重启后恢复时为 False（恢复的那一段不再联网）。
+    web_search: bool = False
     calc_inputs: dict[str, float] = field(default_factory=dict)
     tool_call_args: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # P7-S7：停在人工确认门（不是终态，``finalized`` 仍为 False）。挂起期间 SSE 流以
+    # ``stream_end(waiting_confirmation)`` 结束；``resume`` 清掉它并在同一个 handle 上继续。
+    suspended: bool = False
+    # 挂起时的召回结果（长期记忆 / 上传资料 / 附件），同进程恢复时原样交回同一轮：checkpoint 里
+    # 存的是经 serde 读回的 dict，不能直接用。进程重启后就没有了（恢复时不带，并发出 warning）。
+    resume_contexts: dict[str, Any] = field(default_factory=dict)
 
 
 def _now() -> str:
@@ -164,26 +202,34 @@ def project_conversation(
 
     guard = pipeline if pipeline is not None else default_guardrail_pipeline()
     context = local_request_context(thread_id=f"history-{thread_id}")
-    turns: list[tuple[str, str | None]] = []
+    from water_agent.graphs.agent_rag import TURN_STATUS_KEY
+
+    turns: list[tuple[str, str | None, str | None]] = []
     for message in messages:
         if isinstance(message, HumanMessage):
             text = message.content if isinstance(message.content, str) else ""
             if not text or text.startswith(_RUNTIME_CONTEXT_PREFIX):
                 continue
-            turns.append((text, None))
+            turns.append((text, None, None))
         elif isinstance(message, AIMessage) and turns and not message.tool_calls:
             if isinstance(message.content, str) and message.content.strip():
-                turns[-1] = (turns[-1][0], message.content)
+                stamped = (message.additional_kwargs or {}).get(TURN_STATUS_KEY)
+                turns[-1] = (turns[-1][0], message.content, stamped if isinstance(stamped, str) else None)
     projected: list[dict[str, Any]] = []
-    for question, answer in turns[-MAX_HISTORY_TURNS:]:
+    for question, answer, status in turns[-MAX_HISTORY_TURNS:]:
         projected.append({"role": "user", "text": question})
         if answer is None:
             continue
         outcome = guard.check_output(answer, context)
-        if outcome.allowed:
-            projected.append({"role": "agent", "text": outcome.content, "withheld": False})
-        else:
-            projected.append({"role": "agent", "text": "", "withheld": True})
+        entry: dict[str, Any] = (
+            {"role": "agent", "text": outcome.content, "withheld": False}
+            if outcome.allowed
+            else {"role": "agent", "text": "", "withheld": True}
+        )
+        # 收口状态随答案持久化（agent_rag._stamp_status）；没有标记的是旧会话，不猜
+        if status is not None:
+            entry["status"] = status
+        projected.append(entry)
     return projected
 
 
@@ -194,6 +240,16 @@ class AttachmentUnavailableError(RuntimeError):
 class WebAgenticSessionFactory:
     """Build an authenticated AgenticSession using the shared assembly function."""
 
+    #: P7-S7：本工厂建的会话接了人工确认门。``AgentSessionFactory`` 是协议，评测 / 测试替身不声明
+    #: 它，``RunManager`` 就不去读 checkpoint 判定挂起的确认（它们的会话不会挂起）。
+    supports_confirmation = True
+    #: P7-S15：本工厂的 ``create`` 接受 ``model``（同端点、同 Key 槽，只换模型 id）。协议型替身不声明它，
+    #: ``RunManager`` 就不传该 kwarg——选了模型而工厂不支持时直接报错，不静默用全局模型。
+    supports_model_choice = True
+    #: P7-S12：本工厂的 ``create`` 接受 ``web_search``（用户对这一条消息勾选了联网）。同理：协议型替身不声明就不传，
+    #: 勾选了而工厂不支持时直接报错，不静默忽略勾选。
+    supports_web_search = True
+
     def __init__(
         self,
         database: Database,
@@ -203,8 +259,12 @@ class WebAgenticSessionFactory:
         session_dir: str | os.PathLike[str] = "data/sessions",
         mock_generator: bool | None = None,
         agent_args: argparse.Namespace | None = None,
+        mcp_pool: McpConnectionPool | None = None,
     ) -> None:
         self.database = database
+        #: P7-S5：进程内 MCP 连接池。``lifecycle: shared`` 的 server 跨 run 复用进程，其余每个 run
+        #: 现开现关。由 ``RunManager.close()`` 在排空 run 之后关闭。
+        self.mcp_pool = mcp_pool if mcp_pool is not None else McpConnectionPool()
         self.sessions = sessions
         # None ⇒ 交给 resolve_trace_dir 读 WATER_AGENT_TRACE_DIR；容器里 /app/data 只读，
         # 写死 "data/traces" 会让 recorder.finish() 必然 OSError（见 json_trace 模块文档）
@@ -220,9 +280,8 @@ class WebAgenticSessionFactory:
     def _args(self) -> argparse.Namespace:
         if self.agent_args is not None:
             return argparse.Namespace(**vars(self.agent_args))
-        from water_agent.generation.local_model import local_model_configured, local_model_settings
-
-        local_settings = local_model_settings() if local_model_configured() else {}
+        # 对话端点 / 模型 / Key 名不在这里写死（P7-S10）：None 交给 resolve_chat_endpoint，与预检同一来源
+        # （缺省 DeepSeek；LOCAL_MODEL_* 启用时是本地端点；WATER_AGENT_LLM_* 由运维配置）。
         return argparse.Namespace(
             db_path=None,
             dimensions=None,
@@ -233,10 +292,10 @@ class WebAgenticSessionFactory:
             top_k=5,
             recall_top_k=20,
             hybrid_alpha=0.7,
-            model=local_settings.get("model", "deepseek-chat"),
-            base_url=local_settings.get("base_url", "https://api.deepseek.com"),
-            api_key_env="DEEPSEEK_API_KEY",
-            api_key=local_settings.get("api_key"),
+            model=None,
+            base_url=None,
+            api_key_env=None,
+            api_key=None,
             mock_generator=self.mock_generator,
             session_dir=self.session_dir,
             trace_dir=self.trace_dir,
@@ -253,6 +312,8 @@ class WebAgenticSessionFactory:
         principal: Principal,
         project_id: UUID | None,
         stack: ExitStack,
+        model: str | None = None,
+        web_search: bool = False,
     ) -> Any:
         saver = stack.enter_context(postgres_checkpointer(self.database))
         scoped_saver = ScopedPostgresSaver(saver, self.sessions, user_id)
@@ -263,13 +324,30 @@ class WebAgenticSessionFactory:
             request_id=f"req-{run_id[:12]}",
             thread_id=thread_id,
         )
+        # 坏配置在借用之前就 MCP_CONFIG_INVALID（任何子进程启动之前）；借到立即登记释放，
+        # 之后会话构造的任何一步抛错都不会漏掉租约。
+        # P7-S7：Web 是唯一接了人工确认门的入口——借连接时声明确认门可用（human_confirmation 的
+        # server 才暴露），会话同时接上确认门；CLI 与评测 runner 不传，这类 server 整台不暴露。
+        lease = self.mcp_pool.lease(load_mcp_gateway(), confirmation_ready=True)
+        stack.callback(lease.release)
+        args = self._args()
+        if model is not None:
+            # 同端点、同 Key 槽，只换模型 id（P7-S15）；端点 / Key 名仍由 resolve_chat_endpoint 解析
+            args.model = model
         return build_agentic_session(
-            self._args(),
+            args,
             stack=stack,
             thread_id=thread_id,
             request_context=request_context,
             checkpointer=scoped_saver,
+            mcp_lease=lease,
+            confirmation=True,
+            **({"web_search": True} if web_search else {}),
         )
+
+    def close(self) -> dict[str, Any]:
+        """关闭 MCP 连接池（``RunManager.close()`` 排空 run 之后调用）。"""
+        return self.mcp_pool.close()
 
 
 class RunManager:
@@ -318,6 +396,9 @@ class RunManager:
             session_dir=session_dir,
         )
         self._handles: dict[str, _RunHandle] = {}
+        #: thread_id → 该会话当前未收口的 run_id。互斥只在进程内判定：Web 是单实例，
+        #: 数据库里 queued/running 的行在进程崩溃后会残留，按它判定会把会话永久锁死。
+        self._active_by_thread: dict[str, str] = {}
         # 历史读取用的 checkpointer 工厂；测试替换成内存实现（SQLite 上没有 PG saver）。
         self.checkpointer_factory: Callable[[Database], Any] = postgres_checkpointer
         self._lock = RLock()
@@ -333,7 +414,15 @@ class RunManager:
         project_id: UUID | str | None,
         query: str,
         attachment_ids: list[str] | None = None,
+        model: str | None = None,
+        web_search: bool = False,
     ) -> dict[str, str]:
+        if model is not None and not getattr(self.session_factory, "supports_model_choice", False):
+            # 选了模型却没有会话工厂能兑现它：报错，绝不静默用全局模型作答（P7-I21）
+            raise ValueError("session factory does not support model choice")
+        if web_search and not getattr(self.session_factory, "supports_web_search", False):
+            # 勾选了联网却没有会话工厂能兑现它：报错，绝不静默当成没勾选
+            raise ValueError("session factory does not support web search")
         run_key = str(run_id)
         handle = _RunHandle(
             run_id=run_key,
@@ -341,17 +430,46 @@ class RunManager:
             owner_user_id=owner_user_id,
             project_id=None if project_id is None else UUID(str(project_id)),
             attachment_ids=list(attachment_ids or []),
+            model=model,
+            web_search=web_search,
         )
         with self._lock:
             if run_key in self._handles:
                 raise ValueError("run already exists")
+            if self._thread_busy_locked(handle.thread_id):
+                raise ThreadBusyError("thread already has an active run")
             self._handles[run_key] = handle
+            self._active_by_thread[handle.thread_id] = run_key
         self._append(handle, "run_queued", {"status": "queued"})
         self._executor.submit(self._execute, handle, principal, query)
         return {"run_id": run_key, "thread_id": str(thread_id), "status": "queued"}
 
+    def thread_busy(self, thread_id: UUID | str) -> bool:
+        """Whether this thread already has a run that has not finished yet."""
+
+        with self._lock:
+            return self._thread_busy_locked(str(thread_id))
+
+    def _thread_busy_locked(self, thread_id: str) -> bool:
+        run_key = self._active_by_thread.get(thread_id)
+        if run_key is None:
+            return False
+        handle = self._handles.get(run_key)
+        if handle is None or handle.finalized:
+            del self._active_by_thread[thread_id]
+            return False
+        return True
+
     def thread_messages(self, thread_id: UUID | str, user_id: UUID) -> list[dict[str, Any]]:
         """Read a thread's conversation for the browser, re-authorized by the saver."""
+
+        messages, _pending = self.thread_history(thread_id, user_id)
+        return messages
+
+    def thread_history(
+        self, thread_id: UUID | str, user_id: UUID
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """对话投影 + 挂起的确认请求（P7-S7，刷新后前端据此恢复确认卡片）。一次 checkpoint 读取。"""
 
         from water_agent.storage.scoped_checkpoint import ScopedPostgresSaver
 
@@ -360,9 +478,79 @@ class RunManager:
             scoped = ScopedPostgresSaver(saver, self.sessions, user_id)
             snapshot = scoped.get_tuple({"configurable": {"thread_id": str(thread_id)}})
         if snapshot is None:
-            return []
+            return [], None
         messages = snapshot.checkpoint.get("channel_values", {}).get("messages", []) or []
-        return project_conversation(messages, thread_id=str(thread_id))
+        projected = project_conversation(messages, thread_id=str(thread_id))
+        return projected, self._pending_from_tuple(snapshot, thread_id, user_id)
+
+    def pending_confirmation(self, thread_id: UUID | str, user_id: UUID) -> dict[str, Any] | None:
+        """该会话挂起在确认门的请求（读 checkpoint，不读进程内状态：重启后照样拦得住新消息）。
+
+        工厂不声明 ``supports_confirmation`` 时恒为 ``None``（它的会话没有确认门，不会挂起）。
+        读 checkpoint 出错时上抛——判定不了就不能放行新的 run。
+        """
+
+        if not getattr(self.session_factory, "supports_confirmation", False):
+            return None
+        _messages, pending = self.thread_history(thread_id, user_id)
+        return pending
+
+    def _pending_from_tuple(
+        self, snapshot: Any, thread_id: UUID | str, user_id: UUID
+    ) -> dict[str, Any] | None:
+        """checkpoint 里挂起的确认请求。interrupt 以 ``langgraph.types.Interrupt`` 存在 pending
+        writes 里（非法 resume 再挂起时被替换成带 error 的那一份，决定之后新 checkpoint 里不再有）。"""
+
+        from langgraph.types import Interrupt
+
+        interrupts: list[Any] = []
+        for write in getattr(snapshot, "pending_writes", None) or []:
+            value = write[2] if isinstance(write, (list, tuple)) and len(write) >= 3 else None
+            items = value if isinstance(value, (list, tuple)) else [value]
+            interrupts.extend(item for item in items if isinstance(item, Interrupt))
+        request = pending_confirmation_request(interrupts)
+        if request is None:
+            return None
+        run_id = next(
+            (
+                str(run.run_id)
+                for run in self.run_repository.list_for_session(thread_id, user_id)
+                if run.status == STATUS_WAITING_CONFIRMATION
+            ),
+            None,
+        )
+        return {**self._confirmation_payload(request), "run_id": run_id}
+
+    @staticmethod
+    def _confirmation_payload(request: Any) -> dict[str, Any]:
+        """确认请求的浏览器视图：参数渲染成文本并按 SSE 同一口径脱敏（参数是模型产出，与回答同级）。
+
+        ``arguments_redacted`` / ``arguments_truncated`` 让确认卡片如实说明"你看到的不是完整原文"。
+        """
+
+        source = request if isinstance(request, dict) else {}
+        try:
+            rendered = json.dumps(
+                source.get("arguments") or {}, ensure_ascii=False, indent=2, sort_keys=True, default=str
+            )
+        except (TypeError, ValueError):
+            rendered = ""
+        truncated = len(rendered) > MAX_CONFIRMATION_ARGUMENTS_TEXT
+        visible = rendered[:MAX_CONFIRMATION_ARGUMENTS_TEXT]
+        safe = _safe_text(visible, limit=MAX_CONFIRMATION_ARGUMENTS_TEXT)
+        payload: dict[str, Any] = {
+            "confirmation_id": _safe_text(source.get("confirmation_id"), limit=128),
+            "tool_name": _safe_text(source.get("tool_name"), limit=200),
+            "server_id": _safe_text(source.get("server_id"), limit=200),
+            "remote_tool": _safe_text(source.get("remote_tool"), limit=200),
+            "arguments_text": safe,
+            "arguments_redacted": safe != visible,
+            "arguments_truncated": truncated,
+            "message": _safe_text(source.get("message"), limit=500),
+        }
+        if source.get("error"):
+            payload["error"] = _safe_text(source.get("error"), limit=500)
+        return payload
 
     def _append(self, handle: _RunHandle, event_type: str, payload: dict[str, Any]) -> RunEvent:
         with handle.condition:
@@ -396,6 +584,156 @@ class RunManager:
         self._append(handle, "run_started", {"status": "running"})
 
     def _execute(self, handle: _RunHandle, principal: Principal, query: str) -> None:
+        def ask(session: Any) -> dict[str, Any] | None:
+            memory_context: MemoryRecallResult | None = None
+            if self.memory_enabled:
+                try:
+                    trace = getattr(session, "recorder", None)
+                    memory_context = MemoryRecallService(
+                        self.database, trace=trace, provider=self.memory_provider
+                    ).recall(
+                        tenant_id=self.tenant_id,
+                        actor_user_id=handle.owner_user_id,
+                        project_id=handle.project_id,
+                        query=query,
+                        source_thread_id=handle.thread_id,
+                        run_id=handle.run_id,
+                    )
+                    self._append(
+                        handle,
+                        "memory_recall",
+                        {
+                            "returned_count": len(memory_context.hits),
+                            "candidate_count": memory_context.candidate_count,
+                            "omitted_count": memory_context.omitted_count,
+                            "character_budget": memory_context.character_budget,
+                            "memory_ids": [str(hit.memory.memory_id) for hit in memory_context.hits],
+                        },
+                    )
+                except MemoryStoreUnavailableError:
+                    self._record_trace_event(
+                        session,
+                        "memory_recall_degraded",
+                        {"code": "MEMORY_RECALL_DEGRADED"},
+                        status="running",
+                    )
+                    self._append(
+                        handle,
+                        "warning",
+                        {
+                            "code": "MEMORY_RECALL_DEGRADED",
+                            "message": "Long-term memory was unavailable; continued without it",
+                        },
+                    )
+                    memory_context = None
+                except DomainMemoryError:
+                    self._record_trace_event(
+                        session,
+                        "memory_recall_blocked",
+                        {"code": "MEMORY_POLICY_BLOCKED"},
+                        status="blocked",
+                    )
+                    self._finish(
+                        handle,
+                        status="blocked",
+                        payload={"error": "memory policy blocked this run"},
+                    )
+                    return None
+                except (SQLAlchemyError, OSError, ValueError, TypeError):
+                    self._record_trace_event(
+                        session,
+                        "memory_recall_blocked",
+                        {"code": "MEMORY_DATA_UNAVAILABLE"},
+                        status="blocked",
+                    )
+                    self._finish(
+                        handle,
+                        status="blocked",
+                        payload={"error": "memory data could not be authorized"},
+                    )
+                    return None
+
+            upload_context = self._recall_uploads(handle, session, query)
+            # 只在确有召回时才传 upload_context：AgentSessionFactory 是协议，现有实现
+            # （harness/memory_eval.py 的评测会话、各测试夹具）的 aask 并不认识这个
+            # 关键字。无条件传会让它们全部 TypeError → 被下方兜底改写成 run failed，
+            # 即一个与上传无关的会话因为本步而静默失败。有召回却不支持时照旧响亮失败。
+            extra: dict[str, Any] = (
+                {"upload_context": upload_context} if upload_context is not None else {}
+            )
+            attachment_context = self._read_attachments(handle, session, query)
+            if attachment_context is not None:
+                extra["attachment_context"] = attachment_context
+            # 停在确认门时同进程恢复要把同一份召回结果交回同一轮（见 _RunHandle.resume_contexts）
+            handle.resume_contexts = {"memory_context": memory_context, **extra}
+
+            # 草稿：模型正在写的回答，逐句过输出护栏后才下发（agent_rag.DraftPump），可被撤回；
+            # 最终回答仍只以 finalize 的 answer 为准。只给声明支持的会话传（协议兼容，
+            # 同 attachment_context）。
+            if getattr(session, "supports_draft_stream", False):
+                extra["on_draft"] = lambda kind, payload: self._on_draft(handle, kind, payload)
+            return cast(
+                dict[str, Any],
+                asyncio.run(
+                    session.aask(
+                        query,
+                        run_id=handle.run_id,
+                        memory_context=memory_context,
+                        # 不再有逐 token 事件：未过护栏的模型原文绝不进 SSE（review 2026-09-30）。
+                        on_token=lambda _token: None,
+                        on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
+                        cancel_check=lambda: self._is_cancel_requested(handle),
+                        **extra,
+                    )
+                ),
+            )
+
+        self._drive(handle, principal, trace_query=query, body=ask)
+
+    def _execute_resume(
+        self,
+        handle: _RunHandle,
+        principal: Principal,
+        decision: dict[str, Any],
+        contexts: dict[str, Any],
+    ) -> None:
+        """在同一个 run 上继续停在确认门的那一轮（P7-S7）。召回结果只在同进程恢复时才有。"""
+
+        def resume(session: Any) -> dict[str, Any] | None:
+            extra: dict[str, Any] = {
+                key: value for key, value in contexts.items() if value is not None
+            }
+            # 同一轮可能再次停在确认门：下一次恢复照样要交回这份召回结果
+            handle.resume_contexts = dict(contexts)
+            if getattr(session, "supports_draft_stream", False):
+                extra["on_draft"] = lambda kind, payload: self._on_draft(handle, kind, payload)
+            return cast(
+                dict[str, Any],
+                asyncio.run(
+                    session.aresume(
+                        decision,
+                        run_id=handle.run_id,
+                        on_token=lambda _token: None,
+                        on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
+                        cancel_check=lambda: self._is_cancel_requested(handle),
+                        **extra,
+                    )
+                ),
+            )
+
+        self._drive(handle, principal, trace_query="", body=resume)
+
+    def _drive(
+        self,
+        handle: _RunHandle,
+        principal: Principal,
+        *,
+        trace_query: str,
+        body: Callable[[Any], dict[str, Any] | None],
+    ) -> None:
+        """建会话 → ``body(session)`` 作答 → 收口（终态 / 停在确认门）。``body`` 返回 ``None`` 表示它已
+        自行收口（例如记忆策略拦截）。首轮与确认后的恢复共用这一段收口与异常转换。"""
+
         self._set_running(handle)
         with handle.condition:
             if handle.finalized:
@@ -407,6 +745,16 @@ class RunManager:
         session: Any | None = None
         try:
             with ExitStack() as stack:
+                # 严格签名的替身工厂不收 model：只有声明 ``supports_model_choice`` 且选了模型才传
+                model_kwargs: dict[str, Any] = {}
+                if handle.model is not None:
+                    if not getattr(self.session_factory, "supports_model_choice", False):
+                        raise ValueError("session factory does not support model choice")
+                    model_kwargs["model"] = handle.model
+                if handle.web_search:
+                    if not getattr(self.session_factory, "supports_web_search", False):
+                        raise ValueError("session factory does not support web search")
+                    model_kwargs["web_search"] = True
                 session = self.session_factory.create(
                     run_id=handle.run_id,
                     thread_id=handle.thread_id,
@@ -414,108 +762,31 @@ class RunManager:
                     principal=principal,
                     project_id=handle.project_id,
                     stack=stack,
+                    **model_kwargs,
                 )
                 handle.session = session
                 start_trace = getattr(session, "start_trace", None)
                 if callable(start_trace):
-                    start_trace(handle.run_id, query)
-
-                memory_context: MemoryRecallResult | None = None
-                if self.memory_enabled:
-                    try:
-                        trace = getattr(session, "recorder", None)
-                        memory_context = MemoryRecallService(
-                            self.database, trace=trace, provider=self.memory_provider
-                        ).recall(
-                            tenant_id=self.tenant_id,
-                            actor_user_id=handle.owner_user_id,
-                            project_id=handle.project_id,
-                            query=query,
-                            source_thread_id=handle.thread_id,
-                            run_id=handle.run_id,
-                        )
-                        self._append(
-                            handle,
-                            "memory_recall",
-                            {
-                                "returned_count": len(memory_context.hits),
-                                "candidate_count": memory_context.candidate_count,
-                                "omitted_count": memory_context.omitted_count,
-                                "character_budget": memory_context.character_budget,
-                                "memory_ids": [str(hit.memory.memory_id) for hit in memory_context.hits],
-                            },
-                        )
-                    except MemoryStoreUnavailableError:
-                        self._record_trace_event(
-                            session,
-                            "memory_recall_degraded",
-                            {"code": "MEMORY_RECALL_DEGRADED"},
-                            status="running",
-                        )
-                        self._append(
-                            handle,
-                            "warning",
-                            {
-                                "code": "MEMORY_RECALL_DEGRADED",
-                                "message": "Long-term memory was unavailable; continued without it",
-                            },
-                        )
-                        memory_context = None
-                    except DomainMemoryError:
-                        self._record_trace_event(
-                            session,
-                            "memory_recall_blocked",
-                            {"code": "MEMORY_POLICY_BLOCKED"},
-                            status="blocked",
-                        )
-                        self._finish(
-                            handle,
-                            status="blocked",
-                            payload={"error": "memory policy blocked this run"},
-                        )
-                        return
-                    except (SQLAlchemyError, OSError, ValueError, TypeError):
-                        self._record_trace_event(
-                            session,
-                            "memory_recall_blocked",
-                            {"code": "MEMORY_DATA_UNAVAILABLE"},
-                            status="blocked",
-                        )
-                        self._finish(
-                            handle,
-                            status="blocked",
-                            payload={"error": "memory data could not be authorized"},
-                        )
-                        return
-
-                upload_context = self._recall_uploads(handle, session, query)
-                # 只在确有召回时才传 upload_context：AgentSessionFactory 是协议，现有实现
-                # （harness/memory_eval.py 的评测会话、各测试夹具）的 aask 并不认识这个
-                # 关键字。无条件传会让它们全部 TypeError → 被下方兜底改写成 run failed，
-                # 即一个与上传无关的会话因为本步而静默失败。有召回却不支持时照旧响亮失败。
-                extra: dict[str, Any] = (
-                    {"upload_context": upload_context} if upload_context is not None else {}
-                )
-                attachment_context = self._read_attachments(handle, session, query)
-                if attachment_context is not None:
-                    extra["attachment_context"] = attachment_context
-
-                result = asyncio.run(
-                    session.aask(
-                        query,
-                        run_id=handle.run_id,
-                        memory_context=memory_context,
-                        on_token=lambda token: self._on_token(handle, token),
-                        on_event=lambda mode, payload: self._on_agent_event(handle, mode, payload),
-                        cancel_check=lambda: self._is_cancel_requested(handle),
-                        **extra,
+                    start_trace(handle.run_id, trace_query)
+                if handle.model is not None:
+                    self._record_trace_event(
+                        session,
+                        "model_selected",
+                        {"model": handle.model, "source": "catalog"},
+                        status="ok",
+                        node="model",
                     )
-                )
+                result = body(session)
+                if result is None:
+                    return
             if self._is_cancel_requested(handle):
                 self._finish(handle, status="cancelled", payload={"status": "cancelled"})
                 return
             status = str(result.get("status") or "failed")
-            if status not in RUN_STATUSES or status == "queued" or status == "running":
+            if status == STATUS_WAITING_CONFIRMATION:
+                self._suspend(handle, result)
+                return
+            if status not in TERMINAL_RUN_STATUSES:
                 status = "failed"
             self._finish(handle, status=status, payload=self._result_payload(result, handle=handle))
         except RunCancelled:
@@ -540,6 +811,117 @@ class RunManager:
                 node="run",
             )
             self._finish(handle, status="failed", payload={"error": "agent run failed"})
+
+    def _suspend(self, handle: _RunHandle, result: dict[str, Any]) -> None:
+        """作答停在确认门（P7-S7）：run 置 ``waiting_confirmation``、发 ``confirmation_required``、
+        释放线程互斥。不是终态——不写 finalize；挂起状态本身在 checkpoint 里（重启后照样能决定）。
+
+        顺序是安全属性：先落库（决定接口按库里的状态判定），再发事件；事件与 ``suspended`` 在同一把锁里
+        设置——流看到 ``suspended`` 时确认事件一定已在日志里，不会先收到 ``stream_end`` 再丢掉卡片。
+        """
+
+        request = self._confirmation_payload(result.get("confirmation"))
+        try:
+            self.run_repository.set_status(
+                handle.run_id,
+                handle.owner_user_id,
+                STATUS_WAITING_CONFIRMATION,
+                expected_statuses=("running",),
+            )
+        except (ResourceNotFoundError, SQLAlchemyError, OSError):
+            self._finish(handle, status="blocked", payload={"error": "run state persistence unavailable"})
+            return
+        self._finish_trace(handle, STATUS_WAITING_CONFIRMATION, None)
+        warnings = [_safe_text(item, limit=1000) for item in result.get("warnings", []) or []]
+        with handle.condition:
+            for warning in warnings:
+                self._append(handle, "warning", {"code": "RUN_WARNING", "message": warning})
+            self._append(handle, "confirmation_required", request)
+            handle.status = STATUS_WAITING_CONFIRMATION
+            handle.suspended = True
+            handle.condition.notify_all()
+        with self._lock:
+            if self._active_by_thread.get(handle.thread_id) == handle.run_id:
+                del self._active_by_thread[handle.thread_id]
+
+    def resume(
+        self,
+        *,
+        run_id: UUID | str,
+        thread_id: UUID | str,
+        owner_user_id: UUID,
+        principal: Principal,
+        project_id: UUID | str | None,
+        decision: dict[str, Any],
+        model: str | None = None,
+    ) -> dict[str, str]:
+        """对停在确认门的 run 给出决定，在**同一个 run** 上继续（``waiting_confirmation → queued``）。
+
+        调用方（路由）已校验归属、写权限与 ``confirmation_id``。进程里有这个 run 的 handle（同进程挂起）
+        就接着它的事件日志；没有（进程重启过）就新建一个，事件从 1 开始。返回的 ``event_cursor`` 是客户端
+        重新订阅时应带的 ``Last-Event-ID``——不能用客户端自己的游标：挂起时的 ``stream_end`` 是合成帧、
+        不在日志里，重启后日志也从头开始。
+
+        库里的状态做比较交换（``expected_statuses=("waiting_confirmation",)``）：重复提交与并发的第二个
+        决定在这里失败（``ConfirmationStaleError``），不会执行两次。
+        """
+
+        run_key = str(run_id)
+        thread_key = str(thread_id)
+        with self._lock:
+            handle = self._handles.get(run_key)
+            if handle is not None and not handle.suspended:
+                raise ConfirmationStaleError("run is not waiting for a confirmation")
+            if self._thread_busy_locked(thread_key):
+                raise ThreadBusyError("thread already has an active run")
+            if handle is None:
+                handle = _RunHandle(
+                    run_id=run_key,
+                    thread_id=thread_key,
+                    owner_user_id=owner_user_id,
+                    project_id=None if project_id is None else UUID(str(project_id)),
+                    status=STATUS_WAITING_CONFIRMATION,
+                    suspended=True,
+                    # 进程重启后 handle 没了：以库里的 runs.model 为准恢复（路由读出后交来）
+                    model=model,
+                )
+                self._handles[run_key] = handle
+            self._active_by_thread[thread_key] = run_key
+        try:
+            self.run_repository.set_status(
+                run_key,
+                owner_user_id,
+                "queued",
+                expected_statuses=(STATUS_WAITING_CONFIRMATION,),
+            )
+        except ResourceNotFoundError as exc:
+            with self._lock:
+                if self._active_by_thread.get(thread_key) == run_key:
+                    del self._active_by_thread[thread_key]
+            raise ConfirmationStaleError("run is not waiting for a confirmation") from exc
+        with handle.condition:
+            cursor = len(handle.events)
+            handle.suspended = False
+            handle.status = "queued"
+            handle.cancel_requested = False
+            contexts = dict(handle.resume_contexts)
+            handle.resume_contexts = {}
+        self._append(
+            handle,
+            "confirmation_decided",
+            {
+                "confirmation_id": _safe_text(decision.get("confirmation_id"), limit=128),
+                "decision": "approved" if decision.get("approved") is True else "rejected",
+            },
+        )
+        self._append(handle, "run_queued", {"status": "queued"})
+        self._executor.submit(self._execute_resume, handle, principal, decision, contexts)
+        return {
+            "run_id": run_key,
+            "thread_id": thread_key,
+            "status": "queued",
+            "event_cursor": str(cursor),
+        }
 
     def _read_attachments(self, handle: _RunHandle, session: Any, query: str) -> Any | None:
         """Build the file context: capability note, upload inventory, named attachments.
@@ -660,12 +1042,26 @@ class RunManager:
         )
         return result if result.hits else None
 
+    #: 草稿 SSE 事件只透传这三个形态，payload 字段逐个白名单（不透传任何未知键）。
+    _DRAFT_EVENTS = frozenset({"draft_delta", "draft_retract", "draft_closed"})
+
+    def _on_draft(self, handle: _RunHandle, kind: str, payload: dict[str, Any]) -> None:
+        if kind not in self._DRAFT_EVENTS:
+            return
+        safe: dict[str, Any] = {}
+        if kind == "draft_delta":
+            text = payload.get("text")
+            if not isinstance(text, str) or not text:
+                return
+            safe = {"text": _safe_text(text), "offset": int(payload.get("offset") or 0)}
+        elif kind == "draft_retract":
+            reason = payload.get("reason")
+            safe = {"reason": reason if reason in {"revised", "guardrail", "run_ended"} else "revised"}
+        self._append(handle, kind, safe)
+
     def _is_cancel_requested(self, handle: _RunHandle) -> bool:
         with handle.condition:
             return handle.cancel_requested
-
-    def _on_token(self, handle: _RunHandle, token: str) -> None:
-        self._append(handle, "token", {"text": _safe_text(token, limit=4000)})
 
     def _on_agent_event(self, handle: _RunHandle, mode: str, payload: Any) -> None:
         if mode == "values" and isinstance(payload, dict):
@@ -682,18 +1078,23 @@ class RunManager:
             )
             return
         if mode == "messages":
+            # 只投影"调用了哪些工具"，不带任何消息正文：模型文本要等 finalize 的输出护栏，
+            # ToolMessage 正文是检索原文/工具原始输出，校验器回流提示是内部实现。
             chunk = payload[0] if isinstance(payload, tuple) and payload else payload
-            text = getattr(chunk, "content", "")
             tool_calls = getattr(chunk, "tool_calls", None) or getattr(chunk, "tool_call_chunks", None)
             safe: dict[str, Any] = {}
-            if isinstance(text, str) and text:
-                safe["text"] = _safe_text(text, limit=4000)
             if tool_calls:
                 names: list[str] = []
                 for item in tool_calls:
                     name = str(item.get("name") or "") if isinstance(item, dict) else str(getattr(item, "name", "") or "")
                     call_id = str(item.get("id") or "") if isinstance(item, dict) else str(getattr(item, "id", "") or "")
-                    if not name:
+                    # 校验器注入的合成调用是图边界，不是工具：发 tool_started 却永远等不到
+                    # tool_result（观察器同样跳过它），前端卡片会一直停在"运行中"。未注册的名字
+                    # （畸形调用改写成的 invalid_tool_call 等）同理——观察器只为已注册工具出卡片。
+                    if not name or name == "citation_validator":
+                        continue
+                    registry = getattr(handle.session, "registry", None)
+                    if registry is not None and registry.get(name) is None:
                         continue
                     names.append(name)
                     marker = call_id or name
@@ -711,6 +1112,8 @@ class RunManager:
 
     @staticmethod
     def _result_payload(result: dict[str, Any], *, handle: _RunHandle | None = None) -> dict[str, Any]:
+        runtime = result.get("retriever_runtime_status")
+        runtime = runtime if isinstance(runtime, dict) else {}
         return {
             "status": str(result.get("status") or "failed"),
             "answer": _safe_text(result.get("answer", "")),
@@ -722,6 +1125,11 @@ class RunManager:
             "errors": [_safe_text(item, limit=1000) for item in result.get("errors", [])],
             "warnings": [_safe_text(item, limit=1000) for item in result.get("warnings", [])],
             "calculations": list(handle.calculations) if handle is not None else [],
+            # P7-S10：本次实际用的检索模式（hybrid / text）与原因；text 是关键词检索，界面据此如实标出
+            "retrieval_mode": runtime.get("retrieval_mode"),
+            "retrieval_mode_reason": runtime.get("retrieval_mode_reason"),
+            # P7-S15：只在明确选了模型时出现（"有值才出现"，缺省运行的 payload 与此前逐字相同）；只放模型 id
+            **({"model": handle.model} if handle is not None and handle.model is not None else {}),
         }
 
     @staticmethod
@@ -765,6 +1173,12 @@ class RunManager:
                 continue
             registry = getattr(handle.session, "registry", None)
             if registry is not None and registry.get(tool_name) is None:
+                continue
+            # 待确认占位（P7-S7）不是工具结果：不出卡片、不记为已见——确认后同 id 替换成真实结果
+            # 或拒绝 observation，那时才发 tool_result
+            if is_pending_confirmation(
+                message, getattr(handle.session, "confirmation_tools", frozenset())
+            ):
                 continue
             tool_call_id = str(getattr(message, "tool_call_id", "") or "")
             marker = tool_call_id or f"{tool_name}:{len(handle.seen_tool_messages)}"
@@ -939,6 +1353,9 @@ class RunManager:
             handle.finalizing = False
             handle.finalized = True
             handle.condition.notify_all()
+        with self._lock:
+            if self._active_by_thread.get(handle.thread_id) == handle.run_id:
+                del self._active_by_thread[handle.thread_id]
 
     @staticmethod
     def _finish_trace(handle: _RunHandle, status: str, error: object | None) -> None:
@@ -957,6 +1374,10 @@ class RunManager:
         handle = self._get_handle(run_id)
         with handle.condition:
             if handle.finalized or handle.finalizing:
+                return {"run_id": handle.run_id, "status": handle.status}
+            if handle.suspended:
+                # 停在确认门时没有在跑的东西可取消；挂起在 checkpoint 里，取消它只会让会话卡住
+                # （新消息被挂起拦下、确认接口又找不到等待中的 run）。不执行就请拒绝。
                 return {"run_id": handle.run_id, "status": handle.status}
             handle.cancel_requested = True
             current = handle.status
@@ -999,7 +1420,10 @@ class RunManager:
             with handle.condition:
                 pending = [event for event in handle.events if event.event_id > cursor]
                 terminal = handle.finalized
-                if not pending and not terminal:
+                # 停在确认门（P7-S7）：发完已有事件就以 stream_end(waiting_confirmation) 结束这条流；
+                # 决定之后客户端按 202 返回的 event_cursor 重新订阅同一个 run
+                paused = handle.suspended and not terminal
+                if not pending and not terminal and not paused:
                     handle.condition.wait(timeout=0.25)
                     continue
             for event in pending:
@@ -1007,6 +1431,16 @@ class RunManager:
                     return
                 cursor = event.event_id
                 yield event.sse()
+            if paused:
+                yield RunEvent(
+                    event_id=cursor + 1,
+                    event_type="stream_end",
+                    run_id=handle.run_id,
+                    thread_id=handle.thread_id,
+                    time=_now(),
+                    payload={"status": STATUS_WAITING_CONFIRMATION},
+                ).sse()
+                return
             if terminal:
                 # 发送显式结束标记，让前端区分"正常结束"与"异常断开"。
                 # 只发给尚未看到 finalize 的客户端：cursor 已越过 finalize 的重连
@@ -1133,32 +1567,45 @@ class RunManager:
             handles = list(self._handles.values())
         for handle in handles:
             with handle.condition:
-                if not handle.finalized and not handle.finalizing:
+                if not handle.finalized and not handle.finalizing and not handle.suspended:
                     handle.cancel_requested = True
                     handle.condition.notify_all()
         self._executor.shutdown(wait=False, cancel_futures=False)
         deadline = time.monotonic() + max(0.0, timeout_seconds)
+
+        def drained(handle: _RunHandle) -> bool:
+            # 停在确认门的 run 没有在跑：挂起在 checkpoint 里，重启后照样能决定（P7-S7）
+            return handle.finalized or handle.suspended
+
         while time.monotonic() < deadline:
-            if all(handle.finalized for handle in handles):
+            if all(drained(handle) for handle in handles):
                 break
             time.sleep(0.05)
-        unfinalized = [handle.run_id for handle in handles if not handle.finalized]
+        unfinalized = [handle.run_id for handle in handles if not drained(handle)]
+        suspended = [handle.run_id for handle in handles if handle.suspended and not handle.finalized]
+        # 排空之后再关 MCP 连接池（P7-S5）：先关池会让还在收尾的 run 的 MCP 调用失败
+        close_factory = getattr(getattr(self, "session_factory", None), "close", None)
+        mcp_pool = close_factory() if callable(close_factory) else None
         return {
             "runs": len(handles),
-            "finalized": len(handles) - len(unfinalized),
+            "finalized": sum(1 for handle in handles if handle.finalized),
             "unfinalized_run_ids": unfinalized,
+            "waiting_confirmation_run_ids": suspended,
             "graceful": not unfinalized,
+            "mcp_pool": mcp_pool,
         }
 
 
 __all__ = [
     "DEFAULT_TENANT_ID",
     "AgentSessionFactory",
+    "ConfirmationStaleError",
     "RunCancelled",
     "RunEvent",
     "RunManager",
     "RunManagerError",
     "RunNotManagedError",
+    "ThreadBusyError",
     "WebAgenticSessionFactory",
     "parse_last_event_id",
 ]

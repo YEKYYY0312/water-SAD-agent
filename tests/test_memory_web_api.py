@@ -9,20 +9,24 @@ forgotten body cannot be read back.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, update
 
+from water_agent.memory.pending_candidates import PENDING_CANDIDATE_LIMIT
 from water_agent.storage.database import Database
-from water_agent.storage.models import Base
+from water_agent.storage.models import Base, MemoryRecordRow
 from water_agent.storage.repository import ProjectRepository
 from water_agent.webapp.app import create_app
 from water_agent.webapp.auth.csrf import CSRF_COOKIE_NAME
 from water_agent.webapp.auth.db_store import PostgresUserStore
 from water_agent.webapp.auth.models import UserRole
+from water_agent.webapp.run_manager import DEFAULT_TENANT_ID
 
 
 @pytest.fixture
@@ -42,12 +46,15 @@ def database(tmp_path: Path) -> Database:
 
 
 def _login(database: Database, tmp_path: Path, prefix: str) -> tuple[TestClient, UUID]:
+    return _login_to(create_app(database=database, static_dir=tmp_path / "static"), database, prefix)
+
+
+def _login_to(app: FastAPI, database: Database, prefix: str) -> tuple[TestClient, UUID]:
+    """Log a fresh member into ``app``; clients sharing an app share its in-process state."""
+
     username = f"{prefix}-{uuid4().hex[:8]}"
     user = PostgresUserStore(database).create_user(username, "MemoryApiPass2026!", UserRole.MEMBER)
-    client = TestClient(
-        create_app(database=database, static_dir=tmp_path / "static"),
-        raise_server_exceptions=True,
-    )
+    client = TestClient(app, raise_server_exceptions=True)
     response = client.post(
         "/api/auth/login", json={"username": username, "password": "MemoryApiPass2026!"}
     )
@@ -69,6 +76,7 @@ def _candidate(
     scope_type: str = "user",
     kind: str = "user_preference",
     project_id: str | None = None,
+    expires_at: str | None = None,
 ) -> tuple[int, dict]:
     response = client.post(
         "/api/memories/candidates",
@@ -78,6 +86,7 @@ def _candidate(
             "semantic_key": key,
             "content": content,
             "project_id": project_id,
+            "expires_at": expires_at,
         },
         headers={"X-CSRF-Token": _csrf(client)},
     )
@@ -232,6 +241,72 @@ def test_project_scoped_memory_requires_membership(
     assert len(visible.json()["data"]["memories"]) == 1
 
 
+def _usage_and_recalled_counts(database: Database) -> tuple[int, int]:
+    with database.transaction() as session:
+        usage = session.execute(text("SELECT count(*) FROM memory_usage")).scalar_one()
+        recalled = session.execute(
+            text("SELECT count(*) FROM memory_events WHERE event_type = 'recalled'")
+        ).scalar_one()
+    return int(usage), int(recalled)
+
+
+def test_project_viewer_can_search_project_memory(database: Database, tmp_path: Path) -> None:
+    """Regression: a project viewer's search answered 503 MEMORY_STORE_UNAVAILABLE.
+
+    The viewer may read project memories, but the search used to record usage
+    for every hit, and recording usage requires write access.
+    """
+
+    owner_client, owner_id = _login(database, tmp_path, "search-owner")
+    viewer_client, viewer_id = _login(database, tmp_path, "search-viewer")
+    projects = ProjectRepository(database)
+    project = projects.create(owner_id, "泵房改造")
+    projects.add_member(project.project_id, owner_id, viewer_id, role="viewer")
+    project_id = str(project.project_id)
+    _remember(
+        owner_client,
+        "本项目泵房设在地下一层",
+        key="proj.pump-room",
+        scope_type="project",
+        kind="project_fact",
+        project_id=project_id,
+    )
+
+    searched = viewer_client.get("/api/memories", params={"query": "泵房", "project_id": project_id})
+
+    assert searched.status_code == 200, searched.text
+    assert [item["content"] for item in searched.json()["data"]["memories"]] == [
+        "本项目泵房设在地下一层"
+    ]
+    assert _usage_and_recalled_counts(database) == (0, 0)
+
+
+def test_web_list_and_search_are_reads_and_record_no_usage(
+    database: Database, tmp_path: Path
+) -> None:
+    """GET /api/memories used to append memory_usage rows and RECALLED events.
+
+    A GET must not write, and ``thread_id`` is an unverified query parameter: it
+    was stored as the usage row's ``source_thread_id`` without an ownership check.
+    """
+
+    client, _ = _login(database, tmp_path, "read-only-search")
+    memory = _remember(client, "默认使用 SI 单位并标注管径")
+    unowned_thread = str(uuid4())
+
+    listing = client.get("/api/memories")
+    searched = client.get("/api/memories", params={"query": "SI 单位", "thread_id": unowned_thread})
+
+    assert listing.status_code == searched.status_code == 200
+    assert [item["memory_id"] for item in searched.json()["data"]["memories"]] == [
+        memory["memory_id"]
+    ]
+    assert _usage_and_recalled_counts(database) == (0, 0)
+    usage = client.get(f"/api/memories/{memory['memory_id']}/usage")
+    assert usage.json()["data"]["usage"] == []
+    assert unowned_thread not in usage.text
+
+
 def test_correction_bumps_the_revision_and_rejects_a_stale_one(
     database: Database, tmp_path: Path
 ) -> None:
@@ -384,6 +459,107 @@ def test_disabling_expires_and_reactivation_is_refused(
     assert enabled.json()["error"]["code"] == "MEMORY_STATUS_TRANSITION_INVALID"
 
 
+def _pass_deadline(database: Database, memory_id: str) -> None:
+    """模拟到期：只把 expires_at 改到过去，不跑任何清扫（与生产无调度时一致）。"""
+
+    with database.transaction() as session:
+        session.execute(
+            update(MemoryRecordRow)
+            .where(MemoryRecordRow.memory_id == memory_id)
+            .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+
+
+def _remember_for_an_hour(client: TestClient, content: str) -> str:
+    soon = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    status, candidate = _candidate(client, content=content, expires_at=soon)
+    assert status == 201, candidate
+    status, confirmed = _confirm(client, candidate)
+    assert status == 201, confirmed
+    return str(confirmed["data"]["memory"]["memory_id"])
+
+
+def test_an_expired_preference_releases_its_key_for_a_new_save(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：带过期时间的记忆到期后仍是 active，一直占着 semantic_key。
+
+    复现：到期后列表、召回都看不到它；对同一 key 新建候选却得到 conflict 并展示
+    已过期的正文，不选处理方式确认 409，选 correct_existing 201 corrected，而列表与
+    检索仍为空——界面显示成功，实际永远召回不到。
+    """
+    client, _ = _login(database, tmp_path, "expiry")
+    old_id = _remember_for_an_hour(client, "默认 SI 单位")
+    _pass_deadline(database, old_id)
+    assert client.get("/api/memories").json()["data"]["memories"] == []
+
+    status, renewed = _candidate(client, content="默认英制单位")
+
+    assert status == 201, renewed
+    assert renewed["data"]["disposition"] == "ready"
+    assert renewed["data"]["conflict"] is None, "预览不得展示已过期的正文"
+    status, saved = _confirm(client, renewed)
+    assert status == 201, saved
+    assert saved["data"]["action"] == "created"
+    listed = client.get("/api/memories").json()["data"]["memories"]
+    searched = client.get("/api/memories", params={"query": "英制单位"}).json()["data"]["memories"]
+    assert [item["content"] for item in listed] == ["默认英制单位"]
+    assert [item["content"] for item in searched] == ["默认英制单位"]
+    old = client.get(f"/api/memories/{old_id}").json()["data"]
+    assert old["status"] == "expired"
+    events = client.get(f"/api/memories/{old_id}/events").json()["data"]["events"]
+    assert [item["event_type"] for item in events] == ["created", "expired"]
+
+
+def test_correcting_an_expired_memory_is_gone_not_a_silent_success(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：PATCH 更正到期记录曾返回 200，结果却永远不可见；现在如实 410。"""
+    client, _ = _login(database, tmp_path, "expired-patch")
+    memory_id = _remember_for_an_hour(client, "默认 SI 单位")
+    _pass_deadline(database, memory_id)
+
+    response = client.patch(
+        f"/api/memories/{memory_id}",
+        json={"content": "默认英制单位", "expected_revision": 1},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+
+    assert response.status_code == 410, response.text
+    assert response.json()["error"]["code"] == "MEMORY_EXPIRED"
+    assert client.get(f"/api/memories/{memory_id}").json()["data"]["status"] == "expired"
+
+
+def test_another_users_preview_flood_cannot_evict_my_pending_candidate(
+    database: Database, tmp_path: Path
+) -> None:
+    """回归：待确认候选的 256 条上限曾是全局共享的。
+
+    复现：bob 连发 256 个预览后，alice 确认自己先前的预览返回 404
+    MEMORY_NOT_FOUND——任何登录用户都能让别人的「保存记忆」确认失败。
+    现在按用户设配额，超额只淘汰 bob 自己最旧的候选。
+    """
+    app = create_app(database=database, static_dir=tmp_path / "static")
+    alice, _ = _login_to(app, database, "alice")
+    bob, _ = _login_to(app, database, "bob")
+    _status, mine = _candidate(alice, content="管材默认 PPR", key="pref.material")
+    flood = []
+    for index in range(PENDING_CANDIDATE_LIMIT):
+        status, preview = _candidate(bob, content=f"噪声 {index}", key=f"noise.{index}")
+        assert status == 201, preview
+        flood.append(preview)
+
+    status, confirmed = _confirm(alice, mine)
+
+    assert status == 201, confirmed
+    assert confirmed["data"]["action"] == "created"
+    # bob 自己超额：最旧的预览被淘汰，最新的仍可确认。
+    status, oldest = _confirm(bob, flood[0])
+    assert status == 404 and oldest["error"]["code"] == "MEMORY_NOT_FOUND"
+    status, newest = _confirm(bob, flood[-1])
+    assert status == 201, newest
+
+
 def test_csrf_is_required_for_memory_writes(database: Database, tmp_path: Path) -> None:
     client, _ = _login(database, tmp_path, "csrf")
 
@@ -423,10 +599,20 @@ def test_request_bodies_cannot_choose_identity_or_scope(
 
 
 def test_events_and_usage_expose_metadata_only(database: Database, tmp_path: Path) -> None:
-    client, _ = _login(database, tmp_path, "metadata")
+    client, user_id = _login(database, tmp_path, "metadata")
     memory = _remember(client, "默认使用 SI 单位并标注管径")
     memory_id = memory["memory_id"]
-    client.get("/api/memories", params={"query": "SI 单位"})
+    # Usage comes from a run's recall (the Web GET search is a read and records
+    # none); recall it the way RunManager does, with the run's thread and id.
+    from water_agent.memory.recall import MemoryRecallService
+
+    MemoryRecallService(database).recall(
+        tenant_id=DEFAULT_TENANT_ID,
+        actor_user_id=user_id,
+        query="SI 单位",
+        source_thread_id=uuid4(),
+        run_id=uuid4(),
+    )
 
     events = client.get(f"/api/memories/{memory_id}/events").json()["data"]["events"]
     usage = client.get(f"/api/memories/{memory_id}/usage").json()["data"]["usage"]

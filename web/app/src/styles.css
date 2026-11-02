@@ -142,6 +142,8 @@ code { font-family: var(--mono); font-size: .92em; }
 .message-agent { white-space: normal; }
 .final-answer { white-space: normal; }
 .message-agent.is-unverified { border-left: 3px solid var(--bad); padding-left: .75rem; }
+.draft-answer { color: var(--ink-soft); border-left: 3px solid var(--line-strong); padding-left: .75rem; }
+.draft-note { margin: 0 0 .35rem; color: var(--faint); font-size: .78rem; }
 .answer-banner { margin-bottom: .6rem; }
 .answer-withheld { color: var(--muted, #6b7280); font-style: italic; margin: 0; }
 .answer-markdown > :first-child { margin-top: 0; }
@@ -169,6 +171,22 @@ code { font-family: var(--mono); font-size: .92em; }
 .action-note { color: var(--muted); font-size: .8rem; }
 .action-note.is-ok { color: var(--ok); }
 .action-error { width: 100%; margin-top: .2rem; padding: .5rem .75rem; border-radius: var(--r-item); color: var(--bad); background: var(--bad-soft); font-size: .82rem; line-height: 1.55; }
+
+/* 人工确认卡片（P7-S7）：执行前停下来问人。警示色只用在左边线，参数用等宽字原样显示 */
+.confirmation-card { display: grid; gap: .55rem; padding: .95rem 1.05rem; border-left: 3px solid var(--warn); border-radius: var(--r-card); background: var(--surface); }
+.confirmation-card h3 { font-size: 1rem; font-weight: 650; }
+.confirmation-card .kicker { margin-bottom: 0; color: var(--warn); }
+.confirmation-message { color: var(--ink-soft); font-size: .88rem; line-height: 1.6; }
+.confirmation-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; font-size: .84rem; }
+.confirmation-meta dt { color: var(--muted); }
+.confirmation-meta dd { margin: 0; overflow-wrap: anywhere; }
+.confirmation-label { color: var(--muted); font-size: .8rem; }
+.confirmation-args { max-height: 16rem; margin: 0; padding: .6rem .75rem; overflow: auto; border-radius: var(--r-item); background: var(--surface-strong); font-family: var(--mono); font-size: .82rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.confirmation-note { color: var(--warn); font-size: .8rem; }
+.confirmation-reason { display: grid; gap: .3rem; color: var(--muted); font-size: .8rem; }
+.confirmation-reason textarea { width: 100%; padding: .45rem .65rem; border: 1px solid var(--line); border-radius: var(--r-item); background: var(--canvas); color: var(--ink); font-size: .88rem; line-height: 1.55; resize: vertical; }
+.confirmation-reason textarea:focus-visible { outline: 0; border-color: var(--ink); }
+.confirmation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 
 /* 欢迎区：空会话时占据中间，像参考图那样问一句、给几条可点的起点 */
 .welcome { display: grid; justify-items: center; gap: 1.1rem; padding: 2rem 1.5rem 1.75rem; text-align: center; }
@@ -252,7 +270,8 @@ code { font-family: var(--mono); font-size: .92em; }
 .memory-workspace, .settings-panel { display: grid; align-content: start; gap: 1rem; width: min(64rem, 100%); margin: 0 auto; padding: 1.5rem; }
 .memory-workspace-header, .memory-workspace .section-heading, .detail-header, .memory-card-heading, .dialog-actions, .workspace-feedback { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .memory-workspace-header { align-items: flex-start; }
-.memory-workspace-header h2, .settings-panel h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+.memory-workspace-header h2, .settings-panel h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -.01em; }
+.settings-panel h2 { font-size: 1.1rem; font-weight: 650; letter-spacing: -.005em; }
 .memory-subtitle { margin-top: .25rem; color: var(--muted); font-size: .88rem; }
 .answer-usage { padding: 1rem; border-radius: var(--r-card); background: var(--surface); }
 .answer-usage h3 { font-size: .9rem; }
@@ -324,6 +343,47 @@ code { font-family: var(--mono); font-size: .92em; }
 .settings-card-head .capability-row { padding: 0; background: transparent; font-size: .9rem; }
 .settings-card-name { color: var(--faint); font: .76rem var(--mono); }
 .settings-footnote { max-width: 46rem; }
+.settings-layout { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.settings-subnav { position: sticky; top: 1rem; display: grid; gap: .15rem; }
+.settings-subnav .nav-row { width: 100%; }
+.settings-page { min-width: 0; }
+.settings-page-body { display: grid; gap: 1rem; }
+.settings-subheading { margin-top: .5rem; font-size: .92rem; font-weight: 600; }
+.model-picker { display: grid; gap: .5rem; }
+.model-picker-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-size: .9rem; }
+.model-picker select { width: 100%; min-height: 2.4rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .9rem; }
+.model-picker input { width: 100%; min-height: 2.4rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .9rem; }
+
+/* ---------- MCP 扩展（P7-S6）：复用设置页卡片，只补元数据、工具列表与凭据槽位 ---------- */
+.mcp-admin { display: grid; gap: 1rem; }
+.mcp-server-card, .mcp-allow, .mcp-slots, .mcp-oauth { display: grid; gap: .65rem; }
+.mcp-server-card h3, .mcp-admin .settings-card h3 { font-size: .92rem; font-weight: 600; }
+.mcp-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .8rem; margin: 0; font-size: .84rem; }
+.mcp-meta dt { color: var(--muted); }
+.mcp-meta dd { margin: 0; overflow-wrap: anywhere; }
+.mcp-tags { display: flex; flex-wrap: wrap; gap: .35rem; }
+.mcp-tag { padding: .05rem .5rem; border-radius: var(--r-pill); color: var(--ink-soft); background: var(--surface-strong); font-size: .76rem; }
+.mcp-actions { justify-content: flex-start; flex-wrap: wrap; }
+.mcp-tool-list { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.mcp-tool-list li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; padding: .35rem .55rem; border-radius: var(--r-item); background: var(--surface); font-size: .84rem; }
+.mcp-tool-list label { display: inline-flex; align-items: center; gap: .45rem; }
+.mcp-inline-form { display: flex; gap: .5rem; }
+.mcp-inline-form input, .mcp-slot input { flex: 1; min-height: 2.2rem; padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .86rem; }
+.mcp-slot { display: grid; gap: .4rem; }
+.mcp-slot label { display: grid; gap: .3rem; font-size: .84rem; }
+.mcp-note { display: block; color: var(--muted); font-size: .78rem; }
+.mcp-import textarea { font-family: var(--mono); font-size: .82rem; }
+.mcp-import-result { display: grid; gap: .6rem; }
+.mcp-import-result .mcp-tool-list li { display: grid; justify-content: stretch; gap: .2rem; }
+
+/* ---------- Skill 库（P7-S9）：复用设置页卡片与 MCP 区的元数据版式，只补正文区 ---------- */
+.skill-library { display: grid; gap: 1rem; }
+.skill-card { display: grid; gap: .55rem; }
+.skill-card h3, .skill-library .settings-card h3 { font-size: .92rem; font-weight: 600; }
+.skill-description { color: var(--ink-soft); font-size: .86rem; line-height: 1.6; overflow-wrap: anywhere; }
+.skill-meta-row { display: contents; }
+.skill-body { max-height: 22rem; margin: 0; padding: .6rem .75rem; overflow: auto; border-radius: var(--r-item); background: var(--surface); font: .78rem/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-unavailable, .skill-mcp-counts { display: grid; gap: .55rem; }
 
 /* ---------- 生成图纸（P6-S1）：复用设置页的版式，只补表单错误与结果区 ---------- */
 .drawing-panel { width: min(72rem, 100%); }
@@ -403,9 +463,42 @@ code { font-family: var(--mono); font-size: .92em; }
   .welcome h2 { font-size: 1.45rem; }
   .attachment { width: 100%; }
   .memory-workspace, .settings-panel { padding: 1rem .9rem; }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .settings-subnav { position: static; display: flex; gap: .25rem; overflow-x: auto; }
+  .settings-subnav .nav-row { width: auto; white-space: nowrap; }
   .memory-workspace-header { align-items: stretch; flex-direction: column; }
   .memory-filters, .form-grid, .comparison-grid { grid-template-columns: 1fr; }
   .modal-backdrop { align-items: end; padding: .5rem; }
 }
 @media (min-width: 52.01rem) { .mobile-only { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+/* P7-S15 模型选择：输入框旁的下拉、会话默认模型、管理员目录行（类名不与设置页已有的 .model-picker 重名） */
+.composer-model-select { max-width: 15rem; min-height: 2rem; padding: .2rem .5rem; border: 1px solid var(--line); border-radius: var(--r-item); background: var(--canvas); color: var(--muted); font-size: .8rem; }
+.composer-model-select:disabled { opacity: .6; }
+.session-default-model { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .5rem .3rem 0; color: var(--faint); font-size: .78rem; }
+.session-default-model select { min-height: 1.8rem; padding: .15rem .4rem; border: 1px solid var(--line); border-radius: var(--r-item); background: var(--canvas); font-size: .78rem; }
+.model-catalog-rows { display: grid; gap: .5rem; margin: .75rem 0; }
+.model-catalog-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.model-catalog-row input[type="text"], .model-catalog-row input:not([type]) { min-width: 8rem; flex: 1 1 8rem; min-height: 2.2rem; padding: .3rem .6rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .85rem; }
+.model-catalog-row select { min-height: 2.2rem; padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); font-size: .85rem; }
+.model-catalog-enabled { display: inline-flex; align-items: center; gap: .25rem; font-size: .82rem; }
+.model-catalog-status { color: var(--faint); font-size: .78rem; }
+.settings-card-actions { display: flex; gap: .5rem; }
+
+/* P7-S11：回答里的外部图片不加载，以纯文本占位 */
+.answer-image-blocked { color: var(--muted); font-size: .85em; }
+
+/* P7-S12 联网搜索：输入框旁的逐条开关、勾选后的隐私提示、设置页状态卡（复用设置页卡片与 MCP 区的元数据版式） */
+.web-search-toggle { display: inline-flex; align-items: center; gap: .3rem; min-height: 2rem; padding: .2rem .65rem; border: 1px solid var(--line); border-radius: var(--r-pill); color: var(--muted); background: var(--canvas); font-size: .8rem; white-space: nowrap; flex: none; }
+/* 窄屏底栏放不下时让模型选择器先收缩：底栏是 grid 子项、选择器是 flex 子项，两处的 min-width 缺省都是 auto，
+   不放开就会把发送键挤出输入框卡片（320px 宽 + 长模型名实测溢出，与本开关有无无关，开关多占 66px 使其更明显） */
+.composer-bar { min-width: 0; }
+.composer-bar .composer-model-select { min-width: 0; }
+.composer-bar > .icon-button, .composer-bar > .send-button, .composer-bar > .stop-button { flex: none; }
+.web-search-toggle:hover:not(:disabled) { color: var(--ink); background: var(--surface-strong); }
+.web-search-toggle[aria-pressed="true"] { border-color: var(--ink); color: var(--on-ink); background: var(--ink); }
+.web-search-toggle[aria-pressed="true"]:hover:not(:disabled) { background: var(--ink-soft); }
+.web-search-note { padding: 0 .35rem; color: var(--warn); font-size: .78rem; line-height: 1.5; }
+.web-search-panel { display: grid; gap: 1rem; }
+.web-search-status { display: grid; gap: .65rem; }

@@ -35,6 +35,7 @@ from water_agent.runtime.governance.cache import (
     REASON_REDACTED_OR_BLOCKED,
     REASON_SPEC_VERSION_UNKNOWN,
     REASON_TEMPERATURE,
+    REASON_WEB_CONTENT_USED,
     CachedAnswer,
     CacheKeyFactors,
     InMemoryAnswerCache,
@@ -252,15 +253,34 @@ class TestInvalidationFactors:
             {"spec_version_digest": "sv2"},
             {"retrieval_params": "top_k=10;recall=20;rerank=none"},
             {"entry_version": "other"},
+            {"skill_library_digest": "sk2"},
+            {"model_endpoint_digest": "ep2"},
         ],
     )
     def test_each_factor_change_causes_miss(self, override: dict) -> None:
+        """P7-S9-A06 P7-S10-A03 任一失效因子变化 → miss（含 Skill 库摘要、对话端点摘要）。"""
         cache = InMemoryAnswerCache()
         cache.store(_factors(), answer="A", citation_source_ids=_SOURCES,
                     eligibility=_eligible())
         disposition, entry = cache.lookup(_factors(**override), _ctx())
         assert disposition.status is CacheStatus.MISS
         assert entry is None
+
+    def test_empty_skill_digest_keeps_historic_key(self) -> None:
+        """P7-S9-A06 P7-S10-A03 没有 skill（开关 off）时 ``skill_library_digest=""``、缺省对话端点时
+        ``model_endpoint_digest=""``：缓存键与加字段之前逐字相同，不无谓清空既有缓存；非空即换键。"""
+        import hashlib
+
+        legacy = _factors().model_dump(mode="json")
+        legacy.pop("mcp_server_manifest", None)
+        legacy.pop("skill_library_digest", None)
+        legacy.pop("model_endpoint_digest", None)
+        expected = hashlib.sha256(
+            json.dumps(legacy, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        assert _factors().cache_key() == expected
+        assert _factors(skill_library_digest="sk1").cache_key() != expected
+        assert _factors(model_endpoint_digest="ep1").cache_key() != expected
 
     def test_key_factors_forbid_extra_field(self) -> None:
         """新增失效维度必须改契约，不能靠额外字段偷偷混入。"""
@@ -505,6 +525,8 @@ class TestStoreEligibility:
             ({"category": CallCategory.DOCGEN_POLISH}, REASON_CATEGORY),
             ({"category": CallCategory.AGENTIC_LOOP}, REASON_CATEGORY),
             ({"calc_result_present": True}, REASON_CALC_PRESENT),
+            # P7-S11 / SDD17-I14：用过联网内容的回合恒不可缓存
+            ({"web_tainted": True}, REASON_WEB_CONTENT_USED),
             ({"contains_redacted_or_blocked": True}, REASON_REDACTED_OR_BLOCKED),
             ({"no_store": True}, REASON_NO_STORE),
         ],
@@ -923,6 +945,10 @@ class TestContextBudgetReview:
         headroom 仅 130。**上限刻意保持 4500 不上调** —— 为了塞进新工具而抬高预算
         护栏，等于把这条断言变成事后追认。Step 21 若再加工具很可能撞破，
         届时必须实施按意图最小暴露，而不是再改这个数（规格 §9 第 5 条）。
+
+        2026-10-02（P7-S0）重测：5 工具 4497（`read_drawing` 956），余量只剩 3——
+        cite/retrieve 的描述在 Step 20 之后增长过，当时没有重测。现行数字由
+        `tests/test_p7_known_figures.py` 读装配快照基线锁定，文档不再手抄。
         """
         from water_agent.prompting.assembler import _estimate_tokens
 

@@ -35,7 +35,15 @@ from water_agent.memory.recall import (
     MemoryRecallResult,
     render_memory_context,
 )
+from water_agent.prompting.history import window_messages
 from water_agent.runtime.governance.contracts import ContentEnvelope, SourceTag
+from water_agent.skills.context import (
+    SKILL_CONTEXT_BUDGET,
+    loaded_skill_refs,
+    render_skill_context,
+    resolve_loaded,
+)
+from water_agent.skills.library import SkillLibrary
 from water_agent.tools.registry import ToolRegistry
 
 # 段级 token 预算（粗估：中文约 1 token/字符，取整上限）。
@@ -48,6 +56,9 @@ SEGMENT_BUDGETS: dict[str, int] = {
     "version_snapshot": 400,
     "formula_specs": 400,
     "tool_guide": 800,
+    # P7-S9：本 thread 已加载的操作规程（SYSTEM_POLICY 分片）。一份规程上限 6000 字，超出预算时由
+    # render_skill_context 按整份丢弃最早加载的，这里的截断只是兜底。
+    "skill_context": SKILL_CONTEXT_BUDGET,
     "memory_context": MAX_MEMORY_CONTEXT_CHARACTERS,
     # P5-S48：上传资料召回段。与 memory_context 同预算——两段都是外部数据，
     # 没有理由让上传占得更多；再大会挤掉检索到的规范条文。
@@ -59,7 +70,9 @@ SEGMENT_BUDGETS: dict[str, int] = {
 
 #: 系统提示模板版本（P2.5 Step 13）。**改动任何静态提示段文案或分段顺序都必须改它** ——
 #: 它是 `runtime/governance/cache.py` 缓存键的失效因子：提示变了，旧回答就不该再命中。
-PROMPT_TEMPLATE_VERSION = "p5-step49-file-context-2026-09-29"
+#: P7-S4：工具指引改为按本轮开放的工具渲染（工具名 + 描述首句 + "本轮未开放"行）。
+#: P7-S9：新增动态段 skill_context（已加载的操作规程，工具指引之后）。
+PROMPT_TEMPLATE_VERSION = "p7-s9-skill-context-2026-10-09"
 
 # 静态段：角色与铁律（不变，缓存友好放在最前）。
 # P1/Step 10 评审：canonical 名称为【三条铁律】（计算程序化/引用可追溯/检索不足如实
@@ -141,18 +154,27 @@ class PromptAssembler:
         *,
         version_registry: Any | None = None,
         tool_registry: ToolRegistry | None = None,
+        exposure: Any | None = None,
+        skill_library: SkillLibrary | None = None,
     ):
         self._version_registry = version_registry if version_registry is not None else get_version_registry()
         self._tool_registry = tool_registry
+        #: P7-S4 按意图暴露策略（``plugins.exposure.ToolExposurePolicy``，鸭子类型避免反向依赖）：
+        #: state 里有本轮 intent 决定时，工具指引按决定渲染；否则走现行格式（逐字不变）。
+        self._exposure = exposure
+        #: P7-S9：本次装配的 skill 库。只有它能提供 ``skill_context`` 段的正文（state 里只有名字与摘要）。
+        self._skill_library = skill_library
 
     def __call__(self, state: dict[str, Any] | None = None) -> list[BaseMessage]:
         """``create_react_agent`` 的 ``prompt`` 可调用签名。
 
-        接收 state（含 messages），返回 ``[SystemMessage, ...] + state_messages``。
+        接收 state（含 messages），返回 ``[SystemMessage] + 会话历史窗口``：之前的轮次只保留
+        问题与最终回答、有轮数与字符上限，本轮原样保留（见 ``prompting/history.py``）。
+        checkpoint 不受影响——窗口只是发给模型的视图。
         """
         if state is None:
             state = {}
-        messages = list(state.get("messages", []))
+        messages = window_messages(list(state.get("messages", [])))
         sys_msg = self.assemble_prompt(state)
         return [sys_msg] + messages
 
@@ -163,7 +185,8 @@ class PromptAssembler:
             _check_static_budget("role_and_principles", ROLE_AND_PRINCIPLES),
             _truncate_to_budget(self._build_version_snapshot(), SEGMENT_BUDGETS["version_snapshot"]),
             _check_static_budget("formula_specs", FORMULA_SPECS),
-            _truncate_to_budget(self._build_tool_guide(), SEGMENT_BUDGETS["tool_guide"]),
+            _truncate_to_budget(self._build_tool_guide(state), SEGMENT_BUDGETS["tool_guide"]),
+            _truncate_to_budget(self._build_skill_context(state), SEGMENT_BUDGETS["skill_context"]),
             _truncate_to_budget(
                 self._build_memory_context(state), SEGMENT_BUDGETS["memory_context"]
             ),
@@ -186,8 +209,20 @@ class PromptAssembler:
             return ""
         return "【规范版本状态（注册表快照）】\n" + "\n".join(lines)
 
-    def _build_tool_guide(self) -> str:
-        """构建工具使用指南段（随注册表动态生成）；无注册表时返回空串。"""
+    def _build_tool_guide(self, state: dict[str, Any] | None = None) -> str:
+        """构建工具使用指南段（随注册表动态生成）；无注册表时返回空串。
+
+        P7-S4：state 的 ``tool_exposure`` 是本轮 intent 决定时，只列本轮开放的工具（工具名 +
+        描述首句）并附一行"本轮未开放"；与暴露策略的预算判定共用同一个渲染函数。``full``
+        策略、没有决定或没有策略时走下面的现行格式。
+        """
+        decision = (state or {}).get("tool_exposure")
+        if (
+            self._exposure is not None
+            and isinstance(decision, dict)
+            and decision.get("strategy") == "intent"
+        ):
+            return str(self._exposure.render_guide(decision.get("exposed", [])))
         if self._tool_registry is None:
             return ""
         lines = []
@@ -200,6 +235,19 @@ class PromptAssembler:
         if not lines:
             return ""
         return "【可用工具】\n" + "\n".join(lines)
+
+    def _build_skill_context(self, state: dict[str, Any]) -> str:
+        """本 thread 已加载、且当前库里仍可用（摘要一致）的规程正文（P7-S9）。
+
+        加载记录来自 thread 消息里 ``load_skill`` 的成功回执——不是 state 里的投影，也不是调用方传入的
+        文本：正文只能从本次装配的 ``SkillLibrary`` 取，以 ``SYSTEM_POLICY`` 信封包装。没有库或没加载过
+        任何规程时返回空串（不渲染标题）。
+        """
+        if self._skill_library is None or not self._skill_library.enabled:
+            return ""
+        refs = loaded_skill_refs(state.get("messages", []) or [])
+        skills, _unavailable = resolve_loaded(self._skill_library, refs)
+        return render_skill_context(skills)
 
     @staticmethod
     def _build_memory_context(state: dict[str, Any]) -> str:

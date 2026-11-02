@@ -66,3 +66,35 @@ def test_build_chat_model_defaults_temperature_zero(monkeypatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-123")
     build_chat_model()
     assert captured["temperature"] == 0.0, "规范问答是事实问答：temperature 必须默认为 0"
+
+
+def test_build_chat_model_enables_stream_usage(monkeypatch) -> None:
+    """流式时让最后一个 chunk 带 usage：自定义 base_url 下 langchain-openai 不会自动开启。
+
+    没有它，流式调用在网关账本里恒为 USAGE_UNKNOWN、预算按 0 结清；端到端效果见
+    tests/test_governed_chat_streaming.py::TestChatOpenAIOverLocalSSE。
+    """
+    captured: dict[str, object] = {}
+    _spy_chat_openai(monkeypatch, captured)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-123")
+    model = build_chat_model()
+    assert captured["stream_usage"] is True
+    assert model.inner.stream_usage is True
+    assert captured["max_retries"] == 0, "重试只由 ProviderGateway 承担"
+
+
+def test_extra_body_is_forwarded_only_when_given(monkeypatch) -> None:
+    """P7-S15-A03 ``extra_body`` 仅设置时才交给 ``ChatOpenAI``：缺省路径的构造参数与此前逐字相同；
+    给了（目录项 ``thinking: off`` 的关闭思考）就原样透传。"""
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-123")
+    captured: dict[str, object] = {}
+    _spy_chat_openai(monkeypatch, captured)
+    build_chat_model(model="deepseek-chat", base_url="https://api.deepseek.com")
+    assert "extra_body" not in captured
+    build_chat_model(model="deepseek-chat", base_url="https://api.deepseek.com", extra_body=None)
+    assert "extra_body" not in captured
+    assert captured["temperature"] == 0.0
+    body = {"thinking": {"type": "disabled"}}
+    build_chat_model(model="deepseek-chat", base_url="https://api.deepseek.com", extra_body=body)
+    assert captured["extra_body"] == body

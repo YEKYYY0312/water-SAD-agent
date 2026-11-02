@@ -25,6 +25,10 @@ class UsernameTakenError(ValueError):
     pass
 
 
+class LastActiveAdminError(RuntimeError):
+    """Deactivating this account would leave the deployment without an active admin."""
+
+
 class UserStoreProtocol(Protocol):
     def get_by_id(self, user_id: UUID) -> UserRecord: ...
 
@@ -49,6 +53,10 @@ class UserStoreProtocol(Protocol):
     def set_must_change_password(self, user_id: UUID, value: bool) -> None: ...
 
     def set_active(self, user_id: UUID, *, active: bool) -> None: ...
+
+    def deactivate(self, user_id: UUID) -> None:
+        """Deactivate unless it would remove the last active admin (atomic check + write)."""
+        ...
 
 
 class UserStore:
@@ -130,6 +138,17 @@ class UserStore:
             record = self.get_by_id(user_id)
             updated = record.model_copy(update={"is_active": active})
             self._by_id[user_id] = updated
+
+    def deactivate(self, user_id: UUID) -> None:
+        with self._lock:
+            record = self.get_by_id(user_id)
+            others_active = any(
+                other.user_id != user_id and other.role is UserRole.ADMIN and other.is_active
+                for other in self._by_id.values()
+            )
+            if record.role is UserRole.ADMIN and record.is_active and not others_active:
+                raise LastActiveAdminError(str(user_id))
+            self._by_id[user_id] = record.model_copy(update={"is_active": False})
 
 
 # Module-level singleton; Step 38 will replace with a DB-backed instance.

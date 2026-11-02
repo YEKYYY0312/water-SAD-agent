@@ -10,9 +10,19 @@
 """
 from __future__ import annotations
 
+import asyncio
 import threading
 
+import httpx
+import httpx2
 import pytest
+from langchain_openai.chat_models.base import (
+    OpenAIAuthenticationError,
+    OpenAIConnectionError,
+    OpenAIPermissionDeniedError,
+    OpenAIRateLimitError,
+    OpenAITimeoutError,
+)
 
 from water_agent.runtime.governance.config import (
     BudgetConfig,
@@ -49,6 +59,7 @@ from water_agent.runtime.governance.gateway import (
     _retry_after_of,
 )
 from water_agent.runtime.governance.stores import (
+    BudgetVerdict,
     InMemoryBudgetLedger,
     InMemoryRateLimitStore,
 )
@@ -412,7 +423,21 @@ class TestBudget:
         gw.call(_ctx(), _call(), lambda: ("x", ProviderUsage.unknown()))
         snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
         assert snap.spent_cost_usd == 0.0  # 不猜成本
-        assert snap.reserved_tokens == 0  # 预留已释放
+        assert snap.spent_tokens == 0  # 账单侧不估算
+        assert snap.reserved_tokens == 0  # 预留已结清
+        assert snap.unconfirmed_tokens > 0  # 额度侧按预留计入，不能让 usage 未知的调用免额度
+
+    def test_calls_without_usage_still_exhaust_the_daily_cap(self) -> None:
+        """provider 一直不回 usage：此前按 0 结清，额度永远不涨（review 2026-09-30）。"""
+        config = self._blocking_config(cap=10_000)
+        gw = _gateway(config=config)
+        sent = 0
+        with pytest.raises(GovernanceError) as exc:
+            for _ in range(1_000):
+                gw.call(_ctx(), _call(), lambda: ("x", ProviderUsage.unknown()))
+                sent += 1
+        assert exc.value.code == "BUDGET_EXCEEDED"
+        assert 0 < sent < 1_000
 
 
 class TestRetryAndErrorClassification:
@@ -568,6 +593,91 @@ class TestRetryAndErrorClassification:
         assert _retry_after_of(_HttpError(429, headers={"retry-after": "2"})) == 2.0
         assert _retry_after_of(_HttpError(429, headers={"Retry-After": "junk"})) is None
         assert _retry_after_of(_HttpError(429)) is None
+
+
+class TestWrappedSdkErrorClassification:
+    """SDK 异常被上层重包装成子类后，仍按瞬时 / 认证 / 永久正确分类（类名沿 MRO 匹配）。
+
+    langchain-openai 1.6 的 ChatOpenAI 把 openai SDK 的超时 / 连接错误重包装成
+    ``OpenAITimeoutError`` / ``OpenAIConnectionError`` 再抛。旧实现只比对
+    ``type(exc).__name__``，三个 DeepSeek chat 出口的超时与连接失败因此被判成永久错误：
+    零重试、不计熔断。本组用真实异常类型锁死（测试可以导入 SDK，gateway 本身不导入）。
+    """
+
+    _REQUEST = httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+
+    def test_subclass_of_known_transient_name_is_transient(self) -> None:
+        """不依赖任何 SDK：类名特征对子类同样生效。"""
+
+        class APITimeoutError(Exception):
+            pass
+
+        class VendorTimeoutError(APITimeoutError):
+            pass
+
+        assert _classify_error(VendorTimeoutError()) == "transient"
+
+    def test_langchain_openai_timeout_and_connection_errors_are_transient(self) -> None:
+        assert _classify_error(OpenAITimeoutError(self._REQUEST)) == "transient"
+        assert (
+            _classify_error(OpenAIConnectionError(message="refused", request=self._REQUEST))
+            == "transient"
+        )
+
+    @pytest.mark.parametrize(("status", "expected"), [(401, "auth"), (403, "auth"), (429, "transient")])
+    def test_langchain_openai_status_errors_still_classified_by_status(
+        self, status: int, expected: str
+    ) -> None:
+        response = httpx.Response(status, request=self._REQUEST)
+        error_cls = {
+            401: OpenAIAuthenticationError,
+            403: OpenAIPermissionDeniedError,
+            429: OpenAIRateLimitError,
+        }[status]
+        assert _classify_error(error_cls(message="x", response=response, body=None)) == expected
+
+    @pytest.mark.parametrize(
+        ("exc", "expected"),
+        [
+            # 流式中途断连：openai SDK 不再包装，原始 httpx 异常直接冒出
+            (httpx.RemoteProtocolError("peer closed connection", request=_REQUEST), "transient"),
+            (httpx.ReadError("connection reset", request=_REQUEST), "transient"),
+            (httpx.ConnectError("refused", request=_REQUEST), "transient"),
+            (httpx.PoolTimeout("pool exhausted", request=_REQUEST), "transient"),
+            # 本端协议错误：重试同一个请求毫无意义
+            (httpx.LocalProtocolError("illegal header"), "permanent"),
+            # openai 3.x 实际用的是 httpx2（类名相同，按名匹配同样生效）
+            (httpx2.RemoteProtocolError("incomplete chunked read"), "transient"),
+            (httpx2.ReadTimeout("read timed out"), "transient"),
+            (httpx2.LocalProtocolError("illegal header"), "permanent"),
+        ],
+    )
+    def test_httpx_transport_errors(self, exc: BaseException, expected: str) -> None:
+        assert _classify_error(exc) == expected
+
+    def test_wrapped_timeout_is_retried_by_gateway(self) -> None:
+        gw = _gateway(
+            config=GovernanceConfig(
+                profiles={
+                    ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                        timeout_seconds=10.0,
+                        retry=RetryPolicy(max_attempts=3, base_backoff_seconds=0.0),
+                    )
+                }
+            )
+        )
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OpenAITimeoutError(self._REQUEST)
+            return "ok", ProviderUsage.of(input_tokens=1, output_tokens=1)
+
+        result = gw.call(_ctx(), _call(), executor)
+        assert result.value == "ok"
+        assert result.usage_record.retry_count == 1
+        assert gw.provider_call_count == 2
 
 
 class TestDeadline:
@@ -748,6 +858,345 @@ class TestCircuitBreaker:
         assert gw.breaker_open(_call(model="model-a")) is True
         # 另一模型仍可用
         gw.call(_ctx(), _call(model="model-b"), _ok())
+
+
+class _SpyLedger(InMemoryBudgetLedger):
+    """记录每次结清是 settle 还是 rollback（两者在内存账本上效果相同，语义不同）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[str] = []
+
+    def settle(self, key, reservation_id, *, actual_tokens, actual_cost_usd):  # type: ignore[override]
+        self.events.append("settle")
+        super().settle(key, reservation_id, actual_tokens=actual_tokens,
+                       actual_cost_usd=actual_cost_usd)
+
+    def rollback(self, key, reservation_id):  # type: ignore[override]
+        self.events.append("rollback")
+        super().rollback(key, reservation_id)
+
+    def settle_unknown(self, key, reservation_id):  # type: ignore[override]
+        self.events.append("settle_unknown")
+        super().settle_unknown(key, reservation_id)
+
+
+#: 非 ``Exception`` 的 ``BaseException``：进程或任务要停下的信号，不是 provider 的失败。
+_INTERRUPTS = [
+    pytest.param(KeyboardInterrupt, id="KeyboardInterrupt"),
+    pytest.param(SystemExit, id="SystemExit"),
+    pytest.param(asyncio.CancelledError, id="CancelledError"),
+]
+
+
+class TestInterruptPassthrough:
+    """executor 里的中断信号原样上抛：不分类、不计熔断、不重试，预留恰好回滚一次。
+
+    回归：重试内核此前 ``except BaseException`` 之后一律分类，``KeyboardInterrupt`` 没有状态码、
+    类名也不在瞬时清单里，被判成永久错误、包装成 ``PROVIDER_UNAVAILABLE``（"上游服务返回不可
+    重试的错误：KeyboardInterrupt"）——Ctrl-C 打断不了一次慢请求，``SystemExit`` 退不出进程，
+    ``CancelledError`` 取消不了任务。另一面：``call`` 只在 ``except GovernanceError`` 里回滚，
+    原样上抛的中断（退避 sleep 中途的 Ctrl-C 此前就是如此）会把预留永久占住。
+    """
+
+    @staticmethod
+    def _config(*, attempts: int, threshold: int, backoff: float = 0.0) -> GovernanceConfig:
+        return GovernanceConfig(
+            budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=10_000),
+            profiles={
+                ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                    timeout_seconds=10.0,
+                    retry=RetryPolicy(max_attempts=attempts, base_backoff_seconds=backoff),
+                    breaker=CircuitBreakerPolicy(failure_threshold=threshold),
+                )
+            },
+        )
+
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    def test_interrupt_from_executor_propagates_unchanged(
+        self, interrupt: type[BaseException]
+    ) -> None:
+        records: list[UsageRecord] = []
+        ledger = _SpyLedger()
+        config = self._config(attempts=3, threshold=1)
+        gw = ProviderGateway(config=config, sleep=lambda _d: None, budget_ledger=ledger,
+                             on_usage=records.append)
+        error = interrupt()
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            raise error
+
+        with pytest.raises(interrupt) as exc:
+            gw.call(_ctx(), _call(), executor)
+        assert exc.value is error  # 原样上抛，没有包装成 GovernanceError
+        assert calls["n"] == 1  # max_attempts=3 也不重试
+        assert gw.provider_call_count == 1
+        assert gw.breaker_open(_call()) is False  # 阈值为 1：不计熔断失败
+        assert ledger.events == ["rollback"]  # 恰好结清一次
+        snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
+        assert snap.reserved_tokens == 0 and snap.spent_tokens == 0
+        # 请求可能已经发出：记 usage 未知，不记失败码，也不估算用量
+        assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
+        assert records[0].usage_known is False and records[0].input_tokens is None
+
+    def test_interrupt_is_neither_breaker_failure_nor_success(self) -> None:
+        """中断不出成败判定：既不计一次失败，也不把此前的连续失败清零。"""
+        gw = _gateway(config=self._config(attempts=1, threshold=2))
+        boom = lambda: (_ for _ in ()).throw(_HttpError(503))
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(), _call(), boom)
+        with pytest.raises(KeyboardInterrupt):
+            gw.call(_ctx(), _call(), lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+        assert gw.breaker_open(_call()) is False  # 中断没计失败：连续失败仍是 1 次
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(), _call(), boom)
+        assert gw.breaker_open(_call()) is True  # 中断也没清零：两次 503 凑够阈值 2
+
+    def test_interrupt_during_backoff_sleep_releases_reservation(self) -> None:
+        """退避等待中途 Ctrl-C：中断从 sleep 里冒出来，不经 executor，预留同样要回滚。"""
+        records: list[UsageRecord] = []
+        ledger = _SpyLedger()
+        config = self._config(attempts=3, threshold=100, backoff=1.0)
+
+        def interrupted_sleep(_delay: float) -> None:
+            raise KeyboardInterrupt
+
+        gw = ProviderGateway(config=config, clock=_FakeClock(), sleep=interrupted_sleep,
+                             budget_ledger=ledger, on_usage=records.append)
+        calls = {"n": 0}
+
+        def executor() -> tuple[str, ProviderUsage]:
+            calls["n"] += 1
+            raise _HttpError(503)
+
+        with pytest.raises(KeyboardInterrupt):
+            gw.call(_ctx(), _call(), executor)
+        assert calls["n"] == 1  # 退避被打断，没有第二次尝试
+        assert ledger.events == ["rollback"]
+        snap = gw.budget_ledger.snapshot(gw.budget_key(_ctx()), config.budget)
+        assert snap.reserved_tokens == 0 and snap.spent_tokens == 0
+        assert [r.result_status for r in records] == [CODE_USAGE_UNKNOWN]
+
+
+class _SlowLedger(InMemoryBudgetLedger):
+    """预留时推进假时钟：模拟共享账本（Redis/Postgres adapter）慢到在发送前就耗尽 deadline。"""
+
+    def __init__(self, clock: _FakeClock) -> None:
+        super().__init__()
+        self._fake_clock = clock
+        self.delay = 0.0
+
+    def reserve(self, key: str, tokens: int, config: BudgetConfig) -> BudgetVerdict:
+        self._fake_clock.advance(self.delay)
+        return super().reserve(key, tokens, config)
+
+
+class _InFlightCall:
+    """在后台线程发起一次 ``gw.call``，executor 停在"已发出、未返回"，直到 :meth:`finish`。
+
+    让一个请求在熔断状态变化期间一直挂着（真实场景里就是一个慢请求）。
+    """
+
+    def __init__(self, gw: ProviderGateway, outcome: BaseException | str, *, thread: str) -> None:
+        self._sending = threading.Event()
+        self._go = threading.Event()
+        self.value: str | None = None
+        self.error: GovernanceError | None = None
+
+        def executor() -> tuple[str, ProviderUsage]:
+            self._sending.set()
+            assert self._go.wait(timeout=10), "测试没有放行这个请求"
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome, ProviderUsage.of(input_tokens=1, output_tokens=1)
+
+        def run() -> None:
+            try:
+                self.value = gw.call(_ctx(thread=thread), _call(), executor).value
+            except GovernanceError as exc:
+                self.error = exc
+            finally:
+                self._sending.set()  # 发送前就被拒时别让主线程干等
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+        assert self._sending.wait(timeout=10)
+        assert self.error is None, f"请求没能发出：{self.error}"
+
+    def finish(self) -> None:
+        self._go.set()
+        self._thread.join(timeout=10)
+        assert not self._thread.is_alive()
+
+
+class TestHalfOpenProbeWithoutVerdict:
+    """半开探测没出成败判定就结束时，必须归还探测名额。
+
+    回归：名额此前只在探测成功（闭合）或瞬时失败（重新开路）时清零。探测若被限流/预算
+    拒绝、认证失败（401/403 不计熔断）、永久错误（不计熔断）或 deadline 用尽，名额就一直
+    占着，此后**每个**请求都是 ``CIRCUIT_OPEN``（"上游服务恢复探测中"），推进时钟也没用，
+    只能重启进程。熔断规则本身不变：成功闭合、瞬时失败重新开路、401/403 与永久错误不计熔断。
+    """
+
+    @staticmethod
+    def _config(
+        *, rate_limit: RateLimitPolicy | None = None, budget: BudgetConfig | None = None
+    ) -> GovernanceConfig:
+        """阈值 1、恢复 30s、半开只放 1 个探测、不重试：一次 503 即开路，31s 后半开。"""
+        return GovernanceConfig(
+            budget=budget or BudgetConfig(),
+            profiles={
+                ProviderKind.DEEPSEEK_CHAT: ProviderProfile(
+                    timeout_seconds=10.0,
+                    retry=RetryPolicy(max_attempts=1),
+                    breaker=CircuitBreakerPolicy(
+                        failure_threshold=1, recovery_seconds=30.0, half_open_max_calls=1
+                    ),
+                    rate_limit=rate_limit or RateLimitPolicy(),
+                )
+            },
+        )
+
+    @staticmethod
+    def _enter_half_open(gw: ProviderGateway, clock: _FakeClock) -> None:
+        with pytest.raises(GovernanceError):
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(_HttpError(503)))
+        assert gw.breaker_open(_call()) is True
+        clock.advance(31.0)
+
+    @staticmethod
+    def _assert_slot_was_released(gw: ProviderGateway) -> None:
+        """没出判定：熔断既没闭合也没重新开路；名额已还，下一个请求（换一个主体）立刻作为
+        新探测放行、不必再等恢复窗口，成功即闭合。修复前这里是 CIRCUIT_OPEN，且永远如此。"""
+        assert gw.breaker_open(_call()) is True
+        result = gw.call(_ctx(thread="b"), _call(), _ok())
+        assert result.value == "答案"
+        assert gw.breaker_open(_call()) is False
+
+    def test_rate_limited_probe_releases_slot(self) -> None:
+        """限流按主体计：一个主体用满本地配额，不能把所有主体都关在熔断外。"""
+        clock = _FakeClock()
+        config = self._config(rate_limit=RateLimitPolicy(max_requests_per_minute=1))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)  # 开路那次用掉了主体 a 这一分钟唯一的请求配额
+
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(), _ok())
+        assert exc.value.code == CODE_RATE_LIMITED
+        assert gw.provider_call_count == sent  # 发送前被拒
+        self._assert_slot_was_released(gw)
+
+    def test_budget_rejected_probe_releases_slot(self) -> None:
+        clock = _FakeClock()
+        config = self._config(budget=BudgetConfig(policy=BudgetPolicy.BLOCK, daily_token_cap=1_000))
+        gw = _gateway(config=config, clock=clock)
+        self._enter_half_open(gw, clock)
+
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(est_in=5_000), _ok())  # 预留 5,200 > 额度 1,000
+        assert exc.value.code == CODE_BUDGET_EXCEEDED
+        assert gw.provider_call_count == sent
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize(
+        ("error", "expected_code"),
+        [
+            (_HttpError(401), CODE_PROVIDER_AUTH_FAILED),
+            (_HttpError(403), CODE_PROVIDER_AUTH_FAILED),
+            (_HttpError(400), CODE_PROVIDER_UNAVAILABLE),
+            (ValueError("bad payload"), CODE_PROVIDER_UNAVAILABLE),  # 未知错误按永久处理
+        ],
+        ids=["auth-401", "auth-403", "permanent-400", "permanent-unknown-error"],
+    )
+    def test_auth_or_permanent_error_releases_slot_and_still_does_not_trip_breaker(
+        self, error: BaseException, expected_code: str
+    ) -> None:
+        """阈值为 1：若 401/403 或永久错误计了熔断，这里会重新开路，下一个请求还得再等 30s。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(error))
+        assert exc.value.code == expected_code
+        self._assert_slot_was_released(gw)
+
+    @pytest.mark.parametrize("interrupt", _INTERRUPTS)
+    def test_interrupted_probe_releases_slot(self, interrupt: type[BaseException]) -> None:
+        """中断原样上抛、不经错误分类，名额照样要在重试内核的 finally 里归还——只在分类分支里
+        还的话，被 Ctrl-C 打断的探测会把半开期永久占住。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        with pytest.raises(interrupt):
+            gw.call(_ctx(thread="a"), _call(), lambda: (_ for _ in ()).throw(interrupt()))
+        self._assert_slot_was_released(gw)
+
+    def test_probe_whose_deadline_runs_out_before_sending_releases_slot(self) -> None:
+        """deadline 是调用方的时间预算，不计熔断；在发送前就用尽时探测同样没出判定。"""
+        clock = _FakeClock()
+        ledger = _SlowLedger(clock)
+        gw = ProviderGateway(
+            config=self._config(), clock=clock, sleep=lambda _d: None, budget_ledger=ledger
+        )
+        self._enter_half_open(gw, clock)
+
+        ledger.delay = 10.0  # 预留就耗掉 10s，超过 5s 的 deadline
+        sent = gw.provider_call_count
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="a", deadline=5.0), _call(), _ok())
+        assert exc.value.code == CODE_PROVIDER_TIMEOUT
+        assert gw.provider_call_count == sent  # 一次都没发出
+        ledger.delay = 0.0
+        self._assert_slot_was_released(gw)
+
+    def test_in_flight_probe_holds_its_slot_until_it_ends(self) -> None:
+        """名额在探测结束时才还，不是一放行就还：探测在途期间其他请求照旧被拒。"""
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        self._enter_half_open(gw, clock)
+
+        probe = _InFlightCall(gw, _HttpError(401), thread="a")
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="b"), _call(), _ok())
+        assert exc.value.code == CODE_CIRCUIT_OPEN
+        assert "恢复探测中" in exc.value.message
+
+        probe.finish()
+        assert probe.error is not None and probe.error.code == CODE_PROVIDER_AUTH_FAILED
+        self._assert_slot_was_released(gw)
+
+    def test_stale_slot_from_an_earlier_round_does_not_free_a_later_rounds_slot(self) -> None:
+        """名额按熔断代次归还：上一轮半开期的探测拖到下一轮才结束，不得腾出下一轮的名额。
+
+        只记"占没占名额"、结束时一律减一的话，第一轮探测的 401 会把第二轮那个仍在途的探测
+        的名额减掉，半开期同时放进两个探测，超过 ``half_open_max_calls=1``。
+        """
+        clock = _FakeClock()
+        gw = _gateway(config=self._config(), clock=clock)
+        slow = _InFlightCall(gw, _HttpError(503), thread="slow")  # 闭合期放行的慢请求，不占名额
+        self._enter_half_open(gw, clock)  # 第一轮半开
+        stale = _InFlightCall(gw, _HttpError(401), thread="a")  # 第一轮的探测
+
+        slow.finish()  # 503 是瞬时失败 → 重新开路，第一轮的名额随之作废
+        assert gw.breaker_open(_call()) is True
+        clock.advance(31.0)  # 第二轮半开
+        current = _InFlightCall(gw, "答案", thread="b")  # 第二轮的探测，占着唯一的名额
+
+        stale.finish()  # 第一轮的探测这时才以 401 结束
+        assert stale.error is not None and stale.error.code == CODE_PROVIDER_AUTH_FAILED
+        with pytest.raises(GovernanceError) as exc:
+            gw.call(_ctx(thread="c"), _call(), _ok())
+        assert exc.value.code == CODE_CIRCUIT_OPEN
+
+        current.finish()  # 第二轮探测成功 → 闭合
+        assert current.value == "答案"
+        assert gw.breaker_open(_call()) is False
 
 
 class TestNoSilentFallback:

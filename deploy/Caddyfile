@@ -11,6 +11,14 @@
 		max_size 16MB
 	}
 
+	# 上传接口单独设上限，与应用层一致：10304KiB = MAX_UPLOAD_BYTES（10 MiB）
+	# + multipart 余量（64 KiB），见 src/water_agent/webapp/body_limit.py。
+	# 两条 request_body 都会生效，上传路径取更严的这一条。
+	@uploads path /api/uploads /api/uploads/*
+	request_body @uploads {
+		max_size 10304KiB
+	}
+
 	header {
 		-Server
 		Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"

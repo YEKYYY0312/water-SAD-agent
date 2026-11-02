@@ -31,6 +31,8 @@ export function authErrorText(code: string, message: string): string {
       return "账号已停用，请联系管理员";
     case "AUTH_WEAK_PASSWORD":
       return message; // 后端文案已含最小长度，直接透传
+    case "AUTH_PASSWORD_REUSED":
+      return "新密码不能与当前密码相同";
     case "AUTH_SESSION_INVALID":
       return "会话已失效，请重新登录";
     default:

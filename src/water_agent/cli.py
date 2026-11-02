@@ -1,7 +1,7 @@
 """生产问答 CLI + 交互式问答循环。
 
 生产链路：TriviumDB 混合检索召回 → LocalReranker 重排 → top_k=5 → LLM 生成。
-默认真实 LLM（DeepSeek 官方 Claude 兼容）；--mock-generator 可用确定性生成器自测链路。
+默认真实 LLM（OpenAI 兼容端点，缺省 DeepSeek）；--mock-generator 可用确定性生成器自测链路。
 --mode agentic：Step 6 起模型驱动的 Agentic RAG 外层循环；Step 7 接真实 DeepSeek
 function calling（无 Key 属结构化错误而非静默降级），--stream 可流式打印 token。
 """
@@ -19,7 +19,16 @@ from uuid import uuid4
 from water_agent.domain.citation import CitationClaim
 from water_agent.domain.state import default_state
 from water_agent.generation.base import Generator
-from water_agent.generation.chat_model import DEFAULT_API_KEY_ENV
+from water_agent.generation.compatibility import require_verified_endpoint
+from water_agent.generation.endpoints import (
+    CHAT_API_KEY,
+    CHAT_BASE_URL_ENV,
+    CHAT_MODEL_ENV,
+    DEFAULT_CHAT_API_KEY,
+    DEFAULT_CHAT_BASE_URL,
+    DEFAULT_CHAT_MODEL,
+    resolve_chat_endpoint,
+)
 from water_agent.generation.llm import DEFAULT_SYSTEM_PROMPT, build_llm_generator
 from water_agent.generation.mock import MockGenerator
 from water_agent.graphs.calc import build_calc_graph, detect_intent, parse_calc_query
@@ -69,12 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--top-k", type=int, default=5, help="rerank 后返回条数")
     p.add_argument("--recall-top-k", type=int, default=20, help="混合检索召回的候选条数")
     p.add_argument("--hybrid-alpha", type=float, default=0.7)
-    p.add_argument("--model", default="deepseek-chat", help="LLM 模型名")
-    p.add_argument("--base-url", default="https://api.deepseek.com", help="LLM OpenAI 兼容 base_url")
+    # 缺省 None = 按部署配置解析（generation/endpoints.py：WATER_AGENT_LLM_* > deepseek-chat /
+    # https://api.deepseek.com）；给了即显式覆盖。非缺省端点同样要过兼容性门槛（P7-S10）。
+    p.add_argument("--model", default=None, help=f"LLM 模型名（缺省读 {CHAT_MODEL_ENV}，未设时 {DEFAULT_CHAT_MODEL}）")
+    p.add_argument(
+        "--base-url",
+        default=None,
+        help=f"LLM OpenAI 兼容 base_url（缺省读 {CHAT_BASE_URL_ENV}，未设时 {DEFAULT_CHAT_BASE_URL}）",
+    )
     p.add_argument(
         "--api-key-env",
-        default=DEFAULT_API_KEY_ENV,
-        help="真实模型 API Key 所在环境变量名（--mode agentic 用，默认 DEEPSEEK_API_KEY）",
+        default=None,
+        help=(
+            f"真实模型 API Key 所在环境变量名（--mode agentic 用；缺省 {CHAT_API_KEY}，"
+            f"端点仍是 DeepSeek 时回落 {DEFAULT_CHAT_API_KEY}）"
+        ),
     )
     p.add_argument(
         "--stream",
@@ -149,6 +167,8 @@ def build_app(
         assembler = PromptAssembler()
         sys_content = assembler.assemble_prompt().content
         system_prompt = sys_content if isinstance(sys_content, str) else DEFAULT_SYSTEM_PROMPT
+        # 与 agentic 路径同一道兼容性门槛（P7-S10）：非缺省端点没有通过的报告即拒绝
+        require_verified_endpoint(resolve_chat_endpoint(base_url=args.base_url, model=args.model))
         generator = build_llm_generator(
             model=args.model,
             base_url=args.base_url,
@@ -296,6 +316,12 @@ def _print_result(payload: dict, *, json_output: bool) -> None:
     if payload.get("retriever_runtime_status"):
         status = payload["retriever_runtime_status"]
         print(f"检索运行态: kind={status.get('fallback_kind')} reason={status.get('fallback_reason')} db_error={status.get('db_error')}")
+        mode = status.get("retrieval_mode")
+        if mode == "text":
+            # P7-S10：关键词模式如实标出，不得说成语义检索
+            print(f"检索模式: 关键词模式（{status.get('retrieval_mode_reason')}；不是语义检索）")
+        elif mode:
+            print(f"检索模式: 混合检索（{status.get('retrieval_mode_reason')}）")
     elif payload["retriever_fallback"]:
         print("检索: fixture 回落（未使用真实 TriviumDB 索引）")
     if payload["errors"]:
@@ -423,6 +449,31 @@ def _read_cli_input(prompt: str, ui) -> str:
     return input()
 
 
+_APPROVE_ANSWERS = frozenset({"y", "yes", "是"})
+_REJECT_ANSWERS = frozenset({"n", "no", "否"})
+
+
+def _prompt_docgen_decision(ui) -> dict[str, Any] | None:
+    """docgen 人审提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；返回 None = 挂起。
+
+    两处提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定（此前在"拒绝原因"处中断会提交
+    一次空原因的拒绝，最后一稿上即收口 failed，不可撤回）。只认显式回答：y/yes/是 = 批准，
+    n/no/否 = 拒绝，其余（含空行）重新询问——不把没认出的输入当成拒绝。
+    """
+    try:
+        while True:
+            answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
+            if answer in _APPROVE_ANSWERS:
+                return {"approved": True}
+            if answer in _REJECT_ANSWERS:
+                break
+            print("请输入 y（批准）或 n（拒绝）；Ctrl-C 挂起审批。", file=ui)
+        reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return {"approved": False, "reason": reason}
+
+
 def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
     """``--flow docgen``：gather → draft → 人审（y/n + 原因）→ finalize；``--resume`` 恢复挂起会话。
 
@@ -430,7 +481,7 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
     """
     from langgraph.types import Command
 
-    from water_agent.graphs.docgen import build_docgen_graph
+    from water_agent.graphs.docgen import approval_decision_error, build_docgen_graph
 
     session_id = args.resume or new_session_id()
     session_dir = Path(args.session_dir)
@@ -455,12 +506,15 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             return 2
         app = build_docgen_graph(checkpointer=saver)
         snapshot = app.get_state(config) if args.resume else None
-        if snapshot is not None and snapshot.next:
+        # 判挂起以 interrupts 为准、不能只看 next：图内拒收非法 resume 值后会带 error 再
+        # interrupt 一次，会话仍挂起，但 LangGraph 1.2.11 下此时 next 为 ()（见 graphs/docgen.py
+        # 「resume 值契约」）。只看 next 会把挂起的会话当成已结束。
+        interrupts = (
+            [i for t in snapshot.tasks for i in (getattr(t, "interrupts", ()) or ())] if snapshot is not None else []
+        )
+        if snapshot is not None and (interrupts or snapshot.next):
             print(f"恢复审批会话 {session_id}", file=ui)
-            interrupts = [i for t in snapshot.tasks for i in (getattr(t, "interrupts", ()) or ())]
-            result: dict = {"__interrupt__": interrupts, **dict(snapshot.values)} if interrupts else dict(snapshot.values)
-            if not interrupts:
-                result = app.invoke(None, config=config)
+            result: dict = {"__interrupt__": interrupts, **dict(snapshot.values)} if interrupts else app.invoke(None, config=config)
         else:
             if not query:
                 print("请提供要生成的文档描述（或用 --resume 恢复挂起的审批会话）。", file=sys.stderr)
@@ -496,21 +550,21 @@ def run_docgen_flow(args: argparse.Namespace, query: str) -> int:
             print("\n===== 草稿预览（待审批）=====", file=ui)
             print(preview.get("draft_preview", ""), file=ui)
             print("=============================", file=ui)
-            try:
-                answer = _read_cli_input("批准生成正式文档？[y/n]: ", ui).strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            if preview.get("error"):
+                # 图内拒收了上一次提交的 resume 值、会话重新挂起：说清楚，这次给出的决定才算数
+                print(f"上一次提交的审批决定无效，未被采纳：{preview['error']}", file=ui)
+            decision = _prompt_docgen_decision(ui)
+            if decision is None:
                 print(f"\n审批挂起，稍后用 --resume {session_id} 恢复。", file=ui)
                 recorder.finish("waiting", data={"session_id": session_id})
                 return 0
-            decision: dict[str, Any]
-            if answer in {"y", "yes", "是"}:
-                decision = {"approved": True}
-            else:
-                try:
-                    reason = _read_cli_input("拒绝原因（将带回草稿重拟）: ", ui).strip()
-                except (EOFError, KeyboardInterrupt):
-                    reason = ""
-                decision = {"approved": False, "reason": reason}
+            # CLI 边界先校验再 invoke（与图内同一判定）：非法值哪怕会被图内拒收，也已被记进
+            # 本任务的 resume 列表并落盘，之后每次恢复都要重放一遍——不让它进图
+            if (error := approval_decision_error(decision)) is not None:
+                print(json.dumps({"ok": False, "error": f"审批决定未提交：{error}"}, ensure_ascii=False), file=sys.stderr)
+                print(f"会话仍挂起，稍后用 --resume {session_id} 恢复。", file=ui)
+                recorder.finish("waiting", data={"session_id": session_id, "error": error})
+                return 2
             recorder.record(node="approval", event="approval_decision", status="running", data={**decision, "session_id": session_id})
             result = app.invoke(Command(resume=decision), config=config)
 
@@ -703,6 +757,102 @@ def _parse_multi_agent_project_brief(
     return brief.model_dump(mode="json"), []
 
 
+def _summary_value(value: Any) -> str:
+    """摘要里的值原样转成文本：数值不取整、不换单位（铁律 1），缺省显示为 —。"""
+    if value is None:
+        return "—"
+    if isinstance(value, dict):
+        return ", ".join(f"{key}={_summary_value(item)}" for key, item in value.items()) or "—"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_summary_value(item) for item in value) or "—"
+    return str(value)
+
+
+def _print_multi_agent_approval_request(
+    request: dict[str, Any], ui, *, fallback_summary: dict[str, Any] | None = None
+) -> None:
+    """批准前逐项摆出待批准的最终包（此前只打印一个哈希，批准人是盲批）。
+
+    内容来自审批请求里的 ``summary``（``orchestrator.approval_summary``），这里只排版。升级前挂起的
+    会话，持久化的请求里没有 summary，用调用方从会话状态重建的同源摘要（``fallback_summary``）。
+    ``--json`` 时 ``ui`` 是 stderr，stdout 只留最终 JSON。
+    """
+    summary = request.get("summary") or fallback_summary or {}
+    print("\n===== 待批准最终包（批准前请逐项核对）=====", file=ui)
+    print(f"待批准最终包：{request['final_package_hash']}", file=ui)
+    if not summary:
+        print("（无法生成摘要：会话里没有完整的发布产物集，请勿批准）", file=ui)
+    artifacts = summary.get("artifacts") or []
+    print(f"产物清单（{len(artifacts)} 项）：", file=ui)
+    for row in artifacts:
+        print(
+            f"  - {row['artifact_type']} rev{row['revision']} hash={row['payload_hash_prefix']}… "
+            f"[{row['status']}] {row['artifact_id']}",
+            file=ui,
+        )
+    segments = summary.get("segments") or []
+    print(f"管段（{len(segments)} 段）：", file=ui)
+    for seg in segments:
+        dn = f"DN{seg['dn_mm']}" if seg.get("dn_mm") is not None else "DN —"
+        print(
+            f"  - {seg['segment_id']} | {seg['system']} | {seg['start_node_id']}→{seg['end_node_id']} | {dn} | "
+            f"长度 {_summary_value(seg.get('length_m'))} m | 材质 {_summary_value(seg.get('material'))} | "
+            f"坡度 {_summary_value(seg.get('slope'))} | hydraulic_status={seg['hydraulic_status']} | "
+            f"计算工况 {_summary_value(seg.get('calc_case_ids'))}",
+            file=ui,
+        )
+    cases = summary.get("calc_cases") or []
+    print(f"水力工况（{len(cases)} 个）：", file=ui)
+    for case in cases:
+        print(f"  - {case['calc_case_id']} | {case['formula']} | {case['status']}", file=ui)
+        print(f"      输入：{_summary_value(case.get('inputs'))}", file=ui)
+        print(f"      结果：{_summary_value(case.get('outputs'))}", file=ui)
+        for note in case.get("assumptions") or []:
+            print(f"      assumption：{note}", file=ui)
+    citations = summary.get("citations") or []
+    print(f"设计依据（{len(citations)} 条）：", file=ui)
+    for citation in citations:
+        status = citation.get("version_status") or "未校验"
+        print(f"  - {citation['source_id']}（规范版本状态：{status}）", file=ui)
+    review = summary.get("review") or {}
+    issues = review.get("issues") or []
+    not_checked = review.get("not_checked") or []
+    print(
+        f"审查：decision={review.get('decision')}，问题 {len(issues)} 条，未检查 {len(not_checked)} 项",
+        file=ui,
+    )
+    for issue in issues:
+        print(
+            f"  - 问题 [{issue['severity']}/{issue['owner']}] {issue['rule_id']}"
+            f"{' @' + issue['object_ref'] if issue.get('object_ref') else ''}：{issue['message']}",
+            file=ui,
+        )
+    for item in not_checked:
+        print(f"  - 未检查：{item}", file=ui)
+    print(f"staging 草图（DXF）：{_summary_value(summary.get('staging_dxf_path'))}", file=ui)
+    disclosed = request.get("disclosed_limitations") or []
+    if disclosed:
+        print(f"批准前请确认以下 {len(disclosed)} 项披露（审查器未能判定合规的内容）：", file=ui)
+        for item in disclosed:
+            print(f"  - {item}", file=ui)
+    print("==========================================", file=ui)
+
+
+def _prompt_multi_agent_decision(ui) -> dict[str, Any] | None:
+    """multi-agent 审批提示：批准？[y/n] →（拒绝时）拒绝原因。返回 resume 值；None = 挂起。
+
+    两处提示的 Ctrl-C/EOF 语义一致：都挂起、不提交任何决定。此前只有第一个提示做了处理，
+    "拒绝原因"处中断会让异常直接冲出 CLI（EOF 退出码 2，Ctrl-C 原样抛出）。
+    """
+    try:
+        answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
+        if answer in {"y", "yes", "是"}:
+            return {"approved": True}
+        return {"approved": False, "reason": _read_cli_input("拒绝原因: ", ui).strip()}
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
 def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
     """``--flow multi-agent``：真实 P4.5 图，审批前只生成 staging 草图。"""
     import tempfile as _tf
@@ -711,8 +861,10 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
 
     from water_agent.multi_agent.contracts import MULTI_MISSING_INPUTS
     from water_agent.multi_agent.orchestrator import (
+        approval_summary,
         build_orchestrator_graph,
         default_multi_agent_state,
+        review_disclosures,
     )
 
     session_id = args.resume or new_session_id()
@@ -751,8 +903,25 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
             return 2
         app = build_orchestrator_graph(checkpointer=saver)
         snapshot = app.get_state(config) if args.resume else None
-        if snapshot is not None and snapshot.next:
-            result: dict[str, Any] = {"__interrupt__": [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())], **dict(snapshot.values)}
+        # 判挂起以 interrupts 为准、不能只看 next：审批节点拒收非法 resume 值后会带 error 再
+        # interrupt 一次，会话仍挂起，但 LangGraph 1.2.11 下此时 next 为 ()（见
+        # orchestrator.approval_decision_error）。只看 next 会把挂起的会话当成已结束。
+        pending = (
+            [i for task in snapshot.tasks for i in (getattr(task, "interrupts", ()) or ())]
+            if snapshot is not None
+            else []
+        )
+        if snapshot is not None and pending:
+            result: dict[str, Any] = {"__interrupt__": pending, **dict(snapshot.values)}
+        elif args.resume:
+            print(
+                json.dumps(
+                    {"ok": False, "error": f"multi-agent 会话 {session_id} 没有待批准的请求，无可恢复的审批"},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            return 2
         else:
             assert parsed_brief is not None
             staging = _tf.mkdtemp(prefix="ma-cli-staging-")
@@ -769,16 +938,14 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
 
         while result.get("__interrupt__"):
             request = result["__interrupt__"][0].value
-            print(f"待批准最终包：{request['final_package_hash']}", file=ui)
-            try:
-                answer = _read_cli_input("批准发布最终草图？[y/n]: ", ui).strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            if request.get("error"):
+                # 图内拒收了上一次提交的 resume 值、会话重新挂起：说清楚，这次给出的决定才算数
+                print(f"上一次提交的审批决定无效，未被采纳：{request['error']}", file=ui)
+            _print_multi_agent_approval_request(request, ui, fallback_summary=approval_summary(result))
+            decision = _prompt_multi_agent_decision(ui)
+            if decision is None:
                 print(f"\n审批已挂起，稍后使用 --resume {session_id} 恢复。", file=ui)
                 return 0
-            if answer in {"y", "yes", "是"}:
-                decision: dict[str, Any] = {"approved": True}
-            else:
-                decision = {"approved": False, "reason": _read_cli_input("拒绝原因: ", ui).strip()}
             result = app.invoke(Command(resume=decision), config=config)
 
     payload = {
@@ -789,6 +956,9 @@ def run_multi_agent_flow(args: argparse.Namespace, query: str) -> int:
         "missing_inputs": result.get("missing_inputs", []),
         "project_brief": result.get("project_brief"),
         "retrieved_source_ids": result.get("retrieved_source_ids", []),
+        "disclosed_limitations": review_disclosures(result),
+        # 结构化的最终包摘要（与审批请求同一来源）；发布集不完整时为 null
+        "approval_summary": approval_summary(result),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
     return 0 if payload["ok"] else 1

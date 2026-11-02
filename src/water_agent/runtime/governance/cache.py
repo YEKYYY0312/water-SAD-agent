@@ -79,6 +79,9 @@ REASON_EMPTY_ANSWER = "empty_answer"
 REASON_REDACTED_OR_BLOCKED = "redacted_or_blocked_content"
 REASON_NO_STORE = "request_no_store"
 REASON_CALC_PRESENT = "calc_result_present"
+#: P7-S11：本回合用过联网内容（``web_tainted``）。网络内容未经核验、会过期、不可复现，写进精确缓存会把它
+#: 变成"对所有后来者都成立的回答"。恒拒绝（SDD17-I14）。
+REASON_WEB_CONTENT_USED = "web_content_used"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +110,7 @@ def evaluate_store_eligibility(
     answer: str,
     contains_redacted_or_blocked: bool = False,
     calc_result_present: bool = False,
+    web_tainted: bool = False,
     no_store: bool = False,
 ) -> StoreEligibility:
     """判定一条回答能否写入精确缓存。
@@ -125,6 +129,7 @@ def evaluate_store_eligibility(
         answer: 最终回答；空回答无缓存价值。
         contains_redacted_or_blocked: 内容是否含被脱敏/阻断的部分。
         calc_result_present: 是否携带计算结果（铁律①：计算不进缓存）。
+        web_tainted: 本回合是否用过联网内容（P7-S11）；为真恒不可缓存。
         no_store: 请求是否显式 ``no_store``。
     """
     if no_store:
@@ -135,6 +140,8 @@ def evaluate_store_eligibility(
         return StoreEligibility.no(REASON_TEMPERATURE)
     if calc_result_present:
         return StoreEligibility.no(REASON_CALC_PRESENT)
+    if web_tainted:
+        return StoreEligibility.no(REASON_WEB_CONTENT_USED)
     if not citation_verified:
         return StoreEligibility.no(REASON_CITATION)
     if not output_guardrails_passed:
@@ -196,6 +203,13 @@ class CacheKeyFactors(BaseModel):
     #: MCP server 清单摘要（P4 Step 25）。清单/白名单/DWG 版本任一变化 → 失效；
     #: 未启用 MCP（空清单）时为空串，与历史键同键（不无谓清空既有缓存）。
     mcp_server_manifest: str = ""
+    #: Skill 库摘要（P7-S9）：全部已启用 skill 的 name + 来源 + 摘要。skill 是系统策略的一部分，规程变了、
+    #: 启停了，旧回答不该再命中。用**全量**库而非"本轮加载了哪些"（lookup 在加载之前，同规范版本摘要的
+    #: 教训）；没有 skill（开关 off）时为空串，与历史键同键。
+    skill_library_digest: str = ""
+    #: 对话端点摘要（P7-S10）：同名模型在不同服务商那里是不同的模型，``base_url`` 变了旧回答不该再命中。
+    #: 缺省 DeepSeek 端点为空串，与历史键同键（不无谓清空既有缓存）。
+    model_endpoint_digest: str = ""
     #: 条目格式版本。
     entry_version: str = Field(default=CACHE_ENTRY_VERSION, min_length=1)
 
@@ -208,9 +222,13 @@ class CacheKeyFactors(BaseModel):
         排除空 mcp_server_manifest 以保持与历史缓存键兼容（P4 Step 25 缓存迁移）。
         """
         data = self.model_dump(mode="json")
-        # 未启用 MCP 时排除该字段，与历史键保持一致
+        # 未启用 MCP / 没有 skill / 缺省对话端点时排除该字段，与历史键保持一致
         if not data.get("mcp_server_manifest"):
             data.pop("mcp_server_manifest", None)
+        if not data.get("skill_library_digest"):
+            data.pop("skill_library_digest", None)
+        if not data.get("model_endpoint_digest"):
+            data.pop("model_endpoint_digest", None)
         raw = json.dumps(data, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -561,6 +579,7 @@ __all__ = [
     "REASON_REDACTED_OR_BLOCKED",
     "REASON_SPEC_VERSION_UNKNOWN",
     "REASON_TEMPERATURE",
+    "REASON_WEB_CONTENT_USED",
     "AnswerCache",
     "CacheKeyFactors",
     "CacheStats",

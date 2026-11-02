@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Self
@@ -128,6 +130,8 @@ class SourceTag(str, Enum):
     RETRIEVED_CLAUSE = "retrieved_clause"
     RETRIEVED_FILE = "retrieved_file"
     TOOL_OUTPUT = "tool_output"
+    #: P7-S11：联网获取的外部内容（搜索摘录等）。信任低于一切本地来源，**不可承载指令**，也不是规范依据。
+    WEB_CONTENT = "web_content"
     SESSION_MEMORY = "session_memory"
     GENERATED_OUTPUT = "generated_output"
 
@@ -141,6 +145,7 @@ SOURCE_TRUST_LEVEL: dict[SourceTag, int] = {
     SourceTag.RETRIEVED_CLAUSE: 20,
     SourceTag.TOOL_OUTPUT: 10,
     SourceTag.RETRIEVED_FILE: 10,
+    SourceTag.WEB_CONTENT: 5,
     SourceTag.GENERATED_OUTPUT: 0,
 }
 
@@ -180,6 +185,9 @@ class Capability(str, Enum):
     #: 只授予读，不含写入/网络/shell —— 与 `EXPORT_TO_ALLOWED_DIR` 语义分离
     #: （可读 ≠ 可写，见 `docs/design/p3-step-17-decision.md` D4）。
     READ_DRAWING = "read_drawing"
+    #: P7-S9：按名加载 skill 库里的操作规程（只读：读随包分发的内置规程或运维只读目录）。
+    #: 本地只读能力，与检索、计算同档；规程正文生效的约束在 ``skills/`` 与提示装配器里，不在这里。
+    LOAD_SKILL = "load_skill"
     LLM_INFERENCE = "llm_inference"
     EMBEDDING = "embedding"
     RERANK = "rerank"
@@ -188,6 +196,11 @@ class Capability(str, Enum):
     #: 依据人工配置（mcp_servers.json）显式授予时才生效，这就是 P4「权限可配置」
     #: 的落点。危险操作（写/破坏性）不走本能力，见 `requires_human_confirmation`。
     MCP_INVOKE = "mcp_invoke"
+    #: P7-S12：联网搜索（**只读外发**，目的地由运维写死的基址决定，模型只控制查询字符串）。
+    #: **不在** DEFAULT_LOCAL_CAPABILITIES 与 Web 成员能力集内；只有部署开关已开且用户对**这一条消息**
+    #: 勾选了"联网"时，装配期才由插件追加给主体（``GRANTABLE_CAPABILITIES``）。
+    #: 与下面的 ``NETWORK_FETCH`` 语义不同：后者是"目的地由模型决定"，仍在危险集里、仍被构造期拒绝。
+    WEB_SEARCH = "web_search"
     # 以下能力当前**没有任何主体被授予**（见 DEFAULT_LOCAL_CAPABILITIES），
     # 存在的意义是让 Step 14 的"默认拒绝"可被正例/反例测试覆盖。
     WRITE_FILE = "write_file"
@@ -214,6 +227,7 @@ DEFAULT_LOCAL_CAPABILITIES: frozenset[Capability] = frozenset(
         Capability.CALCULATE,
         Capability.MATERIAL_STATS,
         Capability.READ_DRAWING,
+        Capability.LOAD_SKILL,
         Capability.EXPORT_TO_ALLOWED_DIR,
         Capability.LLM_INFERENCE,
         Capability.EMBEDDING,
@@ -513,6 +527,10 @@ class ProviderKind(str, Enum):
     BAILIAN_RERANK = "bailian_rerank"
     #: P5-S52：CAD 导出 PDF 的视觉审阅（百炼 Qwen-VL，OpenAI 兼容端点）。
     BAILIAN_VISION = "bailian_vision"
+    #: P7-S8：远程 MCP server（Streamable HTTP）与其 OAuth 授权服务器。出口只由运维配置的 URL 决定。
+    MCP_REMOTE = "mcp_remote"
+    #: P7-S12：联网搜索服务（运维配置的单一基址；searxng 自托管或 brave 公网 API）。
+    WEB_SEARCH = "web_search"
 
 
 class CallCategory(str, Enum):
@@ -526,6 +544,12 @@ class CallCategory(str, Enum):
     EMBEDDING_INGEST = "embedding_ingest"
     RERANK = "rerank"
     VISION_REVIEW = "vision_review"
+    #: P7-S8：对远程 MCP server 的一次 HTTP 交换（initialize / tools/list / tools/call / 授权端点……）。
+    MCP_TOOL_CALL = "mcp_tool_call"
+    #: 设置面板「获取模型」：对用户填写的对话端点发一次 ``GET {base_url}/models``（管理员触发，不含用户问题）。
+    MODEL_LIST = "model_list"
+    #: P7-S12：一次联网搜索（``web_search`` 工具发往运维配置的搜索服务的 GET）。
+    WEB_SEARCH = "web_search"
 
 
 class ProviderCall(BaseModel):
@@ -683,6 +707,40 @@ class BudgetPolicy(str, Enum):
 #: 价格/阈值未经人工确认时的占位：**不得**把知识库示例价格复制为项目事实。
 PRICE_UNKNOWN: Literal["unknown"] = "unknown"
 
+
+# ---------------------------------------------------------------------------
+# 人工确认凭证（P7-S7）
+# ---------------------------------------------------------------------------
+
+
+def confirmation_args_hash(args: Mapping[str, Any]) -> str:
+    """工具参数的确认摘要：规范化 JSON（键排序、紧凑分隔符）的 sha256 全长。
+
+    确认门在批准时用它绑定"批准的是哪一份参数"，护栏在执行时用同一函数重算——两边口径
+    只有这一处。``default=str`` 让不可序列化的值也能得到稳定摘要（模型产出的参数本就是 JSON）。
+    """
+    payload = json.dumps(
+        dict(args), sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class ConfirmationGrant(BaseModel):
+    """一次人工批准签发的执行凭证（P7-S7）：只能由确认门在合法的批准之后构造。
+
+    绑定三项——工具名、参数摘要、主体 hash——并且只能用一次（护栏在进程内记下已用的
+    ``confirmation_id``）。模型只能产出 JSON，传不出这个对象；``ToolRegistry.invoke`` 的
+    ``**args`` 是工具参数，所以凭证只走 ``invoke_confirmed`` 的关键字参数，不会与参数撞名。
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmation_id: str = Field(min_length=1, max_length=128)
+    tool_name: str = Field(min_length=1, max_length=256)
+    args_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    principal_hash: str = Field(min_length=1, max_length=64)
+    decided_at: datetime
+
 __all__ = [
     "CODE_BUDGET_EXCEEDED",
     "CODE_CACHE_INVALIDATED",
@@ -708,6 +766,7 @@ __all__ = [
     "CacheStatus",
     "CallCategory",
     "Capability",
+    "ConfirmationGrant",
     "ContentEnvelope",
     "GovernanceError",
     "PiiMode",
@@ -721,6 +780,7 @@ __all__ = [
     "SourceTag",
     "SourceTagDowngradeError",
     "UsageRecord",
+    "confirmation_args_hash",
     "is_instruction_bearing",
     "trust_level",
 ]

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
@@ -16,11 +16,26 @@ import {
   isTerminalStatus,
   mergeHistory,
   replayUnavailable,
+  runStateFromPendingConfirmation,
+  withdrawUnsentQuestion,
   type ConversationMessage,
   type WorkspaceRunState,
 } from "./workspaceState";
+import type { ConfirmationSubmitState } from "./ConfirmationCard.tsx";
+import { ConfirmationApi, confirmationErrorMessage, isWaitingConfirmation } from "./confirmationApi.ts";
 import { ExportApi, exportErrorMessage, type ExportFormat } from "./exportApi.ts";
+import { ModelCatalogApi, type ModelCatalogView } from "./modelChoiceApi.ts";
+import { messageModelValue, modelErrorMessage } from "./modelChoiceState.ts";
+import { oauthReturnedToSettings } from "./settingsState.ts";
 import { precheckUpload, UploadApi, uploadErrorMessage, type UploadRecord } from "./uploadApi.ts";
+import { WebSearchApi } from "./webSearchApi.ts";
+import {
+  NO_WEB_SEARCH_TOGGLE,
+  isWebSearchReady,
+  messageWebSearchValue,
+  webSearchActive,
+  webSearchToggleReducer,
+} from "./webSearchState.ts";
 
 const PROJECT_STORAGE_KEY = "water-agent:selected-project";
 /** 非 404 的连接失败最多重试几次（指数退避，封顶 10 s）。 */
@@ -96,12 +111,29 @@ export type WorkspaceController = {
   deleteUpload: (uploadId: string) => void;
   exportState: ExportState;
   downloadExport: (format: ExportFormat) => void;
+  /** 人工确认（P7-S7）：提交进度与批准 / 拒绝。 */
+  confirmationState: ConfirmationSubmitState;
+  decideConfirmation: (approved: boolean, reason: string) => void;
+  /** 模型目录与选择（P7-S15）：目录为空 / 无可选项时界面不渲染选择器。 */
+  modelCatalog: ModelCatalogView | null;
+  messageModel: string;
+  setMessageModel: (value: string) => void;
+  setSessionModel: (model: string | null) => void;
+  /** 联网搜索（P7-S12）：运维已配好才渲染开关；勾选只对下一条消息有效，发送后与切会话时回到关。 */
+  webSearchReady: boolean;
+  webSearchOn: boolean;
+  setWebSearch: (on: boolean) => void;
+  /** 设置页写入 / 清除联网搜索密钥后调用：重新读取就绪状态。 */
+  refreshWebSearch: () => void;
 };
 
 export function useWorkspaceController(): WorkspaceController {
   const api = useRef(new WorkspaceApi()).current;
   const uploadApi = useRef(new UploadApi()).current;
   const exportApi = useRef(new ExportApi()).current;
+  const confirmationApi = useRef(new ConfirmationApi()).current;
+  const modelCatalogApi = useRef(new ModelCatalogApi()).current;
+  const webSearchApi = useRef(new WebSearchApi()).current;
   const [capabilities, setCapabilities] = useState<SystemCapabilities | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
@@ -115,18 +147,30 @@ export function useWorkspaceController(): WorkspaceController {
   const [streaming, setStreaming] = useState(false);
   const [feedbackState, setFeedbackState] = useState<string | null>(null);
   const [memoryOpen, setMemoryOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // MCP 授权回调 303 回到首页时地址栏带着结果：直接打开设置页（落在 MCP 扩展），结果提示才有地方显示
+  const [settingsOpen, setSettingsOpen] = useState(() => oauthReturnedToSettings(window.location.search));
   const [drawingOpen, setDrawingOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
   const [exportState, setExportState] = useState<ExportState>(null);
+  const [confirmationState, setConfirmationState] = useState<ConfirmationSubmitState>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogView | null>(null);
+  // 本条消息选的模型；空串 = 不指定（沿用会话默认，再沿用全局）。切会话时复位
+  const [messageModel, setMessageModel] = useState("");
+  // 联网搜索是否已被运维配好（读不到一律当没配好），以及本条消息是否勾选（默认关、不持久化）
+  const [webSearchReady, setWebSearchReady] = useState(false);
+  const [webSearchToggle, dispatchWebSearch] = useReducer(webSearchToggleReducer, NO_WEB_SEARCH_TOGGLE);
+  const webSearchSeq = useRef(0);
   const streamAbort = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const cursor = useRef("0");
   const runStatus = useRef("idle");
   // 切会话时拿到的历史；实时回放不可用时退回它（见 connectRun 的 404 分支）。
   const historyRef = useRef<{ role: "user" | "agent"; text: string; withheld?: boolean }[]>([]);
+  // 历史投影里挂起的确认请求与最新运行（P7-S7）：实时回放不可用（服务重启过）时据此恢复确认卡片。
+  const pendingRef = useRef<unknown>(null);
+  const latestRunRef = useRef<{ run_id: string; thread_id: string; status: string } | null>(null);
   const retries = useRef(0);
 
   const selectedSession = sessions.find((item) => item.thread_id === selectedThreadId) ?? null;
@@ -220,7 +264,8 @@ export function useWorkspaceController(): WorkspaceController {
         },
       });
       retries.current = 0;
-      if (!isTerminalStatus(runStatus.current) && !controller.signal.aborted) {
+      // 停在人工确认门时流正常结束（stream_end: waiting_confirmation），不是断线：等用户决定，不重连
+      if (!isTerminalStatus(runStatus.current) && !isWaitingConfirmation(runStatus.current) && !controller.signal.aborted) {
         setPageError("SSE 连接已结束，正在等待后端事件继续恢复");
         reconnectTimer.current = window.setTimeout(() => void connectRun(runId, cursor.current), 500);
       }
@@ -231,7 +276,10 @@ export function useWorkspaceController(): WorkspaceController {
       // "正在检索与计算…"永不消失，历史回答也因等着回放而不显示。
       if (error instanceof WorkspaceApiError && error.status === 404) {
         setStreaming(false);
-        setRun(emptyRunState());
+        // 停在确认门的运行：挂起在服务端 checkpoint 里，重启后仍可决定——卡片从历史恢复
+        const restored = runStateFromPendingConfirmation(pendingRef.current, latestRunRef.current);
+        setRun(restored ?? emptyRunState());
+        if (restored) runStatus.current = restored.status;
         setMessages(replayUnavailable(historyRef.current, runStatus.current));
         setPageError(null);
         return;
@@ -256,7 +304,7 @@ export function useWorkspaceController(): WorkspaceController {
       // 历史读不到不该挡住会话本身：降级为空历史并提示，最新运行照常回放。
       api.getMessages(selectedThreadId).catch((error) => {
         if (active) setPageError(`历史消息加载失败：${apiMessage(error)}`);
-        return { thread_id: selectedThreadId, messages: [] };
+        return { thread_id: selectedThreadId, messages: [], pending_confirmation: null };
       }),
     ])
       .then(([session, history]) => {
@@ -264,6 +312,9 @@ export function useWorkspaceController(): WorkspaceController {
         setSessions((current) => current.map((item) => item.thread_id === selectedThreadId ? session : item));
         const latest = session.latest_run;
         historyRef.current = history.messages;
+        pendingRef.current = history.pending_confirmation ?? null;
+        latestRunRef.current = latest ?? null;
+        setConfirmationState(null);
         retries.current = 0;
         setMessages(mergeHistory(history.messages, Boolean(latest)));
         if (latest) {
@@ -297,6 +348,7 @@ export function useWorkspaceController(): WorkspaceController {
     setRun(emptyRunState());
     setFeedbackState(null);
     setExportState(null);
+    setMessageModel("");
     setPageError(null);
   };
 
@@ -327,6 +379,7 @@ export function useWorkspaceController(): WorkspaceController {
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedThreadId) return;
+    if (isWaitingConfirmation(run.status)) return;
     if (attachments.some((item) => item.status === "uploading")) return;
     const attachmentIds = attachments
       .filter((item) => item.status === "ready" && item.record)
@@ -334,6 +387,10 @@ export function useWorkspaceController(): WorkspaceController {
     // 只附文件、不写问题也能发：此前发送键要求输入框非空，附上文件后按钮一直是灰的。
     const message = draft.trim() || (attachmentIds.length > 0 ? ATTACHMENT_ONLY_PROMPT : "");
     if (!message) return;
+    const sentAttachments = attachments.filter((item) => item.status === "ready" && item.record);
+    // 勾选只管这一条：发出后立刻回到关；没被受理时再放回去（与草稿、附件的回滚一致）
+    const sentWithWebSearch = webSearchActive(webSearchToggle, selectedThreadId, webSearchReady);
+    dispatchWebSearch({ type: "sent", threadId: selectedThreadId });
     setDraft("");
     setPageError(null);
     setFeedbackState(null);
@@ -347,12 +404,102 @@ export function useWorkspaceController(): WorkspaceController {
     runStatus.current = "queued";
     retries.current = 0;
     setStreaming(true);
-    void api.sendMessage(selectedThreadId, message, attachmentIds)
+    void api.sendMessage(
+      selectedThreadId,
+      message,
+      attachmentIds,
+      messageModelValue(messageModel),
+      messageWebSearchValue(sentWithWebSearch),
+    )
       .then((created) => {
         setRun((current) => ({ ...current, runId: created.run_id, threadId: created.thread_id, status: created.status }));
         void connectRun(created.run_id, "0");
       })
-      .catch((error) => { setStreaming(false); setPageError(apiMessage(error)); });
+      .catch((error) => {
+        setStreaming(false);
+        setPageError(apiMessage(error));
+        // 发送没被受理（例如 409：上一问还在回答）：撤回乐观追加的提问，放回草稿与附件，
+        // 用户不必重打一遍。
+        setMessages((current) => withdrawUnsentQuestion(current, message));
+        setDraft((current) => current || draft);
+        setAttachments((current) => [...sentAttachments, ...current]);
+        dispatchWebSearch({ type: "refused", threadId: selectedThreadId, wasOn: sentWithWebSearch });
+      });
+  };
+
+  // 模型目录（P7-S15）：读失败当作"没有目录"，界面与没有这个功能时相同；设置页关闭后重读，管理员的改动随即可见
+  useEffect(() => {
+    if (settingsOpen) return;
+    let active = true;
+    void modelCatalogApi.get()
+      .then((view) => { if (active) setModelCatalog(view); })
+      .catch(() => { if (active) setModelCatalog(null); });
+    return () => { active = false; };
+  }, [modelCatalogApi, settingsOpen]);
+
+  // 联网搜索就绪状态（P7-S12）：加载一次，设置页改了密钥后再读一次。任何失败（403 / 404 / 旧后端没有该接口 / 网络）
+  // 都按"没配好"处理——开关不渲染，不报错、不打断主流程。较晚发出的请求为准，防止乱序返回覆盖新状态。
+  const refreshWebSearch = useCallback(() => {
+    const seq = webSearchSeq.current + 1;
+    webSearchSeq.current = seq;
+    void webSearchApi.get()
+      .then((view) => { if (seq === webSearchSeq.current) setWebSearchReady(isWebSearchReady(view)); })
+      .catch(() => { if (seq === webSearchSeq.current) setWebSearchReady(false); });
+  }, [webSearchApi]);
+
+  useEffect(() => {
+    refreshWebSearch();
+    return () => { webSearchSeq.current += 1; };
+  }, [refreshWebSearch]);
+
+  // 勾选属于它被勾选时的会话：会话变了当场回到关；运维那边变成不可用也回到关，之后恢复就绪不会自己再打开
+  useEffect(() => {
+    dispatchWebSearch({ type: "thread", threadId: selectedThreadId });
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (!webSearchReady) dispatchWebSearch({ type: "unavailable" });
+  }, [webSearchReady]);
+
+  const setWebSearch = (on: boolean) => dispatchWebSearch({ type: "set", threadId: selectedThreadId, on });
+
+  const setSessionModel = (model: string | null) => {
+    if (!selectedThreadId) return;
+    setPageError(null);
+    void api.setSessionModel(selectedThreadId, model)
+      .then((updated) => setSessions((current) => current.map((item) => (
+        item.thread_id === updated.thread_id ? { ...item, ...updated, model: updated.model } : item
+      ))))
+      .catch((error) => setPageError(
+        error instanceof WorkspaceApiError ? modelErrorMessage(error.code, apiMessage(error)) : apiMessage(error),
+      ));
+  };
+
+  const decideConfirmation = (approved: boolean, reason: string) => {
+    const request = run.confirmation;
+    const runId = run.runId ?? request?.run_id ?? null;
+    if (!request || !runId || confirmationState?.status === "submitting") return;
+    setConfirmationState({ status: "submitting" });
+    setPageError(null);
+    void confirmationApi.decide(runId, { confirmation_id: request.confirmation_id, approved, reason })
+      .then((accepted) => {
+        setConfirmationState(null);
+        pendingRef.current = null;
+        setRun((current) => ({ ...current, runId: accepted.run_id, confirmation: null, status: accepted.status }));
+        runStatus.current = accepted.status;
+        retries.current = 0;
+        cursor.current = accepted.event_cursor;
+        setStreaming(true);
+        // 按服务端给的游标重新订阅同一个 run：挂起时的 stream_end 是合成帧、不在事件日志里，
+        // 服务重启过时日志从头开始——客户端自己的游标在两种情况下都不对
+        void connectRun(accepted.run_id, accepted.event_cursor);
+      })
+      .catch((error) => setConfirmationState({
+        status: "failed",
+        message: error instanceof WorkspaceApiError
+          ? confirmationErrorMessage(error.code, error.message)
+          : confirmationErrorMessage("WEB_REQUEST_FAILED"),
+      }));
   };
 
   const cancelRun = () => {
@@ -465,5 +612,15 @@ export function useWorkspaceController(): WorkspaceController {
     deleteUpload,
     exportState,
     downloadExport,
+    confirmationState,
+    decideConfirmation,
+    modelCatalog,
+    messageModel,
+    setMessageModel,
+    setSessionModel,
+    webSearchReady,
+    webSearchOn: webSearchActive(webSearchToggle, selectedThreadId, webSearchReady),
+    setWebSearch,
+    refreshWebSearch,
   };
 }

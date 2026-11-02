@@ -29,6 +29,7 @@ from water_agent.runtime.governance.contracts import (
     CODE_INPUT_TOO_LARGE,
     CODE_SOURCE_TAG_MISSING,
     Capability,
+    ConfirmationGrant,
     ContentEnvelope,
     GovernanceError,
     PiiMode,
@@ -37,9 +38,10 @@ from water_agent.runtime.governance.contracts import (
     Principal,
     RequestContext,
     SourceTag,
+    confirmation_args_hash,
     is_instruction_bearing,
 )
-from water_agent.runtime.governance.inventory import capability_for_tool
+from water_agent.runtime.governance.inventory import capability_for_tool, mcp_tool_binding
 from water_agent.runtime.governance.rules import (
     MAX_CONTENT_BYTES,
     MAX_USER_INPUT_BYTES,
@@ -346,12 +348,23 @@ class GuardrailPipeline:
     # -- 3. 工具前置验证（不可绕过） --------------------------------------------
 
     def validate_tool_call(
-        self, tool_name: str, args: dict[str, Any], principal: Principal
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        principal: Principal,
+        *,
+        confirmation_grant: ConfirmationGrant | None = None,
     ) -> GuardrailOutcome:
         """``ToolRegistry.invoke`` 执行前的强制校验。
 
-        顺序：capability 登记 → 主体授权 → 参数大小 → 路径/域名 allowlist
-        → 参数注入标记。**未登记的工具 fail closed**（`capability_for_tool` 抛 KeyError）。
+        顺序：capability 登记 → 主体授权 → 人工确认（MCP 绑定 / 执行凭证）→ 危险能力
+        → 参数大小 → 路径/域名 allowlist → 参数注入标记。
+        **未登记的工具 fail closed**（`capability_for_tool` 抛 KeyError）。
+
+        ``confirmation_grant``（P7-S7）只由 ``ToolRegistry.invoke_confirmed`` 传入：凭证的工具名、
+        参数摘要、主体 hash 必须与本次调用一致（``tool.confirmation_mismatch``），且未被用过
+        （``tool.confirmation_replayed``）；通过即记为已用。要求确认的工具没有凭证一律
+        ``tool.confirmation_required``（S1 的规则原样保留）。
         """
         try:
             capability = capability_for_tool(tool_name)
@@ -372,6 +385,23 @@ class GuardrailPipeline:
                        f"主体未被授予能力 {capability.value!r}"),
                 "",
             )
+        # P7-S1（F7）：要求人工确认的 MCP 工具没有凭证一律拒绝——兜住"配置校验被绕过、工具仍被
+        # 注册"以及"模型直接调用"的情况。P7-S7：唯一的放行路径是确认门在人工批准后签发的凭证。
+        if confirmation_grant is not None:
+            grant_decision = _check_confirmation_grant(
+                confirmation_grant, tool_name, args, principal
+            )
+            if grant_decision is not None:
+                return GuardrailOutcome(grant_decision, "")
+        else:
+            binding = mcp_tool_binding(tool_name)
+            if binding is not None and binding.requires_human_confirmation:
+                return GuardrailOutcome(
+                    _block("tool.confirmation_required", CODE_GUARDRAIL_BLOCKED,
+                           f"工具 {tool_name!r} 需要人工确认：只有确认门在人工批准后签发的"
+                           "一次性凭证能放行，直接调用一律拒绝"),
+                    "",
+                )
         if capability in {Capability.WRITE_FILE, Capability.NETWORK_FETCH,
                           Capability.EXECUTE_SHELL, Capability.SEND_MESSAGE}:
             return GuardrailOutcome(
@@ -492,6 +522,15 @@ class GuardrailPipeline:
                        "禁止把可承载指令的来源写入会话记忆"),
                 envelope.text,
             )
+        # P7-S11：联网内容未经核验、会过期、不可复现，写进持久记忆会让它变成"对之后所有对话都成立的事实"。
+        # 目前没有任何模型 / 系统发起的记忆写入路径（记忆只有面板里用户显式确认一条，来源是 USER_MESSAGE）；
+        # 这里让入口对 WEB_CONTENT fail closed，将来谁把它接到模型发起的写入上，联网内容也进不去。
+        if envelope.source_tag is SourceTag.WEB_CONTENT:
+            return GuardrailOutcome(
+                _block("memory.web_content", CODE_SOURCE_TAG_MISSING,
+                       "禁止把联网内容写入长期记忆"),
+                envelope.text,
+            )
         injection_hits = detect_injection(envelope.text)
         if injection_hits:
             return GuardrailOutcome(
@@ -520,6 +559,44 @@ class GuardrailPipeline:
 # ---------------------------------------------------------------------------
 # 参数遍历辅助
 # ---------------------------------------------------------------------------
+
+
+#: 已用过的确认凭证（P7-S7）。进程内集合：同一进程里同一个 ``confirmation_id`` 只能放行一次，
+#: 不论经哪个注册表、哪个护栏实例。**不跨进程**——进程在"批准后、执行结果落 checkpoint 前"
+#: 崩溃时，恢复会重跑确认门节点并签发同 id 的新凭证（重复执行窗口，见 S7 决策记录残余风险）。
+_USED_CONFIRMATIONS: set[str] = set()
+_used_confirmations_lock = threading.Lock()
+
+
+def _check_confirmation_grant(
+    grant: ConfirmationGrant, tool_name: str, args: dict[str, Any], principal: Principal
+) -> PolicyDecision | None:
+    """凭证与本次调用一致且未用过 → ``None``（并记为已用）；否则返回拒绝裁定。
+
+    裁定只说哪一项不一致，不回显参数或主体。先比对再记已用：不一致的凭证不消耗。
+    """
+    mismatched = [
+        label
+        for label, ok in (
+            ("工具名", grant.tool_name == tool_name),
+            ("参数摘要", grant.args_hash == confirmation_args_hash(args)),
+            ("主体", grant.principal_hash == principal.principal_hash),
+        )
+        if not ok
+    ]
+    if mismatched:
+        return _block(
+            "tool.confirmation_mismatch", CODE_GUARDRAIL_BLOCKED,
+            f"确认凭证与本次调用不一致（{'、'.join(mismatched)}），工具 {tool_name!r} 不执行",
+        )
+    with _used_confirmations_lock:
+        if grant.confirmation_id in _USED_CONFIRMATIONS:
+            return _block(
+                "tool.confirmation_replayed", CODE_GUARDRAIL_BLOCKED,
+                f"确认凭证已用过（一次批准只执行一次），工具 {tool_name!r} 不执行",
+            )
+        _USED_CONFIRMATIONS.add(grant.confirmation_id)
+    return None
 
 
 def _render_args(args: dict[str, Any]) -> str:

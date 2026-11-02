@@ -80,6 +80,43 @@ services:
       # 不改这个变量的话每次运行结束 JsonTraceRecorder.finish() 都会 OSError，
       # 恰好在最需要现场的时候什么都不留。
       WATER_AGENT_TRACE_DIR: /var/lib/water-agent-traces
+      # Web 扩展面板（P7-S6）的改动写进这份第三层 MCP 配置（只有启停与工具白名单，没有密钥），
+      # 合并在部署覆盖层之后；挂在 /var/lib/water-agent 之下，随 scripts/backup.sh 一起备份。
+      # 凭据槽位的值不在这里，在 app_credentials 卷。
+      WATER_AGENT_MCP_WEB_LAYER: /var/lib/water-agent/mcp-admin/web_layer.json
+      # Skill 库（P7-S9）：内置 skill 随包分发；运维 skill 放进只读卷 app_skills（一个 skill 一个
+      # 子目录、里面一份 SKILL.md）。卷是空的也照常启动，只是没有运维 skill。面板只能启停，
+      # 启停记录写在上面那份 Web 管理层里。
+      WATER_AGENT_SKILLS: "on"
+      WATER_AGENT_SKILLS_DIR: /etc/water-agent/skills
+      # MCP 远程 server 的 OAuth 授权（P7-S8）：授权服务器把管理员的浏览器带回的回调地址是
+      # <WEB_PUBLIC_BASE_URL>/api/admin/mcp/oauth/callback（要在授权服务器上预先注册、精确匹配）。
+      # 必须是 https://（本机调试允许 http://localhost）；不设 = 面板不提供「授权」按钮，不从请求的
+      # Host 头推导。域名与 Caddy 的 WEB_DOMAIN 一致时通常写 https://$WEB_DOMAIN。
+      WEB_PUBLIC_BASE_URL: ${WEB_PUBLIC_BASE_URL:-}
+      # 对话模型端点（P7-S10，任意 OpenAI 兼容端点）。都空 = 缺省 DeepSeek（现状）。非缺省端点必须有通过的
+      # 兼容性报告才能提问：WATER_AGENT_LLM_COMPATIBILITY_REPORT 指向它，或在设置面板运行兼容性检查（报告写进
+      # app_credentials 卷）。Key 不经环境变量传（会出现在 `docker compose config` 里）：端点改到别家后在设置面板
+      # 填 WATER_AGENT_LLM_API_KEY（只写不读）；DeepSeek 的 Key 不会发给别的服务商。
+      WATER_AGENT_LLM_BASE_URL: ${WATER_AGENT_LLM_BASE_URL:-}
+      WATER_AGENT_LLM_MODEL: ${WATER_AGENT_LLM_MODEL:-}
+      WATER_AGENT_LLM_COMPATIBILITY_REPORT: ${WATER_AGENT_LLM_COMPATIBILITY_REPORT:-}
+      WATER_AGENT_LLM_TIMEOUT_SECONDS: ${WATER_AGENT_LLM_TIMEOUT_SECONDS:-}
+      WATER_AGENT_LLM_PRICE: ${WATER_AGENT_LLM_PRICE:-}
+      # embedding 端点（缺省百炼 qwen3.7-text-embedding）：换 embedding 模型必须重建索引（index_meta.json 校验）。
+      WATER_AGENT_EMBEDDING_BASE_URL: ${WATER_AGENT_EMBEDDING_BASE_URL:-}
+      WATER_AGENT_EMBEDDING_MODEL: ${WATER_AGENT_EMBEDDING_MODEL:-}
+      # 检索模式 auto|hybrid|text（空 = auto）：auto 下没配 embedding 或与索引不匹配时走关键词检索（BM25，
+      # 不是语义检索，界面如实标出）；hybrid 强制混合检索，缺 embedding 即拒绝提问。
+      WATER_AGENT_RETRIEVAL_MODE: ${WATER_AGENT_RETRIEVAL_MODE:-}
+      # 联网搜索（P7-S12）：**缺省关闭**（外发默认关，与 skills 不同）。开启需同时设 provider（searxng / brave）与基址；
+      # 基址是唯一出口，模型只控制搜索词。brave 等有密钥的 provider 在设置面板填 WATER_AGENT_WEB_SEARCH_API_KEY（只写不读，
+      # 不经环境变量传）。searxng 自托管在内网时设 WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE=1（只放行回环与私有网段，
+      # 云元数据地址永远拒绝）。用户还要对每一条消息勾选「联网」才会搜索；查询会发往该服务，数据出境由运维评估。
+      WATER_AGENT_WEB_SEARCH: ${WATER_AGENT_WEB_SEARCH:-}
+      WATER_AGENT_WEB_SEARCH_PROVIDER: ${WATER_AGENT_WEB_SEARCH_PROVIDER:-}
+      WATER_AGENT_WEB_SEARCH_BASE_URL: ${WATER_AGENT_WEB_SEARCH_BASE_URL:-}
+      WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE: ${WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE:-}
     secrets:
       - postgres_password
       - deepseek_api_key
@@ -96,6 +133,7 @@ services:
     volumes:
       - app_uploads:/var/lib/water-agent/uploads
       - app_exports:/var/lib/water-agent/exports
+      - app_mcp_admin:/var/lib/water-agent/mcp-admin
       # Web 设置面板写入的密钥落在这里。刻意不放进 /var/lib/water-agent：
       # scripts/backup.sh 打包的是那个目录整体（tar -C /var/lib/water-agent .），
       # 挂进去会把密钥明文写进 user_files.tar。
@@ -103,6 +141,8 @@ services:
       # 运行 trace 同理放在 /var/lib/water-agent 之外：trace 里有用户问题与答案原文
       # （见 docs/design/p5-release-data-inventory.md 的 E 类），不该随用户文件备份流转。
       - app_traces:/var/lib/water-agent-traces
+      # 运维 skill 是部署配置不是用户数据：只读挂载，放在 /var/lib/water-agent 之外，不随备份流转。
+      - app_skills:/etc/water-agent/skills:ro
     healthcheck:
       test:
         [
@@ -129,11 +169,15 @@ services:
     environment:
       SMOKE_BASE_URL: http://app:8000
       SMOKE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
-      SMOKE_EXPECTED_MIGRATION_HEAD: "0007_step51_dwg_uploads"
+      SMOKE_EXPECTED_MIGRATION_HEAD: "0008_step15_model_choice"
       # 冒烟自己要在本容器内跑一次 agentic run（见 webapp/smoke.py 的
       # _run_agentic_probe），运行收尾要写 trace。这里指向下面的 tmpfs：
       # 根文件系统只读，app 的 app_traces 卷也不该被冒烟写脏。
       WATER_AGENT_TRACE_DIR: /tmp/water-agent-traces
+      # 冒烟的 agentic 探针按与 app 相同的检索模式配置判定（P7-S10），并断言运行状态里的 retrieval_mode 与之一致
+      WATER_AGENT_RETRIEVAL_MODE: ${WATER_AGENT_RETRIEVAL_MODE:-}
+      WATER_AGENT_EMBEDDING_BASE_URL: ${WATER_AGENT_EMBEDDING_BASE_URL:-}
+      WATER_AGENT_EMBEDDING_MODEL: ${WATER_AGENT_EMBEDDING_MODEL:-}
     depends_on:
       app:
         condition: service_healthy
@@ -202,8 +246,10 @@ volumes:
   postgres_data:
   app_uploads:
   app_exports:
+  app_mcp_admin:
   app_credentials:
   app_traces:
+  app_skills:
   local_model_data:
   caddy_data:
   caddy_config:
