@@ -57,7 +57,7 @@ _PATCH_KEYS = frozenset({"disabled", "expected_revision"})
 #: MCP 工具不计入——列表只显示"下一个 run 大概率会看到的状态"，真正装配时按实际贡献的工具核对
 #: （``plugins/builtin.py::SkillsPlugin``），要求 MCP 工具的 skill 在这里显示为工具不可用。
 _BASE_TOOLS = ("retrieve_clauses", "cite_clauses", "calc_velocity", "material_stats")
-NOTICE = "改动从下一个 run 生效；skill 只能经仓库评审（内置）或运维只读目录新增，面板只能启停。"
+NOTICE = "改动从下一个 run 生效；skill 可来自仓库内置、运维只读目录或经运维下载并人工批准的安装区，面板只能启停。"
 
 
 class _Problem(Exception):
@@ -184,7 +184,7 @@ async def update_skill(name: str, request: Request, auth: tuple = Depends(requir
         except ValueError as exc:
             raise _Problem(SKILL_REJECTED, "请求体不是合法 JSON") from exc
         if not isinstance(body, dict) or set(body) - _PATCH_KEYS or "disabled" not in body:
-            raise _Problem(SKILL_REJECTED, "面板只能改 disabled；skill 的正文与来源只能经仓库评审或运维目录修改")
+            raise _Problem(SKILL_REJECTED, "面板只能改 disabled；skill 的正文与来源由仓库评审或运维维护，下载的 skill 还需人工批准")
         disabled = body["disabled"]
         revision = body.get("expected_revision")
         if type(disabled) is not bool:
