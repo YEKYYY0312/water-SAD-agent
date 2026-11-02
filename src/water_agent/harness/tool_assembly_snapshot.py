@@ -117,6 +117,9 @@ PINNED_ENV_KEYS = (
     "WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE",
     "WATER_AGENT_WEB_SEARCH_API_KEY",
     "WATER_AGENT_WEB_SEARCH_API_KEY_FILE",
+    # P7-S14：MCP 目录的基址与私网放行（管理员带外搜索；不改装配面，只为快照环境里不被外部值污染）
+    "WATER_AGENT_MCP_REGISTRY_URL",
+    "WATER_AGENT_MCP_REGISTRY_ALLOW_PRIVATE",
 )
 
 #: Web profile 用的占位 Key：只用来让 ``build_chat_model`` 能构造对象，永远不会被发出去
