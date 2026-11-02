@@ -195,6 +195,32 @@ def audit_skill_updated(*, actor_user_id: str, name: str, disabled: bool, revisi
     )
 
 
+def audit_mcp_registry_searched(*, actor_user_id: str, registry_host: str, result: str, count: int, pages: int) -> None:
+    """P7-S14：管理员搜索 / 浏览了 MCP 目录。只记目录**主机名**、结果码、条数与页数——**不记查询原文、不记条目网址**。"""
+    _emit(
+        "mcp.registry_searched",
+        {"actor_user_id": actor_user_id, "registry_host": registry_host, "result": result, "count": count, "pages": pages},
+    )
+
+
+def audit_mcp_registry_proposed(
+    *, actor_user_id: str, registry_host: str, name: str, version: str, result: str, proposal_hash: str
+) -> None:
+    """P7-S14：管理员为目录里的 ``name@version`` 生成了提案。只记目录主机名、``name@version``、结果码与提案哈希——
+    **不记提案文本、不记条目网址**（提案文本含条目的服务地址）。"""
+    _emit(
+        "mcp.registry_proposed",
+        {
+            "actor_user_id": actor_user_id,
+            "registry_host": registry_host,
+            "name": name,
+            "version": version,
+            "result": result,
+            "proposal_hash": proposal_hash,
+        },
+    )
+
+
 def audit_llm_endpoint_updated(*, actor_user_id: str, host: str, model: str, changed: bool) -> None:
     """P7-S10：管理员在设置面板改了对话端点。只记主机名与模型名，**不记 Key、不记完整 URL**。"""
     _emit(

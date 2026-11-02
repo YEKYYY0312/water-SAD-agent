@@ -34,7 +34,8 @@ from water_agent.runtime.governance.contracts import (
 #: P7-S10 ``DEEPSEEK_CHAT`` 画像的语义扩为"OpenAI 兼容对话端点"，超时与价格可由运维覆盖，递进。
 #: P7-S12 新增 ``WEB_SEARCH`` 画像（联网搜索：15 s、瞬时错误只重试一次、每主体每分钟 ≤ 20），递进。
 #: P7-S13 新增 ``SKILL_REGISTRY`` 画像（运维 CLI 取 skill：20 s、瞬时错误只重试一次、每主体每分钟 ≤ 30），递进。
-GOVERNANCE_CONFIG_VERSION = "p7-s13-2026-10-22"
+#: P7-S14 与 S13 整合：保留两种注册表画像，出口总数为 11。
+GOVERNANCE_CONFIG_VERSION = "p7-s14-2026-11-02"
 
 #: P7-S10：对话端点（``ProviderKind.DEEPSEEK_CHAT``——名字保留，语义是"OpenAI 兼容对话端点"，见
 #: ``generation/endpoints.py``）的运维覆盖。缺省 = 现状（60 s、DeepSeek 公开单价）。
@@ -303,6 +304,14 @@ class GovernanceConfig(BaseModel):
                 timeout_seconds=20.0,
                 retry=RetryPolicy(max_attempts=2),
                 rate_limit=RateLimitPolicy(max_requests_per_minute=30),
+            ),
+            # P7-S14 MCP 目录：与联网搜索同构——单次 15 s，只对瞬时错误重试一次，401/403 零重试且不计熔断；熔断按目录主机
+            # 分桶（``ProviderCall.model`` = ``mcp_registry:<host>``）。限流是**失控保护**量级：每个管理员主体每分钟 ≤ 20 次
+            # 目录读取（一次搜索最多 5 页），不是生产调优值。目录不返回 token 用量，usage 记未知。
+            ProviderKind.MCP_REGISTRY: ProviderProfile(
+                timeout_seconds=15.0,
+                retry=RetryPolicy(max_attempts=2),
+                rate_limit=RateLimitPolicy(max_requests_per_minute=20),
             ),
         }
     )

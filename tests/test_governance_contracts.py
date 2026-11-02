@@ -614,13 +614,13 @@ class TestInventoryCoverage:
         """P7-S11-A05 S11 不新增出站站点：``governed_get`` 本步没有生产调用方，登记站点要等 S12 的 ``web_search``。
 
         P7-S12 起是 9：第 9 个站点正是 ``web_search``（``governed_get`` 的第一个生产调用方）。P7-S13 起是 10：第 10 个是
-        ``skill_registry``（运维 CLI 取 skill，同样经 ``governed_get``）。除这两个之外仍是 S11 时的 8 个。
+        ``skill_registry``（运维 CLI 取 skill，同样经 ``governed_get``）。S14 再增加 MCP 目录 ``mcp_registry``，合计 11 个；除这三个之外仍是 S11 时的 8 个。
         """
         from water_agent.runtime.governance.inventory import PROVIDER_CALL_SITES
 
-        assert len(PROVIDER_CALL_SITES) == 10
+        assert len(PROVIDER_CALL_SITES) == 11
         assert [
-            site.site_id for site in PROVIDER_CALL_SITES if site.site_id not in {"web_search", "skill_registry"}
+            site.site_id for site in PROVIDER_CALL_SITES if site.site_id not in {"web_search", "skill_registry", "mcp_registry"}
         ] == [
             "deepseek_chat_legacy_rag",
             "deepseek_chat_agentic_loop",
@@ -656,7 +656,7 @@ class TestInventoryCoverage:
         profile = DEFAULT_GOVERNANCE_CONFIG.profile_for(ProviderKind.WEB_SEARCH)
         assert profile.timeout_seconds == 15.0 and profile.retry.max_attempts == 2
         assert profile.rate_limit.max_requests_per_minute == 20
-        assert GOVERNANCE_CONFIG_VERSION == "p7-s13-2026-10-22"  # P7-S13 新增 SKILL_REGISTRY 画像时递进（S12 为 p7-s12-2026-10-20）
+        assert GOVERNANCE_CONFIG_VERSION == "p7-s14-2026-11-02"  # S13 与 S14 的两种画像整合后递进
         call_a = provider_call_for(WebSearchConfig(status="ready", provider="searxng", base_url="https://a.example/"))
         call_b = provider_call_for(WebSearchConfig(status="ready", provider="searxng", base_url="https://b.example/"))
         assert ProviderGateway.breaker_key(call_a) != ProviderGateway.breaker_key(call_b)
@@ -767,12 +767,12 @@ class TestInventoryCoverage:
         ``mcp/http_transport.py``），工具数由 6 变 7（``web_search`` 登记在 ``PLUGIN_GRANTED_TOOL_CAPABILITIES``：它所需的
         ``WEB_SEARCH`` 能力不在默认能力集里，只在部署开关已开、用户对这条消息勾选联网时由插件追加）。
 
-        P7-S13 后远程出口由 9 变 10（``skill_registry``，运维 CLI 经 ``governed_get`` 取 skill）。**工具数不变**
+        P7-S13 / S14 后远程出口由 9 变 11（``skill_registry``，运维 CLI 经 ``governed_get`` 取 skill）。**工具数不变**
         （仍是 7）—— 取 skill 不是模型工具，也没有 ``ToolSpec``；它所需的 ``SKILL_FETCH`` 能力只在运维 CLI 的主体上。
         """
         assert governance_coverage() == {
-            "provider_call_sites": 10,
-            "provider_governed": 10,
+            "provider_call_sites": 11,
+            "provider_governed": 11,
             "tools": 7,
             "tools_guardrail_validated": 7,
         }
