@@ -714,7 +714,7 @@ def test_upload_parsing_does_not_block_the_event_loop(
     """解析（pypdf/docx、DWG 转换子进程、逐页视觉审阅）此前直接跑在 async 路由里：单 worker
     下一份 CAD 导出 PDF 就能冻结全站几十秒（review 实测 3 s 视觉桩 → /health/live 2.7 s）。"""
     import asyncio
-    import time
+    import threading
 
     import httpx
 
@@ -731,18 +731,26 @@ def test_upload_parsing_does_not_block_the_event_loop(
         upload_dir=upload_root,
     )
 
+    parser_entered = threading.Event()
+    release_parser = threading.Event()
+    parser_exited = threading.Event()
+
     def slow_ingest(**_kwargs):
-        time.sleep(0.5)
-        raise UploadError("UPLOAD_EXTRACTION_FAILED", "slow parser")
+        parser_entered.set()
+        try:
+            # 超时只防测试挂死；判定依靠解析器仍被阻塞时健康请求已完成。
+            release_parser.wait(timeout=10)
+            raise UploadError("UPLOAD_EXTRACTION_FAILED", "slow parser")
+        finally:
+            parser_exited.set()
 
     monkeypatch.setattr(upload_routes, "ingest_upload", slow_ingest)
 
-    async def scenario() -> float:
+    async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             login = await client.post("/api/auth/login", json={"username": username, "password": _PASSWORD})
             assert login.status_code == 200
             csrf = client.cookies.get(CSRF_COOKIE_NAME) or ""
-            started = time.perf_counter()
             upload = asyncio.create_task(
                 client.post(
                     "/api/uploads",
@@ -750,12 +758,15 @@ def test_upload_parsing_does_not_block_the_event_loop(
                     headers={"X-CSRF-Token": csrf},
                 )
             )
-            await asyncio.sleep(0.05)
-            health = await client.get("/health/live")
-            elapsed = time.perf_counter() - started
-            assert health.status_code == 200
-            assert (await upload).status_code == 400
-            return elapsed
+            try:
+                assert await asyncio.to_thread(parser_entered.wait, 5), "上传没有进入解析器"
+                health = await asyncio.wait_for(client.get("/health/live"), timeout=5)
+                assert health.status_code == 200
+                assert not parser_exited.is_set(), "健康请求直到解析器退出后才响应，事件循环被阻塞"
+                assert not upload.done()
+            finally:
+                release_parser.set()
+                response = await upload
+            assert response.status_code == 400
 
-    elapsed = asyncio.run(scenario())
-    assert elapsed < 0.3, f"上传解析阻塞了事件循环：/health/live 用了 {elapsed:.2f}s"
+    asyncio.run(scenario())
