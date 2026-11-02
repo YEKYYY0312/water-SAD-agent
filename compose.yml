@@ -122,6 +122,12 @@ services:
       WATER_AGENT_WEB_SEARCH_PROVIDER: ${WATER_AGENT_WEB_SEARCH_PROVIDER:-}
       WATER_AGENT_WEB_SEARCH_BASE_URL: ${WATER_AGENT_WEB_SEARCH_BASE_URL:-}
       WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE: ${WATER_AGENT_WEB_SEARCH_ALLOW_PRIVATE:-}
+      # MCP 目录（P7-S14）：**缺省关闭**（空 = 功能关闭，面板显示未配置，两个 POST 返回 409）。目录基址由运维写死，是管理员
+      # 带外搜索 MCP server 条目的唯一出口；目录里的条目地址**永远不会被连接**，面板只能生成已停用、全拒的待审提案文本，
+      # 由运维核对后贴进部署覆盖层。只放行 https；目录在内网 / 回环时设 WATER_AGENT_MCP_REGISTRY_ALLOW_PRIVATE=1
+      # （只放行回环与私有网段，云元数据地址永远拒绝）。目录不收任何凭据（本部署不向目录发送密钥）。
+      WATER_AGENT_MCP_REGISTRY_URL: ${WATER_AGENT_MCP_REGISTRY_URL:-}
+      WATER_AGENT_MCP_REGISTRY_ALLOW_PRIVATE: ${WATER_AGENT_MCP_REGISTRY_ALLOW_PRIVATE:-}
     secrets:
       - postgres_password
       - deepseek_api_key

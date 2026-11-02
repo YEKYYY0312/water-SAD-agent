@@ -338,3 +338,20 @@ def test_skill_download_variables_are_pinned_by_the_assembly_snapshot() -> None:
         "WATER_AGENT_SKILL_REGISTRY_ALLOW_PRIVATE",
     ):
         assert key in PINNED_ENV_KEYS, key
+
+def test_mcp_registry_is_off_by_default_and_only_app_gets_it() -> None:
+    """P7-S14-A08 compose 只给 app 透传 MCP 目录的基址与私网放行两个变量，**缺省为空 = 功能关闭**（外发默认关）；不新增服务、
+    不新增卷（目录搜索是 app 内的只读外发，目的地由运维写死）；目录不收任何凭据，所以没有密钥槽位，也不经环境变量传任何密钥。
+    两个变量都被装配快照钉住。"""
+
+    from water_agent.harness import tool_assembly_snapshot as snap
+
+    compose = (REPO_ROOT / "compose.yml").read_text(encoding="utf-8")
+    app_block = compose.split("\n  app:\n", 1)[1].split("\n  smoke:\n", 1)[0]
+    for name in ("WATER_AGENT_MCP_REGISTRY_URL", "WATER_AGENT_MCP_REGISTRY_ALLOW_PRIVATE"):
+        assert f"      {name}: ${{{name}:-}}\n" in app_block, name
+        assert compose.count(f"\n      {name}:") == 1, f"{name} 只有 app 服务拿到"
+        assert name in snap.PINNED_ENV_KEYS, name
+    assert "WATER_AGENT_MCP_REGISTRY_URL: \"" not in compose
+    assert "MCP_REGISTRY_API_KEY" not in compose and "MCP_REGISTRY_TOKEN" not in compose
+    assert "mcp_registry" not in compose.split("\nvolumes:\n", 1)[1], "不新增卷"

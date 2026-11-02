@@ -4,7 +4,7 @@ import type { SystemCapabilities } from "./workspaceApi.ts";
 
 /** 面板上的固定说明（与后端 skill_routes.NOTICE 同义；后端没给时用它）。 */
 export const SKILL_LIBRARY_NOTICE =
-  "改动从下一个 run 生效；skill 只能经仓库评审（内置）或运维只读目录新增，面板只能启停。";
+  "改动从下一个 run 生效；skill 可来自仓库内置、运维只读目录或经运维下载并人工批准的安装区，面板只能启停。";
 
 const SOURCE_LABELS: Record<SkillSource, string> = {
   builtin: "内置",

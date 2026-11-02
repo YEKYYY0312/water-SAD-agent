@@ -206,6 +206,11 @@ class Capability(str, Enum):
     #: ``GRANTABLE_CAPABILITIES`` 内，插件、模型与面板都拿不到——取回与批准是主机 shell 上的人工动作（P7-I12）。
     #: 它不对应任何 ``ToolSpec``（不是模型工具），所以 ``inventory`` 的"能力 → 工具"登记表不变。
     SKILL_FETCH = "skill_fetch"
+
+    #: P7-S14：管理员带外搜索 / 浏览 MCP 目录（**只读外发**，目的地由运维写死的目录基址决定）。
+    #: **不在** DEFAULT_LOCAL_CAPABILITIES、Web 成员能力集与 ``GRANTABLE_CAPABILITIES`` 内——模型没有任何入口；
+    #: 只有 ``webapp/mcp_registry_routes.py`` 在**管理员请求内**构造的服务级主体持有它，且不对应任何 ``ToolSpec``。
+    MCP_REGISTRY_SEARCH = "mcp_registry_search"
     # 以下能力当前**没有任何主体被授予**（见 DEFAULT_LOCAL_CAPABILITIES），
     # 存在的意义是让 Step 14 的"默认拒绝"可被正例/反例测试覆盖。
     WRITE_FILE = "write_file"
@@ -539,6 +544,9 @@ class ProviderKind(str, Enum):
     #: P7-S13：skill 注册表（运维配置的单一基址；静态文件，只有运维 CLI 会取）。
     SKILL_REGISTRY = "skill_registry"
 
+    #: P7-S14：MCP 目录（运维配置的单一基址；管理员带外搜索 / 提案）。
+    MCP_REGISTRY = "mcp_registry"
+
 
 class CallCategory(str, Enum):
     """调用分类：限流/预算/缓存资格都按分类区分，而不是按代码位置。"""
@@ -559,6 +567,9 @@ class CallCategory(str, Enum):
     WEB_SEARCH = "web_search"
     #: P7-S13：运维 CLI 向 skill 注册表取 ``index.json`` 或某个 ``SKILL.md`` 的一次 GET。
     SKILL_REGISTRY = "skill_registry"
+
+    #: P7-S14：一次 MCP 目录读取（``GET {base}/servers``，管理员触发，不含用户问题）。
+    MCP_REGISTRY = "mcp_registry"
 
 
 class ProviderCall(BaseModel):
