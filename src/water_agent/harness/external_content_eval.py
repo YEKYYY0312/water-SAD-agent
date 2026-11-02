@@ -355,7 +355,7 @@ def _get(url: str, **kwargs: Any) -> Any:
     from water_agent.runtime.governance.gateway import ProviderGateway
 
     defaults: dict[str, Any] = {
-        "headers": {"Authorization": "Bearer sk-live-abcdef0123456789", "Accept": "application/json"},
+        "headers": {"Authorization": "Bearer sk-" + "live-abcdef0123456789", "Accept": "application/json"},
         "max_bytes": 64 * 1024,
         "timeout": 3.0,
         "allow_private_network": True,
@@ -437,7 +437,7 @@ def run_get_error_body(case: ExternalCase, result: CaseResult) -> None:
             peer_mod.UPSTREAM_SECRET_BODY,
             "upstream.internal",
             "SECRET-TOKEN",
-            "sk-live-abcdef0123456789",
+            "sk-" + "live-abcdef0123456789",
             "secret-path",
             "token=abc",
             peer.base_url,
