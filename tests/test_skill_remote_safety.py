@@ -179,6 +179,8 @@ def test_charset_violations_in_body_and_in_frontmatter_are_remote_charset() -> N
     [
         ("anchor", "x: &a 1\n"),
         ("alias", "x: &a 1\ny: *a\n"),
+        pytest.param("recursive-alias", "x: &a [*a]\n", id="recursive-alias"),
+        pytest.param("excessive-depth", "x: " + "[" * 600 + "1" + "]" * 600 + "\n", id="excessive-depth"),
         ("explicit-tag", "x: !!str 1\n"),
         ("python-tag", "x: !!python/object/apply:os.system [ls]\n"),
         ("duplicate-key", "version: 2.0.0\n"),
