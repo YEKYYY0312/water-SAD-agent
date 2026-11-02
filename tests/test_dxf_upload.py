@@ -298,9 +298,9 @@ def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
     assert governance_coverage() == {
         # P7-S8：MCP 远程出口（mcp_streamable_http）使远程出口由 7 变 8；工具数不变
         # P7-S12：联网搜索（web_search）使远程出口由 8 变 9、工具数由 6 变 7（与上传 / 图纸链路无关）
-        # P7-S13：skill 注册表（skill_registry）使远程出口由 9 变 10；它不是模型工具，工具数不变
-        "provider_call_sites": 10,
-        "provider_governed": 10,
+        # P7-S13 / S14：skill 注册表与 MCP 目录使远程出口由 9 变 11；它们不是模型工具，工具数不变
+        "provider_call_sites": 11,
+        "provider_governed": 11,
         "tools": 7,
         "tools_guardrail_validated": 7,
     }

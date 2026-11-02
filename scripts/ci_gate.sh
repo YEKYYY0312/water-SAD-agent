@@ -2,7 +2,7 @@
 # PR 门禁（Step 10 + P2 + P2.5，只跑离线机制层）。
 #
 # 顺序：pytest → ruff → mypy → 机制层 runner 六套（rag/calc/docgen/material/governance/agentic）
-#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → external_content_p0 → web_search_p0 → skill_fetch_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
+#      → tool_exposure_p0 → skill_p0 → mcp_http_p0 → model_choice_p0 → external_content_p0 → web_search_p0 → skill_fetch_p0 → mcp_registry_p0 → retrieval_colloquial_p0 → drawing_p0 → drawing_gen_p0
 #      → multi_agent_p0 → 基线对比 → memory_p0。
 # 任一项失败 exit 1；真实质量层（--variant real，需 Key）不在本门禁内，
 # 由人工/定时任务触发，无 Key 时结构化 SKIP 且不参与基线比较。
@@ -301,6 +301,32 @@ else
     fi
 fi
 
+# mcp_registry_p0（P7-S14）：MCP 目录发现。生产 RegistryCatalogClient / build_proposal + 进程内假目录（线程，不起子进程）
+# + 条目地址探针（只数连接与字节）+ 网络间谍（记录每一次 DNS 解析与 TCP 连接尝试）验证目录协议的整页严格校验、条目不可信处理、
+# 提案恒停用且全拒、搜索与提案全程对条目地址零字节零 DNS；Web 层用 SQLite + 真实鉴权。
+# ⚠️ 只对本地假目录验证：目录协议 v1 是本项目自定义的最小协议，不是官方 MCP 注册表的格式（Step 0 取得的真实响应形态完全不同），
+# 不证明兼容任何真实目录；字符白名单 / 注入检测是确定性规则，不证明条目与真实 server 一致，也不证明"目录搜索是安全的"。
+step "mcp_registry_p0 MCP 目录发现机制层（64 条，硬指标全达标）"
+MR_HEAD="data/eval/reports/ci_gate/mcp_registry_p0_head.json"
+MR_MAIN="data/eval/mcp_registry_p0_main.json"
+mkdir -p "$(dirname "$MR_HEAD")"
+if ! $PY -m water_agent.harness.mcp_registry_eval data/eval/mcp_registry_p0.jsonl --report-path "$MR_HEAD" > "$LOG_DIR/mcp_registry.log" 2>&1; then
+    tail -30 "$LOG_DIR/mcp_registry.log"
+    fail "mcp_registry_p0 runner"
+else
+    head -4 "$LOG_DIR/mcp_registry.log"
+    if [ -f "$MR_MAIN" ]; then
+        if ! $PY scripts/compare_mcp_registry_p0.py --head "$MR_HEAD" --base "$MR_MAIN" > "$LOG_DIR/mcp_registry_cmp.log" 2>&1; then
+            cat "$LOG_DIR/mcp_registry_cmp.log"
+            fail "mcp_registry_p0 基线对比"
+        else
+            head -4 "$LOG_DIR/mcp_registry_cmp.log"
+        fi
+    else
+        missing_baseline "mcp_registry_p0" "cp $MR_HEAD $MR_MAIN"
+    fi
+fi
+
 # retrieval_colloquial_p0（P7-S10）：口语化 / 同义改写问法上的关键词检索（text 模式，BM25，不调用任何
 # embedding、不要求任何 Key）。从 data/curated 现建纯关键词索引，CI 干净克隆里也能跑；与入仓基线比
 # Recall@1/3/5、MRR、PASS_TO_PASS 与用例消失。门禁只守"不变差"，不设绝对阈值：只配对话 Key 时的口语化召回
@@ -443,4 +469,4 @@ if [ "$FAILED" -ne 0 ]; then
 fi
 
 echo
-echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + external_content_p0(44/44) + web_search_p0(79/79) + skill_fetch_p0(111/111) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"
+echo "==> CI 门禁通过：pytest + ruff + mypy + rag_p0(12/12) + calc_p0(28/28) + docgen_p0(11/11) + material_p0(10/10) + governance_p0(32/32) + agentic_p0(21/21) + tool_exposure_p0(36/36) + skill_p0(26/26) + mcp_http_p0(44/44) + model_choice_p0(50/50) + external_content_p0(44/44) + web_search_p0(79/79) + skill_fetch_p0(111/111) + mcp_registry_p0(64/64) + retrieval_colloquial_p0(text 模式不降) + drawing_p0(合成 smoke 回归) + drawing_gen_p0(参数化出图) + multi_agent_p0 + memory_p0(§13.2 十二项硬指标) + 基线对比"

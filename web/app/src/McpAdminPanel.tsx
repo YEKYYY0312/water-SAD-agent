@@ -34,6 +34,7 @@ import {
   validateImportText,
   validateToolName,
 } from "./mcpAdminState";
+import { McpRegistrySection } from "./McpRegistrySection";
 import { validateCredentialInput } from "./settingsState";
 import { WorkspaceApiError } from "./workspaceApi";
 import { CapabilityStatus } from "./workspaceInspector";
@@ -630,6 +631,8 @@ export function McpAdminPanel() {
       )}
 
       {listing && <OrphanList orphans={listing.orphans} revision={revision} onChanged={reload} />}
+
+      <McpRegistrySection />
 
       <ImportSection />
 
