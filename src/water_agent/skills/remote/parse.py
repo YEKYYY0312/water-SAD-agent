@@ -116,6 +116,10 @@ def yaml_hazards(header: str) -> list[str]:
                     flag("depth")
             elif isinstance(event, (yaml.MappingEndEvent, yaml.SequenceEndEvent)):
                 depth -= 1
+        # 已命中的危险构造直接拒绝：compose 会递归构图，别名还可形成环或共享子图。
+        # 只有无别名且深度有界的 header 才需要继续查重复键与合并键。
+        if hazards:
+            return hazards
         node = yaml.compose(header)
     except yaml.YAMLError:
         return ["yaml_error"]
