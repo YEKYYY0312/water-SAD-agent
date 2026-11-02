@@ -22,7 +22,7 @@
 | "不从网络安装 skill" | S9 执行 Prompt §1 不做 | **有条件放开**（S13）：只有运维主机上的 CLI 能取、能批准；模型与 Web 面板没有任何安装入口；批准绑定全文摘要，加载期每次重算。 |
 | `GRANTABLE_CAPABILITIES = {MCP_INVOKE}` | 16 §3.2 / P7-I06 | 已扩为 `{MCP_INVOKE, WEB_SEARCH}`（D2，S12 交付）。`NETWORK_FETCH` 仍在危险集、不授予任何主体。 |
 | "出口只由运维写死的 URL 决定" | S8 | **保持**：搜索服务地址、skill 注册表地址、MCP 目录地址都由运维写死。注册表返回的 MCP 条目 URL **不被连接**（S14 不探测）。 |
-| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 8 → 9、**S13 9 → 10**、S14 10 → 11；`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。**S12 实际**：站点 `web_search` 的 `module` 是 `web_search/tool.py`（逻辑调用点；它经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），见 `p7-step-12-decision.md`。 **S13 实际**：站点 `skill_registry` 的 `module` 是 `skills/remote/client.py`（逻辑调用点；经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），`egress_module` 仍是 `mcp/http_transport.py`；需要新增 `Capability.SKILL_FETCH`（只在运维 CLI 主体上，见 §6.1），见 `p7-step-13-decision.md`。 |
+| 出站清单 8 个调用点 | `inventory.PROVIDER_CALL_SITES`；`tests/test_vision_review.py` 断言 `== 8` | 依次 +1：S12 8 → 9、**S13 9 → 10**、S14 10 → 11；`egress_module` 沿用惯例指向原语真正所在的 `mcp/http_transport.py`（与四个 `deepseek_chat_*` 站点共用 `chat_model.py` 同构）。锁定断言随步骤同步改。**S12 实际**：站点 `web_search` 的 `module` 是 `web_search/tool.py`（逻辑调用点；它经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），见 `p7-step-12-decision.md`。 **S13 实际**：站点 `skill_registry` 的 `module` 是 `skills/remote/client.py`（逻辑调用点；经 `external/http_get.py::governed_get` 出站，不直接调用 `open_exchange`），`egress_module` 仍是 `mcp/http_transport.py`；需要新增 `Capability.SKILL_FETCH`（只在运维 CLI 主体上，见 §6.1），见 `p7-step-13-decision.md`。  **S14 整合实际**：站点 `mcp_registry` 位于 `mcp/registry.py`，同样经 `governed_get`；按 S13 9 → 10、S14 10 → 11 登记。 |
 | `SourceTag` 只有 7 种、无网络来源 | `contracts.py` | 新增 `WEB_CONTENT`（信任级别低于 `TOOL_OUTPUT`，不可承载指令；S11）。`INSTRUCTION_BEARING_SOURCES` **不改**。 |
 
 ---
@@ -304,7 +304,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 | S11 | 外部内容底座：`WEB_CONTENT` 标签、信封 / 归一化库、`governed_get` 内核、回合污点及其效应、P7-I08 + 静态扫描扩展、答案渲染不加载外部图片（F10）、`external_content_p0` | `docs/execution-prompts/P7-S11-external-content-foundation.md` | delivered |
 | S12 | 联网搜索：`web_search` + provider 适配器 + `QueryEgressGuard` + 结果流水线 + 回答纪律 + 逐条消息勾选 + 治理站点 8 → 9 + `web_search_p0` | `docs/execution-prompts/P7-S12-web-search.md` | delivered |
 | S13 | Skill 下载：静态注册表协议 + 隔离区 + 运维 CLI + 第三来源层与加载期哈希重算 + 治理站点 9 → 10 + `skill_fetch_p0` | `docs/execution-prompts/P7-S13-skill-fetch.md` | delivered |
-| S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 10 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | planned |
+| S14 | MCP 发现：目录协议 v1 + 管理员带外搜索 / 提案 + 治理站点 10 → 11 + `mcp_registry_p0` | `docs/execution-prompts/P7-S14-mcp-registry-discovery.md` | delivered |
 
 依赖：S12、S13、S14 都依赖 S11；三者互不依赖，可按需要调整顺序或只做其中一部分。**归属**：沿用 `P7-S<n>` 编号与 `YEK/p7-s<n>-<名>` 分支以复用范围守卫、装配快照与追溯检查（S10 同例，D8）。每一步的执行 Prompt 必须**先合入 main** 再开工。
 
@@ -319,7 +319,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 | P7-I10 | provider 适配器模块不 import 任何网络原语（只能由 `governed_get` 驱动）| `tests/test_web_search_adapters.py` | delivered |
 | P7-I11 | 终答网址校验器接进 finalize（S12 实际：由回合污点 / `web_refs` 触发，不另设开关，见 §5.6）| `tests/test_web_search_discipline.py` | delivered |
 | P7-I12 | `skills/remote/`（取 / 批准）只被 `skills/cli.py` 导入；`tools/` 与 `webapp/` 不导入它 | `tests/test_skill_fetch_invariants.py` | delivered |
-| P7-I13 | `mcp/registry.py` 不导入 `MCPStdioClient` / `MCPHttpClient` / `open_bridge`（目录模块不连接条目）| `tests/test_mcp_registry_invariants.py` | planned |
+| P7-I13 | `mcp/registry.py` 与 `webapp/mcp_registry_routes.py` 不导入 `MCPStdioClient` / `MCPHttpClient` / `open_bridge`（目录模块不连接条目）、不直接调用 `open_exchange`、无原始网络原语；AST 判定，7 种禁用写法各有反证 | `tests/test_mcp_registry_invariants.py` | delivered |
 | P7-I14 | `web_tainted` 回合的答案缓存写入资格恒为 false | `tests/test_answer_cache.py` | delivered |
 
 ---
@@ -378,18 +378,21 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 
 ### S14：MCP 发现
 
-| ID | 验收 | 验证（拟）| 状态 |
+| ID | 验收 | 验证 | 状态 |
 |---|---|---|---|
-| P7-S14-A01 | 目录协议 v1 客户端：分页 / 字节 / 条目上限、仅 https、经 `governed_get` | `tests/test_mcp_registry_client.py` | planned |
-| P7-S14-A02 | 条目归一与不可信处理：字段白名单、描述注入 → `unsafe` 不可提案、纯文本 | `tests/test_mcp_registry_entries.py` | planned |
-| P7-S14-A03 | 提案：仅 streamable-http https remote；恒停用且无 `allow`；env / 头 / 令牌 / 查询串丢弃；冲突改名；`proposal_hash` 确定性 | `tests/test_mcp_registry_proposal.py` | planned |
-| P7-S14-A04 | 不连接：条目 URL 零字节；P7-I13（AST）| `tests/test_mcp_registry_invariants.py` | planned |
-| P7-S14-A05 | stdio / package 条目只展示不提案 | `tests/test_mcp_registry_proposal.py` | planned |
-| P7-S14-A06 | API：管理员 + CSRF、请求体白名单、服务端重取条目、限额、审计 | `tests/test_web_mcp_registry.py` | planned |
-| P7-S14-A07 | 前端：MCP 页"从目录发现"区、纯文本渲染、复制提案（node 测试）| `web/app/tests/mcp_registry.test.mjs` | planned |
-| P7-S14-A08 | 治理：新 `ProviderKind`、站点 → 11 | `tests/test_governance_contracts.py` | planned |
-| P7-S14-A09 | `mcp_registry_p0` 门禁 + 基线 | `gate:mcp_registry_p0` | planned |
-| P7-S14-A10 | 官方注册表适配 / 真实目录（见 §13）| 无 | untested |
+| P7-S14-A01 | 目录协议 v1 客户端：分页 / 字节 / 条目上限（含多页累计）、整页严格校验、仅 https、经 `governed_get`、8 个稳定 `MCP_REGISTRY_*` 码 | `tests/test_mcp_registry_client.py::test_search_reads_one_page_and_never_touches_entry_addresses`<br>`tests/test_mcp_registry_client.py::test_query_and_cursor_are_sent_as_given`<br>`tests/test_mcp_registry_client.py::test_paging_is_capped_at_five_pages`<br>`tests/test_mcp_registry_client.py::test_cumulative_size_across_pages_is_capped`<br>`tests/test_mcp_registry_client.py::test_malformed_pages_are_rejected_whole`<br>`tests/test_mcp_registry_client.py::test_failure_codes_are_stable_and_never_echo_upstream`<br>`tests/test_mcp_registry_client.py::test_unconfigured_registry_fails_before_any_request`<br>`tests/test_mcp_registry_client.py::test_plain_http_and_loopback_need_the_operator_flag_and_send_zero_bytes_without_it`<br>`tests/test_mcp_registry_client.py::test_bad_queries_are_refused_before_any_request`<br>`tests/test_mcp_registry_client.py::test_bad_cursors_are_refused_before_any_request`<br>`tests/test_mcp_registry_client.py::test_registry_is_a_registered_governed_site`<br>`tests/test_mcp_registry_client.py::test_new_error_codes_are_registered`<br>`tests/test_mcp_registry_client.py::test_config_reads_only_the_operator_environment` | delivered |
+| P7-S14-A02 | 条目归一与不可信处理：字段白名单、字符正向白名单、描述注入 → `unsafe` 不可提案、全文检测后截断、重名 → `unsafe`、纯文本 | `tests/test_mcp_registry_entries.py::test_hostile_descriptions_make_the_entry_unsafe_and_hide_everything`<br>`tests/test_mcp_registry_entries.py::test_tag_characters_are_caught_by_the_charset_not_by_the_blacklists`<br>`tests/test_mcp_registry_entries.py::test_charset_whitelist_accepts_ordinary_chinese_engineering_text`<br>`tests/test_mcp_registry_entries.py::test_invisible_bidi_and_homoglyph_characters_are_outside_the_whitelist`<br>`tests/test_mcp_registry_entries.py::test_unknown_fields_are_dropped_counted_and_never_shown`<br>`tests/test_mcp_registry_entries.py::test_long_description_is_truncated_for_display_but_scanned_in_full`<br>`tests/test_mcp_registry_entries.py::test_duplicate_names_are_all_unsafe`<br>`tests/test_mcp_registry_entries.py::test_names_that_normalize_to_the_same_server_id_are_all_unsafe`<br>`tests/test_mcp_registry_entries.py::test_cyrillic_hostname_makes_the_entry_unsafe_and_idna_hosts_show_punycode`<br>`tests/test_mcp_registry_entries.py::test_display_urls_never_carry_userinfo_or_query_strings`<br>`tests/test_mcp_registry_entries.py::test_any_malformed_entry_rejects_the_whole_page`<br>`tests/test_mcp_registry_entries.py::test_a_page_with_more_than_the_page_limit_is_rejected`<br>`tests/test_mcp_registry_entries.py::test_unknown_top_level_keys_in_the_response_are_rejected`<br>`tests/test_mcp_registry_entries.py::test_every_displayed_field_is_plain_text` | delivered |
+| P7-S14-A03 | 提案：仅 streamable-http https 非 IP 字面量 remote；恒停用且无 `allow`；env / 头 / 令牌 / 查询串丢弃；冲突改名；`proposal_hash` 确定且敏感；服务端重取 | `tests/test_mcp_registry_proposal.py::test_a_benign_streamable_http_entry_yields_a_disabled_deny_all_proposal`<br>`tests/test_mcp_registry_proposal.py::test_every_benign_remote_entry_is_proposable`<br>`tests/test_mcp_registry_proposal.py::test_unacceptable_addresses_are_refused`<br>`tests/test_mcp_registry_proposal.py::test_unsafe_entries_cannot_be_proposed`<br>`tests/test_mcp_registry_proposal.py::test_query_string_is_dropped_and_counted`<br>`tests/test_mcp_registry_proposal.py::test_headers_env_and_unknown_fields_are_dropped`<br>`tests/test_mcp_registry_proposal.py::test_userinfo_secret_never_reaches_any_view`<br>`tests/test_mcp_registry_proposal.py::test_the_defensive_recheck_refuses_a_proposal_that_is_not_disabled_deny_all`<br>`tests/test_mcp_registry_proposal.py::test_sensitive_keys_are_stripped_even_if_the_importer_were_to_emit_them`<br>`tests/test_mcp_registry_proposal.py::test_conflicting_server_id_is_renamed`<br>`tests/test_mcp_registry_proposal.py::test_idna_host_is_shown_as_punycode_with_a_warning`<br>`tests/test_mcp_registry_proposal.py::test_proposal_hash_is_deterministic_and_sensitive`<br>`tests/test_mcp_registry_proposal.py::test_hash_input_is_canonical_json`<br>`tests/test_mcp_registry_proposal.py::test_lookup_requires_an_exact_name_and_version_from_the_directory`<br>`tests/test_mcp_registry_proposal.py::test_proposal_never_writes_anything` | delivered |
+| P7-S14-A04 | 不连接：条目 URL 零字节、条目主机零 DNS；P7-I13（AST）；不写覆盖层 | `tests/test_mcp_registry_invariants.py::test_registry_modules_import_no_mcp_client_and_no_raw_network`<br>`tests/test_mcp_registry_invariants.py::test_the_invariant_check_catches_each_forbidden_form`<br>`tests/test_mcp_registry_invariants.py::test_only_governed_get_is_the_egress_path`<br>`tests/test_web_mcp_registry.py::test_the_directory_routes_never_write_the_overlay_or_web_layer` | delivered |
+| P7-S14-A05 | stdio / package / sse 条目只展示不提案 | `tests/test_mcp_registry_proposal.py::test_stdio_package_and_sse_entries_are_shown_but_never_proposed` | delivered |
+| P7-S14-A06 | API：管理员 + CSRF、请求体白名单、服务端重取条目、限额、审计、未配置 409、不泄漏 | `tests/test_web_mcp_registry.py::test_authorization_matrix`<br>`tests/test_web_mcp_registry.py::test_status_reports_only_host_and_flags`<br>`tests/test_web_mcp_registry.py::test_unconfigured_returns_409_without_any_request`<br>`tests/test_web_mcp_registry.py::test_search_returns_plain_text_entries`<br>`tests/test_web_mcp_registry.py::test_search_body_is_a_whitelist`<br>`tests/test_web_mcp_registry.py::test_proposal_body_is_exactly_name_and_version`<br>`tests/test_web_mcp_registry.py::test_proposal_refetches_the_entry_from_the_directory`<br>`tests/test_web_mcp_registry.py::test_proposal_payload_and_refusals`<br>`tests/test_web_mcp_registry.py::test_directory_failures_map_to_stable_codes_without_upstream_content`<br>`tests/test_web_mcp_registry.py::test_per_admin_rate_limit`<br>`tests/test_web_mcp_registry.py::test_audit_records_only_whitelisted_fields`<br>`tests/test_web_mcp_registry.py::test_failures_and_refusals_are_audited_with_the_code`<br>`tests/test_web_mcp_registry.py::test_no_secret_from_a_hostile_entry_reaches_any_response_or_audit`<br>`tests/test_web_mcp_registry.py::test_admin_limiter_bounds_its_own_memory` | delivered |
+| P7-S14-A07 | 前端：MCP 页「从目录发现」区、纯文本渲染、复制 / 下载提案、无连接 / 应用控件（node 测试，见 16 号规格未覆盖项） | `web/app/tests/mcp_registry.test.mjs` | untested |
+| P7-S14-A08 | 治理与部署：新 `Capability.MCP_REGISTRY_SEARCH` / `ProviderKind`、站点 10 → 11、compose 透传、快照不变 | `tests/test_mcp_registry_invariants.py::test_the_directory_capability_is_given_to_no_ordinary_principal`<br>`tests/test_mcp_registry_invariants.py::test_the_directory_is_not_a_model_tool`<br>`tests/test_mcp_registry_invariants.py::test_the_eleventh_egress_site_is_registered_like_web_search`<br>`tests/test_mcp_registry_invariants.py::test_directory_reads_are_recorded_with_unknown_usage`<br>`tests/test_web_deployment.py::test_mcp_registry_is_off_by_default_and_only_app_gets_it` | delivered |
+| P7-S14-A09 | `mcp_registry_p0` 门禁 + 基线（64 条，12 项硬指标各一条反证） | `gate:mcp_registry_p0`<br>`tests/test_mcp_registry_eval.py::test_mcp_registry_p0_hard_metrics`<br>`tests/test_mcp_registry_eval.py::test_report_is_reproducible_and_matches_the_baseline`<br>`tests/test_mcp_registry_eval.py::test_dataset_shape_is_frozen`<br>`tests/test_mcp_registry_eval.py::test_each_hard_metric_goes_red_when_its_protection_is_removed`<br>`tests/test_mcp_registry_eval.py::test_non_admin_access_goes_red_when_the_admin_check_is_removed`<br>`tests/test_mcp_registry_eval.py::test_every_hard_metric_has_a_counterexample`<br>`tests/test_mcp_registry_eval.py::test_harness_error_is_counted_not_skipped`<br>`tests/test_mcp_registry_eval.py::test_unmeasured_metrics_are_none_and_fail_the_gate`<br>`tests/test_mcp_registry_eval.py::test_the_comparator_rejects_hand_edited_and_regressed_reports` | delivered |
+| P7-S14-A10 | 官方注册表适配 / 真实目录（见 §13） | 无 | untested |
+
+> 已交付（2026-10-23）。逐行验证项的权威登记在 16 号规格 §7 的 S14 小节；本表保留规格阶段的验收口径，状态随交付翻转。
+> `P7-S14-A07` 的前端测试不是追溯检查能识别的 pytest 节点，故在 16 号规格里记为 untested 并写明（同 S9 / S11 / S12 先例）。
 
 ---
 
@@ -404,7 +407,7 @@ OpenClaw 无此能力（见调研记录 §3）；官方 MCP 注册表的 API 形
 ## 13. 已知限制与 blocked 项
 
 - **没有任何真实外部服务被验证**：搜索服务、skill 注册表、MCP 目录均只对本地假服务验证；不得声称已接通。
-- **官方 MCP 注册表 API 形态未验证**（F12）。
+- **官方 MCP 注册表 API 形态**（F12）：S14 Step 0 取得了真实响应（`/v0/servers`，`servers[].server.*` + `_meta` + `metadata.nextCursor`），与目录协议 v1 **形态完全不同**；本步不做适配器，对官方注册表会整页失败（fail closed），见 `p7-step-14-decision.md` §0.1。协议 v1 对任何真实目录均未验证。
 - **真实模型行为未验证**：是否会滥用搜索、是否按披露行写作、加载下载的 skill 后是否遵循——需要 Key，记 blocked。
 - **数据出境与隐私合规**由运维评估（查询发往第三方搜索服务）。
 - **本机网络**（代理 / 区域可达性）影响搜索服务的可用性，规格不假设。

@@ -39,6 +39,7 @@ from water_agent.webapp.body_limit import RequestBodyLimitMiddleware, UploadPrea
 from water_agent.webapp.drawing_routes import router as drawing_router
 from water_agent.webapp.export_routes import router as export_router
 from water_agent.webapp.mcp_admin_routes import router as mcp_admin_router
+from water_agent.webapp.mcp_registry_routes import router as mcp_registry_router
 from water_agent.webapp.memory_routes import router as memory_router
 from water_agent.webapp.run_manager import (
     DEFAULT_TENANT_ID,
@@ -152,6 +153,7 @@ def create_app(
     app.include_router(export_router)
     app.include_router(drawing_router)
     app.include_router(mcp_admin_router)
+    app.include_router(mcp_registry_router)
     app.include_router(skill_router)
     configured_database = database
     if configured_database is None and os.getenv("DATABASE_URL"):

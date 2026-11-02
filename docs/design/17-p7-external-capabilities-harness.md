@@ -193,6 +193,12 @@
 
 **不证明**：官方注册表的真实字段（F12，未验证）；运维启用并放行后该 server 的实际行为；条目与真实 server 的一致性。
 
+**S14 实际（2026-10-23，`harness/mcp_registry_eval.py`）**：64 条（registry 53 · api 8 · invariant 3；协议 15 · 条目 12 · 提案 21 · 不连接 5 · API 8 · 治理 3），比设计稿多出的主要是
+良性邻近与拒绝的逐类用例（提案 12 → 21：IPv4 / IPv6 / 私网 / localhost / 单标签 / sse / 包类各一条）。硬指标 12 项 = 设计稿 11 项 + `benign_text_false_reject_count`（良性中文工程文本不被字符白名单误拒，
+防"全拒"拿满分）；「条目地址」由 `EntrySink`（只数连接与字节的 TCP 监听口）承担，「零 DNS」由 `NetworkSpy`（记录进程内每一次 `getaddrinfo` 与 TCP 连接尝试）承担。
+**两处与设计稿的差异**：① `mr-nc-no-client-import` 是 AST 层用例（`layer=invariant`）；② 零字节 / 零 DNS / 越权三类**计数型**指标的「是否测量过」用独立标记（`no_connect_checked` / `non_admin_access_measured`），
+不借用别的指标的分母——否则反证里被借用的指标一旦变 `None`，它们也跟着变 `None`（"未测量"与"变红"混在一起）。敌意条目全部由假目录运行期生成，JSONL 全文件 ASCII。
+
 ---
 
 ## 7. 指标与门禁语义小结

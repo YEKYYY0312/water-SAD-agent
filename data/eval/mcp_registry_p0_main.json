@@ -1,0 +1,2629 @@
+{
+  "suite": "mcp_registry_p0",
+  "generated_by": "water_agent.harness.mcp_registry_eval",
+  "report_format": 1,
+  "mechanism": "present",
+  "dataset": "data/eval/mcp_registry_p0.jsonl",
+  "dataset_sha256": "3141a2f0b3156602e41e072da3911f43366ca743576c925908a7328ae9f52097",
+  "total": 64,
+  "passed": 64,
+  "metrics": {
+    "remote_only_proposal_rate": 1.0,
+    "proposal_disabled_no_allow_rate": 1.0,
+    "bytes_to_entry_urls": 0,
+    "dns_lookups_for_entry_hosts": 0,
+    "secret_drop_rate": 1.0,
+    "unsafe_entry_proposed_count": 0,
+    "proposal_hash_determinism_rate": 1.0,
+    "registry_failure_fail_closed_rate": 1.0,
+    "non_admin_access_count": 0,
+    "benign_entry_proposed_rate": 1.0,
+    "benign_text_false_reject_count": 0,
+    "harness_error_count": 0
+  },
+  "hard_targets": {
+    "remote_only_proposal_rate": 1.0,
+    "proposal_disabled_no_allow_rate": 1.0,
+    "bytes_to_entry_urls": 0,
+    "dns_lookups_for_entry_hosts": 0,
+    "secret_drop_rate": 1.0,
+    "unsafe_entry_proposed_count": 0,
+    "proposal_hash_determinism_rate": 1.0,
+    "registry_failure_fail_closed_rate": 1.0,
+    "non_admin_access_count": 0,
+    "benign_entry_proposed_rate": 1.0,
+    "benign_text_false_reject_count": 0,
+    "harness_error_count": 0
+  },
+  "hard_violations": [],
+  "ok": true,
+  "cases": [
+    {
+      "id": "mr-proto-paging-cap",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "pages",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "truncated",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entries",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-proto-oversize-entry",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-oversize-total",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-junk",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-redirect",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-non-https",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "no_connect_attempt",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-multi-page-total",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "stopped_early",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-status-401",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "error_text_has_no_upstream",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-status-403",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "error_text_has_no_upstream",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-status-429",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "error_text_has_no_upstream",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-status-500",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "error_text_has_no_upstream",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-status-503",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "error_text_has_no_upstream",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-bad-shape",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-wrong-ctype",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-proto-bad-entry-shape",
+      "category": "protocol",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-entry-injection-desc",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_neighbor_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-forged-marker",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_neighbor_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-tag-smuggle",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_neighbor_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-control-chars",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_neighbor_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-html-as-text",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_neighbor_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-dup-names",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_count",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-homoglyph-host",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_reason",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "unsafe_hides_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-homoglyph-name",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-entry-unknown-fields",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "dropped_fields",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "secret_drop",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "secret_drop_ok": 1,
+        "secret_drop_total": 1
+      }
+    },
+    {
+      "id": "mr-entry-long-fields",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "description_truncated",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-benign-neighbors",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_text_accepted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_text_accepted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_text_accepted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "benign_text_accepted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_text_checked": 4,
+        "benign_text_false_reject": 0,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-entry-idna-punycode",
+      "category": "entry",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "entry_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "status",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "display_url",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-prop-remote-ok",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-remote-ok-2",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-stdio-not-proposed",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-npm-not-proposed",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-package-not-proposed",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-sse-not-proposed",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-http-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-userinfo-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-ip-v4-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-ip-v6-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-ip-private-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-localhost-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-single-label-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-unsafe-refused",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1,
+        "unsafe_entry_checked": 1,
+        "unsafe_entry_proposed": 0
+      }
+    },
+    {
+      "id": "mr-prop-query-dropped",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "secret_drop",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "secrets_counted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1,
+        "secret_drop_ok": 1,
+        "secret_drop_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-headers-dropped",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "secret_drop",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1,
+        "secret_drop_ok": 1,
+        "secret_drop_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-unknown-fields-dropped",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "secret_drop",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1,
+        "secret_drop_ok": 1,
+        "secret_drop_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-id-renamed",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "server_id",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-disabled-no-allow",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_keys",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-prop-hash-deterministic-and-sensitive",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "proposal_hash_determinism",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_hash_determinism",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_hash_determinism",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_hash_determinism",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_hash_determinism",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_hash_determinism_ok": 5,
+        "proposal_hash_determinism_total": 5
+      }
+    },
+    {
+      "id": "mr-prop-idna-warning",
+      "category": "proposal",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "benign_entry_proposed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_disabled_no_allow",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "remote_only_proposal",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "idna_host",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "benign_entry_proposed_ok": 1,
+        "benign_entry_proposed_total": 1,
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "proposal_disabled_no_allow_ok": 1,
+        "proposal_disabled_no_allow_total": 1,
+        "remote_only_proposal_ok": 1,
+        "remote_only_proposal_total": 1
+      }
+    },
+    {
+      "id": "mr-nc-zero-bytes-to-entry",
+      "category": "no_connect",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "flow_ran",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "explicit_zero_bytes",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-nc-no-dns-for-entry-host",
+      "category": "no_connect",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "flow_ran",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "explicit_zero_bytes",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-nc-no-client-import",
+      "category": "no_connect",
+      "layer": "invariant",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "no_client_import",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "client_import_violation": 0
+      }
+    },
+    {
+      "id": "mr-nc-overlay-untouched",
+      "category": "no_connect",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "proposal_generated",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "nothing_written",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "web_layer_absent",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-nc-redirect-target-untouched",
+      "category": "no_connect",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "registry_failure_fail_closed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "explicit_zero_bytes",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1,
+        "registry_failure_fail_closed_ok": 1,
+        "registry_failure_fail_closed_total": 1
+      }
+    },
+    {
+      "id": "mr-api-admin-only",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "all_refused",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "directory_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1,
+        "non_admin_access": 0,
+        "non_admin_access_measured": 1
+      }
+    },
+    {
+      "id": "mr-api-csrf",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "csrf_refused",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "directory_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-body-whitelist",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "search_422:['limit', 'query']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "search_422:['query', 'url']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "search_422:['query']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "search_422:['query']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "search_422:['cursor']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "search_422:['query']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_422:['name']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_422:['name', 'url', 'version']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_422:['name', 'remotes', 'version']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_422:['name', 'version']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "proposal_422:['name', 'version']",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "directory_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-server-refetch",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "from_directory",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "follows_directory",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "forged_body_refused",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-limits",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "eleventh_refused",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "no_request_when_limited",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "other_admin_unaffected",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-audit-fields",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "events_recorded",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_absent:my-secret-query-text",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_absent:mcp.weather-station.example",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_absent:streamable_http",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_absent:https://",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_fields",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-not-configured",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "status_unconfigured",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "posts_409",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "directory_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-api-failure-no-leak",
+      "category": "api",
+      "layer": "api",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "response_has_no_upstream_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "audit_has_no_upstream_content",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "no_connect_checked": 1
+      }
+    },
+    {
+      "id": "mr-gov-capability-surface",
+      "category": "governance",
+      "layer": "invariant",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "not_default",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "not_member",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "not_grantable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "network_fetch_still_dangerous",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "not_a_tool",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {}
+    },
+    {
+      "id": "mr-gov-site-registered",
+      "category": "governance",
+      "layer": "invariant",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "site_present",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "site_governed",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "site_count",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "no_ungoverned_egress",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {}
+    },
+    {
+      "id": "mr-gov-usage-unknown",
+      "category": "governance",
+      "layer": "registry",
+      "passed": true,
+      "error": null,
+      "checks": [
+        {
+          "name": "recorded",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "usage_unknown",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "provider",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_address_untouched",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "entry_hosts_not_resolved",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "counters": {
+        "bytes_to_entry_urls": 0,
+        "dns_lookups_for_entry_hosts": 0,
+        "no_connect_checked": 1
+      }
+    }
+  ]
+}

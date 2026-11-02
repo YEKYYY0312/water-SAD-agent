@@ -295,6 +295,31 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
         target_gateway_method="ProviderGateway.call",
         governed=True,
     ),
+    ProviderCallSite(
+        site_id="mcp_registry",
+        module="water_agent/mcp/registry.py",
+        # 与 web_search 同构：逻辑调用点在 mcp/registry.py，它经 external/http_get.py::governed_get 出站，
+        # **不直接调用 open_exchange**（SDD17-I08 的调用方登记不变）；实际开连接的原语仍在 mcp/http_transport.py
+        egress_module="water_agent/mcp/http_transport.py",
+        symbol="RegistryCatalogClient → external.http_get.governed_get → http_transport.open_exchange",
+        provider=ProviderKind.MCP_REGISTRY,
+        category=CallCategory.MCP_REGISTRY,
+        required_capability=Capability.MCP_REGISTRY_SEARCH,
+        # 发往目录的只有管理员在面板里键入的搜索词（≤ 64 字符、拒绝控制字符 / 换行）与分页游标；不含用户问题、不含项目资料
+        data_class=DATA_CLASS_USER_QUERY,
+        principal_source=(
+            "管理员请求内由 webapp/mcp_registry_routes.py 构造的服务级主体（local:mcp-registry-<管理员 id>，只持有 "
+            "Capability.MCP_REGISTRY_SEARCH）；模型与普通成员没有任何入口"
+        ),
+        current_timeout_seconds=15.0,
+        current_retry=(
+            "ProviderGateway：max_attempts=2——只对瞬时错误（408/429/5xx/超时/连接错误）重试一次；"
+            "401/403 零重试且不计熔断；熔断按目录主机（mcp_registry:<host>）；不回退到别的地址"
+        ),
+        cache_eligible=False,
+        target_gateway_method="ProviderGateway.call",
+        governed=True,
+    ),
 )
 
 #: 工具策略版本。**新增/删除工具或改变 capability 映射都必须改它** ——
