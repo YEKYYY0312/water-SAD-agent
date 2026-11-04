@@ -1,0 +1,2749 @@
+{
+  "date": "2026-11-04",
+  "source_commit": "304b85ea235c807f2b59527e7e72b1f94c307d79",
+  "scope": "user-selected dependency and config-only local rollout; not S16 admission",
+  "endpoint": {
+    "base_url": "https://llm-proxy.learnings.ai/v1",
+    "chat_model": "deepseek-v4.1-flash",
+    "embedding_model": "text-embedding-3-large",
+    "dimensions": 3072,
+    "model_identity": "requested and response-declared; upstream weights unverified"
+  },
+  "index": {
+    "model": "text-embedding-3-large",
+    "dimensions": 3072,
+    "files": [
+      {
+        "name": "clauses.db",
+        "size": 3346010,
+        "sha256": "b08553a68c674ebeddb1d7550cfaca307217f935128abc4be5090a33be0e19d8"
+      },
+      {
+        "name": "clauses.db.flush_ok",
+        "size": 29,
+        "sha256": "b4adb536675d0e9d36fdc15aee016eb8b91c88e2e04a943d79cd08c8b21a31d9"
+      },
+      {
+        "name": "clauses.db.index_meta.json",
+        "size": 249,
+        "sha256": "cf662fcc9569ced34989864abc2da97b18378619775cdd6224f0556015fc635d"
+      },
+      {
+        "name": "clauses.db.lock",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "clauses.db.manifest.json",
+        "size": 84139,
+        "sha256": "3f77d5d6a4d9d4af8ddb45f8fd44ab6912dfd3be9439873c36b540978ac49a92"
+      },
+      {
+        "name": "clauses.db.parents.json",
+        "size": 57016,
+        "sha256": "be7eff49e134ad58dbfbc3645a61840db1d552f109d8e93c5bbaee0661665cd7"
+      },
+      {
+        "name": "clauses.db.text",
+        "size": 3587262,
+        "sha256": "74ec646675a98c692d130f1e6a25616dbd4f0170c2451b32ff3ee8a697c29352"
+      },
+      {
+        "name": "clauses.db.text.meta",
+        "size": 28,
+        "sha256": "a257895325787fbe97c20a7f57e7644fe9674e306f39bad89f609f85a194a650"
+      },
+      {
+        "name": "clauses.db.vec",
+        "size": 40710144,
+        "sha256": "99d21b8291bdba7ef62085bf60383c1020d3a2a7f0b404c8f90af9d980fa270e"
+      },
+      {
+        "name": "clauses.db.wal",
+        "size": 6,
+        "sha256": "4cb1780d5197f4afcfe53878bea73013217fe50815231501b29b261e42ac8e29"
+      }
+    ],
+    "corpus_sha256": "d56c602596332df3e738bd407fb8d39ea276fbd3fa1c27267aed16912edce587",
+    "source_code": "304b85e",
+    "payloads": 3313,
+    "parents": 147,
+    "unique_texts": 3306,
+    "build_batch_requests": 104,
+    "build_known_input_tokens": 371521,
+    "published_directory": "text-embedding-3-large__3072__d56c60259633__20261104"
+  },
+  "retrieval": {
+    "text": {
+      "suite": "retrieval_colloquial_p0",
+      "mode": "text",
+      "mechanism": "present",
+      "dataset_sha256": "704d82d8b2601b4c47e409e0d1a3994ebc725b888e667be6f807c1389491bd56",
+      "corpus_sha256": "033061fbb30540f97602085661b888ebae0d119e055fce6780285be56d4feec9",
+      "top_k": 5,
+      "recall_top_k": 20,
+      "total": 54,
+      "embedding_calls": 0,
+      "metrics": {
+        "retriever": {
+          "recall_at_1": 0.2593,
+          "recall_at_3": 0.4074,
+          "recall_at_5": 0.463,
+          "mrr": 0.3278,
+          "by_phrasing": {
+            "colloquial": {
+              "queries": 38,
+              "recall_at_5": 0.3158
+            },
+            "paraphrase": {
+              "queries": 16,
+              "recall_at_5": 0.8125
+            }
+          }
+        },
+        "local_rerank": {
+          "recall_at_1": 0.3148,
+          "recall_at_3": 0.4444,
+          "recall_at_5": 0.5185,
+          "mrr": 0.387,
+          "by_phrasing": {
+            "colloquial": {
+              "queries": 38,
+              "recall_at_5": 0.3684
+            },
+            "paraphrase": {
+              "queries": 16,
+              "recall_at_5": 0.875
+            }
+          }
+        },
+        "overlap": {
+          "median": 0.1716,
+          "mean": 0.1979,
+          "min": 0.0,
+          "max": 0.5,
+          "low_count": 42,
+          "low_share": 0.7778
+        },
+        "max_common_run": 5,
+        "harness_error_count": 0
+      },
+      "index_source": "explicit"
+    },
+    "hybrid": {
+      "suite": "retrieval_colloquial_p0",
+      "mode": "hybrid",
+      "mechanism": "present",
+      "dataset_sha256": "704d82d8b2601b4c47e409e0d1a3994ebc725b888e667be6f807c1389491bd56",
+      "corpus_sha256": "033061fbb30540f97602085661b888ebae0d119e055fce6780285be56d4feec9",
+      "top_k": 5,
+      "recall_top_k": 20,
+      "total": 54,
+      "embedding_calls": 108,
+      "metrics": {
+        "retriever": {
+          "recall_at_1": 0.4815,
+          "recall_at_3": 0.6667,
+          "recall_at_5": 0.7037,
+          "mrr": 0.5731,
+          "by_phrasing": {
+            "colloquial": {
+              "queries": 38,
+              "recall_at_5": 0.5789
+            },
+            "paraphrase": {
+              "queries": 16,
+              "recall_at_5": 1.0
+            }
+          }
+        },
+        "local_rerank": {
+          "recall_at_1": 0.463,
+          "recall_at_3": 0.6667,
+          "recall_at_5": 0.7037,
+          "mrr": 0.5586,
+          "by_phrasing": {
+            "colloquial": {
+              "queries": 38,
+              "recall_at_5": 0.6053
+            },
+            "paraphrase": {
+              "queries": 16,
+              "recall_at_5": 0.9375
+            }
+          }
+        },
+        "overlap": {
+          "median": 0.1716,
+          "mean": 0.1979,
+          "min": 0.0,
+          "max": 0.5,
+          "low_count": 42,
+          "low_share": 0.7778
+        },
+        "max_common_run": 5,
+        "harness_error_count": 0
+      },
+      "index_source": "explicit"
+    }
+  },
+  "cases": [
+    {
+      "id": "rcq-p0-001",
+      "gold": [
+        "GB50013-2018 5.1.2"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.2.1",
+          "GB50318-2017 4.1.4",
+          "GB50013-2018 5.1.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.1.3",
+          "GB50318-2017 4.1.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 5,
+        "local_rerank_rank": 4,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 11.2.3",
+          "GB50013-2018 5.1.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 5.1.2",
+          "GB50013-2018 5.2.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-002",
+      "gold": [
+        "GB50013-2018 5.2.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.12.1",
+          "GB50014-2021 5.3.14",
+          "GB50014-2021 4.1.13",
+          "GB50013-2018 9.6.2",
+          "GB50014-2021 4.1.18"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.3.14",
+          "GB50013-2018 9.6.2",
+          "GB50014-2021 7.12.1",
+          "GB50013-2018 9.9.47",
+          "GB50014-2021 4.1.13"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.2.2",
+          "GB50014-2021 5.6.3",
+          "GB50013-2018 5.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.1",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-003",
+      "gold": [
+        "GB50013-2018 5.2.15"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 9.4.41",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 10.7.7",
+          "GB50013-2018 5.3.9"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 10.7.7",
+          "GB50013-2018 9.4.41",
+          "GB50013-2018 5.3.9"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.4.41",
+          "GB50014-2021 5.11.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 5.2.1",
+          "GB50014-2021 5.2.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 9.4.41",
+          "GB50014-2021 5.11.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 5.2.1",
+          "GB50014-2021 5.2.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-004",
+      "gold": [
+        "GB50013-2018 5.2.2"
+      ],
+      "text": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.12"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.9",
+          "GB50013-2018 5.2.12",
+          "GB50013-2018 5.2.9"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.12",
+          "GB50013-2018 5.2.8"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.12",
+          "GB50013-2018 5.2.9"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-005",
+      "gold": [
+        "GB50013-2018 5.2.3"
+      ],
+      "text": {
+        "retriever_rank": 4,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 10.8.2",
+          "GB50013-2018 11.2.3",
+          "GB50014-2021 8.4.3",
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.1.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 10.8.2",
+          "GB50013-2018 11.2.3",
+          "GB50014-2021 8.4.3",
+          "GB50013-2018 5.1.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.9"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.2.3",
+          "GB50013-2018 5.1.3",
+          "GB50013-2018 5.2.2",
+          "GB50013-2018 5.2.6"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-006",
+      "gold": [
+        "GB50013-2018 5.2.6"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.25",
+          "GB50013-2018 9.5.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.25",
+          "GB50013-2018 9.5.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.8",
+          "GB50013-2018 5.2.8",
+          "GB50013-2018 5.2.10"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.6",
+          "GB50013-2018 5.2.8",
+          "GB50013-2018 5.2.8",
+          "GB50013-2018 5.2.10"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-007",
+      "gold": [
+        "GB50013-2018 5.3.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.6.38",
+          "GB50013-2018 6.3.2",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 9.12.26"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.6.38",
+          "GB50013-2018 6.3.2",
+          "GB50014-2021 5.7.1",
+          "GB50013-2018 9.13.2",
+          "GB50014-2021 5.7.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.3.9",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.3.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.3.9",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.3.3",
+          "GB50013-2018 5.3.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-008",
+      "gold": [
+        "GB50013-2018 5.3.2"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.1.4",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.3.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.1.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.15",
+          "GB50014-2021 4.1.20",
+          "GB50013-2018 7.6.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.2",
+          "GB50013-2018 5.3.15",
+          "GB50013-2018 5.3.15",
+          "GB50318-2017 6.5.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-009",
+      "gold": [
+        "GB50014-2021 3.1.2"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.10.24",
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 3.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 9.10.24",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.13.11"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 3,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 3.2.1",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 5.4.2",
+          "GB50318-2017 3.3.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.3.2",
+          "GB50014-2021 3.2.1",
+          "GB50014-2021 3.2.3",
+          "GB50014-2021 3.1.1",
+          "GB50014-2021 4.1.8"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-010",
+      "gold": [
+        "GB50014-2021 3.2.5"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 4.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 4.1.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.2",
+          "GB50014-2021 4.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.10",
+          "GB50014-2021 3.2.7",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 3.2.1",
+          "GB50014-2021 4.1.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-011",
+      "gold": [
+        "GB50014-2021 3.3.10"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 7.12.5",
+          "GB50014-2021 7.1.1",
+          "GB50013-2018 10.6.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.12.5",
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 7.1.1",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 7.12.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 7.13.11",
+          "GB50013-2018 10.2.1",
+          "GB50014-2021 7.2.4",
+          "GB50014-2021 8.10.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 7.13.11",
+          "GB50013-2018 10.2.1",
+          "GB50014-2021 7.2.4",
+          "GB50014-2021 8.10.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-012",
+      "gold": [
+        "GB50014-2021 3.3.11"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 8.1.10",
+          "GB50013-2018 12.3.1",
+          "GB50014-2021 7.10.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 8.1.10",
+          "GB50013-2018 12.3.1",
+          "GB50014-2021 3.3.11"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50013-2018 10.7.9",
+          "GB50013-2018 9.7.3",
+          "GB50014-2021 8.1.10",
+          "GB50014-2021 7.13.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.3.11",
+          "GB50013-2018 9.7.3",
+          "GB50014-2021 8.1.10",
+          "GB50013-2018 9.8.4",
+          "GB50014-2021 3.3.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-013",
+      "gold": [
+        "GB50014-2021 3.3.3"
+      ],
+      "text": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 4,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 7.6.9",
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 5.12.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 7.6.9",
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 5.12.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 5.3.3",
+          "GB50013-2018 10.1.1",
+          "GB50013-2018 7.6.9"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.2.6",
+          "GB50014-2021 3.3.3",
+          "GB50014-2021 5.3.3",
+          "GB50013-2018 10.1.1",
+          "GB50013-2018 7.6.9"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-014",
+      "gold": [
+        "GB50014-2021 3.3.7"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 10.1.3",
+          "GB50014-2021 7.13.11",
+          "GB50013-2018 10.7.2",
+          "GB50014-2021 7.1.9",
+          "GB50014-2021 7.3.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.1.9",
+          "GB50013-2018 10.1.3",
+          "GB50014-2021 7.3.2",
+          "GB50014-2021 7.1.1",
+          "GB50013-2018 10.7.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.1.1",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 3.3.7",
+          "GB50014-2021 3.3.8",
+          "GB50014-2021 7.13.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.1.1",
+          "GB50014-2021 4.2.2",
+          "GB50014-2021 3.3.7",
+          "GB50014-2021 3.3.8",
+          "GB50014-2021 7.11.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-015",
+      "gold": [
+        "GB50014-2021 4.1.14"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 11.2.1",
+          "GB50013-2018 10.1.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 10.1.3",
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 10.7.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 9.1.2",
+          "GB50318-2017 4.4.6",
+          "GB50013-2018 11.1.4",
+          "GB50318-2017 4.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50013-2018 9.1.2",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50318-2017 4.4.6"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-016",
+      "gold": [
+        "GB50014-2021 4.1.22"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 3.3.5",
+          "GB50013-2018 9.4.15"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 6.2.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": 5,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 5.8.4",
+          "GB50014-2021 7.1.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 6.2.1",
+          "GB50014-2021 5.8.4",
+          "GB50014-2021 4.1.22"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-017",
+      "gold": [
+        "GB50014-2021 4.1.23"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50014-2021 6.2.3",
+          "GB50014-2021 5.14.3",
+          "GB50318-2017 6.2.2",
+          "GB50014-2021 5.8.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50014-2021 6.2.3",
+          "GB50014-2021 5.14.3",
+          "GB50014-2021 7.1.4",
+          "GB50318-2017 6.2.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50318-2017 6.2.2",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1",
+          "GB50014-2021 6.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.23",
+          "GB50014-2021 6.2.3",
+          "GB50318-2017 6.2.2",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-018",
+      "gold": [
+        "GB50014-2021 4.1.4"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 9.9.16",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 8.9.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 8.9.2",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 9.9.16"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 5.3.7",
+          "GB50013-2018 7.4.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 5.3.7",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 7.4.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-019",
+      "gold": [
+        "GB50014-2021 4.1.8"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 6.1.7"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 6.1.7",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 5.12.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": 5,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.12.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50318-2017 5.5.1",
+          "GB50318-2017 5.1.6"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.12.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.4",
+          "GB50318-2017 5.5.1",
+          "GB50014-2021 4.1.8"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-020",
+      "gold": [
+        "GB50014-2021 4.2.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.11.1",
+          "GB50014-2021 7.13.1",
+          "GB50318-2017 4.1.4",
+          "GB50318-2017 4.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.7.3",
+          "GB50014-2021 7.11.1",
+          "GB50318-2017 4.2.3",
+          "GB50014-2021 7.13.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50318-2017 4.2.3",
+          "GB50013-2018 10.1.3",
+          "GB50013-2018 10.1.3",
+          "GB50014-2021 7.8.10"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.7.3",
+          "GB50318-2017 4.2.3",
+          "GB50014-2021 7.6.9",
+          "GB50014-2021 7.7.3",
+          "GB50013-2018 10.1.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-021",
+      "gold": [
+        "GB50014-2021 5.1.1"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.2.3",
+          "GB50013-2018 5.3.8",
+          "GB50013-2018 6.6.9",
+          "GB50014-2021 5.15.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.2.3",
+          "GB50013-2018 6.6.9",
+          "GB50013-2018 7.4.12",
+          "GB50014-2021 5.2.9"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.1.1",
+          "GB50013-2018 5.3.8",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.1.1",
+          "GB50014-2021 5.2.9",
+          "GB50013-2018 6.6.9",
+          "GB50013-2018 5.3.8"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-022",
+      "gold": [
+        "GB50014-2021 5.1.14"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": 5,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.4.2",
+          "GB50013-2018 9.13.3",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.4.2",
+          "GB50013-2018 9.13.3",
+          "GB50014-2021 3.3.5",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.1.14"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.15.7",
+          "GB50014-2021 5.4.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.15.7",
+          "GB50014-2021 5.4.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-023",
+      "gold": [
+        "GB50014-2021 5.1.2"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.10.1",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 10.6.1",
+          "GB50318-2017 4.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.10.1",
+          "GB50318-2017 4.1.4",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 10.6.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.5",
+          "GB50014-2021 3.1.2",
+          "GB50013-2018 7.5.8",
+          "GB50014-2021 5.1.14"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.5",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 3.1.2",
+          "GB50318-2017 4.1.4"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-024",
+      "gold": [
+        "GB50014-2021 5.1.4"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.3",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.4.15",
+          "GB50014-2021 5.2.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.2.3",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.2.1",
+          "GB50013-2018 7.2.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.4",
+          "GB50014-2021 5.15.5",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.1.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.4",
+          "GB50014-2021 5.15.5",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.1.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-025",
+      "gold": [
+        "GB50014-2021 5.1.6"
+      ],
+      "text": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.2.10",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 5.3.5",
+          "GB50013-2018 7.5.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 7.2.10",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 5.3.5",
+          "GB50013-2018 7.5.5"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.13.1",
+          "GB50318-2017 3.5.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.6",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 9.6.5",
+          "GB50318-2017 3.5.5",
+          "GB50014-2021 5.3.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-026",
+      "gold": [
+        "GB50014-2021 5.10.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 5,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.4",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.10.3",
+          "GB50014-2021 5.10.5",
+          "GB50014-2021 5.10.4",
+          "GB50014-2021 5.10.2",
+          "GB50014-2021 5.10.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-027",
+      "gold": [
+        "GB50014-2021 5.11.1"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50013-2018 5.3.20",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 7.4.11",
+          "GB50014-2021 5.11.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50014-2021 5.11.4",
+          "GB50013-2018 5.3.20",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 7.4.11"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50013-2018 5.3.20",
+          "GB50014-2021 5.11.4",
+          "GB50013-2018 5.3.20",
+          "GB50013-2018 7.4.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.11.1",
+          "GB50013-2018 5.3.20",
+          "GB50014-2021 5.11.4",
+          "GB50013-2018 7.4.11",
+          "GB50013-2018 7.4.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-028",
+      "gold": [
+        "GB50014-2021 5.13.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.1.9",
+          "GB50014-2021 7.2.18",
+          "GB50013-2018 10.6.3",
+          "GB50318-2017 5.1.3",
+          "GB50014-2021 5.14.8"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.1.9",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.14.8",
+          "GB50318-2017 5.1.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.15",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.8.4",
+          "GB50318-2017 6.1.3",
+          "GB50014-2021 5.7.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.15",
+          "GB50014-2021 5.1.14",
+          "GB50014-2021 5.8.4",
+          "GB50318-2017 6.1.3",
+          "GB50014-2021 5.14.8"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-029",
+      "gold": [
+        "GB50014-2021 5.13.6"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 7.13.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 7.2.18",
+          "GB50014-2021 5.12.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.2.11",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.4.17"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.13.6",
+          "GB50014-2021 5.2.11",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 5.2.9"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-030",
+      "gold": [
+        "GB50014-2021 5.14.3"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.12.9",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 4.1.2",
+          "GB50014-2021 6.3.2",
+          "GB50014-2021 3.2.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.12.9",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 6.3.2",
+          "GB50014-2021 4.1.2",
+          "GB50014-2021 6.2.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.3.4",
+          "GB50318-2017 6.2.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 5.4.2",
+          "GB50014-2021 6.3.4",
+          "GB50014-2021 6.3.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-031",
+      "gold": [
+        "GB50014-2021 5.14.5"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 7.2.24",
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 6.4.13",
+          "GB50014-2021 4.1.13"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 7.5.12",
+          "GB50013-2018 7.5.12",
+          "GB50014-2021 7.2.24",
+          "GB50014-2021 6.4.13",
+          "GB50013-2018 7.6.9"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 5.3.1",
+          "GB50014-2021 5.14.5",
+          "GB50014-2021 6.3.4",
+          "GB50013-2018 10.3.5",
+          "GB50013-2018 9.10.24"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 5.3.1",
+          "GB50014-2021 5.14.5",
+          "GB50014-2021 6.3.4",
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 7.2.24"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-032",
+      "gold": [
+        "GB50014-2021 5.14.7"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 6.5.3",
+          "GB50014-2021 8.8.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.2",
+          "GB50013-2018 7.6.1",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 8.8.5"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.3",
+          "GB50014-2021 6.5.2",
+          "GB50013-2018 7.6.1",
+          "GB50318-2017 5.3.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.14.7",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 6.5.3",
+          "GB50013-2018 7.6.1",
+          "GB50014-2021 5.14.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-033",
+      "gold": [
+        "GB50014-2021 5.15.1"
+      ],
+      "text": {
+        "retriever_rank": 4,
+        "local_rerank_rank": 4,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 9.6.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.2",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 9.6.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-034",
+      "gold": [
+        "GB50014-2021 5.2.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.4.15",
+          "GB50013-2018 10.6.3",
+          "GB50014-2021 6.4.4",
+          "GB50013-2018 10.1.7",
+          "GB50013-2018 9.12.30"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 9.4.15",
+          "GB50014-2021 6.4.4",
+          "GB50013-2018 9.12.30",
+          "GB50013-2018 10.6.3",
+          "GB50015-2019 3.7.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50318-2017 3.5.5",
+          "GB50014-2021 5.2.2",
+          "GB50013-2018 9.5.40",
+          "GB50014-2021 5.1.8"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 9.6.5",
+          "GB50318-2017 3.5.5",
+          "GB50014-2021 5.2.2",
+          "GB50013-2018 9.5.40",
+          "GB50014-2021 5.1.8"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-035",
+      "gold": [
+        "GB50014-2021 5.2.9"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.3.12",
+          "GB50013-2018 11.3.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.4.17",
+          "GB50013-2018 12.3.4",
+          "GB50014-2021 5.3.12"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.2",
+          "GB50015-2019 3.7.3",
+          "GB50014-2021 5.2.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.9",
+          "GB50014-2021 5.2.2",
+          "GB50015-2019 3.7.3",
+          "GB50014-2021 5.2.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-036",
+      "gold": [
+        "GB50014-2021 5.3.11"
+      ],
+      "text": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.10",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50013-2018 7.3.1",
+          "GB50013-2018 7.3.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.1.10",
+          "GB50013-2018 7.5.12",
+          "GB50013-2018 7.3.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.1.10",
+          "GB50014-2021 5.15.1",
+          "GB50014-2021 8.10.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.3.11",
+          "GB50014-2021 5.1.10",
+          "GB50014-2021 5.15.1",
+          "GB50013-2018 7.3.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-037",
+      "gold": [
+        "GB50014-2021 5.4.16"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50013-2018 5.2.21",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 5.2.14",
+          "GB50014-2021 5.4.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50013-2018 5.2.21",
+          "GB50014-2021 5.4.9",
+          "GB50013-2018 5.2.26",
+          "GB50013-2018 5.2.14"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 5.2.21",
+          "GB50014-2021 5.4.16",
+          "GB50014-2021 5.4.11",
+          "GB50014-2021 5.11.7",
+          "GB50013-2018 5.2.14"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 5.2.21",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.16",
+          "GB50014-2021 5.11.7",
+          "GB50014-2021 5.4.11"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-038",
+      "gold": [
+        "GB50014-2021 5.4.6"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.16",
+          "GB50014-2021 5.4.7"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.4.16"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.16"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.4.6",
+          "GB50014-2021 5.4.9",
+          "GB50014-2021 5.4.5",
+          "GB50014-2021 5.4.16",
+          "GB50014-2021 5.4.9"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-039",
+      "gold": [
+        "GB50014-2021 5.5.2"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 5.5.1",
+          "GB50013-2018 7.5.10"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.3",
+          "GB50013-2018 7.5.10",
+          "GB50014-2021 5.4.17"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.1",
+          "GB50014-2021 5.4.17",
+          "GB50014-2021 6.5.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.2",
+          "GB50014-2021 5.5.1",
+          "GB50014-2021 5.4.17",
+          "GB50013-2018 7.5.10"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-040",
+      "gold": [
+        "GB50014-2021 5.8.3"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.1",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.3",
+          "GB50014-2021 5.8.1",
+          "GB50014-2021 5.8.5",
+          "GB50014-2021 5.8.5"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-041",
+      "gold": [
+        "GB50014-2021 5.8.4"
+      ],
+      "text": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 5.8.4",
+          "GB50013-2018 7.6.9",
+          "GB50013-2018 9.5.55",
+          "GB50013-2018 10.3.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 5.8.4",
+          "GB50013-2018 7.6.9",
+          "GB50013-2018 9.5.55",
+          "GB50013-2018 10.3.5"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.8.4",
+          "GB50014-2021 5.8.4",
+          "GB50014-2021 6.5.3",
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 6.5.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.8.4",
+          "GB50014-2021 5.8.4",
+          "GB50013-2018 10.3.5",
+          "GB50014-2021 6.5.3",
+          "GB50014-2021 6.5.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-042",
+      "gold": [
+        "GB50015-2019 3.3.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": 5,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 7.1.13"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50015-2019 3.3.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50015-2019 3.3.1",
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 7.1.7",
+          "GB50014-2021 5.15.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50015-2019 3.3.1",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-043",
+      "gold": [
+        "GB50015-2019 3.7.1"
+      ],
+      "text": {
+        "retriever_rank": 5,
+        "local_rerank_rank": 4,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.1.5",
+          "GB50013-2018 9.10.11",
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 9.10.24",
+          "GB50015-2019 3.7.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 9.1.5",
+          "GB50013-2018 9.10.11",
+          "GB50013-2018 9.13.2",
+          "GB50015-2019 3.7.1",
+          "GB50013-2018 9.10.24"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50015-2019 3.7.1",
+          "GB50014-2021 7.11.16",
+          "GB50318-2017 4.5.3",
+          "GB50013-2018 7.1.7",
+          "GB50014-2021 4.1.14"
+        ],
+        "local_rerank_retrieved": [
+          "GB50015-2019 3.7.1",
+          "GB50014-2021 7.11.16",
+          "GB50318-2017 4.5.3",
+          "GB50013-2018 7.1.7",
+          "GB50014-2021 4.1.14"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-044",
+      "gold": [
+        "GB50015-2019 3.7.2"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 7.1.7",
+          "GB50013-2018 5.2.10",
+          "GB50013-2018 7.5.8",
+          "GB50014-2021 3.3.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 9.13.2",
+          "GB50013-2018 7.1.7",
+          "GB50013-2018 5.2.10",
+          "GB50013-2018 7.5.8",
+          "GB50014-2021 3.3.5"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 7.1.7",
+          "GB50014-2021 7.11.14",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 7.5.1",
+          "GB50014-2021 7.11.16"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 7.1.7",
+          "GB50014-2021 7.11.14",
+          "GB50014-2021 7.11.16",
+          "GB50013-2018 5.3.11",
+          "GB50013-2018 7.5.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-045",
+      "gold": [
+        "GB50015-2019 3.7.3"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50014-2021 5.15.4",
+          "GB50015-2019 3.7.2",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50015-2019 3.7.2",
+          "GB50015-2019 3.7.3",
+          "GB50015-2019 3.7.4",
+          "GB50014-2021 6.4.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 6.3.1",
+          "GB50015-2019 3.7.2",
+          "GB50015-2019 3.7.3",
+          "GB50015-2019 3.7.4",
+          "GB50014-2021 6.4.4"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-046",
+      "gold": [
+        "GB50015-2019 3.7.4"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 4.1.14",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 11.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50014-2021 9.6.5",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 7.1.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 7.1.3",
+          "GB50013-2018 7.1.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50015-2019 3.6.1",
+          "GB50014-2021 4.1.4",
+          "GB50013-2018 11.1.4",
+          "GB50013-2018 7.1.2",
+          "GB50013-2018 7.1.3"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-047",
+      "gold": [
+        "GB50015-2019 4.7.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 9.9.37",
+          "GB50014-2021 6.5.2",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 4.1.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.3",
+          "GB50013-2018 9.9.37",
+          "GB50014-2021 5.10.4",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 7.2.18"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.7",
+          "GB50014-2021 5.1.12",
+          "GB50014-2021 9.6.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50014-2021 5.15.7",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.1.12"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-048",
+      "gold": [
+        "GB50318-2017 3.1.2"
+      ],
+      "text": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1",
+          "GB50318-2017 5.5.1",
+          "GB50318-2017 3.4.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1",
+          "GB50014-2021 5.1.1",
+          "GB50318-2017 5.5.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50318-2017 5.5.1",
+          "GB50014-2021 5.1.1",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 3.1.2",
+          "GB50014-2021 5.1.1",
+          "GB50318-2017 5.5.1",
+          "GB50318-2017 3.4.2",
+          "GB50318-2017 3.3.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-049",
+      "gold": [
+        "GB50318-2017 3.3.1"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 11.2.2",
+          "GB50014-2021 6.2.2",
+          "GB50013-2018 11.2.1",
+          "GB50014-2021 5.1.7",
+          "GB50014-2021 5.4.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 11.2.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50013-2018 11.1.4",
+          "GB50014-2021 6.2.2"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50318-2017 3.3.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50014-2021 3.1.2",
+          "GB50014-2021 6.2.2",
+          "GB50318-2017 3.3.2"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-050",
+      "gold": [
+        "GB50318-2017 3.5.3"
+      ],
+      "text": {
+        "retriever_rank": 4,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.15.3",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.15.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.3"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 2,
+        "local_rerank_rank": 2,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 9.6.5"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.2",
+          "GB50318-2017 3.5.3",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.15.4",
+          "GB50014-2021 5.3.7"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-051",
+      "gold": [
+        "GB50318-2017 3.6.3"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50013-2018 9.12.30",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 9.5.40",
+          "GB50013-2018 9.12.30",
+          "GB50013-2018 5.3.11"
+        ],
+        "local_rerank_retrieved": [
+          "GB50013-2018 9.12.30",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 9.5.40",
+          "GB50013-2018 9.12.30",
+          "GB50014-2021 5.9.1"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": null,
+        "local_rerank_rank": null,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 5.9.1",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 6.5.1",
+          "GB50014-2021 5.9.1"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 5.9.1",
+          "GB50014-2021 9.6.5",
+          "GB50014-2021 5.9.1",
+          "GB50014-2021 6.5.1"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-052",
+      "gold": [
+        "GB50318-2017 3.6.5"
+      ],
+      "text": {
+        "retriever_rank": 4,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 7.6.40",
+          "GB50318-2017 3.6.5",
+          "GB50013-2018 10.1.8"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 7.6.40",
+          "GB50014-2021 6.3.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 6.1.4",
+          "GB50014-2021 6.3.4"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 6.3.8",
+          "GB50014-2021 6.3.8",
+          "GB50318-2017 3.6.5",
+          "GB50014-2021 6.1.4",
+          "GB50014-2021 6.3.4"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-053",
+      "gold": [
+        "GB50318-2017 4.1.2"
+      ],
+      "text": {
+        "retriever_rank": 3,
+        "local_rerank_rank": 3,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 7.13.11",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15",
+          "GB50014-2021 7.11.15",
+          "GB50014-2021 7.2.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 4.1.2",
+          "GB50014-2021 9.3.3",
+          "GB50014-2021 7.11.15",
+          "GB50014-2021 7.2.1",
+          "GB50014-2021 7.11.15"
+        ]
+      }
+    },
+    {
+      "id": "rcq-p0-054",
+      "gold": [
+        "GB50318-2017 4.1.4"
+      ],
+      "text": {
+        "retriever_rank": null,
+        "local_rerank_rank": 5,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 3.3.1",
+          "GB50318-2017 3.5.2",
+          "GB50014-2021 3.3.6",
+          "GB50014-2021 5.10.2"
+        ],
+        "local_rerank_retrieved": [
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 3.3.1",
+          "GB50318-2017 3.5.2",
+          "GB50014-2021 3.3.6",
+          "GB50318-2017 4.1.4"
+        ]
+      },
+      "hybrid": {
+        "retriever_rank": 1,
+        "local_rerank_rank": 1,
+        "error": null,
+        "retriever_retrieved": [
+          "GB50318-2017 4.1.4",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 7.2.10",
+          "GB50318-2017 6.1.3"
+        ],
+        "local_rerank_retrieved": [
+          "GB50318-2017 4.1.4",
+          "GB50014-2021 5.1.2",
+          "GB50014-2021 5.1.3",
+          "GB50014-2021 7.2.10",
+          "GB50318-2017 3.5.2"
+        ]
+      }
+    }
+  ],
+  "rollout": {
+    "image_id": "sha256:ac9567ae2364d8dfa733926bd944092b843a64b50ec51275aaa36f6c9f763cf2",
+    "same_image": true,
+    "database_migration": "0007_step51_dwg_uploads",
+    "index_mount_read_only": true,
+    "credential_source": "volume",
+    "credential_value_in_evidence": false,
+    "live_health": {
+      "status": 200,
+      "body": {
+        "version": "v1",
+        "ok": true,
+        "data": {
+          "status": "live"
+        }
+      }
+    },
+    "ready_health": {
+      "status": 200,
+      "body": {
+        "version": "v1",
+        "ok": true,
+        "data": {
+          "status": "ready",
+          "checks": {
+            "database": "ok",
+            "migrations": "0007_step51_dwg_uploads",
+            "checkpoint_migrations": 9
+          }
+        }
+      }
+    },
+    "runtime": {
+      "db_path": "/opt/water-agent-indexes/clauses.db",
+      "is_fallback": false,
+      "fallback_kind": "none",
+      "fallback_reason": "real db",
+      "db_error": null,
+      "text_index_ready": true,
+      "text_indexed_nodes": 0,
+      "text_index_source": "persisted",
+      "access_mode": "read_only",
+      "db_opened": true,
+      "index_meta": "present",
+      "retrieval_mode": "hybrid",
+      "retrieval_mode_reason": "forced",
+      "retrieval_mode_detail": null
+    },
+    "automatic_rollback_exercised": true
+  },
+  "qa_smoke": {
+    "query": "根据入库规范，给水管网的环状布置有什么要求？请检索并给出可追溯引用。",
+    "status": "succeeded",
+    "citation_source_ids": [
+      "GB50013-2018 7.1.8",
+      "GB50013-2018 7.1.9",
+      "GB50013-2018 7.4.5",
+      "GB50013-2018 7.5.5",
+      "GB50013-2018 7.5.8"
+    ],
+    "errors": [],
+    "warnings": [],
+    "retry_count": 0,
+    "retriever_fallback": false,
+    "elapsed_seconds": 23.686,
+    "scope": "single production CLI turn; not expert answer-quality review or Web SSE acceptance"
+  },
+  "raw_evidence_sha256": {
+    "probe.json": "bb49737d3ce93e692f11808eb67b3b2c9ba5d46e6d592c55f3611b6362a440be",
+    "build-result.json": "8ae968fff3787fe96c33abbd70be654863ff2d34fc210e1631aa99dd13f44190",
+    "retrieval-text.json": "9889f3d10d0120c5ae99cfcbdf268704a8c4ed5318b1f69f87bbe22f6930504c",
+    "retrieval-hybrid.json": "044bc1c7439dff71cee3e6721725869361bda5a86b669fe22b44f9e6f0f74f15",
+    "live-retrieval.json": "a9466c2c063f58b59bcbdf9783d6434fd3b5dd29939d8b062659a3d6c1317fe5",
+    "live-qa.json": "613a8e452fd1b93b7cb77327bb9a74128eb687e8e78d7d4527d95d1bc644016c",
+    "deployment.json": "194aa676a310b25f9d7b56a2ccf490669ad095f3f11209e08892e69924987ffe",
+    "rollback-observation.json": "5e5865fd957524f4887b4bebf6ae23dda62c123b9598d0eb951d0aa38a456437"
+  },
+  "retrieval_metric_contract": "water_agent.harness.retrieval_metrics: source_id unique in ranking order before Recall@k and MRR; raw rank fields can count duplicates",
+  "corpus_identity": {
+    "files": [
+      {
+        "name": "GB50013-2018.jsonl",
+        "size": 995273,
+        "sha256": "0ee4c0042c9ccc4f4a393e805a75ee6e50e601198ecf4dd02198ef76b1ffe847"
+      },
+      {
+        "name": "GB50014-2021.jsonl",
+        "size": 772439,
+        "sha256": "176713af84c2349d0de33212dbceb62362d36db3f2b5d195fe11413c96eece13"
+      },
+      {
+        "name": "GB50015-2019.jsonl",
+        "size": 7936,
+        "sha256": "e7d0f5a7358dbfb42553d583c39426dfc1d62882929ffcb3bd2989ea73be9f59"
+      },
+      {
+        "name": "GB50318-2017.jsonl",
+        "size": 42143,
+        "sha256": "9884ff072a0b090ea71090bd34fb57863ba74490eb4774790a0228c231b2f00c"
+      }
+    ],
+    "build_corpus_sha256": "d56c602596332df3e738bd407fb8d39ea276fbd3fa1c27267aed16912edce587",
+    "build_hash_contract": "SHA256 of sorted filename UTF-8 immediately followed by raw file bytes, repeated per file",
+    "harness_corpus_sha256": "033061fbb30540f97602085661b888ebae0d119e055fce6780285be56d4feec9",
+    "harness_hash_contract": "SHA256 of sorted filename UTF-8 plus NUL then raw file bytes, repeated per file"
+  },
+  "rollback_observation": {
+    "source": "Observed operator tool output, exec session 40926; preserved after subsequent successful activation",
+    "events": [
+      {
+        "phase": "checked",
+        "database": {
+          "active_runs": {},
+          "migration": "0007_step51_dwg_uploads",
+          "expected_migration": "0007_step51_dwg_uploads"
+        }
+      },
+      {
+        "phase": "stopped"
+      },
+      {
+        "phase": "credential_configured",
+        "credential": {
+          "credential": "configured",
+          "source": "volume",
+          "previous_file": false
+        }
+      },
+      {
+        "phase": "activation_failed",
+        "error_type": "AssertionError"
+      },
+      {
+        "phase": "rolled_back",
+        "health": {
+          "live": {
+            "status": 200,
+            "body": {
+              "version": "v1",
+              "ok": true,
+              "data": {
+                "status": "live"
+              }
+            }
+          },
+          "ready": {
+            "status": 200,
+            "body": {
+              "version": "v1",
+              "ok": true,
+              "data": {
+                "status": "ready",
+                "checks": {
+                  "database": "ok",
+                  "migrations": "0007_step51_dwg_uploads",
+                  "checkpoint_migrations": 9
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "post_rollback_checks": {
+      "same_original_image": "Verified before retry by deploy.py image assertion",
+      "embedding_slot_absent": "Verified before retry by had_file==previous.had_file (both false); retry output previous_file=false",
+      "old_index_configuration": "Original two overlays plus rollback overlay were applied; no old-index retrieval query was run",
+      "ready_migration": "0007_step51_dwg_uploads"
+    },
+    "diagnostic_limit": "The failing mount assertion did not retain its actual Source value. Docker Desktop /host_mnt mapping was then allowed; retry passed."
+  },
+  "verification": {
+    "command": "bash scripts/ci_gate.sh",
+    "exit_code": 0,
+    "log_sha256": "d63a44a1210506359d04764d5e28cd0eb713fd668f630384b83637d71cf520a5",
+    "paired_case_metrics_recomputed": true,
+    "evidence_hashes_verified": 8,
+    "independent_review": "no blocking findings; rollback evidence retention suggestion addressed",
+    "runtime_source_changed": false,
+    "eval_gold_or_baseline_changed": false
+  }
+}
