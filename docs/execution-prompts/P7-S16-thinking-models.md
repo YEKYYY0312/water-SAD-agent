@@ -4,7 +4,7 @@
 > **2026-11-04 准入基线**：main `dd8c314`，11 个出站调用点、21 个装配 profile；本次只校正准入口径，不代表 D4–D8 已放行。真实证据见 `docs/evals/p7-s16-preflight-2026-11-04.md`。
 > **必读**：
 > - `AGENTS.md`
-> - `docs/design/18-p7-multi-model.md`（SDD：§2 事实表 F1–F23、§4 设计、§6 不变量 P7-I18/I19/I20、§7 的 P7-S16 验收、§10 待实测项）与 `docs/design/18-p7-multi-model-harness.md` §2.1、§4
+> - `docs/design/18-p7-multi-model.md`（SDD：§2 事实表 F1–F28、§4 设计、§6 不变量 P7-I18/I19/I20、§7 的 P7-S16 验收、§10 待实测项）与 `docs/design/18-p7-multi-model-harness.md` §2.1、§4
 > - `docs/design/p7-step-15-decision.md`（S15：目录 / 逐对验证 / 选择链路 / `thinking: off`）
 > - `docs/design/p2.5-threat-model.md` T14，以及本步新增的 T18
 > - 参考实现：`graphs/agent_rag.py::DraftPump`（逐句 `check_output`、撤回、关闭通道、`offset`）、`webapp/run_manager.py::_on_draft`（事件白名单与脱敏）、`generation/governed_chat.py`（`_stream` / `_generate`）、`prompting/history.py`
