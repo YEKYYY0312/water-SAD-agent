@@ -38,7 +38,7 @@ python -m water_agent.harness.runner /app/data/eval/rag_p1.jsonl \
 
 指标口径：source_id 按首次出现保序去重，Recall@k 为任一 gold 命中的用例比例，MRR 取首个命中。agentic 可多次改写检索，`context_articles` 是本轮工具返回累积列表；因此它不是单查询固定 top-5 的召回率。唯一 Recall@5 未命中的是 `rag-p1-0052`，gold `GB50014-2021 3.3.11` 在累积来源列表第7位，模型仍声明了它，故用例通过；此例也说明两类指标不等价。引用 membership 指标只检查声明来源是否属于返回集合（有gold但零引用也判不合格）；gold／forbidden 约束另外决定用例通过，二者不能混用，更不验证每句回答语义。未启 judge 的质量通过率为 **未知（null）**，不能引用 raw runner 的缺省 0。历史 84.48% 不迁移至本组合，也不作不同 embedding／模型／检索行为的同条件提升比较。
 
-全部逐案 runtime 状态检查：hybrid／forced，is_fallback=false、fallback_kind=none、db_error=null、db_opened=true、access_mode=read_only、text_index_source=persisted。引用回流用例：`[]`。
+全部逐案 runtime 状态检查：hybrid／forced，is_fallback=false、fallback_kind=none、db_error=null、db_opened=true、access_mode=read_only、text_index_source=persisted。外层引用校验回流用例：`[]`；这不包含内层 cite_clauses 的拒绝后修正，详见下面的工具 observation。
 
 延迟从 runner 构图阶段计时，不含前置工具装配；观察封装的最终状态 JSON 写盘在 `invoke` 返回前，故包含一段未单独量化的本地记录开销。是串行问答样本，无额外思考配置、无并发负载和代表性思考超时样本，不能据此改生产思考模式超时。
 
@@ -52,6 +52,18 @@ python -m water_agent.harness.runner /app/data/eval/rag_p1.jsonl \
 - 代理价格未知，费用为 **null**。raw runner 与 llm_call 事件会写固定旧价格估算，本报告弃用这些金额，也不以“部分已知 token”冒充全量账单。
 
 ## 58 问失败定位与回答复核
+
+工具层另有 **5 次未检索来源引用声明被拒绝**，随后各用例均修正并通过。它们不是最终失败，也不是外层 citation_validator 回流；不能用 retry_count=0 概括为没有引用问题。63次 cite_clauses = 58次成功登记 + 5次拒绝。
+
+| case_id | 被拒绝的 source_id | trace |
+|---|---|---|
+| rag-p1-0004 | GB50318-2017 4.6.3 | `29ff297632224a2c8fba0ecdfd2a317d` |
+| rag-p1-0006 | GB50318-2017 4.2.4 | `3c0bff1e10544f938218affcd97a7e1d` |
+| rag-p1-0011 | GB50014-2021 5.2.5 | `86f6a066a101496481b9fdf757c1e1df` |
+| rag-p1-0023 | GB50014-2021 5.2.4 | `1d2a8f06b1694c00afcf17d76985abe2` |
+| rag-p1-0037 | GB50013-2018 5.3.4 | `40bd6b9b38aa48a4b6376ca0f54e1196` |
+
+以下两条是最终确定性判分失败：
 
 | case_id | 分类 | 证据 |
 |---|---|---|
