@@ -1,6 +1,7 @@
 # P7-S16 执行 Prompt：思考型模型（回传、清理、探针、展示）
 
 > **工作区**：仓库 `YEKYYY0312/water-SAD-agent`，基于最新 `main`（必须已包含本 Prompt 与 **P7-S15**）。新建分支 `YEK/p7-s16-thinking-models`。
+> **2026-11-04 准入基线**：main `dd8c314`，11 个出站调用点、21 个装配 profile；本次只校正准入口径，不代表 D4–D8 已放行。真实证据见 `docs/evals/p7-s16-preflight-2026-11-04.md`。
 > **必读**：
 > - `AGENTS.md`
 > - `docs/design/18-p7-multi-model.md`（SDD：§2 事实表 F1–F23、§4 设计、§6 不变量 P7-I18/I19/I20、§7 的 P7-S16 验收、§10 待实测项）与 `docs/design/18-p7-multi-model-harness.md` §2.1、§4
@@ -32,7 +33,7 @@
 
 **做**（编号对应 SDD §7 的 P7-S16-Axx）：子类与往返（A01、A02）；清理（A03）；探针扩展与版本递进（A04）；`ThinkingPump` 与协议标志（A05、A07）；通道隔离（A06）；治理（A08）；前端（A09）；`thinking_p0`（A10）；快照（A11）；文档（威胁模型 T18、`p2.5-provider-inventory.md`、`16-p7` §3.11、AGENTS.md、决策记录 `docs/design/p7-step-16-decision.md`）。
 
-**不做**：自动选模型 / 失败换模型；多端点；新增 `Capability` / 出站点（`PROVIDER_CALL_SITES` 仍是 8）；改 `prompting/assembler.py`（若需要递进 `PROMPT_TEMPLATE_VERSION` → **停止**，见 §5）；"再调一次模型总结思考"；把思考纳入答案、引用校验、缓存或导出；声称思考模型更准或质量不变。
+**不做**：自动选模型 / 失败换模型；多端点；新增 `Capability` / 出站点（`PROVIDER_CALL_SITES` 仍是 11）；改 `prompting/assembler.py`（若需要递进 `PROMPT_TEMPLATE_VERSION` → **停止**，见 §5）；"再调一次模型总结思考"；把思考纳入答案、引用校验、缓存或导出；声称思考模型更准或质量不变。
 
 ## 2. 步骤序列（评测先行；一个逻辑面一个 commit）
 
@@ -60,7 +61,7 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S16-think
 
 - 预算：`assert cost < 4500`、`schema_chars_total == 4497`、系统提示 `< 1950`。
 - 信任：`INSTRUCTION_BEARING_SOURCES == {SYSTEM_POLICY}`。
-- 出站：`len(PROVIDER_CALL_SITES) == 8`；默认构造参数（`temperature == 0.0`、`max_retries == 0`、`stream_usage is True`）不变。
+- 出站：`len(PROVIDER_CALL_SITES) == 11`；默认构造参数（`temperature == 0.0`、`max_retries == 0`、`stream_usage is True`）不变。
 - 出站白名单：`test_the_status_stamp_never_reaches_the_provider`。
 - **会变的锁定数字 / 语义**（本步唯一允许改的）：`ENDPOINT_PROBE_VERSION` 与检查集（`ENDPOINT_COMPATIBILITY_CHECKS`）、`UsageRecord` / `ProviderUsage` 的字段集合测试、`GOVERNANCE_CONFIG_VERSION`、`_EGRESS_PATTERNS` 的模式数量断言（若有）。
 
@@ -225,6 +226,6 @@ _venv/bin/python scripts/check_step_scope.py docs/execution-prompts/P7-S16-think
 ```
 <!-- /step-scope -->
 
-> `frozen_json` 说明：现有 profile（S15 合入后是 19 个：14 个 `session_*` + 5 个 `runner_*`）**整段**冻结（包含 S15 新增的 `session_pick_model_off`）；`MCP_CONFIG_VERSION` 与 `TOOL_POLICY_VERSION` 冻结，**`PROMPT_TEMPLATE_VERSION` 刻意不冻结**——`prompting/history.py` 的窗口策略若改变了发给模型的输入，应递进它；但递进它需要改 `prompting/assembler.py`（在 forbid 里），所以按 §5 **先停下确认**，由评审决定是把 `assembler.py` 临时加入 allow，还是把窗口改动限定在不影响版本号的范围。新增的 `session_reasoning_roundtrip` 以 `session_r` 开头，不被 `session_[!r]*` 匹配。
+> `frozen_json` 说明：现有 profile（S12 / S13 合入后是 21 个：16 个 `session_*` + 5 个 `runner_*`）**整段**冻结（包含 S15 新增的 `session_pick_model_off`）；`MCP_CONFIG_VERSION` 与 `TOOL_POLICY_VERSION` 冻结，**`PROMPT_TEMPLATE_VERSION` 刻意不冻结**——`prompting/history.py` 的窗口策略若改变了发给模型的输入，应递进它；但递进它需要改 `prompting/assembler.py`（在 forbid 里），所以按 §5 **先停下确认**，由评审决定是把 `assembler.py` 临时加入 allow，还是把窗口改动限定在不影响版本号的范围。新增的 `session_reasoning_roundtrip` 以 `session_r` 开头，不被 `session_[!r]*` 匹配。
 >
 > `compose.yml`、`storage/**`、`alembic/**` 在 forbid 里：本步不动部署与数据库（S15 已完成迁移）；`contracts.py` / `gateway.py` / `inventory.py` 在 allow 里是因为 reasoning token 字段、超时重试策略与出站扫描模式扩展都落在那里，改动必须逐处附测试。

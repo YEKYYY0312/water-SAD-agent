@@ -78,7 +78,7 @@ harness 是报告的**唯一**生产者，比较器拒绝人工编写的报告�
 
 - `scripts/ci_gate.sh`：每套件一行 runner + 一行比较器（紧随 `skill_p0` / `mcp_http_p0`）。
 - `PINNED_ENV_KEYS`：仅在新增环境变量时增加（目录文件位置、逐对报告目录）。
-- 装配快照：**现有 18 个 profile 逐字不变**；S15 新增 profile `session_model_catalog_off`（目录内 `thinking: off` 模型被选中，断言 `extra_body` 与 `inner.model_name`）；S16 新增 `session_reasoning_roundtrip`。范围块 `frozen_json` 冻结其余片段。
+- 装配快照：S15 已交付的 profile 实际名为 `session_pick_model_off`（目录内 `thinking: off` 模型被选中，断言 `extra_body` 与 `inner.model_name`）。S12 / S13 合入后，S16 的准入基线为 **21 个 profile（16 个 `session_*` + 5 个 `runner_*`）逐字不变**；S16 仅新增 `session_reasoning_roundtrip`。范围块 `frozen_json` 冻结现有片段。
 - 追溯：`tests/test_p7_traceability.py` 把 SDD 加入解析范围（`parse_spec(text, prefix="P7")`）。
 - 既有门禁（H5）不得回退：`rag_p0` / `calc_p0` / `docgen_p0` / `material_p0` / `governance_p0` / `agentic_p0` / `tool_exposure_p0` / `skill_p0` / `mcp_http_p0` / `memory_p0` / 装配快照。
 
