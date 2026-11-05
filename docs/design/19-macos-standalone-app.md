@@ -1,6 +1,6 @@
 # macOS 独立桌面 App 设计
 
-状态：Proposed，待用户审阅后进入实现。日期：2026-11-04。
+状态：Accepted。用户于 2026-11-04 确认按此设计实施，并明确仅本地使用、不需要上线。
 
 起点：main `29db372`。工作分支：`codex/macos-standalone-app`。
 
@@ -104,7 +104,7 @@ App 可在其他同架构 Mac 全新安装。已有个人数据通过显式“�
 
 第一版不实现后台自动更新。替换 App 前先保留可回滚程序包，对需要迁移的数据先备份；不承诺数据库降级可直接打开。恢复旧程序涉及 schema 不兼容时，必须从相应备份恢复到独立目标。
 
-签名覆盖原生程序、Python 扩展与随包工具，输出签名验证及依赖检查结果。当前已检查到本机 Developer ID Application 身份数量为 0，因此可以先做本机开发构建与可搬移性测试，但正式签名／公证分发目前是缺少外部条件的 blocked 项。不得关闭 Gatekeeper 或把临时签名称为 Apple 公证通过。
+签名覆盖原生程序、Python 扩展与随包工具，输出签名验证及依赖检查结果。当前已检查到本机 Developer ID Application 身份数量为 0，因此可以先做本机开发构建与可搬移性测试，但正式签名／公证分发目前是缺少外部条件的 blocked 项；用户随后明确本轮不需要上线，因此不纳入本轮本地交付要求。不得关闭 Gatekeeper 或把临时签名称为 Apple 公证通过。
 
 ## 9. 分阶段输入、输出与验收
 
@@ -114,7 +114,7 @@ App 可在其他同架构 Mac 全新安装。已有个人数据通过显式“�
 | B 生命周期与存储 | 运行时资源 → 独立初始化、迁移、ready、退出与恢复 | 单实例、空闲端口、失败回滚、正常退出、强制退出再启动、数据保留；不影响现有服务 |
 | C Mac 窗口与设置 | 本地服务 → 可双击的 App | 首次设置、登录保持、SSE、上传下载、中文文件名、外部导航策略、断线恢复实测 |
 | D 业务回归与打包 | App → 验证报告、DMG 与清单 | AGENTS.md 门禁及相关前后端测试；真实 PostgreSQL 下会话／记忆／授权／导出测试；离线机制探针与真实模型质量证据明确分开 |
-| E 分发验收 | 构建包、签名身份、另一台 Mac → 分发证据 | Developer ID 签名、公证与另一台干净同架构 Mac 安装、启动、保存会话和备份恢复；缺前置条件保持 blocked |
+| E 外部分发（本轮排除） | 仅当未来要求公开分发时执行 | 用户明确本轮不需要上线；不把 Developer ID／公证作为本地交付前置条件，也不声称另一台 Mac 已验证 |
 
 仅在实际执行后记录通过；网络、权限、原生依赖或签名失败不得用假的成功状态替代。真实模型用例缺 Key 输出结构化 SKIP，不据此宣称真实问答验收通过。既有 RAG 质量、top_k 偏差与 S16 的 blocked 项不会因桌面打包解除。
 
@@ -133,4 +133,4 @@ App 可在其他同架构 Mac 全新安装。已有个人数据通过显式“�
 - [PostgreSQL 支持平台](https://www.postgresql.org/docs/current/supported-platforms.html)与[官方源码目录](https://www.postgresql.org/ftp/source/)：Mac 构建来源；平台支持不替代本 App 的集成验证。
 - [uv 管理 Python](https://docs.astral.sh/uv/guides/install-python/) 与 [python-build-standalone](https://docs.astral.sh/python-build-standalone/)：可分发运行时来源；具体原生扩展和搬移仍需验收。
 
-本文不声称安装包、原生 PostgreSQL、DWG 转换或签名已经构建／通过；当前交付是可审阅的打包设计。
+实现计划见 `docs/superpowers/plans/2026-11-04-macos-standalone-app.md`；设计通过不代表运行时或安装包已经验收。
