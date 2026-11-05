@@ -45,7 +45,7 @@ final class RuntimeController {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var buffer = Data()
             do {
-                while let block = try stdoutPipe.fileHandleForReading.read(upToCount: 4096), !block.isEmpty {
+                while let block = try readControlChunk(from: stdoutPipe.fileHandleForReading), !block.isEmpty {
                     buffer.append(block)
                     while let end = buffer.firstIndex(of: 10) {
                         let line = Data(buffer[..<end]); buffer.removeSubrange(...end)
