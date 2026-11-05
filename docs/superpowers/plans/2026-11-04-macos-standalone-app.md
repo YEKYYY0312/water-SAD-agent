@@ -15,6 +15,10 @@
 - 包含 ARM64 可搬移 Python、PG、前端、只读索引；不依赖 Homebrew、Docker 或开发目录。
 - 密码只经私有 stdin 管道与 0600 临时文件；永不放参数、日志、安装包或仓库。
 
+## 2026-11-05 用户修订（覆盖下方旧登录步骤）
+
+Mac 个人版取消初始密码设置和登录页。初始账号内部随机凭据，既有 admin 不改密码；私有 helper 创建标准服务端 session，通过固定 0600 文件交给原生 CookieStore，再直接进入工作台。令牌不出现在 stdout/参数/日志；无 HTTP 免登录接口。定期/唤醒续期，Web 登录与后端鉴权保留。
+
 ## 固定接口与文件边界
 
 资源根为 `给排水 Agent.app/Contents/Resources`，包含 `python/bin/python3.12`、`postgres/bin/{postgres,initdb,pg_ctl,createdb,pg_dump,pg_restore}`、`backend/{src,data,alembic,alembic.ini,web/app/dist}`、`runtime/launcher.py` 及同目录辅助模块、可选 `libredwg/bin/{dwg2dxf,dxf2dwg}`。

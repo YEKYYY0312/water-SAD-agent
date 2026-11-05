@@ -116,4 +116,29 @@ check(deliveredBeforeEOF, "short control event is delivered before writer closes
 let controlEOF = try readControlChunk(from: controlPipe.fileHandleForReading)
 check(controlEOF == nil, "control EOF is explicit")
 
+
+
+let sessionRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+try FileManager.default.createDirectory(at: sessionRoot.appendingPathComponent("credentials"), withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: sessionRoot) }
+let sessionPath = sessionRoot.appendingPathComponent("credentials/desktop-session.json")
+let sessionFixture: [String: Any] = ["session_id": String(repeating: "A", count: 43), "csrf_token": String(repeating: "B", count: 43), "expires_at": Date().timeIntervalSince1970 + 3600]
+try JSONSerialization.data(withJSONObject: sessionFixture).write(to: sessionPath)
+try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sessionPath.path)
+let cookies = try readLocalSession(file: sessionPath, dataRoot: sessionRoot)
+check(cookies.count == 2, "personal desktop issues both session and csrf cookies")
+check(cookies.first(where: {$0.name == "wa_session"})?.isHTTPOnly == true, "local session stays HttpOnly")
+check(cookies.first(where: {$0.name == "wa_csrf"})?.isHTTPOnly == false, "CSRF token stays available to existing UI")
+check(!FileManager.default.fileExists(atPath: sessionPath.path), "IPC token file removed after reading")
+rejects("foreign session path rejected") { _ = try readLocalSession(file: sessionRoot.appendingPathComponent("other.json"), dataRoot: sessionRoot) }
+
+try JSONSerialization.data(withJSONObject: sessionFixture).write(to: sessionPath)
+try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: sessionPath.path)
+rejects("world readable session handoff rejected") { _ = try readLocalSession(file: sessionPath, dataRoot: sessionRoot) }
+var expiredSession = sessionFixture
+expiredSession["expires_at"] = Date().timeIntervalSince1970 - 1
+try JSONSerialization.data(withJSONObject: expiredSession).write(to: sessionPath)
+try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sessionPath.path)
+rejects("expired desktop cookie handoff rejected") { _ = try readLocalSession(file: sessionPath, dataRoot: sessionRoot) }
+check((try? RuntimeEvent.parse(Data("{\"event\":\"local_session\",\"path\":\"/private/profile/credentials/desktop-session.json\"}".utf8))) == .localSession("/private/profile/credentials/desktop-session.json"), "private session event carries path only")
 print("PolicyChecks final: \(count) assertions passed (XCTest runner not used)")

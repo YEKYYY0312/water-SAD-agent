@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { authApi, AuthApiError } from "./authApi";
-import { authErrorText, validateLoginInput } from "./authState";
+import { authErrorText, loginPresentation, validateLoginInput } from "./authState";
 
 type LoginPanelProps = {
   /** 登录成功后回调；must_change_password=true 时由 AuthGate 决定下一步。 */
@@ -14,6 +14,7 @@ export function LoginPanel({ onLoggedIn }: LoginPanelProps) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const copy = loginPresentation(typeof navigator === "undefined" ? "" : navigator.userAgent);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -38,6 +39,13 @@ export function LoginPanel({ onLoggedIn }: LoginPanelProps) {
       setBusy(false);
     }
   };
+
+  if (copy.desktop) {
+    return <main className="auth-gate"><section className="auth-card" role="status">
+      <h1>本地个人工作区</h1>
+      <p>本机会话正在恢复。如果此页面持续显示，请关闭并重新打开 App。</p>
+    </section></main>;
+  }
 
   return (
     <main className="auth-gate">
@@ -72,7 +80,7 @@ export function LoginPanel({ onLoggedIn }: LoginPanelProps) {
             id="login-password"
             type="password"
             autoComplete="current-password"
-            placeholder="见 secrets/admin_password"
+            placeholder={copy.passwordPlaceholder}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
@@ -86,8 +94,10 @@ export function LoginPanel({ onLoggedIn }: LoginPanelProps) {
         </form>
 
         <p className="muted-copy auth-hint">
-          管理员密码存放在 <code>secrets/admin_password</code>，可复制：
-          <code>cat secrets/admin_password | pbcopy</code>
+          {copy.desktop ? copy.hint : <>
+            管理员密码存放在 <code>secrets/admin_password</code>，可复制：
+            <code>cat secrets/admin_password | pbcopy</code>
+          </>}
         </p>
       </section>
     </main>

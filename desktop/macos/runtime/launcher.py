@@ -85,7 +85,7 @@ def parse_command(line: str) -> dict[str, Any]:
         data = json.loads(line)
     except (ValueError, TypeError):
         raise ValueError('DESKTOP_INVALID_COMMAND') from None
-    if not isinstance(data, dict) or data.get('command') not in {'setup', 'stop', 'backup'}:
+    if not isinstance(data, dict) or data.get('command') not in {'setup', 'stop', 'backup', 'refresh_session'}:
         raise ValueError('DESKTOP_INVALID_COMMAND')
     if data['command'] == 'setup' and not isinstance(data.get('password'), str):
         raise ValueError('DESKTOP_INVALID_COMMAND')
@@ -297,11 +297,18 @@ class Supervisor:
                 raise DesktopError('DESKTOP_SERVICE_EXITED')
             url = read_ready(self.ready_path, nonce)
             if url:
+                self.issue_session()
                 emit('ready', url=url)
                 break
             if time.monotonic() > deadline:
                 raise DesktopError('DESKTOP_READY_TIMEOUT')
             self.stopping.wait(0.1)
+
+    def issue_session(self) -> None:
+        if self.helper_call('desktop-session') != 0:
+            raise DesktopError('DESKTOP_LOCAL_OWNER_UNAVAILABLE')
+        # Only the protected path crosses IPC/logs; token values never do.
+        emit('local_session', path=str(self.paths.credentials / 'desktop-session.json'))
 
     def start_control(self) -> None:
         if self.control_started:
@@ -339,27 +346,15 @@ class Supervisor:
             if status not in (0, 10):
                 raise DesktopError('DESKTOP_ADMIN_CHECK_FAILED')
             if status == 10:
-                emit('setup_required', username='admin', minimum_password_length=12)
-                while not self.stopping.is_set():
-                    try:
-                        command = self.commands.get(timeout=0.2)
-                    except queue.Empty:
-                        continue
-                    if command['command'] != 'setup':
-                        continue
-                    password = command.pop('password')
-                    if len(password.rstrip('\n\r ')) < 12 or len(password) > 4096 or '\x00' in password:
-                        emit('error', code='DESKTOP_PASSWORD_INVALID', message='密码至少需要 12 个字符')
-                        continue
-                    secret_path = self.paths.root / 'temporary' / 'initial-admin'
-                    try:
-                        private_write(secret_path, password)
-                        del password
-                        if self.helper_call('bootstrap', '--secret-file', str(secret_path)) != 0:
-                            raise DesktopError('DESKTOP_BOOTSTRAP_FAILED')
-                    finally:
-                        secret_path.unlink(missing_ok=True)
-                    break
+                # Personal desktop mode: bootstrap a random internal credential;
+                # the user never sets or types it. Existing users are unchanged.
+                secret_path = self.paths.root / 'temporary' / 'initial-admin'
+                try:
+                    private_write(secret_path, secrets.token_urlsafe(48))
+                    if self.helper_call('bootstrap', '--secret-file', str(secret_path)) != 0:
+                        raise DesktopError('DESKTOP_BOOTSTRAP_FAILED')
+                finally:
+                    secret_path.unlink(missing_ok=True)
             if self.stopping.is_set():
                 return 0
             self.start_service()
@@ -370,6 +365,8 @@ class Supervisor:
                     command = self.commands.get_nowait()
                 except queue.Empty:
                     continue
+                if command['command'] == 'refresh_session':
+                    self.issue_session()
                 if command['command'] == 'backup':
                     from backup import create_backup
                     try:

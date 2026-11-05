@@ -19,6 +19,11 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
     private var busy = false
     private var lastBackupDestination: URL?
     private var downloads: [ObjectIdentifier: (download: WKDownload, staging: StagedDownload)] = [:]
+    private var pendingCookies: [HTTPCookie]?
+    private var sessionTimer: Timer?
+    private var lastSession = Date.distantPast
+    private var sessionRefreshPending = false
+    private var reloadAfterSession = false
     private var initialized: Bool { resources != nil && dataDirectory != nil }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -48,7 +53,21 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
             NSApp.terminate(nil)
             return
         }
+        sessionTimer = Timer.scheduledTimer(withTimeInterval: 3 * 3600, repeats: true) { [weak self] _ in
+            self?.refreshLocalSession()
+        }
         start()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if Date().timeIntervalSince(lastSession) > 300 { refreshLocalSession() }
+    }
+
+    private func refreshLocalSession(reload: Bool = false) {
+        guard !busy, !quitting, webView != nil, runtime.isRunning, !sessionRefreshPending else { return }
+        sessionRefreshPending = true
+        reloadAfterSession = reload || Date().timeIntervalSince(lastSession) > 7 * 3600
+        if !runtime.send(["command": "refresh_session"]) { sessionRefreshPending = false }
     }
 
     private func makeWindow() {
@@ -97,7 +116,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
 
     private func start(restore: URL? = nil) {
         guard !quitting, let resources, let dataDirectory else { return }
-        origin = nil; webView = nil; busy = true
+        origin = nil; webView = nil; busy = true; pendingCookies = nil; sessionRefreshPending = false
         showStatus(title: restore == nil ? "正在准备给排水 Agent" : "正在恢复备份", message: "数据保存在这台 Mac 的独立应用目录中。", spinning: true)
         runtime.start(resources: resources, dataDirectory: dataDirectory, restore: restore)
     }
@@ -158,22 +177,19 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
         switch event {
         case .stage(let message):
             if webView == nil && password == nil { statusMessage?.stringValue = message }
-        case .setupRequired(let username, let minimum):
-            passwordMinimum = minimum
-            let stack = showStatus(title: "设置初始管理员", message: "账号：\(username)\n请设置至少 \(minimum) 个字符的密码，随后在登录页登录。", spinning: false)
-            let first = NSSecureTextField(); let second = NSSecureTextField()
-            first.placeholderString = "管理员密码"; second.placeholderString = "再次输入密码"
-            first.setAccessibilityLabel("管理员密码"); second.setAccessibilityLabel("再次输入管理员密码")
-            for field in [first, second] {
-                field.translatesAutoresizingMaskIntoConstraints = false
-                field.widthAnchor.constraint(equalToConstant: 360).isActive = true
-                stack.addArrangedSubview(field)
-            }
-            password = first; repeatedPassword = second
-            let button = NSButton(title: "创建管理员并启动", target: self, action: #selector(submitSetup))
-            button.bezelStyle = .rounded; button.keyEquivalent = "\r"
-            setupButton = button; stack.addArrangedSubview(button)
-            window.makeFirstResponder(first)
+        case .setupRequired:
+            showFailure("运行环境仍使用旧的登录版本，请重新复制完整的 App。")
+        case .localSession(let path):
+            guard let dataDirectory else { return }
+            do {
+                let cookies = try readLocalSession(file: URL(fileURLWithPath: path), dataRoot: dataDirectory)
+                pendingCookies = cookies
+                lastSession = Date(); sessionRefreshPending = false
+                if let view = webView, let currentOrigin = origin, !busy {
+                    installCookies(cookies, in: view, origin: currentOrigin, load: reloadAfterSession)
+                    reloadAfterSession = false
+                }
+            } catch { showFailure("无法恢复本地个人会话，请重新打开 App。") }
         case .ready(let value):
             guard let origin = ServiceOrigin(readyURL: value) else { showFailure("本地服务地址不符合安全约束。"); return }
             self.origin = origin
@@ -212,6 +228,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
     private func displayWeb(_ origin: ServiceOrigin) {
         guard let dataDirectory else { return }
         let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = "WaterAgentDesktop/0.1"
         // Stable, app-specific persistent store; QA data roots receive their own isolated cookies.
         let digest = Array(SHA256.hash(data: Data(dataDirectory.path.utf8)))
         let identifier = UUID(uuid: (digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7], digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]))
@@ -222,7 +239,24 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
         view.setAccessibilityLabel("给排水 Agent 工作区")
         view.allowsBackForwardNavigationGestures = false
         webView = view; window.contentView = view
-        view.load(URLRequest(url: origin.url))
+        guard let cookies = pendingCookies else {
+            showFailure("本地个人会话尚未准备完成，请重新打开 App。")
+            return
+        }
+        pendingCookies = nil
+        installCookies(cookies, in: view, origin: origin, load: true)
+    }
+
+    private func installCookies(_ cookies: [HTTPCookie], in view: WKWebView, origin: ServiceOrigin, load: Bool) {
+        let finished = DispatchGroup()
+        for cookie in cookies {
+            finished.enter()
+            view.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { finished.leave() }
+        }
+        finished.notify(queue: .main) { [weak self, weak view] in
+            guard let self, let view, !self.quitting, self.webView === view, self.origin == origin else { return }
+            if load { view.load(URLRequest(url: origin.url)) }
+        }
     }
 
     private func alert(_ title: String, text: String) {
@@ -237,7 +271,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
     }
     @objc private func reload() {
         guard initialized, !busy, !quitting else { return }
-        if let webView { webView.reload() } else { retry() }
+        if webView != nil { refreshLocalSession(reload: true) } else { retry() }
     }
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     @objc private func about() { NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "给排水 Agent", .applicationVersion: "本地独立版"]) }

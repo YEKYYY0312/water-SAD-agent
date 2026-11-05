@@ -180,7 +180,7 @@ def _guard_cleanup(paths: DesktopPaths) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['migrate', 'admin-status', 'bootstrap', 'serve', 'guard'])
+    parser.add_argument('command', choices=['migrate', 'admin-status', 'bootstrap', 'desktop-session', 'serve', 'guard'])
     for flag in ('resources', 'data-dir', 'socket-dir'):
         parser.add_argument('--' + flag, required=True, type=Path)
     parser.add_argument('--secret-file', type=Path)
@@ -209,6 +209,10 @@ def main() -> int:
         if args.command == 'bootstrap':
             from water_agent.webapp.auth.bootstrap import run_bootstrap
             return int(run_bootstrap(secret_path=args.secret_file))
+        if args.command == 'desktop-session':
+            from local_session import issue_local_session
+            issue_local_session(paths)
+            return 0
         if args.ready_file is None or args.nonce is None:
             return 1
         return asyncio.run(serve(paths, args.ready_file, args.nonce,

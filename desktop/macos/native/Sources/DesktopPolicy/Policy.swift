@@ -72,6 +72,7 @@ public enum RuntimeEvent: Equatable {
     case stage(String)
     case setupRequired(username: String, minimumLength: Int)
     case ready(String)
+    case localSession(String)
     case error(message: String, code: String)
     case backupComplete(String)
 
@@ -88,6 +89,9 @@ public enum RuntimeEvent: Equatable {
                   let minimum = object["minimum_password_length"] as? Int,
                   (12...1024).contains(minimum) else { throw DesktopPolicyError.invalidEvent }
             return .setupRequired(username: username, minimumLength: minimum)
+        case "local_session":
+            guard let path = object["path"] as? String, path.hasPrefix("/"), !path.contains("\u{0000}") else { throw DesktopPolicyError.invalidEvent }
+            return .localSession(path)
         case "ready":
             guard let value = object["url"] as? String, ServiceOrigin(readyURL: value) != nil else { throw DesktopPolicyError.invalidEvent }
             return .ready(value)
