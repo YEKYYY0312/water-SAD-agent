@@ -39,3 +39,12 @@ export function authErrorText(code: string, message: string): string {
       return message;
   }
 }
+/** Presentation only: the user-agent marker never grants authentication or access. */
+export function loginPresentation(userAgent: string) {
+  const desktop = /(?:^|\s)WaterAgentDesktop\/[0-9.]+(?:\s|$)/.test(userAgent);
+  return {
+    desktop,
+    passwordPlaceholder: desktop ? "首次启动时设置的管理员密码" : "见 secrets/admin_password",
+    hint: "请输入在 App 首次启动时设置的管理员密码。",
+  };
+}

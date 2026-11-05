@@ -6,7 +6,7 @@
 
 ## 安装与数据
 
-将 `给排水 Agent.app` 从 DMG 复制到 Applications，再双击打开。首次启动在原生安全输入框设置管理员密码；应用不会读取旧 Docker 的账号、数据库或模型密钥。
+将 `给排水 Agent.app` 从 DMG 复制到 Applications，再双击打开。本机个人版打开后直接进入工作台，无需设置或输入登录密码。后台使用私有会话及 CSRF 校验，不开放网页免鉴权接口；已有账户密码和数据保留，应用不会读取旧 Docker 的账号、数据库或模型密钥。
 
 独立数据位于 `~/Library/Application Support/WaterAgent/`。数据库只监听私有 Unix socket，HTTP 只绑定 `127.0.0.1` 动态端口。替换 App 不删除用户数据。正常退出由 App 停止自己的后端和数据库，不停止其他项目服务。
 

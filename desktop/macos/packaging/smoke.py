@@ -9,7 +9,6 @@ import argparse
 import json
 import os
 import queue
-import secrets
 import subprocess
 import threading
 import time
@@ -111,7 +110,6 @@ def run(app: Path, data_root: Path, output: Path) -> dict:
     resources = app.resolve() / "Contents/Resources"
     root = require_disposable_root(data_root)
     root.parent.mkdir(parents=True, exist_ok=True)
-    password = secrets.token_urlsafe(24)
     results: list[dict] = []
     active: AppRuntime | None = None
 
@@ -122,27 +120,36 @@ def run(app: Path, data_root: Path, output: Path) -> dict:
         if not ok:
             raise RuntimeError(f"desktop acceptance failed: {name}")
 
-    def ready(runtime: AppRuntime, setup: bool = False) -> str:
-        if setup:
-            runtime.wait("setup_required")
-            runtime.send({"command": "setup", "password": password})
+    def ready(runtime: AppRuntime) -> str:
         return safe_ready_url(runtime.wait("ready")["url"])
 
-    def sign_in(url: str) -> Client:
+    def sign_in(url: str, profile: Path) -> Client:
+        from http.cookiejar import Cookie
         client = Client(url)
-        code, _ = client.request("POST", "/api/auth/login", {"username": "admin", "password": password})
-        record("administrator_login", code == 200, status=code)
+        secret = profile / "credentials/desktop-session.json"
+        data = json.loads(secret.read_text())
+        secret.unlink()
+        for name, field in [("wa_session", "session_id"), ("wa_csrf", "csrf_token")]:
+            client.jar.set_cookie(Cookie(
+                version=0, name=name, value=data[field], port=None, port_specified=False,
+                domain="127.0.0.1", domain_specified=False, domain_initial_dot=False,
+                path="/", path_specified=True, secure=False, expires=int(data["expires_at"]),
+                discard=False, comment=None, comment_url=None,
+                rest={"HttpOnly": None} if name == "wa_session" else {}, rfc2109=False,
+            ))
+        code, _ = client.request("GET", "/api/auth/me")
+        record("personal_session_without_password", code == 200, status=code)
         return client
 
     try:
         active = AppRuntime(resources, root)
-        url = ready(active, setup=True)
+        url = ready(active)
         client = Client(url)
         code, payload = client.request("GET", "/health/ready")
         record("real_postgres_and_migrations_ready", code == 200 and payload.get("data", {}).get("status") == "ready", checks=payload.get("data", {}).get("checks"))
         code, _ = client.request("GET", "/api/memories")
         record("anonymous_access_denied", code == 401, status=code)
-        client = sign_in(url)
+        client = sign_in(url, root)
         code, payload = client.request("POST", "/api/sessions", {"title": "Mac 独立包持久化验收"}, csrf=True)
         thread = payload.get("data", {}).get("thread_id")
         record("session_created", code == 201 and bool(thread), status=code)
@@ -154,38 +161,28 @@ def run(app: Path, data_root: Path, output: Path) -> dict:
         drawing_ok, detail = _drawing_roundtrip(client)
         record("drawing_generation_and_download", drawing_ok, detail=detail)
 
-        # Existing production deployment smoke runs with packaged Python/source.
-        # Its Agentic probe replaces only the model; its corpus/index are real.
-        secret_file = root.parent / (root.name + ".test-admin-secret")
-        descriptor = os.open(secret_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            os.write(descriptor, password.encode())
-        finally:
-            os.close(descriptor)
         env = {"HOME": str(Path.home()), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                "LANG": "en_US.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
                "PYTHONPATH": str(resources / "backend/src"),
-               "SMOKE_BASE_URL": url, "SMOKE_ADMIN_PASSWORD_FILE": str(secret_file),
-               "SMOKE_EXPECTED_MIGRATION_HEAD": "0008_step15_model_choice",
                "WATER_AGENT_CREDENTIALS_DIR": str(root / "credentials/models"),
-               "WATER_AGENT_TRACE_DIR": str(root / "traces"),
-               "WATER_AGENT_UPLOAD_DIR": str(root / "uploads"),
-               "WATER_AGENT_EXPORT_DIR": str(root / "exports")}
+               "WATER_AGENT_TRACE_DIR": str(root / "traces")}
         index_files = list((resources / "backend/data/indexes").rglob("*.db"))
-        if len(index_files) == 1:
-            env["WATER_AGENT_INDEX_PATH"] = str(index_files[0])
-        try:
-            core = subprocess.run(
-                [str(resources / "python/bin/python3.12"), "-B", "-m", "water_agent.webapp.smoke"],
-                capture_output=True, text=True, env=env, cwd=root / "work", timeout=180, check=False,
-            )
-            (root.parent / "production-smoke.stdout.json").write_text(core.stdout)
-            (root.parent / "production-smoke.stderr").write_text(core.stderr)
-            core_report = json.loads(core.stdout)
-            record("existing_production_smoke", core.returncode == 0 and core_report.get("ok") is True,
-                   passed=core_report.get("passed"), failed=core_report.get("failed"))
-        finally:
-            secret_file.unlink(missing_ok=True)
+        record("one_explicit_packaged_index", len(index_files) == 1)
+        probe = subprocess.run([
+            str(resources / "python/bin/python3.12"), "-B", "-m", "water_agent.cli",
+            "给水管道的设计秒流量如何确定", "--mode", "agentic", "--mock-generator", "--json",
+            "--db-path", str(index_files[0]), "--session-dir", str(root / "sessions-smoke")],
+            capture_output=True, text=True, env=env, cwd=root / "work", timeout=180, check=False)
+        (root.parent / "packaged-agentic-probe.json").write_text(probe.stdout)
+        (root.parent / "packaged-agentic-probe.stderr").write_text(probe.stderr)
+        payload = json.loads(probe.stdout)
+        runtime_status = payload.get("retriever_runtime_status", {})
+        record("packaged_real_index_and_citations_with_scripted_model",
+               probe.returncode == 0 and payload.get("status") == "succeeded"
+               and runtime_status.get("is_fallback") is False
+               and runtime_status.get("text_index_ready") is True and bool(payload.get("citations")))
+        code, _ = Client(url).request("POST", "/api/desktop/session", {})
+        record("no_network_auto_login_endpoint", code == 404)
 
         backup = root.parent / (root.name + ".backup.tar")
         active.send({"command": "backup", "destination": str(backup)})
@@ -196,7 +193,7 @@ def run(app: Path, data_root: Path, output: Path) -> dict:
         record("postgres_stopped", not (root / "postgres/postmaster.pid").exists())
 
         active = AppRuntime(resources, root)
-        client = sign_in(ready(active))
+        client = sign_in(ready(active), root)
         code, payload = client.request("GET", f"/api/sessions/{thread}")
         record("session_survived_restart", code == 200 and payload.get("data", {}).get("title") == "Mac 独立包持久化验收")
         code, _ = client.request("GET", f"/api/uploads/{upload}")
@@ -207,7 +204,7 @@ def run(app: Path, data_root: Path, output: Path) -> dict:
 
         restored = require_disposable_root(root.parent / (root.name + " 已恢复"))
         active = AppRuntime(resources, restored, restore=backup)
-        client = sign_in(ready(active))
+        client = sign_in(ready(active), restored)
         code, _ = client.request("GET", f"/api/sessions/{thread}")
         record("backup_restore_session", code == 200)
         code, _ = client.request("GET", f"/api/uploads/{upload}")

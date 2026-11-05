@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConversationPanel, ProjectSidebar } from "./workspaceComponents";
 import { authApi } from "./authApi";
+import { loginPresentation } from "./authState";
 import { DrawingPanel } from "./DrawingPanel";
 import { Icon } from "./icons";
 import { MemoryWorkspace } from "./MemoryWorkspace";
@@ -14,6 +15,7 @@ const INSPECTOR_KEY = "water-agent:inspector-open";
 const OVERLAY_QUERY = "(max-width: 78rem)";
 
 export function Workbench() {
+  const desktop = loginPresentation(typeof navigator === "undefined" ? "" : navigator.userAgent).desktop;
   const workspace = useWorkspaceController();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // 窄屏上检查面板是覆盖层，默认收起，否则一进来就挡住整个会话。
@@ -83,9 +85,9 @@ export function Workbench() {
       <button type="button" className="nav-row settings-toggle" aria-pressed={workspace.settingsOpen} aria-label={workspace.settingsOpen ? "返回会话" : "设置"} title="设置" onClick={openSettings}>
         <Icon name="settings" /><span>{workspace.settingsOpen ? "返回会话" : "设置"}</span>
       </button>
-      <button type="button" className="nav-row" onClick={logout} title="退出登录">
+      {!desktop && <button type="button" className="nav-row" onClick={logout} title="退出登录">
         <Icon name="logout" /><span>退出登录</span>
-      </button>
+      </button>}
       <p className="service" aria-live="polite">
         <span className={`dot ${serviceState === "ready" ? "is-ready" : serviceState === "attention" ? "is-attention" : ""}`} aria-hidden="true" />
         {modelState}{workspace.run.runId ? ` · 事件 ${workspace.run.lastEventId}` : ""}
