@@ -98,4 +98,22 @@ let symbolicDownload = try StagedDownload(destination: chosenDestination)
 try FileManager.default.createSymbolicLink(at: symbolicDownload.fileURL, withDestinationURL: newDestination)
 rejects("staged symlink cannot replace selected file") { try symbolicDownload.commit() }
 check(try! Data(contentsOf: chosenDestination) == Data("new-content".utf8), "symlink stage preserves original")
+
+// A short newline event must be delivered while the producer keeps the pipe open.
+// Foundation.read(upToCount:4096) waits for a full buffer on this macOS host.
+let controlPipe = Pipe()
+let shortEvent = Data("{\"event\":\"setup_required\"}\n".utf8)
+let shortDelivered = DispatchSemaphore(value: 0)
+DispatchQueue.global().async {
+    if let block = try? readControlChunk(from: controlPipe.fileHandleForReading), block == shortEvent {
+        shortDelivered.signal()
+    }
+}
+try controlPipe.fileHandleForWriting.write(contentsOf: shortEvent)
+let deliveredBeforeEOF = shortDelivered.wait(timeout: .now() + 0.5) == .success
+try controlPipe.fileHandleForWriting.close()
+check(deliveredBeforeEOF, "short control event is delivered before writer closes")
+let controlEOF = try readControlChunk(from: controlPipe.fileHandleForReading)
+check(controlEOF == nil, "control EOF is explicit")
+
 print("PolicyChecks final: \(count) assertions passed (XCTest runner not used)")
