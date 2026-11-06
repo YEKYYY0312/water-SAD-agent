@@ -68,6 +68,10 @@ from water_agent.external.taint import (
 )
 from water_agent.generation.cost import estimate_model_cost
 from water_agent.generation.governed_chat import GovernedChatModel
+from water_agent.graphs.calculation_answer import (
+    WARNING_PROGRAMMATIC_CALCULATION,
+    render_programmatic_velocity,
+)
 from water_agent.ingestion.version_registry import get_version_registry
 from water_agent.observability import otel
 from water_agent.observability.json_trace import JsonTraceRecorder
@@ -1107,6 +1111,9 @@ def make_citation_validator(version_registry: Any | None = None):
     未知只标记（``warnings``），不回流、不判失败。
 
     零引用闭环（P1/Step 10 评审强制"引用可追溯"落地；豁免条件 2026-09-30 修正）：
+    - 2026-11-06：严格纯计算语法 + 本轮 canonical calc_velocity 执行凭证 →
+      同 id 改写为确定性数值摘要后收口，LLM 原正文不作为数字／规范结论放行；
+      其余零引用分支和所有规范引用规则保持不变；
     - 已检索到非空结果 + 模型已回答 + 无 cite_clauses 声明 → 注入要求声明引用的
       ToolMessage 回流一次（``EMPTY_CITATION_MAX_REFLOWS``）；
     - 回流后再空引用 → 结构化失败（错误文本进 ``errors``，对报告/用户可见）；
@@ -1139,7 +1146,7 @@ def make_citation_validator(version_registry: Any | None = None):
         tainted, refs = web_signal(messages)
         if not tainted and not refs:
             return result
-        answer_text = final_answer_text(messages)
+        answer_text = final_answer_text(result.get("messages", messages))
         human = _last_human_message(messages)
         bad = unverified_urls(answer_text, refs, user_text=_message_text(human) if human is not None else "")
         if not bad:
@@ -1200,6 +1207,16 @@ def make_citation_validator(version_registry: Any | None = None):
                 "空回答/零引用不得收口为成功"
             )
             return {"status": STATUS_FAILED, "errors": errors}
+
+        calculation_answer = render_programmatic_velocity(messages)
+        if calculation_answer is not None:
+            if WARNING_PROGRAMMATIC_CALCULATION not in warnings:
+                warnings.append(WARNING_PROGRAMMATIC_CALCULATION)
+            return {
+                "status": STATUS_SUCCEEDED,
+                "messages": _rewrite(_final_answer_message(messages), calculation_answer),
+                "citations": [], "errors": errors, "warnings": warnings,
+            }
 
         # 豁免只看回答内容是否含规范性结论，不看措辞：此前"未检索到"是一句魔法短语——
         # 不检索、写一句"未检索到相关条款"再凭记忆给出限值，也判成功且不带 warning。
