@@ -1,0 +1,720 @@
+{
+  "date": "2026-11-06",
+  "verdict": "partial_business_acceptance_failed",
+  "scope": "Local macOS real-provider smoke; not a statistical quality baseline",
+  "source": {
+    "branch": "codex/macos-standalone-app",
+    "business_smoke_commit": "beca651081176a6198db8facfdb945529f0d3f95",
+    "installed_code_commit": "9523739e5a48113c8d4bbbe50dc298a418d9fd40",
+    "original_five_desktop_commits_preserved": true,
+    "installed_git_dirty": false,
+    "unchanged_backend_resource_count": 314
+  },
+  "configuration": {
+    "chat_base_url": "https://llm-proxy.learnings.ai/v1",
+    "chat_model": "deepseek-v4.1-flash",
+    "chat_source": "panel",
+    "chat_editable": true,
+    "embedding_base_url": "https://llm-proxy.learnings.ai/v1",
+    "embedding_model": "text-embedding-3-large",
+    "dimensions_read_from_index": 3072,
+    "retrieval_mode": "hybrid",
+    "rerank": "local",
+    "recall_top_k": 20,
+    "hybrid_alpha": 0.7,
+    "actual_retrieve_top_k": [
+      8,
+      8,
+      8,
+      6
+    ],
+    "strict_fixed_top5": false,
+    "host_environment_inherited": false,
+    "secrets_in_package": false
+  },
+  "transport_construction_diagnostic": {
+    "chat": {
+      "request_base_url": "https://llm-proxy.learnings.ai/v1/",
+      "async_request_base_url": "https://llm-proxy.learnings.ai/v1/",
+      "model": "deepseek-v4.1-flash",
+      "stream_usage": true,
+      "sdk_max_retries": 0
+    },
+    "embedding": {
+      "request_url": "https://llm-proxy.learnings.ai/v1/embeddings",
+      "model": "text-embedding-3-large",
+      "dimensions": 3072
+    },
+    "network_calls_in_this_diagnostic": 0
+  },
+  "index": {
+    "published_directory": "data/indexes/text-embedding-3-large__3072__d56c60259633__20261104",
+    "rebuild_performed": false,
+    "vectors_replaced": false,
+    "all_11_files_equal": true,
+    "files": [
+      {
+        "name": "artifact.json",
+        "size": 1809,
+        "sha256": "48910a7af73f36eac52187ffccb181ad1794ec8bb2d804b10b6af444cac11fd6",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db",
+        "size": 3346010,
+        "sha256": "b08553a68c674ebeddb1d7550cfaca307217f935128abc4be5090a33be0e19d8",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.flush_ok",
+        "size": 29,
+        "sha256": "b4adb536675d0e9d36fdc15aee016eb8b91c88e2e04a943d79cd08c8b21a31d9",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.index_meta.json",
+        "size": 249,
+        "sha256": "cf662fcc9569ced34989864abc2da97b18378619775cdd6224f0556015fc635d",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.lock",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.manifest.json",
+        "size": 84139,
+        "sha256": "3f77d5d6a4d9d4af8ddb45f8fd44ab6912dfd3be9439873c36b540978ac49a92",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.parents.json",
+        "size": 57016,
+        "sha256": "be7eff49e134ad58dbfbc3645a61840db1d552f109d8e93c5bbaee0661665cd7",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.text",
+        "size": 3587262,
+        "sha256": "74ec646675a98c692d130f1e6a25616dbd4f0170c2451b32ff3ee8a697c29352",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.text.meta",
+        "size": 28,
+        "sha256": "a257895325787fbe97c20a7f57e7644fe9674e306f39bad89f609f85a194a650",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.vec",
+        "size": 40710144,
+        "sha256": "99d21b8291bdba7ef62085bf60383c1020d3a2a7f0b404c8f90af9d980fa270e",
+        "installed_equal": true
+      },
+      {
+        "name": "clauses.db.wal",
+        "size": 6,
+        "sha256": "4cb1780d5197f4afcfe53878bea73013217fe50815231501b29b261e42ac8e29",
+        "installed_equal": true
+      }
+    ]
+  },
+  "retriever_diagnostic": {
+    "is_fallback": false,
+    "fallback_kind": "none",
+    "fallback_reason": "real db",
+    "db_error": null,
+    "text_index_ready": true,
+    "text_indexed_nodes": 0,
+    "text_index_source": "persisted",
+    "access_mode": "read_only",
+    "db_opened": true,
+    "index_meta": "present",
+    "retrieval_mode": "hybrid",
+    "retrieval_mode_reason": "forced",
+    "retrieval_mode_detail": null
+  },
+  "retriever_evidence_boundary": "SSE and trace record hybrid/forced; separate no-network construction using installed production factory confirms read-only real index and is_fallback=false. Production messages/usage confirm real embedding and returned source IDs. No access to private in-process retriever object was claimed.",
+  "credentials": {
+    "source_volume": "water-agent_app_credentials",
+    "source_mount_read_only": true,
+    "source_endpoint_verified_before_copy": true,
+    "production_resolver_used": true,
+    "production_writer_used": true,
+    "slots": [
+      "WATER_AGENT_LLM_API_KEY",
+      "WATER_AGENT_EMBEDDING_API_KEY"
+    ],
+    "directory_modes": {
+      "credentials": "0o700",
+      "credentials/models": "0o700"
+    },
+    "file_modes": {
+      "llm_endpoint.json": "0o600",
+      "llm_compatibility_report.json": "0o600",
+      "water_agent_llm_api_key": "0o600",
+      "water_agent_embedding_api_key": "0o600"
+    },
+    "revalidation": {
+      "source_read_only": true,
+      "network": "none",
+      "log_driver": "none",
+      "app_values_match_source": true,
+      "production_writer_used": true,
+      "first_transfer_logging_audit_gap": true,
+      "initial_transfer_container_auto_removed": true,
+      "initial_docker_default_log_driver": "json-file",
+      "possible_transient_daemon_logging": "not provably excluded; no retained log identified; no credential rotation performed",
+      "no_key_or_suffix_displayed": true
+    }
+  },
+  "compatibility": {
+    "runs": 2,
+    "runs_all_seven_passed": true,
+    "first_entry": "authenticated App API",
+    "second_entry": "native window settings after explicit confirmation",
+    "cancel_preserved_report": true,
+    "native_final_report": {
+      "version": "p7-s10-2026-10-13",
+      "status": "compatible",
+      "model": "deepseek-v4.1-flash",
+      "endpoint": "https://llm-proxy.learnings.ai/v1",
+      "checks": {
+        "function_calling": "passed",
+        "structured_citations": "passed",
+        "programmatic_calculation": "passed",
+        "tool_schema_budget": "passed",
+        "streaming_usage": "passed",
+        "error_handling": "passed",
+        "cancellation_timeout": "passed"
+      },
+      "schema_tokens": 3083,
+      "evidence": {
+        "probe_version": "p7-s10-2026-10-13",
+        "kind": "openai_compatible_endpoint",
+        "endpoint_host": "llm-proxy.learnings.ai",
+        "checked_at": "2026-11-06T10:09:44+00:00",
+        "function_call_names": [
+          "calc_velocity"
+        ],
+        "citation_call_names": [
+          "cite_clauses"
+        ],
+        "calculation_result_keys": [
+          "assumptions",
+          "velocity_mps"
+        ],
+        "stream_usage_reported": true,
+        "error_code": "PROVIDER_UNAVAILABLE",
+        "error_seconds": 0.74,
+        "cancel_first_chunk": true,
+        "cancel_close_seconds": 0.001
+      }
+    },
+    "token_usage_retained": false
+  },
+  "cases": [
+    {
+      "query": "根据入库规范，新建地区的排水系统应采用何种排水体制？请检索并给出可追溯引用。",
+      "tools": [
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "新建地区排水体制 雨污分流",
+            "top_k": 8
+          }
+        },
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "排水系统 分流制 合流制 选择原则",
+            "top_k": 8
+          }
+        },
+        {
+          "name": "cite_clauses",
+          "args": {
+            "article_ids": [
+              "GB50014-2021 3.1.2",
+              "GB50318-2017 3.3.2"
+            ]
+          }
+        }
+      ],
+      "returned_sources": [
+        "GB50014-2021 3.1.2",
+        "GB50318-2017 3.3.2",
+        "GB50014-2021 6.2.2",
+        "GB50014-2021 5.1.14",
+        "GB50318-2017 3.3.1",
+        "GB50014-2021 5.4.2",
+        "GB50318-2017 6.2.2",
+        "GB50318-2017 6.1.1",
+        "GB50318-2017 6.1.2"
+      ],
+      "declared_sources": [
+        "GB50014-2021 3.1.2",
+        "GB50318-2017 3.3.2"
+      ],
+      "provider_returned_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "trace_id": "3314b6faaa5243069c0f03edbde5ab4b",
+      "status": "succeeded",
+      "all_declared_in_turn_sources": true,
+      "all_declared_in_thread_sources": true,
+      "latency_seconds": 15.949152,
+      "finalize": {
+        "status": "succeeded",
+        "citations": [
+          {
+            "source_id": "GB50014-2021 3.1.2"
+          },
+          {
+            "source_id": "GB50318-2017 3.3.2"
+          }
+        ],
+        "errors": [],
+        "warnings": [],
+        "calculations": [],
+        "retrieval_mode": "hybrid",
+        "retrieval_mode_reason": "forced"
+      },
+      "answer_sha256": "5af2ae76b300d6a6d3e79de0f6ffbea8dfc171c894f86c015cf509742a7d8e3e",
+      "sse_event_counts": {
+        "run_queued": 1,
+        "run_started": 1,
+        "memory_recall": 1,
+        "upload_recall": 1,
+        "state": 4,
+        "tool_started": 3,
+        "agent_message": 2,
+        "draft_delta": 23,
+        "tool_result": 3,
+        "draft_closed": 1,
+        "finalize": 1,
+        "stream_end": 1
+      },
+      "draft_offsets_contiguous": true,
+      "draft_retracts": [],
+      "case_id": "normative-question",
+      "usage": {
+        "bailian_embedding": {
+          "records": 2,
+          "known_records": 2,
+          "unknown_records": 0,
+          "input_tokens_known": 29,
+          "output_tokens_known": 0,
+          "cost_usd": null
+        },
+        "deepseek_chat": {
+          "records": 3,
+          "known_records": 3,
+          "unknown_records": 0,
+          "input_tokens_known": 15893,
+          "output_tokens_known": 1270,
+          "cost_usd": null
+        }
+      }
+    },
+    {
+      "query": "你刚才提到的“降雨量少的干旱地区”例外，条文说明是如何解释的？请结合上一轮回答，沿用本会话可追溯的来源并标明条款号。",
+      "tools": [
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "排水体制选择 新建地区应采用分流制 降雨量少的干旱地区 条文说明",
+            "top_k": 8
+          }
+        },
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "城市排水工程规划 新建地区 旧城改造 分流制 干旱地区 排水体制",
+            "top_k": 6
+          }
+        },
+        {
+          "name": "cite_clauses",
+          "args": {
+            "article_ids": [
+              "GB50014-2021 3.1.2",
+              "GB50318-2017 3.3.2"
+            ]
+          }
+        }
+      ],
+      "returned_sources": [
+        "GB50014-2021 3.1.2",
+        "GB50318-2017 3.3.2",
+        "GB50318-2017 3.3.1",
+        "GB50014-2021 5.4.2",
+        "GB50318-2017 6.1.2",
+        "GB50014-2021 4.1.8",
+        "GB50014-2021 4.1.20",
+        "GB50318-2017 3.1.2",
+        "GB50318-2017 5.5.1"
+      ],
+      "declared_sources": [
+        "GB50014-2021 3.1.2",
+        "GB50318-2017 3.3.2"
+      ],
+      "provider_returned_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "trace_id": "f25adea04f344db49551bf597fc185bf",
+      "status": "succeeded",
+      "all_declared_in_turn_sources": true,
+      "all_declared_in_thread_sources": true,
+      "latency_seconds": 20.033916,
+      "finalize": {
+        "status": "succeeded",
+        "citations": [
+          {
+            "source_id": "GB50014-2021 3.1.2"
+          },
+          {
+            "source_id": "GB50318-2017 3.3.2"
+          }
+        ],
+        "errors": [],
+        "warnings": [],
+        "calculations": [],
+        "retrieval_mode": "hybrid",
+        "retrieval_mode_reason": "forced"
+      },
+      "answer_sha256": "cedca12952f87820fb000252880ec19fd2806c2a038e1dba2df5546fc1369f01",
+      "sse_event_counts": {
+        "run_queued": 1,
+        "run_started": 1,
+        "memory_recall": 1,
+        "upload_recall": 1,
+        "state": 4,
+        "tool_started": 3,
+        "agent_message": 2,
+        "draft_delta": 29,
+        "tool_result": 3,
+        "draft_closed": 1,
+        "finalize": 1,
+        "stream_end": 1
+      },
+      "draft_offsets_contiguous": true,
+      "draft_retracts": [],
+      "case_id": "same-thread-followup",
+      "usage": {
+        "bailian_embedding": {
+          "records": 2,
+          "known_records": 2,
+          "unknown_records": 0,
+          "input_tokens_known": 67,
+          "output_tokens_known": 0,
+          "cost_usd": null
+        },
+        "deepseek_chat": {
+          "records": 3,
+          "known_records": 3,
+          "unknown_records": 0,
+          "input_tokens_known": 15801,
+          "output_tokens_known": 1710,
+          "cost_usd": null
+        }
+      }
+    },
+    {
+      "query": "DN150、Q=20L/s，求流速。此次验收明确按内径 150mm、满管计算，请调用程序化计算工具并注明这个前提。",
+      "tools": [
+        {
+          "name": "calc_velocity",
+          "args": {
+            "diameter_mm": 150,
+            "flow_lps": 20,
+            "scenario": "water_supply"
+          }
+        }
+      ],
+      "returned_sources": [],
+      "declared_sources": [],
+      "provider_returned_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "calculation_tool_result": {
+        "velocity_mps": 1.132,
+        "assumptions": []
+      },
+      "trace_id": "debf10c84d254cae991cab193818bda2",
+      "status": "failed",
+      "all_declared_in_turn_sources": null,
+      "all_declared_in_thread_sources": null,
+      "latency_seconds": 18.906685,
+      "finalize": {
+        "status": "failed",
+        "citations": [],
+        "errors": [
+          "空引用收口失败：存在检索结果/模型已回答，但两次校验均未调用 cite_clauses 声明引用（空引用已回流一次）。零引用回答不得计为成功。"
+        ],
+        "warnings": [],
+        "calculations": [
+          {
+            "tool_name": "calc_velocity",
+            "programmatic": true,
+            "values": {
+              "velocity_mps": 1.132
+            },
+            "units": {
+              "velocity_mps": "m/s"
+            },
+            "assumptions": []
+          }
+        ],
+        "retrieval_mode": "hybrid",
+        "retrieval_mode_reason": "forced"
+      },
+      "answer_sha256": "d112990e261f4711634c248a4f4c0e9f9e64c71f5ebe0d3da38c668ec336d9bc",
+      "sse_event_counts": {
+        "run_queued": 1,
+        "run_started": 1,
+        "memory_recall": 1,
+        "upload_recall": 1,
+        "state": 6,
+        "tool_started": 1,
+        "agent_message": 1,
+        "draft_delta": 38,
+        "tool_result": 1,
+        "draft_retract": 2,
+        "draft_closed": 1,
+        "finalize": 1,
+        "stream_end": 1
+      },
+      "draft_offsets_contiguous": true,
+      "draft_retracts": [
+        {
+          "reason": "revised"
+        },
+        {
+          "reason": "run_ended"
+        }
+      ],
+      "case_id": "programmatic-velocity",
+      "usage": {
+        "deepseek_chat": {
+          "records": 3,
+          "known_records": 3,
+          "unknown_records": 0,
+          "input_tokens_known": 12168,
+          "output_tokens_known": 1591,
+          "cost_usd": null
+        }
+      }
+    }
+  ],
+  "credential_security_acceptance": "incomplete_initial_transfer_logging_gap",
+  "additional_input_error": {
+    "query": "，？。",
+    "trace_id": "4ec773a4ee59413db4f7ea2177bbf5d5",
+    "status": "failed",
+    "reason": "Native typeText omitted Chinese characters; actual input was punctuation only. Retained, not counted among three intended smoke cases."
+  },
+  "usage_all_smoke_and_input_error": {
+    "bailian_embedding": {
+      "records": 4,
+      "known": 4,
+      "unknown": 0,
+      "input_tokens_known": 96,
+      "output_tokens_known": 0,
+      "retry_count_total": 0,
+      "cost_usd": null
+    },
+    "deepseek_chat": {
+      "records": 11,
+      "known": 11,
+      "unknown": 0,
+      "input_tokens_known": 48588,
+      "output_tokens_known": 5449,
+      "retry_count_total": 0,
+      "cost_usd": null
+    }
+  },
+  "usage_unknown_groups": [
+    {
+      "group": "two compatibility probe runs",
+      "input_tokens": null,
+      "output_tokens": null,
+      "reason": "existing compatibility report does not persist per-request usage; cancellation/error probes may not return complete usage"
+    }
+  ],
+  "cost_usd": null,
+  "word_export": {
+    "status": 200,
+    "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "filename": "新工程会话-b5ff3a83.docx",
+    "sha256": "071eb381437787c0408e69a0ccc14e11fb27719c7087a4c21c625c960429eedd",
+    "size": 39801,
+    "download_method": "authenticated production HTTP export API",
+    "opened_in": "WPS Office",
+    "chinese_visible": true,
+    "native_wkdownload_save_dialog_exercised_this_run": false,
+    "limitation": "Existing DOCX renderer preserves Markdown markers in body; no formatting cleanup performed."
+  },
+  "restart": {
+    "sessions_and_runs_equal": true,
+    "session_count": 3,
+    "history_message_count": 6,
+    "last_answer_status": "failed",
+    "native_observations": {
+      "login_or_setup_shown": false,
+      "workbench_restored": true,
+      "model_configured_indicator": true,
+      "failed_answer_mark_preserved": true,
+      "confirmation_dialog_cancel_verified": true,
+      "confirmation_dialog_continue_verified": true,
+      "probe_ui_final_status": "compatible",
+      "word_opened_in": "WPS Office",
+      "word_chinese_text_visible": true
+    },
+    "credential_directory_modes": {
+      "credentials": "0o700",
+      "credentials/models": "0o700"
+    },
+    "credential_file_modes": {
+      "llm_endpoint.json": "0o600",
+      "llm_compatibility_report.json": "0o600",
+      "water_agent_llm_api_key": "0o600",
+      "water_agent_embedding_api_key": "0o600"
+    }
+  },
+  "delivery": {
+    "installed_app": "~/Applications/给排水 Agent.app",
+    "rollback_app": "~/.codex/worktrees/water-agent-ci-recovery/给排水agent/work/macos-real-model-2026-11-06/rollback-e27440b.app",
+    "intermediate_rollback_app": "~/.codex/worktrees/water-agent-ci-recovery/给排水agent/work/macos-real-model-2026-11-06/rollback-beca651.app",
+    "dmg": "~/Desktop/给排水Agent-独立版-arm64-2026-11-06.dmg",
+    "dmg_size": 235551258,
+    "dmg_sha256": "b2f99f33a3fbd9dd312a1a20310d913e927eae1a9b49ddde7a0b739042b46395",
+    "source_commit": "9523739e5a48113c8d4bbbe50dc298a418d9fd40",
+    "git_dirty": false,
+    "business_smoke_backend_files_identical": true,
+    "backend_files_compared": 314
+  },
+  "dmg_verification": {
+    "mounted_read_only": true,
+    "bundle_scan_ok": true,
+    "signature_verified": true,
+    "manifest_identical_to_installed": true
+  },
+  "packaged_mechanism_smoke": {
+    "ok": true,
+    "passed": 22,
+    "isolated_disposable_profile": true,
+    "uses_scripted_model": true,
+    "not_real_llm_acceptance": true
+  },
+  "limitations": [
+    "Pure calculation tool succeeded (1.132 m/s), but whole turn failed existing empty-citation rule after one reflow. Original answer and trace retained; no rerun.",
+    "calc_velocity scenario=water_supply was supplied by model; user specified diameter and flow only. Attached scenario-range commentary is not accepted as an engineering conclusion.",
+    "Declared citation membership is checked; semantic correctness of every sentence was not expert-reviewed. First answer additionally mentions 5.4.2 and 5.1.14 without separate cite_clauses declarations.",
+    "Draft offsets and retractions verified from actual SSE replay; final rendering and failed state observed in native window. Every transient draft frame was not independently visually scored.",
+    "The follow-up retrieved again; this proves same-thread history continuity and citation membership, not retrieval-free citation reuse.",
+    "Word downloaded through existing authenticated API and opened in WPS; native save-panel path was not independently exercised with this real run.",
+    "Initial program package was replaced once more for native confirmation; all 314 backend resources match the package that executed the three questions.",
+    "Initial credential transfer did not disable the Docker json-file log driver. Temporary container was removed; transient daemon logging cannot be excluded. Revalidated and rewrote identical credentials with --log-driver none. Shared credentials were not rotated, to avoid changing old services.",
+    "No extra LLM judge, full 58-case dataset, prompt/chunk/gold/threshold/baseline change, S16 change, public deployment, App Store or notarization."
+  ],
+  "next_minimal_task": "Define and test zero-citation closure for answers backed by a successful deterministic calculation, with exact numeric provenance and no uncited normative conclusion; review separately before changing the citation validator.",
+  "verification": {
+    "ci_first_exit": 0,
+    "ci_final_exit": 0,
+    "frontend_test_count": 148,
+    "frontend_test_and_build_exit": 0,
+    "desktop_python_test_count": 88,
+    "desktop_python_exit": 0,
+    "native_policy_assertions": 81,
+    "native_policy_exit": 0,
+    "native_release_build_exit": 0,
+    "xctest": "not run; CommandLineTools lacks XCTest",
+    "installed_bundle_verify_exit": 0,
+    "git_diff_check_exit": 0,
+    "additional_web_export_auth_tests": {
+      "passed": 98,
+      "skipped": 1,
+      "exit": 0,
+      "skip_reason": "P5_TEST_DATABASE_URL missing; isolated packaged PostgreSQL smoke executed separately"
+    }
+  },
+  "old_8000_8001_and_databases_unchanged": true,
+  "credential_exposure_scan": {
+    "exact_credential_values_found": 0,
+    "scanned_file_count": 8672,
+    "keys_displayed": false
+  },
+  "usage_intended_three_cases": {
+    "deepseek_chat": {
+      "known_records": 9,
+      "input_tokens_known": 43862,
+      "output_tokens_known": 4571,
+      "cost_usd": null
+    },
+    "bailian_embedding": {
+      "known_records": 4,
+      "input_tokens_known": 96,
+      "output_tokens_known": 0,
+      "cost_usd": null
+    }
+  },
+  "program_file_hashes": {
+    "Contents/MacOS/WaterAgentDesktop": "6b6c33e12c19b62b04de8f82e5084343cb23a1e0272bf5224be00b69c7f742cc",
+    "Contents/Info.plist": "a9e16f5c9244f72911bbe84c0c038dc15bb594a8a8da4950aa23465ce77726ed",
+    "Contents/Resources/build-manifest.json": "ad332e825f7287c0b4a6ec310308a15354868934cc8af8d138c18ed82d5e9c44"
+  },
+  "raw_evidence_directory": "work/macos-real-model-2026-11-06/",
+  "raw_evidence_sha256": {
+    "3314b6faaa5243069c0f03edbde5ab4b.json": "8e2b85b50f1ac57ee4fe69e38baa0f2a3e562f05031b6dc32ee07f37af31c8b3",
+    "f25adea04f344db49551bf597fc185bf.json": "8f58f77a9f2c5bddfe690bfefdaa16330df6647cd2ee4a46cd75c0af1d779c9a",
+    "debf10c84d254cae991cab193818bda2.json": "9e881fa7551b5093e4e4fd84a284f51bc2901e126b05f91608c3d8e9747691d0",
+    "4ec773a4ee59413db4f7ea2177bbf5d5.json": "59d86fdf298fef3ae92f10e4e69476108986dadea57d79e808c916534b1f8a45",
+    "rag-sse.json": "0beff9cbec84128df9b98724e5f9976253a8182fcd0bff59509894a4162ef7e9",
+    "followup-sse.json": "061a5a5f5b10fa2bde526e454ec67bc367345c7496b81cf5a90b59a706ca7a14",
+    "calc-sse.json": "5d8f2ba9e2f01f000441ae8f07aa95e7b063288c5ac7ae01a84b1637c3d6125e",
+    "input-error-sse.json": "6f85f3874d03feb037171f98d2e0001fffff839f7848958d1f41a40e660a6aa1",
+    "checkpoint-live.json": "75b9cf9a24f3f561281eadf0ca5c1a15b28bc3dfac439d7483123af52e11ed55",
+    "app_client.py": "2ed0a7e6591c231884f80a6148f4db82d46abf84aee190188831a30707e6c975",
+    "summarize.py": "b654f8e22fd287d33cd205c14ed9e6758006521351c1bf28cebff401118483be",
+    "business-summary.json": "866c358d9986668e2f8b4bf269fb6476360c3db013ec94119c7dbd037acc7aab",
+    "compatibility-first.json": "06830e3e4584a15e1251f466812c65d26c57b0df44ec41adde84c5c484fdd749",
+    "compatibility-native-final.json": "97e216bec2e759376d69952c75034ea227390ca5b4f58d4dd47b992e93bc7d1a",
+    "confirmation-cancel.json": "79705620346b54086e6650ec2954d7615aba91a82988828c185ffd4ed2870209",
+    "runtime-before-probe.json": "b3b83ee2bf68b2a360356345f3ba69d1bb5fd79ea188e2b2f82330b5d81f1569",
+    "runtime-after-restart.json": "7fda1a6f4670d95bc3aa57ac7f1c8841b866ba05d07f5846f3fc331a2a82590c",
+    "transports.json": "86863768300bf62c2105311444fb05253185e3e2828856827e45cdf5f4a134a6",
+    "credential-migration.json": "6fa07dfd5fae1e4305451f761ee4f4133ae3a535c11d62eba1cc47b79b2cf174",
+    "credential-revalidation.json": "5fcc644b957008fff3cbfe09a4cd4f07ccf553b1f6cc4fa089ea563e7066c799",
+    "credential-exposure-scan.json": "4a9d31a6c0cebde97133e7dfb98ba052626515f8f4f0f3364c9052845e02f4bc",
+    "index-before.json": "3c2e7fd393f02cf9e8e436c393db6a056e9af8bf273bf8640975f98f46c38719",
+    "index-final.json": "3c2e7fd393f02cf9e8e436c393db6a056e9af8bf273bf8640975f98f46c38719",
+    "restart-verification.json": "bdab747525d3f2a9b78d42e23270873016a7ed2828981d4358a3be48678f7f5e",
+    "sessions-final.json": "b8b8a8695dcd79d82cfb093e4af6e0e867e6556f994fca4d7a34323724a955e2",
+    "sessions-after-restart.json": "b8b8a8695dcd79d82cfb093e4af6e0e867e6556f994fca4d7a34323724a955e2",
+    "history-after-restart.json": "0dd35177853d746ada16f23634e0f289c3132497844a8636d37949f7db4cbd3c",
+    "word-export.json": "b0a6b77e7ac3d0f5405734e6230520133ecf83b086fa3657f18be186ee96a116",
+    "old-services-before.json": "6a487dce080b5a8d6ff01e8070dfa08ff5bec22288d9ae38ce475aeb46131fad",
+    "old-services-after.json": "6a487dce080b5a8d6ff01e8070dfa08ff5bec22288d9ae38ce475aeb46131fad",
+    "ci-gate.log": "43353a77626b935cfd4dc3542fd68e01fb6bfd7efc4e53e48d56bb5d7edcb7bf",
+    "ci-gate-final.log": "b8bdb03a8c5b5c5ff7885538b42e71a6ef64ff5f5f625ac830dff32435ae3c6d",
+    "desktop-tests.log": "31d4f6ed061187bd4bcaecd24059371e79ed220f567109eaef744423f52fcf35",
+    "swift-policy.log": "fb7962698c92f7ea1a196f11b79897dbe1f832f9e381f34ddc95c8efaa2111d0",
+    "confirm-red.log": "dee91283353b4aae2cc55f728dfc2cb3ce1e16740bffa0c84bd2a377090bb148",
+    "confirm-green.log": "f7c47e6a84d343bb88eda1f2cfdca1c309fbff5ed9bb77b6ce01e7f34912d408",
+    "frontend.log": "e962848f2f88342dc0bdbd4232a72fe00a6102d549da1d9180a1ace8f7d04b05",
+    "integration-tests.log": "aca6d225a051cd5ceb6866d01489c79253b353c192fd88708fc48a419dd7beae",
+    "build.log": "eca0360ecbd910d9dc10a64c94d8820f189436e659d39b79461ce0933c132f61",
+    "final-build.log": "62e605cc44ae182a234789c92c5e0b8e7993789c75fdead1be377f05b0c8559f",
+    "business-smoke-build-manifest.json": "489b356deb65511e2b1b2db370f46157779bd0f0db26ddecf1b869c6eb33a0a3",
+    "installation.json": "e5dcaeae1f9a42964525e0400aa179a241b701c9043bafbe9e39d8698cfbf05d",
+    "installed-final-verification.json": "f7ccf510f83e79e9a3bd25f28ba6e8a26a50681c9ace2536f80026eb26fff2f5",
+    "installed-signature.txt": "4d688f7fe2d964e42d1baa16a31a6bc5d1b55eaf5dd589895dd1abd7a7099fe5",
+    "dmg-verification.json": "1cd4973018deba14d2bf323b10ce82946bbc3feb1751691a3517163efdb23437",
+    "dmg-verification.log": "4a04a30c583c1b63347ad62fabb3658587f812fc2f19c6fe9f69fa6e821d25da",
+    "packaged-smoke.json": "23e61936f76b34c62520751f1de004c040b93681079b4721fb0b27b0125b208f",
+    "packaged-smoke.log": "992dcc68faaa8caa1e832f90050095ebe47764ba8851a1914b804517b3a95ca4"
+  }
+}
