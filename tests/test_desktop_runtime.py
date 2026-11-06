@@ -59,6 +59,58 @@ def test_environment_does_not_inherit_production_credentials(tmp_path, monkeypat
     assert env['PATH'].endswith('/usr/bin:/bin:/usr/sbin:/sbin')
 
 
+def test_desktop_embedding_adapter_uses_production_endpoint_resolution(tmp_path, monkeypatch):
+    import json
+
+    from water_agent.generation.endpoints import resolve_chat_endpoint, resolve_embedding_endpoint
+
+    paths = complete_paths(tmp_path)
+    private_write(paths.root / 'config/embedding.json', json.dumps({
+        'base_url': 'https://model-endpoint.invalid/v1',
+        'model': 'text-embedding-3-large', 'retrieval_mode': 'hybrid',
+    }))
+    monkeypatch.setenv('WATER_AGENT_LLM_BASE_URL', 'https://host.invalid/v1')
+    monkeypatch.setenv('WATER_AGENT_EMBEDDING_BASE_URL', 'https://host.invalid/v1')
+    monkeypatch.setenv('WEB_MOCK_GENERATOR', 'true')
+    env = isolated_environment(paths, tmp_path / 'socket')
+    monkeypatch.setenv('WATER_AGENT_CREDENTIALS_DIR', env['WATER_AGENT_CREDENTIALS_DIR'])
+    private_write(paths.credentials / 'models/llm_endpoint.json', json.dumps({
+        'base_url': 'https://model-endpoint.invalid/v1', 'model': 'deepseek-v4.1-flash',
+    }))
+    embedding = resolve_embedding_endpoint(getenv=env.get)
+    chat = resolve_chat_endpoint(getenv=env.get)
+    assert embedding.base_url == chat.base_url == 'https://model-endpoint.invalid/v1'
+    assert embedding.model == 'text-embedding-3-large'
+    assert chat.source == 'panel'
+    assert chat.model == 'deepseek-v4.1-flash'
+    assert env['WATER_AGENT_RETRIEVAL_MODE'] == 'hybrid'
+    assert 'WATER_AGENT_LLM_BASE_URL' not in env
+    assert 'WEB_MOCK_GENERATOR' not in env
+    assert 'WATER_AGENT_EMBEDDING_API_KEY' not in env
+
+
+@pytest.mark.parametrize('content', [
+    '[]', '{bad', '{}',
+    '{"base_url":"https://example.com","model":"x","api_key":"secret"}',
+    '{"base_url":4,"model":"x","retrieval_mode":"hybrid"}',
+    '{"base_url":"https://example.com","model":"x","retrieval_mode":"fixture"}',
+])
+def test_invalid_desktop_embedding_config_fails_without_echo(tmp_path, content):
+    paths = complete_paths(tmp_path)
+    private_write(paths.root / 'config/embedding.json', content)
+    with pytest.raises(RuntimeError, match='^DESKTOP_EMBEDDING_CONFIG_INVALID$'):
+        isolated_environment(paths, tmp_path / 'socket')
+
+
+def test_desktop_embedding_config_rejects_symlink(tmp_path):
+    paths = complete_paths(tmp_path)
+    source = tmp_path / 'external.json'
+    source.write_text('{}')
+    (paths.root / 'config/embedding.json').symlink_to(source)
+    with pytest.raises(ValueError, match='DESKTOP_UNSAFE_PATH'):
+        isolated_environment(paths, tmp_path / 'socket')
+
+
 def test_control_and_ready_reject_wrong_origin_stale_nonce_and_secret_echo(tmp_path):
     assert parse_command('{"command":"stop"}') == {'command': 'stop'}
     for invalid in ('[]', '{"command":"shell"}', '{"command":"setup","password":5}'):

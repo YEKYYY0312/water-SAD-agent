@@ -46,6 +46,35 @@ def select_bundle_index(resources: Path) -> Path:
     return selected
 
 
+def embedding_environment(paths: DesktopPaths) -> dict[str, str]:
+    """Adapt desktop-only non-secret settings to the production resolver inputs.
+
+    Chat stays in the existing settings panel. This file adds no endpoint/key
+    resolution rules: URL/model validation and index binding remain production
+    responsibilities, as for operator-provided environment variables.
+    """
+    target = paths.root / 'config' / 'embedding.json'
+    reject_symlinks(target)
+    if not target.exists():
+        return {}
+    fields = {
+        'base_url': 'WATER_AGENT_EMBEDDING_BASE_URL',
+        'model': 'WATER_AGENT_EMBEDDING_MODEL',
+        'retrieval_mode': 'WATER_AGENT_RETRIEVAL_MODE',
+    }
+    try:
+        if target.stat().st_size > 4096:
+            raise ValueError
+        data = json.loads(target.read_text(encoding='utf-8'))
+        if (not isinstance(data, dict) or set(data) != set(fields)
+                or any(not isinstance(v, str) or not v.strip() for v in data.values())
+                or data['retrieval_mode'] not in {'auto', 'text', 'hybrid'}):
+            raise ValueError
+    except (OSError, ValueError):
+        raise DesktopError('DESKTOP_EMBEDDING_CONFIG_INVALID') from None
+    return {environment: data[field] for field, environment in fields.items()}
+
+
 def isolated_environment(paths: DesktopPaths, socket_dir: Path) -> dict[str, str]:
     """Allowlist OS essentials; never copy production API keys, PG or proxy env."""
     env = {
@@ -70,6 +99,7 @@ def isolated_environment(paths: DesktopPaths, socket_dir: Path) -> dict[str, str
     }
     # Explicitly select the release index; never silently choose a developer DB.
     env['WATER_AGENT_INDEX_PATH'] = str(select_bundle_index(paths.resources))
+    env.update(embedding_environment(paths))
     for binary, name in [('dwg2dxf', 'WATER_AGENT_DWG2DXF'),
                          ('dxf2dwg', 'WATER_AGENT_DXF2DWG')]:
         executable = paths.resources / 'libredwg' / 'bin' / binary

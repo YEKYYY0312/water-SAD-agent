@@ -12,6 +12,22 @@
 
 备份使用应用菜单选择新文件，包含逻辑数据库导出和受支持用户文件；不包含模型 Key 与 trace 原文。恢复到已有目标需显式覆盖确认。不要在数据库运行时直接复制 PostgreSQL cluster。
 
+### 真实模型配置
+
+聊天地址和模型沿用设置页，保存到专用凭据目录的 `llm_endpoint.json`，非缺省组合必须运行原有兼容性检查。聊天配置不经桌面环境变量覆盖，因此设置页仍可修改。Key 使用原有凭据面板及生产写入器，文件为 0600、目录为 0700，不放进安装包。
+
+embedding 尚无设置页，桌面适配仅将 `~/Library/Application Support/WaterAgent/config/embedding.json` 的三个非秘密字段转成既有生产环境输入，重启本 App 后生效：
+
+```json
+{
+  "base_url": "https://model-endpoint.invalid/v1",
+  "model": "MODEL_NAME",
+  "retrieval_mode": "hybrid"
+}
+```
+
+该文件不允许 Key、维度或其他字段；维度从随包索引读取。地址／模型解析、凭据优先级、索引模型绑定及失败语义全部由生产模块裁定，没有桌面备用解析器。文件不存在时保留既有默认行为，格式错误则停止启动并报告 `DESKTOP_EMBEDDING_CONFIG_INVALID`。启动器不继承宿主机模型／代理／数据库环境变量。Web 原有装配为 local rerank、recall_top_k=20、hybrid_alpha=0.7；模型实际 `retrieve_clauses.top_k` 参数仍由工具调用决定，不能宣称固定 top-5。
+
 ## 构建
 
 构建机需要 Apple command line tools（Swift、clang、make）、uv 和 Node/npm；仅构建期需要它们。工作目录为仓库根；原生依赖与安装产物只写本地忽略的 `work/macos-standalone/`。首次使用前将 `/work/macos-standalone/` 加入 `git rev-parse --git-path info/exclude` 返回的本地排除文件。
