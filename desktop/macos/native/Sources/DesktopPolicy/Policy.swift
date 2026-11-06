@@ -21,6 +21,11 @@ public struct ServiceOrigin: Equatable {
             target.user == nil && target.password == nil
     }
 
+    public func allowsConfirmation(from frameURL: URL?, isMainFrame: Bool) -> Bool {
+        guard isMainFrame, let frameURL else { return false }
+        return contains(frameURL)
+    }
+
     public func allowsDownload(_ target: URL) -> Bool {
         if contains(target) { return true }
         guard target.scheme == "blob", let inner = URL(string: String(target.absoluteString.dropFirst(5))) else { return false }

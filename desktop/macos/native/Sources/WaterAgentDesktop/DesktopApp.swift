@@ -339,6 +339,26 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
     }
 
     // MARK: WebKit boundaries
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        guard !quitting, window.attachedSheet == nil, let origin,
+              let pageURL = webView.url, origin.contains(pageURL),
+              origin.allowsConfirmation(from: frame.request.url, isMainFrame: frame.isMainFrame) else {
+            completionHandler(false)
+            return
+        }
+        // Preserve the page's confirmation gate. Only an explicit native choice
+        // continues; closing/cancelling the sheet returns false.
+        let alert = NSAlert()
+        alert.messageText = "确认操作"
+        alert.informativeText = String(message.prefix(4096))
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "继续")
+        alert.beginSheetModal(for: window) { result in
+            completionHandler(result == .alertSecondButtonReturn)
+        }
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let origin, let url = action.request.url else { decisionHandler(.cancel); return }
         let fromApp = origin.contains(action.sourceFrame.request.url ?? origin.url)
