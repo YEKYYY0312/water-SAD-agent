@@ -18,6 +18,7 @@ schema 的 ``return_direct`` 延迟工具，执行时什么都不调用，只回
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 from uuid import uuid4
 
@@ -29,7 +30,25 @@ from pydantic import ConfigDict
 from water_agent.external.taint import normalize_url
 from water_agent.runtime.cancellation import raise_if_cancelled
 from water_agent.runtime.governance.contracts import SourceTag
+from water_agent.tools.calc_velocity import VelocityArgs, calc_velocity_spec
 from water_agent.tools.registry import ToolRegistry
+
+PROGRAMMATIC_CALC_ARTIFACT = "water_agent_programmatic_calculation"
+
+
+def _velocity_receipt(args: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """Local execution metadata, never inferred from a tool's name or output text."""
+    value = result.get("velocity_mps")
+    if type(value) not in (int, float):
+        return {}
+    if (set(result) != {"velocity_mps", "assumptions"}
+            or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+            or not isinstance(result["assumptions"], list)
+            or any(not isinstance(item, str) for item in result["assumptions"])
+            or any(type(args.get(key)) not in (int, float) for key in ("diameter_mm", "flow_lps"))):
+        return {}
+    validated = VelocityArgs.model_validate(args)
+    return {PROGRAMMATIC_CALC_ARTIFACT: {"args": validated.model_dump(), "result": result}}
 
 
 def _with_web_artifact(result: dict) -> tuple[str, dict[str, Any]]:
@@ -71,6 +90,8 @@ class _RegistryBackedTool(StructuredTool):
         spec = self.registry.get(self.tool_name)
         if spec is not None and spec.result_source is SourceTag.WEB_CONTENT:
             return _with_web_artifact(result)
+        if spec is calc_velocity_spec:
+            return result, _velocity_receipt(kwargs, result)
         return result
 
 
@@ -122,6 +143,8 @@ def tool_spec_to_base_tool(registry: ToolRegistry, tool_name: str) -> Structured
     extra: dict[str, Any] = {}
     if spec.result_source is SourceTag.WEB_CONTENT:
         # 联网内容工具：结果拆成 content（正文）与 artifact（污点标记 + 规范化网址），见 _with_web_artifact
+        extra["response_format"] = "content_and_artifact"
+    if spec is calc_velocity_spec:
         extra["response_format"] = "content_and_artifact"
     return _RegistryBackedTool(
         name=spec.name,
