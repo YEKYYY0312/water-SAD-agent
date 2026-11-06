@@ -20,4 +20,6 @@ swift run --package-path desktop/macos/native -c release PolicyChecks
 
 外部 http(s) 必须来自 App 页面的显式链接激活，再显示原生浏览器确认框；后台导航、file/data/javascript 及任意非当前 origin 页内导航被拒绝。登录、CSRF、授权、引用和计算验证都继续使用服务原有实现。
 
+设置页兼容性检查的 `window.confirm` 由 `WKUIDelegate` 转为原生确认 sheet：仅当前服务同源主框架可发起，默认按钮为取消，只有用户明确选择“继续”才回传 true。缺少该接线时 WebKit 不会显示确认，设置页按钮也不会发起检查。原有兼容性门槛和计费提示保持不变。
+
 个人免登录、SSE、拖放、下载与恢复需要打包后的 App 做集成验收，纯策略断言与编译不能证明这些能力已通过。

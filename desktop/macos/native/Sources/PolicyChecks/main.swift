@@ -141,4 +141,10 @@ try JSONSerialization.data(withJSONObject: expiredSession).write(to: sessionPath
 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sessionPath.path)
 rejects("expired desktop cookie handoff rejected") { _ = try readLocalSession(file: sessionPath, dataRoot: sessionRoot) }
 check((try? RuntimeEvent.parse(Data("{\"event\":\"local_session\",\"path\":\"/private/profile/credentials/desktop-session.json\"}".utf8))) == .localSession("/private/profile/credentials/desktop-session.json"), "private session event carries path only")
+let confirmationOrigin = ServiceOrigin(readyURL: "http://127.0.0.1:54321")!
+check(confirmationOrigin.allowsConfirmation(from: URL(string: "http://127.0.0.1:54321/settings"), isMainFrame: true), "own main frame may ask for confirmation")
+check(!confirmationOrigin.allowsConfirmation(from: URL(string: "http://127.0.0.1:54321/settings"), isMainFrame: false), "subframe cannot ask for confirmation")
+check(!confirmationOrigin.allowsConfirmation(from: URL(string: "http://127.0.0.1:8000"), isMainFrame: true), "old service cannot ask for confirmation")
+check(!confirmationOrigin.allowsConfirmation(from: URL(string: "https://example.com"), isMainFrame: true), "external frame cannot ask for confirmation")
+check(!confirmationOrigin.allowsConfirmation(from: nil, isMainFrame: true), "unknown frame cannot ask for confirmation")
 print("PolicyChecks final: \(count) assertions passed (XCTest runner not used)")
