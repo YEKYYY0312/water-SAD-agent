@@ -1,0 +1,466 @@
+{
+  "date": "2026-11-07",
+  "verdict": "programmatic_velocity_closure_verified",
+  "not_statistical_quality_baseline": true,
+  "branch": "codex/macos-standalone-app",
+  "base_commit": "17db3eb06a16d9ec453fd26b396bd2b8eafd28f1",
+  "implementation_commit": "d489757c328f15bd184a6b4b968a56c02a746d3c",
+  "installed_commit": "819f3dcb59b292c60003d50106414005997c1787",
+  "installed_git_dirty": false,
+  "contract_document": "docs/design/programmatic-velocity-closure.md",
+  "real_smoke_case_count": 2,
+  "extra_llm_judge_calls": 0,
+  "full_58_case_quality_run": false,
+  "prior_failed_trace_retained": "debf10c84d254cae991cab193818bda2",
+  "cases": [
+    {
+      "case_id": "first",
+      "trace_id": "7185b26fd2c24ab8a6b7518ebf3f26fb",
+      "query": "DN150、Q=20L/s，求流速。此次验收明确按内径 150mm、满管计算，请调用程序化计算工具并注明这个前提。",
+      "started_at": "2026-11-06T10:43:32.940682+00:00",
+      "finished_at": "2026-11-06T10:43:53.400739+00:00",
+      "status": "succeeded",
+      "tool_calls": [
+        {
+          "name": "calc_velocity",
+          "args": {
+            "diameter_mm": 150,
+            "flow_lps": 20,
+            "scenario": "water_supply"
+          }
+        },
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "给水管道流速 设计流速 常用范围",
+            "top_k": 5
+          }
+        },
+        {
+          "name": "retrieve_clauses",
+          "args": {
+            "query": "输水管 管道 经济流速 给水管网 设计流速 规定",
+            "top_k": 5
+          }
+        },
+        {
+          "name": "cite_clauses",
+          "args": {
+            "article_ids": [
+              "GB50013-2018 6.3.1"
+            ]
+          }
+        }
+      ],
+      "calculation_observations": [
+        {
+          "result": {
+            "velocity_mps": 1.132,
+            "assumptions": []
+          },
+          "local_receipt": {
+            "args": {
+              "diameter_mm": 150.0,
+              "flow_lps": 20.0,
+              "scenario": "water_supply",
+              "material": null
+            },
+            "result": {
+              "velocity_mps": 1.132,
+              "assumptions": []
+            }
+          }
+        }
+      ],
+      "returned_source_ids": [
+        "GB50014-2021 5.2.1",
+        "GB50014-2021 5.2.9",
+        "GB50013-2018 6.2.6",
+        "GB50013-2018 6.3.1",
+        "GB50015-2019 3.7.2"
+      ],
+      "finalize": {
+        "status": "succeeded",
+        "answer": "## 计算结果\n\n**前提（按您指定的验收口径）**：圆管内径 D = 150 mm、满管连续流（均匀流），按断面平均流速计算。\n\n| 项目 | 数值 |\n|---|---|\n| 内径 D | 150 mm |\n| 流量 Q | 20 L/s = 0.020 m³/s |\n| 过水断面 A | π×0.150²/4 ≈ 0.01767 m² |\n| **流速 v** | **1.132 m/s**（由计算工具程序化输出） |\n\n- 计算程序：`calc_velocity`（口径 v = Q/A，满管流）\n- 工具返回的越界提示：**无**，即该流速未触发给水常规区间（0.6–1.5 m/s）的上/下限告警。\n- 说明：工具按 U+2028 内径 150 mm 直接代入，若实际为公称直径 DN150 的某种管材，其内径会大于或小于 150 mm（如内衬、壁厚差异），流速将随之变化；本结果仅对应\"内径 150 mm\"这一前提。\n\n## 规范依据与检索说明\n\n- 关于\"水泵进水管及出水管的设计流速应符合规定\"这一原则性规定，可引 **GB50013-2018 6.3.1**（已登记引用），但该条针对的是水泵进出水管道，不是一般输配水管道。\n- **需如实说明**：本次检索**未命中**\"给水管道经济流速具体数值限值\"的正式条文。检索到的一条相关表述（标注 \"管径选择（要点综述）\"）明确自述为\"**联网整理的设计要点综述，非正式规范条文**\"，因此只能作为检索线索，不能作为强制性结论或精确限值的依据。若验收需要以正式条文核对流速控制值，请核对 GB50013-2018 正式出版文本的相关章节（或其条文说明中的经济流速表）。\n- 本次检索还返回了 GB50014-2021 5.2.5、5.2.9（排水管道最大设计流速与压力流流速 0.7–2.0 m/s），属**排水**口径，与本问题（给水压力管）不匹配，故不作为引用。\n\n需要我按其他内径（例如实际管材内径）重算，或补充计算该流量下的水头损失（需显式指定 formula 口径），请告知参数。",
+        "citations": [
+          {
+            "source_id": "GB50013-2018 6.3.1"
+          }
+        ],
+        "errors": [],
+        "warnings": [],
+        "calculations": [
+          {
+            "tool_name": "calc_velocity",
+            "programmatic": true,
+            "values": {
+              "velocity_mps": 1.132
+            },
+            "units": {
+              "velocity_mps": "m/s"
+            },
+            "assumptions": []
+          }
+        ],
+        "retrieval_mode": "hybrid",
+        "retrieval_mode_reason": "forced"
+      },
+      "sse_counts": {
+        "run_queued": 1,
+        "run_started": 1,
+        "memory_recall": 1,
+        "upload_recall": 1,
+        "state": 4,
+        "tool_started": 4,
+        "agent_message": 3,
+        "draft_delta": 19,
+        "tool_result": 4,
+        "draft_closed": 1,
+        "finalize": 1,
+        "stream_end": 1
+      },
+      "draft_offsets_contiguous": true,
+      "same_answer_in_checkpoint_and_finalize": true,
+      "new_programmatic_zero_citation_path": false,
+      "usage": {
+        "bailian_embedding": {
+          "records": 2,
+          "known_records": 2,
+          "unknown_records": 0,
+          "input_tokens_known": 43,
+          "output_tokens_known": 0,
+          "retry_count_total": 0,
+          "cost_usd": null
+        },
+        "deepseek_chat": {
+          "records": 4,
+          "known_records": 4,
+          "unknown_records": 0,
+          "input_tokens_known": 16042,
+          "output_tokens_known": 1620,
+          "retry_count_total": 0,
+          "cost_usd": null
+        }
+      }
+    },
+    {
+      "case_id": "explicit",
+      "trace_id": "54c7d5cac188409c9b10ce2e9b1c9450",
+      "query": "内径150mm，Q=20L/s，求满管流速。仅计算流速，不检索条文，不做规范判定。",
+      "started_at": "2026-11-07T08:14:09.388104+00:00",
+      "finished_at": "2026-11-07T08:14:16.254980+00:00",
+      "status": "succeeded",
+      "tool_calls": [
+        {
+          "name": "calc_velocity",
+          "args": {
+            "diameter_mm": 150,
+            "flow_lps": 20,
+            "scenario": "water_supply"
+          }
+        }
+      ],
+      "calculation_observations": [
+        {
+          "result": {
+            "velocity_mps": 1.132,
+            "assumptions": []
+          },
+          "local_receipt": {
+            "args": {
+              "diameter_mm": 150.0,
+              "flow_lps": 20.0,
+              "scenario": "water_supply",
+              "material": null
+            },
+            "result": {
+              "velocity_mps": 1.132,
+              "assumptions": []
+            }
+          }
+        }
+      ],
+      "returned_source_ids": [],
+      "finalize": {
+        "status": "succeeded",
+        "answer": "## 满管流速计算结果\n\n- 管内径：150 mm\n- 流量：20 L/s\n- 流速：1.132 m/s\n\n计算前提：采用用户明确给出的内径，按满管圆管断面计算，公式 v = Q / A。\n\n数值来自 calc_velocity 程序化计算；此摘要由程序生成。本次仅计算流速，未进行规范符合性判断，也未判定具体用途的适用流速区间。",
+        "citations": [],
+        "errors": [],
+        "warnings": [
+          "no_citation_programmatic_calculation"
+        ],
+        "calculations": [
+          {
+            "tool_name": "calc_velocity",
+            "programmatic": true,
+            "values": {
+              "velocity_mps": 1.132
+            },
+            "units": {
+              "velocity_mps": "m/s"
+            },
+            "assumptions": []
+          }
+        ],
+        "retrieval_mode": "hybrid",
+        "retrieval_mode_reason": "forced"
+      },
+      "sse_counts": {
+        "run_queued": 1,
+        "run_started": 1,
+        "memory_recall": 1,
+        "upload_recall": 1,
+        "state": 4,
+        "tool_started": 1,
+        "agent_message": 1,
+        "draft_delta": 7,
+        "tool_result": 1,
+        "draft_closed": 1,
+        "finalize": 1,
+        "stream_end": 1
+      },
+      "draft_offsets_contiguous": true,
+      "same_answer_in_checkpoint_and_finalize": true,
+      "new_programmatic_zero_citation_path": true,
+      "usage": {
+        "deepseek_chat": {
+          "records": 2,
+          "known_records": 2,
+          "unknown_records": 0,
+          "input_tokens_known": 4442,
+          "output_tokens_known": 422,
+          "retry_count_total": 0,
+          "cost_usd": null
+        }
+      }
+    }
+  ],
+  "configuration": {
+    "chat": {
+      "base_url": "https://llm-proxy.learnings.ai/v1",
+      "model": "deepseek-v4.1-flash",
+      "source": "panel",
+      "verified": true
+    },
+    "embedding": {
+      "base_url": "https://llm-proxy.learnings.ai/v1",
+      "model": "text-embedding-3-large",
+      "source": "env"
+    },
+    "dimensions": 3072,
+    "factory": {
+      "mock_generator": false,
+      "rerank": "local",
+      "recall_top_k": 20,
+      "hybrid_alpha": 0.7,
+      "top_k": 5
+    },
+    "retrieval_mode": "hybrid",
+    "note": "The explicit pure calculation case performs no retrieval or embedding request; hybrid is the configured capability, not a new retrieval quality result."
+  },
+  "index": {
+    "count": 11,
+    "all_equal": true,
+    "files": [
+      {
+        "name": "artifact.json",
+        "size": 1809,
+        "sha256": "48910a7af73f36eac52187ffccb181ad1794ec8bb2d804b10b6af444cac11fd6"
+      },
+      {
+        "name": "clauses.db",
+        "size": 3346010,
+        "sha256": "b08553a68c674ebeddb1d7550cfaca307217f935128abc4be5090a33be0e19d8"
+      },
+      {
+        "name": "clauses.db.flush_ok",
+        "size": 29,
+        "sha256": "b4adb536675d0e9d36fdc15aee016eb8b91c88e2e04a943d79cd08c8b21a31d9"
+      },
+      {
+        "name": "clauses.db.index_meta.json",
+        "size": 249,
+        "sha256": "cf662fcc9569ced34989864abc2da97b18378619775cdd6224f0556015fc635d"
+      },
+      {
+        "name": "clauses.db.lock",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "clauses.db.manifest.json",
+        "size": 84139,
+        "sha256": "3f77d5d6a4d9d4af8ddb45f8fd44ab6912dfd3be9439873c36b540978ac49a92"
+      },
+      {
+        "name": "clauses.db.parents.json",
+        "size": 57016,
+        "sha256": "be7eff49e134ad58dbfbc3645a61840db1d552f109d8e93c5bbaee0661665cd7"
+      },
+      {
+        "name": "clauses.db.text",
+        "size": 3587262,
+        "sha256": "74ec646675a98c692d130f1e6a25616dbd4f0170c2451b32ff3ee8a697c29352"
+      },
+      {
+        "name": "clauses.db.text.meta",
+        "size": 28,
+        "sha256": "a257895325787fbe97c20a7f57e7644fe9674e306f39bad89f609f85a194a650"
+      },
+      {
+        "name": "clauses.db.vec",
+        "size": 40710144,
+        "sha256": "99d21b8291bdba7ef62085bf60383c1020d3a2a7f0b404c8f90af9d980fa270e"
+      },
+      {
+        "name": "clauses.db.wal",
+        "size": 6,
+        "sha256": "4cb1780d5197f4afcfe53878bea73013217fe50815231501b29b261e42ac8e29"
+      }
+    ]
+  },
+  "native_word": {
+    "filename": "新工程会话-e8629822.docx",
+    "sha256": "6de15e204c076b973e42981878665c43c05e79fc4922728aac36fd6cd06e06e3",
+    "size": 38172,
+    "native_save_panel_completed": true
+  },
+  "restart": {
+    "sessions_equal": true,
+    "history_equal": true,
+    "session_count": 5,
+    "history_message_count": 2,
+    "last_answer_status": "succeeded",
+    "native_no_login": true,
+    "native_word_opened_in": "WPS Office",
+    "native_save_panel_completed": true,
+    "native_word_result_visible": true
+  },
+  "delivery": {
+    "app": "~/Applications/给排水 Agent.app",
+    "rollback": "~/.codex/worktrees/water-agent-ci-recovery/给排水agent/work/calc-closure-2026-11-06/rollback-d489757.app",
+    "original_rollback": "~/.codex/worktrees/water-agent-ci-recovery/给排水agent/work/calc-closure-2026-11-06/rollback-9523739.app",
+    "dmg": "~/Desktop/给排水Agent-独立版-arm64-2026-11-07-计算收口修复.dmg",
+    "dmg_size": 225231998,
+    "dmg_sha256": "c1611f440cdff986535838c6c39fe2a87a65193d0520635f7c6363184831aaf9",
+    "source_commit": "819f3dcb59b292c60003d50106414005997c1787",
+    "git_dirty": false
+  },
+  "dmg": {
+    "mounted_read_only": true,
+    "bundle_scan_ok": true,
+    "signature_ok": true,
+    "manifest_plist_and_executable_equal_to_installed": true
+  },
+  "review": {
+    "independent_review": true,
+    "blocking_findings": [
+      {
+        "id": "regex_backtracking",
+        "resolved": true,
+        "red_green_log": [
+          "review-red.log",
+          "review-green.log"
+        ]
+      }
+    ],
+    "precision_finding_resolved": true,
+    "final_review": "no_remaining_blocker",
+    "reviewer_test_count": 43,
+    "reviewer_made_real_requests": false,
+    "final_reviewer_test_count": 44,
+    "explicit_phrase_delta_review": "no_new_blocker"
+  },
+  "old_services_unchanged": true,
+  "prior_credential_logging_audit_gap": "unchanged and unresolved; see docs/evals/macos-real-model-2026-11-06.md",
+  "cost_usd": null,
+  "verification": {
+    "focused_tests": 44,
+    "focused_tests_passed": 44,
+    "related_tests_previous_slice_passed": 139,
+    "mypy_source_files": 277,
+    "frontend_tests": 148,
+    "desktop_python_tests": 88,
+    "native_policy_assertions": 81,
+    "package_mechanism_smoke_passed": 22,
+    "package_mechanism_smoke_uses_scripted_model": true,
+    "initial_ci_gate_exit": 0,
+    "final_ci_gate_exit": 0,
+    "bundle_final_verification_exit": 0,
+    "xctest": "not run; no XCTest in CommandLineTools"
+  },
+  "limitations": [
+    "Only the finite pure-velocity grammar and explicit inner diameter/flow/full-pipe condition are supported. DN alone, missing/ambiguous inputs, other tasks, multiple calls, failures and nonempty assumptions retain the existing citation gate.",
+    "The first real same-wording regression used retrieval/citations and did not prove the new branch. It is retained separately, without being relabeled or discarded.",
+    "LLM free prose is not forwarded by the new branch; a deterministic D/Q/v summary is persisted. Other cited-answer numeric elaborations were not changed or newly certified.",
+    "scenario=water_supply remains the existing tool default/model argument; it is not treated as a user-confirmed application and no scenario range is rendered by the new summary.",
+    "The existing UI renders the diagnostic warning code directly. Calculation answer and final status remain readable; no general UI redesign was performed.",
+    "This work does not erase the prior credential-transfer logging audit gap or change S16, gold, baselines, prompts, chunking, formula/thresholds, auth or guardrails."
+  ],
+  "usage_all_cases": {
+    "bailian_embedding": {
+      "records": 2,
+      "known_records": 2,
+      "unknown_records": 0,
+      "input_tokens_known": 43,
+      "output_tokens_known": 0,
+      "retry_count_total": 0,
+      "cost_usd": null
+    },
+    "deepseek_chat": {
+      "records": 6,
+      "known_records": 6,
+      "unknown_records": 0,
+      "input_tokens_known": 20484,
+      "output_tokens_known": 2042,
+      "retry_count_total": 0,
+      "cost_usd": null
+    }
+  },
+  "raw_evidence_directory": "work/calc-closure-2026-11-06/",
+  "raw_evidence_sha256": {
+    "report.py": "fbb7df5bf5565e052330f9882153887a6ebf2974a29904d69b5bf57c83689067",
+    "review.json": "ddd5fc9f4fb517b41af74ec75d974102627668841233bde8465cc03561c022b3",
+    "red.log": "60a1cea260b9d82184d2f1fd810fb35c6cbd25d3eaae5a7d4721ed75a4c09d1a",
+    "related-tests.log": "e286fe668d5ec6edbce1603f73c6b6e029feda6e2f24ac0d781ea49f40cd6dce",
+    "expanded-tests.log": "c00750e9a893921a9fe5e1a687d175946991ba2ac60928c2d7560cbd087d8b97",
+    "review-red.log": "822cac729afa6c77fa2023420bf4b12784e65ab806192b50b82bb6b963a655cb",
+    "review-green.log": "d71390471491972e82eb5f3db7ccda6698c82666c21982475a728008807c48c0",
+    "explicit-red.log": "fe3a018af4bbb46af4c195d27e95bab87aa401f28ede92881ca81d30eb0894d9",
+    "explicit-green.log": "a9bb2cbab184e7bfd593bf8c9d3bc866976e26a04478db1da25fa91b95c3ab9d",
+    "mypy-explicit.log": "735d04498a22dfeb446ff7064aacd4f723455260d3593346ed4768fbd5b3b712",
+    "frontend.log": "2d6c4c6a14f31772c40d9e88bd3fd1fe9c64af73237ea745b3bdb43032c9863c",
+    "desktop-tests.log": "7664306f4c51dd81f15da1d2124b83925c0954d1a9d5b5676db4770a1c837fa2",
+    "swift-policy.log": "5ec248023417e19c307c7dd7b1b6267f92333d114f22edb27ac3c54aedb65d3d",
+    "ci-gate.log": "f337cb1f5861f384a7c6701602e8ecaced507c5c97352307cd54e674005b0b86",
+    "ci-gate-final.log": "6b501f17ace45b0fd7e448133f05d7dedd3dc34a8d471f6876d89d887afab494",
+    "build.log": "62e605cc44ae182a234789c92c5e0b8e7993789c75fdead1be377f05b0c8559f",
+    "build-final.log": "62e605cc44ae182a234789c92c5e0b8e7993789c75fdead1be377f05b0c8559f",
+    "installation-first.json": "9b2e79b50c171d8a580764e24dc43c3a72d6e31e6b8c62ef837c94b7453b020b",
+    "installation.json": "b88838f2440b77cd04c3f21fe42f4df03164015973285e3cffc4f32ff2f38bcf",
+    "bundle-final-verification.json": "f7ccf510f83e79e9a3bd25f28ba6e8a26a50681c9ace2536f80026eb26fff2f5",
+    "dmg-verification.json": "f1e62f0b8584677cb8a6a878619b8f0d7e235287e4f0c3cda574eefb39ff3f59",
+    "dmg-verification.log": "2f72c39ce76a9491704b6a63b8f7945ec8d41c429b21b971e2ee685ddeb2f738",
+    "index-verification.json": "a77b56a721bf2836fa2e41ed2dc158f999f9dcb7d688aa807505718686da3d68",
+    "packaged-smoke-final.json": "f2c0eb1d32c451227618a0e7592bbbdc840d99a3db8b1337f52aec3a35bcbdfc",
+    "packaged-smoke-final.log": "992dcc68faaa8caa1e832f90050095ebe47764ba8851a1914b804517b3a95ca4",
+    "first-checkpoint.json": "9981b80472d7147dc7c776f5f1b6e05dc0680c4f76ba5ce63e0669d5689cc8e0",
+    "first-sse.json": "3420cf447747a3d2c6e2b0be8293d1d9e6359b154d6998790f749837f4a43823",
+    "7185b26fd2c24ab8a6b7518ebf3f26fb.json": "4c639b3e56d9ebbfa22d2d2ccfe5dc69fe8ba8e7e669a4eec4995d60102040c6",
+    "explicit-checkpoint.json": "d0a44d5ae657d1c22bf5d815d25b27967e2643c6e8750ab703fb7e3f8eed2087",
+    "explicit-sse.json": "24c126f4d41e0a5da561d05715831cb378a956b90b79509edcfc15e2d5f44d24",
+    "54c7d5cac188409c9b10ce2e9b1c9450.json": "a60dd73422a04f053afd93dd0b619ae1e48b4c84cf56023a0d950aede7e510fa",
+    "native-word.json": "bea5f42d7adec9a8e8c9a204362ff57ce62f4ba630af7b830d71818d8d48814f",
+    "restart-verification.json": "799d1a0d57d85390e89f71842b46f0ce9eb8708a2d357463e0d5415382b93e2c",
+    "sessions-before-restart.json": "bfb41f25216c92968299c07577eb2d9016b88b5cd17eff751a9c67cf493608f9",
+    "sessions-after-restart.json": "bfb41f25216c92968299c07577eb2d9016b88b5cd17eff751a9c67cf493608f9",
+    "history-before-restart.json": "21e7c5e332e377bfa2643e3f110b3ac6dbf820ab43ae86c42c13c8f7d652cbb7",
+    "history-after-restart.json": "21e7c5e332e377bfa2643e3f110b3ac6dbf820ab43ae86c42c13c8f7d652cbb7",
+    "runtime-before-smoke.json": "6f10e2810d8d8055b2fc600bdcadfc776d602d1924fd29a0f9e28c097a04cac8",
+    "runtime-after-restart.json": "ecc3da3bb55a50b9c8ae4c9868d96c6c7a134f576cec210fb2e8ffbfec23abb6",
+    "old-services-before.json": "1d826366ecd65eb3f045e63daeb69f23f9c41193389c5e41290f3f3a7ea7dc2e",
+    "old-services-after.json": "1d826366ecd65eb3f045e63daeb69f23f9c41193389c5e41290f3f3a7ea7dc2e",
+    "app_client.py": "3ec358713e0705b894b31865f814adfe05dfebcf0dbd48265728255c85eff956"
+  },
+  "source_credential_volume_read_or_migrated_this_task": false
+}
