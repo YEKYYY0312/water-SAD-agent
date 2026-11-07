@@ -69,6 +69,12 @@ def test_explicit_inputs_are_not_silently_rounded_for_display():
     assert "20.123456 L/s" in result["messages"][0].content
 
 
+def test_explicit_calculation_only_request_is_supported_without_general_exemption():
+    query = "内径150mm，Q=20L/s，求满管流速。仅计算流速，不检索条文，不做规范判定。"
+    assert validate(executed_turn(query))["status"] == "succeeded"
+    assert validate(executed_turn(query + "但判断消防泵选型。")).get("status") != "succeeded"
+
+
 def test_short_hostile_query_does_not_cause_exponential_backtracking():
     import subprocess
     import sys
