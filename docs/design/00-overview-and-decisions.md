@@ -72,7 +72,7 @@ water-agent/
 - [ ] 真实规范条款数据目录由用户提供；在此之前 P0 使用项目内最小 fixture
 - [ ] TriviumDB 在当前 Python 版本和本机环境中的安装、导入、本地持久化与 `search_hybrid` API 必须先验证
 - [ ] 是否本地/内网部署（当前按云端 API 设计）
-- [ ] 当前目录不是 Git 仓库；允许后续由 Cursor 在用户确认后执行 `git init`
+- [ ] 当前目录不是 Git 仓库；允许后续在用户确认后执行 `git init`
 
 ---
 

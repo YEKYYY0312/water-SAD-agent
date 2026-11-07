@@ -263,11 +263,3 @@ for dxf_file in sorted(samples_dir.glob("*.dxf")):
 2. **gitignore 配置**：确保 `data/drawings/real_samples/*.dxf` 在 `.gitignore` 中（或用 LFS）
 3. **文件大小控制**：单个 DXF 文件不超过 2MB，总计不超过 30MB
 4. **保留原始 DWG**：不要删除 `~/文稿/363污水处理厂cad图/` 中的原始文件
-
----
-
-## 🤖 Cursor 执行指令
-
-**请按照上述 Step 1-7 依次执行，每完成一步输出结果并等待确认后再继续下一步。**
-
-开始执行 Step 1: 扫描并筛选合适的图纸样本。

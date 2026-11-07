@@ -2,7 +2,6 @@
 
 **Review 日期**: 2026-09-15  
 **Review 范围**: 全栈（P0-P5，包括 P2 真实图纸样本采集验证）  
-**Reviewer**: Claude Opus 5  
 
 ---
 
@@ -345,5 +344,4 @@ rm -rf /private/var/folders/*/*/T/pytest-of-*
 
 **报告生成时间**: 2026-09-15  
 **版本**: v1.0  
-**Reviewer**: Claude Opus 5  
 **状态**: ✅ 已完成

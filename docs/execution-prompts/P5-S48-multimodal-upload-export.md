@@ -1,6 +1,5 @@
 # P5-S48 执行 Prompt：多模态文件输入与输出
 
-> 给 AI Coding Agent 的完整指令。复制以下内容发送给 Cursor/Codex/Claude Code 执行。
 > 当前工作区：`/Users/yaerken/Desktop/给排水agent`
 > 参考文档：`docs/design/p5-step-48-multimodal-upload-export.md`（spec）、`docs/design/10-sdd-harness.md`（SDD 规范）、`AGENTS.md`（项目规则）
 

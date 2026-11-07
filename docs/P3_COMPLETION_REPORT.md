@@ -316,7 +316,6 @@ PUMP-03.dxf
 ## 参考文档
 
 - P3 任务简介: `docs/P3_TASK_BRIEFING.md`
-- P3 执行指令: `docs/P3_CURSOR_PROMPT.md`
 - P3 规格: `docs/design/13-p3-drawing-review.md`
 - P2.5 状态: `docs/P2.5_STATUS.md`
 - 代码: `src/water_agent/drawing/dxf_reader.py`
