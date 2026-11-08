@@ -28,6 +28,35 @@ embedding 尚无设置页，桌面适配仅将 `~/Library/Application Support/Wa
 
 该文件不允许 Key、维度或其他字段；维度从随包索引读取。地址／模型解析、凭据优先级、索引模型绑定及失败语义全部由生产模块裁定，没有桌面备用解析器。文件不存在时保留既有默认行为，格式错误则停止启动并报告 `DESKTOP_EMBEDDING_CONFIG_INVALID`。启动器不继承宿主机模型／代理／数据库环境变量。Web 原有装配为 local rerank、recall_top_k=20、hybrid_alpha=0.7；模型实际 `retrieve_clauses.top_k` 参数仍由工具调用决定，不能宣称固定 top-5。
 
+### 可选的运维凭据交接（A1）
+
+普通App使用不需要Docker。已有本机Docker凭据卷需要显式迁移时，可在**退出App之后**运行 `Resources/runtime/credential_handoff.py`；它不是模型工具，也不会在启动时自动执行。只支持本机Unix socket、已有固定sha256的项目Python3.12 Linux运行镜像，以及两个专用槽位。交接不验证服务商鉴权、不轮换或撤销旧Key，不会更改兼容性报告。
+
+运维须先准备本用户0600的非秘密绑定声明，字段恰好为：`version=1`、`volume`、`image=sha256:<64位小写hex>`、`chat={base_url,model}`、`embedding={base_url,model}`。声明不含Key，且必须与源聊天面板及目标实际配置一致；embedding归属是运维声明，不能当作已通过服务商认证。
+
+```bash
+"$HOME/Applications/给排水 Agent.app/Contents/Resources/python/bin/python3.12" -I -B \
+  "$HOME/Applications/给排水 Agent.app/Contents/Resources/runtime/credential_handoff.py" \
+  --resources "$HOME/Applications/给排水 Agent.app/Contents/Resources" \
+  --data-dir "$HOME/Library/Application Support/WaterAgent" \
+  --source-binding '/受保护目录/source-binding.json' \
+  --socket "$HOME/.docker/run/docker.sock"
+```
+
+不要把Key粘贴到命令行、聊天或声明文件。源容器只读源卷、无网络、禁日志，producer先关闭标准输出；专用文件复制流只连接本机0600暂存FD，不进入控制台或PIPE日志捕获。完整验证并清理源与暂存后，目标经生产写入器更新；普通失败尝试恢复并回读原槽位，恢复/清理失败明确阻断。SIGKILL不保证两槽原子或自动清理，须核查受保护暂存与槽位后再继续。设计细节见 `docs/design/desktop-credential-handoff.md`。
+
+开发验收仅使用新建canary卷和临时资料目录，不接受生产卷参数。先将输出目录加入本地Git排除，再运行（`--out`所在目录须不存在或为空，保留先前失败报告）：
+
+```bash
+PYTHONPATH=src _venv/bin/python desktop/macos/packaging/handoff_canary.py \
+  --resources "$HOME/Applications/给排水 Agent.app/Contents/Resources" \
+  --image sha256:ac9567ae2364d8dfa733926bd944092b843a64b50ec51275aaa36f6c9f763cf2 \
+  --socket "$HOME/.docker/run/docker.sock" \
+  --out "$PWD/work/credential-handoff-a1-2026-11-07/final-canary/report.json"
+```
+
+canary通过只说明机制可用，不能关闭此前真实Key日志审计缺口；旧Key轮换仍需独立协调所有受影响调用方。
+
 ## 构建
 
 构建机需要 Apple command line tools（Swift、clang、make）、uv 和 Node/npm；仅构建期需要它们。工作目录为仓库根；原生依赖与安装产物只写本地忽略的 `work/macos-standalone/`。首次使用前将 `/work/macos-standalone/` 加入 `git rev-parse --git-path info/exclude` 返回的本地排除文件。
