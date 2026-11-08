@@ -2,7 +2,7 @@
 
 日期：2026-11-07。起点：`codex/macos-standalone-app`，`5873a1e`。任务追踪见 [todo.md](todo.md)。
 
-2026-11-08进展：A1交接机制源码 `085c9a8`，合成Docker/实际安装包CLI canary、完整门禁、打包资源检查已通过。实际安装包已替换并保留完整旧包；Mac锁屏使新包窗口复验blocked。A2真实Key轮换及历史安全缺口仍未关闭，详见 [A1报告](../docs/evals/credential-handoff-a1-2026-11-08.md)。
+2026-11-08进展：A1交接机制源码 `085c9a8`，合成Docker/实际安装包CLI canary、完整门禁、打包资源检查已通过。实际安装包已替换并保留完整旧包；最初的锁屏阻塞已在用户手动解锁后关闭，新包正常退出重开、工作台/5个会话/设置保留均通过。A2真实Key轮换及历史安全缺口仍未关闭，详见 [A1报告](../docs/evals/credential-handoff-a1-2026-11-08.md)。
 
 ## 目标
 
