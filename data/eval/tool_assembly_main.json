@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S13：新增 session_skills_installed（已安装层）；既有 20 个 profile 与三个版本号逐字不变",
+    "last_write_reason": "Security wave1: preserve version contract and enforce MCP output, description and issuer boundaries",
     "python": "3.12.14"
   },
   "profiles": {
@@ -5430,8 +5430,8 @@
     }
   },
   "versions": {
-    "MCP_CONFIG_VERSION": "p7-s8-2026-10-12",
+    "MCP_CONFIG_VERSION": "p7-s8-security-wave1-2026-11-06",
     "PROMPT_TEMPLATE_VERSION": "p7-s9-skill-context-2026-10-09",
-    "TOOL_POLICY_VERSION": "p7-step12-2026-10-20"
+    "TOOL_POLICY_VERSION": "p7-step12-2026-11-06"
   }
 }

@@ -337,7 +337,7 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: P7 S9：新增 `load_skill` 工具与 `Capability.LOAD_SKILL`（进默认能力集），可用工具集与能力映射已变，递进。
 #: P7 S12：新增 `web_search` 工具与 `Capability.WEB_SEARCH`（不进默认能力集，装配期按"部署开关 + 本条消息勾选"追加），
 #: 可用工具集与能力映射已变，递进。
-TOOL_POLICY_VERSION = "p7-step12-2026-10-20"
+TOOL_POLICY_VERSION = "p7-step12-2026-11-06"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:

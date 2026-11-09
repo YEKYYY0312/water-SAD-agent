@@ -144,11 +144,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.7.22"
+version = "2026.10.19"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a3/c2/24167ea9858356b47a87a50d39908bfdb72ceeefe0041586e704e5376b3a/certifi-2026.7.22.tar.gz", hash = "sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55", size = 138112, upload-time = "2026-07-22T03:35:12.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/bd/1436c50cc46699de0230fbaacc1d1de7bfec413176099949e9d5112e88f2/certifi-2026.10.19.tar.gz", hash = "sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae", size = 137598, upload-time = "2026-10-20T02:24:16.604Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl", hash = "sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775", size = 136983, upload-time = "2026-07-22T03:35:11.276Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl", hash = "sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b", size = 136464, upload-time = "2026-10-20T02:24:15.072Z" },
 ]
 
 [[package]]
@@ -1209,11 +1209,11 @@ wheels = [
 
 [[package]]
 name = "pypdf"
-version = "6.19.0"
+version = "6.21.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1f/ac/63d71aaedb59acbcdef491e6ca6469165e3771c9c74358204818fd9bc5a6/pypdf-6.19.0.tar.gz", hash = "sha256:bbc43aca292369ccc6cbc8a921991ecf2538a3587ab5a116eff06c321d647155", size = 7033266, upload-time = "2026-09-16T09:32:05.946Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/e1/ec8f4d155c997c45917153a5521e60d6ee6389d68abdcbc8e44e564caffc/pypdf-6.21.4.tar.gz", hash = "sha256:c8817e3f888d47a087872ded69812c1ef30cacb871d6e053e0c00bbaf0bc2163", size = 7109255, upload-time = "2026-10-28T17:00:54.81Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/2c/c43c03eaf630435f023f1dc61ec4a4a78951ad5530a62c71cc89bde307b7/pypdf-6.19.0-py3-none-any.whl", hash = "sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14", size = 395480, upload-time = "2026-09-16T09:32:04.087Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/4b/77e8ad4ac42c9d93600f40541a50e9feb3a61d2bbee2d76f659346072051/pypdf-6.21.4-py3-none-any.whl", hash = "sha256:33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c", size = 410430, upload-time = "2026-10-28T17:00:53.146Z" },
 ]
 
 [[package]]
@@ -1623,6 +1623,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
+    { name = "certifi" },
     { name = "ezdxf" },
     { name = "fastapi" },
     { name = "langchain-openai" },
@@ -1658,6 +1659,7 @@ pdf-enhanced = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13,<2" },
     { name = "argon2-cffi", specifier = ">=23.1,<24" },
+    { name = "certifi", specifier = ">=2026.10.19" },
     { name = "ezdxf", specifier = ">=1.4,<2" },
     { name = "fastapi", specifier = ">=0.141,<0.142" },
     { name = "langchain-openai", specifier = ">=0.3" },
@@ -1671,7 +1673,7 @@ requires-dist = [
     { name = "psycopg-pool", specifier = ">=3.2,<4" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pymupdf", marker = "extra == 'pdf-enhanced'", specifier = ">=1.24,<2" },
-    { name = "pypdf", specifier = ">=6.0,<7" },
+    { name = "pypdf", specifier = ">=6.21.4,<7" },
     { name = "pypdfium2", specifier = ">=5,<6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "python-docx", specifier = ">=1.1,<2" },

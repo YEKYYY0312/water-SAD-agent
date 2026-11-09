@@ -24,6 +24,12 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 #: 工具输出里哪些工具的结果算"私有内容"：检索到的条文（语料可能是机构内部标准）与读到的图纸审查结果。
 PRIVATE_OUTPUT_TOOLS: frozenset[str] = frozenset({"retrieve_clauses", "read_drawing"})
+
+
+def _private_output_tool(name: object) -> bool:
+    # MCP result names are assigned by the bridge, not taken from remote content.
+    return isinstance(name, str) and (name in PRIVATE_OUTPUT_TOOLS or name.startswith("mcp_"))
+
 #: 单个私有块的字符上限：只用于子串比对，更长的部分没有额外信息量，也避免无界占用。
 MAX_CHUNK_CHARS = 60_000
 #: 一轮最多保留多少个私有块（防止回调无界累积）。
@@ -35,7 +41,8 @@ def _string_leaves(value: Any, out: list[str]) -> None:
     if isinstance(value, str):
         out.append(value)
     elif isinstance(value, dict):
-        for item in value.values():
+        for key, item in value.items():
+            _string_leaves(key, out)
             _string_leaves(item, out)
     elif isinstance(value, (list, tuple)):
         for item in value:
@@ -116,7 +123,7 @@ class PrivateContext(BaseCallbackHandler):
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         name = kwargs.get("name") or getattr(output, "name", None)
-        if name in PRIVATE_OUTPUT_TOOLS:
+        if _private_output_tool(name):
             self.add(_text_of(output))
 
     # -- 搜索计数 -------------------------------------------------------------------------------------
@@ -158,7 +165,7 @@ class WebSearchRuntime:
 
         chunks = self.private.chunks()
         for message in self._turn_messages():
-            if getattr(message, "type", "") == "tool" and getattr(message, "name", "") in PRIVATE_OUTPUT_TOOLS:
+            if getattr(message, "type", "") == "tool" and _private_output_tool(getattr(message, "name", "")):
                 text = _text_of(message)
                 if text:
                     chunks.append(text[:MAX_CHUNK_CHARS])

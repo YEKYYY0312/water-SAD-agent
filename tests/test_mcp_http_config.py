@@ -146,7 +146,8 @@ def test_oauth_registration_and_secret_rules() -> None:
     secret = build(
         credential_env=["CLIENT_SECRET"],
         oauth={"client_id": "wa", "client_secret_credential": "CLIENT_SECRET",
-               "token_endpoint_auth_method": "client_secret_post"},
+               "token_endpoint_auth_method": "client_secret_post",
+               "allowed_issuers": ["https://auth.example.com"]},
     )
     assert secret.oauth is not None and secret.oauth.client_secret_credential == "CLIENT_SECRET"
     for bad in (

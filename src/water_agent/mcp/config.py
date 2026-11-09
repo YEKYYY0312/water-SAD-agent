@@ -49,7 +49,7 @@ from water_agent.mcp.http_transport import parse_server_url
 #: P7-S6 新增第三层 Web 管理层（``WATER_AGENT_MCP_WEB_LAYER``）与 ``credential_env`` 凭据槽位，递进。
 #: P7-S8 新增 ``transport: streamable_http`` 与 ``url`` / ``allow_private_network`` / ``oauth`` /
 #: ``bearer_credential``，``command`` 改为按传输方式必填，递进。
-MCP_CONFIG_VERSION = "p7-s8-2026-10-12"
+MCP_CONFIG_VERSION = "p7-s8-security-wave1-2026-11-06"
 
 #: 配置文件位置覆盖环境变量。
 ENV_MCP_CONFIG = "WATER_AGENT_MCP_CONFIG"
@@ -126,7 +126,8 @@ class MCPOAuthConfig(BaseModel):
     token_endpoint_auth_method: Literal["none", "client_secret_basic", "client_secret_post"] = "none"
     #: 授权服务器元数据有 ``registration_endpoint`` 时用 RFC 7591 动态注册（注册为公共客户端）。
     dynamic_registration: bool = False
-    #: 受保护资源元数据里 ``authorization_servers`` 的第一项必须在这里；没配则只接受第一项并记录。
+    #: 受保护资源元数据里 ``authorization_servers`` 的第一项必须在这里；公共客户端可不配，
+    #: 此时只接受第一项并记录。机密客户端必须显式绑定 issuer，不能让远端决定密钥目的地。
     allowed_issuers: tuple[str, ...] = ()
     #: 运维显式要求的 scope（``WWW-Authenticate`` 的 ``scope`` 与 ``scopes_supported`` 都没有时使用）。
     scopes: tuple[str, ...] = ()
@@ -171,6 +172,8 @@ class MCPOAuthConfig(BaseModel):
             raise ValueError(
                 f"token_endpoint_auth_method={self.token_endpoint_auth_method} 需要 client_secret_credential"
             )
+        elif not self.allowed_issuers:
+            raise ValueError("机密 OAuth 客户端必须配置非空 allowed_issuers（固定客户端密钥所属 issuer）")
         return self
 
 

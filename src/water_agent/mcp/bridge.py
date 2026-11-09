@@ -39,11 +39,12 @@ from water_agent.mcp.schema import (
     build_args_model,
     ensure_description_safe,
 )
-from water_agent.runtime.governance.contracts import Capability
+from water_agent.runtime.governance.contracts import Capability, SourceTag
 from water_agent.runtime.governance.inventory import (
     McpToolBinding,
     register_mcp_tool_binding,
 )
+from water_agent.runtime.governance.rules import detect_injection, redact_text
 from water_agent.tools.base import ToolSpec
 
 #: 两种传输方式的客户端共用同一个外部接口（connect / list_tools / call_tool / close / alive）。
@@ -127,15 +128,54 @@ def _allowed(remote_tool: str, config: MCPServerConfig) -> bool:
     return config.allow is not None and remote_tool in config.allow
 
 
+def _sanitize_result(result: dict[str, Any]) -> dict[str, Any]:
+    """唯一桥接出口：递归脱敏文本，不改工程数值，也不改客户端持有的原始结果。"""
+    redacted = False
+    suspicious: set[str] = set()
+
+    def visit(value: Any) -> Any:
+        nonlocal redacted
+        if isinstance(value, str):
+            suspicious.update(hit.rule_id for hit in detect_injection(value))
+            text, hits = redact_text(value)
+            redacted = redacted or bool(hits)
+            return text
+        if isinstance(value, dict):
+            items: dict[Any, Any] = {}
+            for key, item in value.items():
+                safe_key = visit(key)
+                if safe_key in items:
+                    raise ValueError("MCP 返回字段脱敏后发生键冲突，拒绝产生不完整结果")
+                items[safe_key] = visit(item)
+            return items
+        if isinstance(value, (list, tuple)):
+            sequence = [visit(item) for item in value]
+            return tuple(sequence) if isinstance(value, tuple) else sequence
+        return value
+
+    safe: dict[str, Any] = visit(result)
+    if redacted:
+        safe["redacted"] = True
+    if suspicious:
+        safe["suspicious"] = sorted(suspicious)
+    if redacted or suspicious or "source_tag" in safe:
+        safe["source_tag"] = SourceTag.TOOL_OUTPUT.value
+    return safe
+
+
 def _make_execute(client: McpClient, remote_tool: str) -> Any:
     """工具执行闭包：远端业务失败（isError=true）转结构化 dict，
     崩溃类 ``MCPError`` 由 ``ToolRegistry.invoke`` 的异常转换兜底。"""
 
     def execute(args: BaseModel) -> dict[str, Any]:
         payload = args.model_dump(mode="json", exclude_none=True)
-        return client.call_tool(
-            remote_tool, payload, deadline_seconds=client.config.call_timeout_seconds
-        )
+        try:
+            result = client.call_tool(
+                remote_tool, payload, deadline_seconds=client.config.call_timeout_seconds
+            )
+        except Exception as exc:  # noqa: BLE001 -- Remote diagnostics are untrusted content.
+            raise RuntimeError(redact_text(str(exc))[0]) from None
+        return _sanitize_result(result)
 
     return execute
 
@@ -230,6 +270,7 @@ def bridge_server_tools(
                 args_model=args_model,
                 execute=_make_execute(client, tool.name),
                 timeout_seconds=client.config.call_timeout_seconds + 5.0,
+                result_source=SourceTag.TOOL_OUTPUT,
             )
         )
     return MCPBridgeResult(server_id=config.server_id, tools=tuple(tools), skipped=tuple(skipped))

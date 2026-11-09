@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import csv
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,19 @@ def _summary_rows(table: MaterialTable) -> list[list[Any]]:
         for note in table.assumptions:
             rows.append(["提示", "人工核对", note])
     return rows
+
+
+def _csv_safe_value(value: Any) -> Any:
+    """CSV 无单元格类型；危险文本加单引号，数值原样交给 writer。"""
+    if not isinstance(value, str):
+        return value
+    # 检查前导空白后的公式标记，也保护控制/不可见前缀；不剥掉原文。
+    for char in value:
+        if char in "=+-@" or unicodedata.category(char) in {"Cc", "Cf"}:
+            return "'" + value
+        if not char.isspace():
+            break
+    return value
 
 
 def _validate_export_path(path: str | Path) -> Path:
@@ -122,6 +136,9 @@ def write_materials_xlsx(
         sheet.column_dimensions[get_column_letter(index)].width = width
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
+            # 外部文本必须保留为字符串；openpyxl 会把 =... / #N/A 自动判为公式/错误。
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
             cell.alignment = wrap
             if isinstance(cell.value, float):
                 cell.number_format = "0.000"
@@ -135,6 +152,8 @@ def write_materials_xlsx(
         summary.column_dimensions[get_column_letter(index)].width = width
     for row in summary.iter_rows(min_row=1):
         for cell in row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
     wb.save(destination)
@@ -146,6 +165,8 @@ def write_materials_csv(
     path: str | Path,
 ) -> Path:
     """材料清单导出为 CSV（utf-8-sig，Excel 直接打开中文不乱码）。返回写入路径。
+
+    危险文本加单引号前缀以防公式执行；数量与汇总数值不改写。
 
     Args:
         table: 材料清单表格
@@ -161,8 +182,8 @@ def write_materials_csv(
         writer = csv.writer(handle)
         writer.writerow(COLUMNS)
         for row in _rows_for_excel(table):
-            writer.writerow(row)
+            writer.writerow([_csv_safe_value(value) for value in row])
         writer.writerow([])
         for summary_row in _summary_rows(table):
-            writer.writerow(summary_row)
+            writer.writerow([_csv_safe_value(value) for value in summary_row])
     return destination

@@ -61,19 +61,41 @@ def _type_name(value: Any) -> str:
     return type(value).__name__
 
 
-def sanitize_description(description: str, *, max_chars: int = _SERVER_DESC_MAX_CHARS) -> str:
-    """清洗不可信描述：NFKC + 去零宽 + 折叠空白 + 截断（标注截断）。"""
-    normalized = unicodedata.normalize("NFKC", description)
+def sanitize_description(
+    description: str, *, max_chars: int | None = _SERVER_DESC_MAX_CHARS
+) -> str:
+    """清洗不可信描述：剥格式字符、拒非法控制字符 → NFKC → 折叠空白/截断。"""
+    # Cf 覆盖 bidi/零宽/已分配 Tag；未分配 Tag 与 Mn 变体选择符需显式覆盖。
+    # 不剥普通组合附加符或希腊字母，保留工程文本；合法空白沿用 split() 语义。
+    characters: list[str] = []
+    for character in description:
+        category = unicodedata.category(character)
+        codepoint = ord(character)
+        if (
+            category == "Cf"
+            or 0xE0000 <= codepoint <= 0xE007F
+            or 0xFE00 <= codepoint <= 0xFE0F
+            or 0xE0100 <= codepoint <= 0xE01EF
+            or character in "\u180b\u180c\u180d\u180f\u034f"
+        ):
+            continue
+        if category in {"Cc", "Cs"} and not character.isspace():
+            raise MCPError(
+                MCP_DESCRIPTION_UNSAFE,
+                "描述含非法控制字符或 Unicode 代理字符，工具不暴露",
+            )
+        characters.append(character)
+    normalized = unicodedata.normalize("NFKC", "".join(characters))
     cleaned, _ = strip_invisible(normalized)
     collapsed = " ".join(cleaned.split())
-    if len(collapsed) > max_chars:
+    if max_chars is not None and len(collapsed) > max_chars:
         collapsed = collapsed[:max_chars] + "…[截断]"
     return collapsed
 
 
 def ensure_description_safe(description: str, *, where: str = "工具描述") -> str:
-    """安检不可信描述：清洗 → 注入/泄漏检测。命中即抛，**不脱敏放行**。"""
-    cleaned = sanitize_description(description)
+    """安检不可信描述：全文清洗 → 注入/泄漏检测 → 展示截断；命中即抛。"""
+    cleaned = sanitize_description(description, max_chars=None)
     hits = detect_injection(cleaned)
     if hits:
         summary = "; ".join(f"{h.rule_id}×{h.count}" for h in hits)
@@ -82,7 +104,7 @@ def ensure_description_safe(description: str, *, where: str = "工具描述") ->
             f"{where} 命中注入/提示索取规则（{summary}），工具不暴露；"
             "server 提供的描述是不可信文本，不得进入系统提示",
         )
-    return cleaned
+    return sanitize_description(cleaned)
 
 
 def _unwrap_nullable(schema: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -241,7 +263,7 @@ def _string_field(
 ) -> tuple[tuple[Any, Any], _EnumChecker | None]:
     schema, was_nullable = _unwrap_nullable(schema)
     raw_description = schema.get("description") or None
-    description = sanitize_description(raw_description) if raw_description else None
+    description = ensure_description_safe(raw_description, where="参数描述") if raw_description else None
     min_length = schema.get("minLength")
     max_length = schema.get("maxLength")
     enum_values = schema.get("enum")
@@ -280,7 +302,7 @@ def _numeric_field(
 ) -> tuple[Any, Any]:
     schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
-    description = sanitize_description(raw_description) if raw_description else None
+    description = ensure_description_safe(raw_description, where="参数描述") if raw_description else None
     minimum = schema.get("minimum")
     maximum = schema.get("maximum")
     default = schema.get("default")
@@ -303,7 +325,7 @@ def _numeric_field(
 def _boolean_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
     schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
-    description = sanitize_description(raw_description) if raw_description else None
+    description = ensure_description_safe(raw_description, where="参数描述") if raw_description else None
     default = schema.get("default")
     if default is not None and not isinstance(default, bool):
         raise UnsupportedSchemaError(f"boolean 属性的 default 必须是 bool，得到 {_type_name(default)}")
@@ -321,7 +343,7 @@ def _boolean_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
 def _free_object_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
     schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
-    description = sanitize_description(raw_description) if raw_description else None
+    description = ensure_description_safe(raw_description, where="参数描述") if raw_description else None
     if was_nullable or not required:
         return (dict | None, Field(description=description, default=None))  # type: ignore[return-value]
     return (dict, Field(description=description))
@@ -330,7 +352,7 @@ def _free_object_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any
 def _free_array_field(schema: dict[str, Any], required: bool) -> tuple[Any, Any]:
     schema, was_nullable = _unwrap_nullable(dict(schema))
     raw_description = schema.get("description") or None
-    description = sanitize_description(raw_description) if raw_description else None
+    description = ensure_description_safe(raw_description, where="参数描述") if raw_description else None
     if was_nullable or not required:
         return (list | None, Field(description=description, default=None))  # type: ignore[return-value]
     return (list, Field(description=description))

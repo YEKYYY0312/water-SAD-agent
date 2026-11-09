@@ -87,6 +87,16 @@ _BARE_NUMBER_RE = re.compile(r"(?<![\w.])(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?![\
 _STRUCTURAL_PREFIX_RE = re.compile(r"^\s*\d+[.、)）]?\s+")
 # 逐行数字保真使用更宽的扫描：DN150、GB50015-2019、1.1.1 都纳入原位比对。
 _ALL_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)*(?:[eE][+-]?\d+)?")
+# Generated provenance IDs have a fixed schema. Only IDs present in the trusted
+# base are exempt from scalar parsing; per-line token checks still detect edits.
+_SEGMENT_ID_RE = re.compile(r"(?<![\w-])seg-[0-9a-f]{12}(?![\w-])")
+
+
+def _mask_segment_ids(text: str, trusted_ids: set[str]) -> str:
+    return _SEGMENT_ID_RE.sub(
+        lambda match: " " * len(match.group(0)) if match.group(0) in trusted_ids else match.group(0),
+        text,
+    )
 
 
 def _within_tolerance(actual: float, gold: float) -> bool:
@@ -115,6 +125,7 @@ def numeric_preservation_problems(
     - 行首章节/列表编号（"1. xxx"）不算数值出现。
     """
     problems: list[str] = []
+    trusted_ids = set(_SEGMENT_ID_RE.findall(base_text))
     allowed_strings: set[str] = set()
     for value in calc_values.values():
         allowed_strings.add(_fmt(value))
@@ -124,7 +135,7 @@ def numeric_preservation_problems(
     for line in base_text.splitlines():
         if _KEY_VALUE_LINE_RE.search(line):
             continue
-        body = _STRUCTURAL_PREFIX_RE.sub("", line.lstrip(), count=1)
+        body = _mask_segment_ids(_STRUCTURAL_PREFIX_RE.sub("", line.lstrip(), count=1), trusted_ids)
         base_bare_numbers.update(m.group(1) for m in _BARE_NUMBER_RE.finditer(body))
     allowed_strings |= base_bare_numbers
     allowed_values = list(calc_values.values()) + [
@@ -133,7 +144,7 @@ def numeric_preservation_problems(
 
     for line in polished_text.splitlines():
         stripped = line.lstrip()
-        body = _STRUCTURAL_PREFIX_RE.sub("", stripped, count=1)
+        body = _mask_segment_ids(_STRUCTURAL_PREFIX_RE.sub("", stripped, count=1), trusted_ids)
         key_value_matches = list(_KEY_VALUE_LINE_RE.finditer(body))
         for key_value_match in key_value_matches:
             key, raw_value = key_value_match.group(1), key_value_match.group(2)

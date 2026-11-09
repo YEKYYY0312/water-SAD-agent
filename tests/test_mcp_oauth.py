@@ -684,7 +684,8 @@ def test_client_secret_comes_from_the_slot(fake: Callable[..., Fake]) -> None:
         **base.model_dump(mode="json"),
         "credential_env": ["OAUTH_CLIENT_SECRET"],
         "oauth": {"client_id": "wa-preregistered", "client_secret_credential": "OAUTH_CLIENT_SECRET",
-                  "token_endpoint_auth_method": "client_secret_basic"},
+                  "token_endpoint_auth_method": "client_secret_basic",
+                  "allowed_issuers": [server.issuer]},
     })
     start = oauth.start_authorization(cfg, redirect_uri=REDIRECT)
     query = parse_qs(urlparse(oauth_browser(start.authorization_url)).query)

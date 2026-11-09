@@ -25,7 +25,7 @@ dependencies = [
     # pypdf 是默认 PDF 引擎，BSD-3 许可；pymupdf 提取质量更好但是 AGPL-3.0，
     # 对自托管商业部署有传染性，因此只作为 pdf-enhanced extra 显式 opt-in。
     "python-docx>=1.1,<2",
-    "pypdf>=6.0,<7",
+    "pypdf>=6.21.4,<7",
     # P5-S52：CAD 导出 PDF 的页面渲染（给视觉模型看图）。BSD-3/Apache-2.0，自带
     # PDFium 二进制轮子；刻意不用 AGPL 的 pymupdf（与 S48 同一决策）。
     "pypdfium2>=5,<6",
@@ -39,6 +39,8 @@ dependencies = [
     # P7-S9：SKILL.md 的 YAML frontmatter（safe_load）。此前只是 langchain-core 的传递依赖，
     # skills 包直接 import 它，必须显式声明——上游哪天去掉这条依赖，镜像就会在装配期 ImportError。
     "pyyaml>=6.0,<7",
+    # 安全下限：去除涉及泄露中间 CA 私钥的旧信任根。
+    "certifi>=2026.10.19",
 ]
 
 [project.optional-dependencies]

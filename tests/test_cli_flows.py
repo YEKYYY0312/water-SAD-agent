@@ -216,6 +216,15 @@ class TestMultiAgentCli:
         assert '"PE"' not in serialized
         assert '"flow_lps": 10' not in serialized
 
+    def test_original_scientific_notation_like_segment_id_releases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+    ) -> None:
+        # Replay the preserved failure, using all original real-export assertions.
+        monkeypatch.setattr("water_agent.cli.new_session_id", lambda: "49a8d451b9d0467bbe676a8af1e8b8ff")
+        self.test_explicit_natural_language_brief_uses_observed_values_in_real_release(
+            tmp_path, monkeypatch, capsys,
+        )
+
     def test_explicit_natural_language_brief_uses_observed_values_in_real_release(
         self,
         tmp_path: Path,
@@ -238,7 +247,7 @@ class TestMultiAgentCli:
         )
 
         captured = capsys.readouterr()
-        assert code == 0, captured.err
+        assert code == 0, (captured.err, captured.out)
         payload = json.loads(captured.out)
         assert payload["status"] == "succeeded"
         assert payload["waiting"] is False

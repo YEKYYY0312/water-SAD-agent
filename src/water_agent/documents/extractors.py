@@ -183,70 +183,20 @@ def _extract_docx(data: bytes) -> ExtractedDocument:
 
 
 def _extract_pdf_pypdf(data: bytes) -> ExtractedDocument:
-    try:
-        from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover -- 依赖缺失兜底
-        raise UploadError(
-            CODE_UPLOAD_EXTRACTION_FAILED,
-            "解析 .pdf 需要 pypdf：安装 water-agent 依赖后重试",
-        ) from exc
-    try:
-        reader = PdfReader(io.BytesIO(data))
-        pages = reader.pages
-        parts: list[str] = []
-        for index, page in enumerate(pages, start=1):
-            # 单页提取失败不该让整份文档失败：一页坏版面在真实图纸说明里很常见，
-            # 其余页的文本仍有检索价值。
-            try:
-                page_text = page.extract_text() or ""
-            except Exception:  # noqa: BLE001 -- 单页降级，不放大为整份失败
-                page_text = ""
-            if not page_text.strip():
-                # 空页**不写页码标记**：否则一份全是扫描图的 PDF 会产出一串
-                # "--- Page n ---"，``extracted_text_length`` 不为 0，
-                # "这份 PDF 没有文本层"这个用户唯一需要知道的事实就消失了（spec R1）。
-                # 页号仍由 page_count 与后续页的标记如实反映。
-                continue
-            parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + neutralize_page_markers(page_text))
-        page_count = len(pages)
-    except UploadError:
-        raise
-    except Exception as exc:  # 第三方解析异常统一转结构化错误
-        raise UploadError(
-            CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .pdf 失败：{type(exc).__name__}"
-        ) from exc
+    from water_agent.documents.pdf_parser import extract_pdf
+
+    result = extract_pdf(data, "pypdf")
     return ExtractedDocument(
-        text="".join(parts).strip(), page_count=page_count, engine="pypdf", paginated=True
+        text=result["text"], page_count=result["page_count"], engine="pypdf", paginated=True
     )
 
 
 def _extract_pdf_pymupdf(data: bytes) -> ExtractedDocument:
-    try:
-        import pymupdf  # type: ignore[import-untyped,import-not-found,unused-ignore]  # 可选 extra，runner 上未装
-    except ImportError as exc:
-        raise UploadError(
-            CODE_UPLOAD_EXTRACTION_FAILED,
-            f"{_PDF_ENGINE_ENV}={_PYMUPDF_ENGINE} 但未安装 pymupdf："
-            "安装 water-agent[pdf-enhanced]（注意 AGPL-3.0 许可义务）或改回默认 pypdf",
-        ) from exc
-    try:
-        parts: list[str] = []
-        with pymupdf.open(stream=data, filetype="pdf") as document:
-            page_count = document.page_count
-            for index, page in enumerate(document, start=1):
-                page_text = page.get_text()
-                # 与 pypdf 路径同语义：空页不写页码标记（见那里的说明）。
-                if not page_text.strip():
-                    continue
-                parts.append(PAGE_MARKER_TEMPLATE.format(page=index) + neutralize_page_markers(page_text))
-    except UploadError:
-        raise
-    except Exception as exc:  # 第三方解析异常统一转结构化错误
-        raise UploadError(
-            CODE_UPLOAD_EXTRACTION_FAILED, f"解析 .pdf 失败：{type(exc).__name__}"
-        ) from exc
+    from water_agent.documents.pdf_parser import extract_pdf
+
+    result = extract_pdf(data, "pymupdf")
     return ExtractedDocument(
-        text="".join(parts).strip(), page_count=page_count, engine="pymupdf", paginated=True
+        text=result["text"], page_count=result["page_count"], engine="pymupdf", paginated=True
     )
 
 

@@ -132,6 +132,7 @@ def test_subprocess_only_in_registered_modules() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "water_agent"
     registered = {
         "documents/dwg_convert.py",  # P5-S51 入库侧 DWG 转换
+        "documents/pdf_parser.py",  # 安全修复：无凭据、有限资源的 PDF 文本解析。
         "mcp/client.py",  # P4 MCP stdio 客户端
         "webapp/smoke.py",  # 冒烟容器内的 CLI 探针
         "harness/memory_eval.py",  # 评测 harness
