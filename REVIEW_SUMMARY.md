@@ -201,5 +201,4 @@
 ---
 
 **详细问题清单**: 见 `REVIEW_FINDINGS.md`  
-**P2 完成报告**: 见 `docs/P2_COMPLETION_REPORT.md`  
 **最新评测报告**: `data/eval/reports/rag_p1_20260916T012131386910Z.json`
