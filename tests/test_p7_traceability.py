@@ -17,6 +17,9 @@ def test_spec_traceability_holds() -> None:
     """P7-S0-A18 本规格的追溯关系成立：delivered 行的测试存在、未 skip、docstring 写明 ID；
     ``tests/`` 里出现的 P7 ID 都在规格里有定义。"""
 
+    import pytest
+    if not SPEC.is_file():
+        pytest.skip("design specification removed from public checkout")
     problems = check_traceability(SPEC, REPO_ROOT)
     assert problems == [], "\n".join(problems)
     rows = parse_spec(SPEC.read_text(encoding="utf-8"))
