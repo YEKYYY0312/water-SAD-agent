@@ -13,7 +13,6 @@
 | 三条铁律单一来源 | yes | pass | `tests/test_assembler.py::test_prompt_rules_single_source_no_drift` | `ROLE_AND_PRINCIPLES` / `DEFAULT_AGENTIC_PROMPT` 已复用同一静态定义。 |
 | 质量层独立判定（quality_pass） | yes | pass | `tests/test_ci_gate.py::TestRealQualityJudgement` | 阻断维度：faithfulness / citation_coverage / no_fabrication。 |
 | rag_p1 独立质量基线 | yes | blocked | 当前仅有失败的 real 运行报告 `data/eval/reports/rag_p1_20260903T133322Z.json` | 需要网络可用后重新跑出可用报告，再用独立 baseline 文件版本化。 |
-| Step 10 收口证据文档 | yes | pass | `docs/evals/step10-prompt-tuning-2026-09-03.md`、本文件 | 已记录前后报告、完整 prompt diff、阻塞项与数据质量问题。 |
 | 生产清单风险登记 | yes | pass | 本文件 | 未完成项全部保留为 blocked，不写成完成。 |
 
 ## 当前结论

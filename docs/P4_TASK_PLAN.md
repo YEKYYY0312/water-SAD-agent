@@ -172,7 +172,6 @@
    - 计算召回率、精确率、F1
    - 输出详细报告：`data/eval/reports/drawing_p4_recall.json`
 
-5. **P4 完成报告**（`docs/P4_COMPLETION_REPORT.md`）
    - 召回率数值
    - 漏检案例分析
    - 误报案例分析

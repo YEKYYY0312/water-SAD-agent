@@ -36,7 +36,6 @@ pytest **2143 passed / 24 skipped / 0 failed** + ruff + mypy + 8 套 harness + �
 ### P2「真实图纸样本采集和分析」✅ 已完成（2026-09-15）
 
 **状态**: DONE  
-**完成报告**: `docs/P2_COMPLETION_REPORT.md`
 
 | # | 验收标准（任务书 §验收标准） | 实际 | 状态 |
 | --- | --- | --- | --- |
@@ -162,7 +161,6 @@ pytest **2143 passed / 24 skipped / 0 failed** + ruff + mypy + 8 套 harness + �
 - **位置**: P3 图纸审查链路 / `data/drawings/real_samples/`
 - **现状（2026-09-15 更新）**: 
   - ✅ **P2 任务已完成**：18 份真实脱敏样本采集、验证、归档，所有验收标准通过
-    （详见 `docs/P2_COMPLETION_REPORT.md` 和上方 P2 验收结果表）
   - ✅ **样本已采集**：18 份真实污水处理厂 DXF，覆盖平面图 / 系统图 / 大样图 / 泵房图四类
     （`P-01…P-07` / `S-01…S-05` / `D-01…D-03` / `PUMP-01…PUMP-03`），合计 **13.2 MB**
   - ✅ **可读性 18/18**，图元合计 **36,605**、截断 0 张；含 INSERT 的 16 张（4,037 个）、

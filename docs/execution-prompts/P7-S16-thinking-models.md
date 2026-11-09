@@ -1,7 +1,6 @@
 # P7-S16 执行 Prompt：思考型模型（回传、清理、探针、展示）
 
 > **工作区**：仓库 `YEKYYY0312/water-SAD-agent`，基于最新 `main`（必须已包含本 Prompt 与 **P7-S15**）。新建分支 `YEK/p7-s16-thinking-models`。
-> **2026-11-04 准入基线**：main `dd8c314`，11 个出站调用点、21 个装配 profile；本次只校正准入口径，不代表 D4–D8 已放行。真实证据见 `docs/evals/p7-s16-preflight-2026-11-04.md`。
 > **必读**：
 > - `AGENTS.md`
 > - `docs/design/18-p7-multi-model.md`（SDD：§2 事实表 F1–F28、§4 设计、§6 不变量 P7-I18/I19/I20、§7 的 P7-S16 验收、§10 待实测项）与 `docs/design/18-p7-multi-model-harness.md` §2.1、§4

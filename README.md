@@ -69,7 +69,7 @@ uv run python -m water_agent.cli --mode calc "DN150、Q=20L/s，求流速"
 uv run python -m water_agent.cli --mock-generator "给水管道的设计秒流量如何确定？"
 ```
 
-真实问答需配置模型与检索凭据，并准备匹配的语料和索引；缺失依赖时会明确拒绝，不伪装成功。配置与历史验证命令见[工程说明](docs/engineering-reference.md)。
+真实问答需配置模型与检索凭据，并准备匹配的语料和索引；缺失依赖时会明确拒绝，不伪装成功。配置说明见[设计文档](docs/design)。
 
 ### 自托管 Web 工作台
 
@@ -89,7 +89,7 @@ docker compose up -d
 2. **真实质量层**：使用真实模型、语料和独立评测，验证问答与工程产物。
 3. **工程交付层**：核对正式规范、项目条件、图纸覆盖与部署安全，由工程师确认。
 
-当前仍有真实 RAG 质量、正式规范引用、真实图纸覆盖及安全整改等未完成事项。图纸回归含合成样本，护栏不保证防住任意注入；不要用于未经复核的正式工程结论。详见[历史验收与已知约束](docs/engineering-reference.md#已知约束)。
+当前仍有真实 RAG 质量、正式规范引用、真实图纸覆盖及安全整改等未完成事项。图纸回归含合成样本，护栏不保证防住任意注入；不要用于未经复核的正式工程结论。详见[设计文档](docs/design)。
 
 ```bash
 bash scripts/ci_gate.sh
@@ -99,7 +99,6 @@ bash scripts/ci_gate.sh
 
 ## 文档与开发
 
-- [工程说明与历史验收口径](docs/engineering-reference.md)：原完整 README、环境、命令、阶段记录与约束。
 - [设计与架构文档](docs/design)：工作流、图纸、治理与扩展方案。
 - [源代码](src/water_agent)：运行时、Agent 图、工具、检索与 Web 服务。
 - [测试与评测](tests)：回归用例与机制层保护。
