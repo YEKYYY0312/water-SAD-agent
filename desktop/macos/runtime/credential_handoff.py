@@ -84,7 +84,9 @@ def check_store(root: Path) -> None:
             raise HandoffError("HANDOFF_UNSAFE_FILE")
 
 
-def install_payload(payload: Any, binding: dict[str, Any]) -> dict[str, Any]:
+def install_payload(
+    payload: Any, binding: dict[str, Any], *, require_different: bool = False, compare_only: bool = False
+) -> dict[str, Any]:
     """Caller owns the desktop instance lock. Compensates ordinary failures only."""
     from water_agent.config import credentials
 
@@ -115,6 +117,15 @@ def install_payload(payload: Any, binding: dict[str, Any]) -> dict[str, Any]:
     old = {name: credentials.resolve_secret(name, getenv=lambda _: None) for name in SLOTS}
     if any((root / credentials.CREDENTIALS[n]).exists() and old[n] is None for n in SLOTS):
         raise HandoffError("HANDOFF_UNSAFE_FILE")
+    different = {name: old[name] is not None and old[name] != values[name] for name in SLOTS}
+    if require_different and not all(different.values()):
+        raise HandoffError("HANDOFF_NOT_DIFFERENT")
+    if compare_only:
+        return {
+            "ok": True, "written": False, "authentication_checked": False, "rotated": False,
+            "different_from_previous": different,
+            "matches_previous": {n: old[n] is not None and old[n] == values[n] for n in SLOTS},
+        }
     try:
         for name in SLOTS:
             credentials.write_credential(name, values[name])
@@ -145,7 +156,10 @@ def install_payload(payload: Any, binding: dict[str, Any]) -> dict[str, Any]:
         raise HandoffError(
             "HANDOFF_ROLLBACK_FAILED" if failed else "HANDOFF_WRITE_FAILED"
         ) from None
-    return {"ok": True, "slots": list(SLOTS), "authentication_checked": False, "rotated": False}
+    return {
+        "ok": True, "slots": list(SLOTS), "authentication_checked": False,
+        "rotated": False, "different_from_previous": different,
+    }
 
 
 class DockerTransport:
@@ -283,7 +297,9 @@ def source_command(binding: dict[str, Any], name: str, nonce: str) -> list[str]:
     ]
 
 
-def verify_container(info: dict[str, Any], binding: dict[str, Any], nonce: str) -> None:
+def verify_container(
+    info: dict[str, Any], binding: dict[str, Any], nonce: str, *, source_writable: bool = False
+) -> None:
     try:
         host, config = info["HostConfig"], info["Config"]
         mounts = info["Mounts"]
@@ -306,7 +322,7 @@ def verify_container(info: dict[str, Any], binding: dict[str, Any], nonce: str) 
             or not any(
                 m.get("Name") == binding["volume"]
                 and m.get("Destination") == SOURCE_ROOT
-                and m.get("RW") is False
+                and m.get("RW") is source_writable
                 for m in mounts
             )
             or set(host["Tmpfs"]) != {"/handoff"}
@@ -410,6 +426,8 @@ def execute(
     socket_path: Path,
     *,
     transport_factory: Callable[[Path, Path], DockerTransport] | None = None,
+    require_different: bool = False,
+    compare_only: bool = False,
 ) -> dict[str, Any]:
     if TYPE_CHECKING:
         from .launcher import isolated_environment
@@ -450,6 +468,10 @@ def execute(
                 shutil.rmtree(stage)
             except BaseException:  # noqa: BLE001 -- protected plaintext staging must not be silently left
                 raise HandoffError("HANDOFF_CLEANUP_FAILED") from None
+        if require_different or compare_only:
+            return install_payload(
+                payload, binding, require_different=require_different, compare_only=compare_only
+            )
         return install_payload(payload, binding)
 
 
@@ -464,11 +486,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description="Local credential handoff; no authentication or rotation")
     for flag in ("resources", "data-dir", "source-binding", "socket"):
         parser.add_argument("--" + flag, required=True, type=Path)
+    parser.add_argument("--require-different", action="store_true")
+    parser.add_argument("--compare-only", action="store_true")
     try:
         args = parser.parse_args(argv)
         paths = DesktopPaths.create(args.resources, args.data_dir)
         sys.path.insert(0, str(paths.resources / "backend/src"))
-        result = execute(paths, args.source_binding, args.socket)
+        result = execute(
+            paths, args.source_binding, args.socket,
+            require_different=args.require_different, compare_only=args.compare_only
+        )
         print(json.dumps(result))
         return 0
     except BaseException as exc:  # noqa: BLE001 -- CLI never emits submitted input or dependency tracebacks

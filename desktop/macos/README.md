@@ -57,6 +57,14 @@ PYTHONPATH=src _venv/bin/python desktop/macos/packaging/handoff_canary.py \
 
 canary通过只说明机制可用，不能关闭此前真实Key日志审计缺口；旧Key轮换仍需独立协调所有受影响调用方。
 
+### 新Key本机隐藏填写（A2）
+
+运维可用安装资源内的 `runtime/credential_entry.py prepare --resources <Resources> --data-dir <App数据> --directory <新建的独立受保护目录> --socket <本机Docker socket> --image sha256:<可信固定镜像>` 准备入口。它只创建新的隔离源卷、受治理接收容器、非秘密绑定/会话文件及 `填写新凭据.command`，不写App槽位。
+
+用户在本机Terminal打开该 `.command`，按提示确认端点后填写新Key。输入隐藏并重复确认，不在聊天提交。填好后会话变为ready、接收容器清理，源卷保留；填错/取消/失败按本次label清理，不修改旧服务。不要用`.env`、通用编辑器自动保存、命令行参数或stdout搬运Key。
+
+正式导入仍用前述A1 CLI：先 `--compare-only` 对受保护旧恢复源核实两个 `matches_previous=true`；正常退出App后，以新源声明加 `--require-different`，任何一个槽未变均拒绝整批写入。成功返回的布尔差异不是鉴权或撤销证明。完整契约见 [本机填写设计](../../docs/design/desktop-credential-entry.md)。
+
 ## 构建
 
 构建机需要 Apple command line tools（Swift、clang、make）、uv 和 Node/npm；仅构建期需要它们。工作目录为仓库根；原生依赖与安装产物只写本地忽略的 `work/macos-standalone/`。首次使用前将 `/work/macos-standalone/` 加入 `git rev-parse --git-path info/exclude` 返回的本地排除文件。

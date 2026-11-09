@@ -33,6 +33,9 @@ PUBLIC_CODES = frozenset(
         "HANDOFF_FAILED",
         "HANDOFF_APP_RUNNING",
         "HANDOFF_UNSAFE_COMMAND",
+        "HANDOFF_NOT_DIFFERENT",
+        "HANDOFF_TTY_REQUIRED",
+        "HANDOFF_ENTRY_FAILED",
     }
 )
 
