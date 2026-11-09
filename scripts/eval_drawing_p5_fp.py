@@ -253,8 +253,9 @@ def generate_report() -> None:
 
     fp_analysis = calculate_fp_rate_with_annotations()
 
-    # 生成报告
-    report_path = ROOT / "docs/P5_COMPLETION_REPORT.md"
+    # 默认写入被 .gitignore 忽略的报告目录，不在 tracked docs/ 下生成公开评测报告。
+    report_path = ROOT / "data/eval/reports/p5_completion_report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("# P5 阶段完成报告：误报率验证\n\n")
         f.write("**状态**: ✅ 已完成\n")
