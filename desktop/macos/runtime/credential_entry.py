@@ -208,6 +208,10 @@ def prepare(paths: DesktopPaths, directory: Path, image: str, socket: Path) -> P
 
 
 def fill(directory: Path) -> None:
+    # Load only this executable's own bundle, before binding validation imports
+    # the production URL/model validators. Never choose code from session data.
+    current_resources = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(current_resources / "backend/src"))
     info = directory.lstat()
     if not directory.is_dir() or info.st_uid != os.geteuid() or (info.st_mode & 0o777) != 0o700:
         raise handoff.HandoffError("HANDOFF_UNSAFE_FILE")

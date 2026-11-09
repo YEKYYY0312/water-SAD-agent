@@ -5,8 +5,10 @@ import copy
 import json
 import logging
 import os
+import shutil
 import stat
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -127,6 +129,29 @@ def test_entry_command_changes_only_new_source_mount_and_worker():
     assert f"type=volume,source={BINDING['volume']},target={handoff.SOURCE_ROOT}" in argv
     assert "readonly" not in argv[argv.index("--mount") + 1]
     assert all(v not in repr(argv) for v in VALUES.values())
+
+
+def test_packaged_fill_loads_own_backend_before_validating_session(tmp_path):
+    resources = private_directory(tmp_path / "Resources")
+    runtime = resources / "runtime"
+    runtime.mkdir()
+    for name in ("credential_entry.py", "credential_entry_worker.py", "credential_handoff.py", "handoff_source.py", "paths.py"):
+        shutil.copy2(Path(entry.__file__).parent / name, runtime / name)
+    shutil.copytree(Path(credentials.__file__).parents[1], resources / "backend/src/water_agent", ignore=shutil.ignore_patterns("__pycache__"))
+    directory = private_directory(tmp_path / "entry")
+    session = {"version": 1, "nonce": "a" * 32, "binding": BINDING, "status": "created", "resources": str(resources), "socket": "/no-such-docker.sock"}
+    from desktop.macos.runtime.paths import private_write
+    private_write(directory / "session.json", json.dumps(session))
+    code = (
+        "import sys;from pathlib import Path;sys.path.insert(0," + repr(str(runtime)) + ");"
+        "sys.path.extend(" + repr([p for p in os.sys.path if "site-packages" in p]) + ");"
+        "import credential_entry as entry\n"
+        "try:entry.fill(Path(" + repr(str(directory)) + "))\n"
+        "except entry.handoff.HandoffError as e:print(str(e))\n"
+    )
+    result = subprocess.run([str(Path(os.sys.executable)), "-I", "-S", "-B", "-c", code], capture_output=True, check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() == b"HANDOFF_LOCAL_DOCKER_REQUIRED"
 
 
 def test_session_cannot_target_a_legacy_volume():
