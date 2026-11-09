@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="docs/assets/readme-hero.png" alt="SAD Water Agent：把工程问题，交给可追溯的 Agent。规范问答、水力计算、文档生成、图纸审查与材料统计。" width="100%" />
-</p>
-
-<p align="center">
   <a href="#产品演示">观看演示</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#工作原理">工作原理</a> ·
@@ -16,8 +12,6 @@
 **模型负责理解与协作，工具负责计算，工程师负责最终确认。**
 
 ## 产品演示
-
-[![观看 SAD Water Agent 宣传片：90 秒产品演示](docs/assets/demo-poster.jpg)](https://github.com/YEKYYY0312/water-SAD-agent/issues/63)
 
 **[▶ 观看 90 秒宣传片](https://github.com/YEKYYY0312/water-SAD-agent/issues/63)** · [下载 1080p 原片](https://github.com/YEKYYY0312/water-SAD-agent/releases/download/media-demo-v1/sad-water-agent-90s-1080p.mp4) · 产品介绍，不是端到端质量验收。
 
