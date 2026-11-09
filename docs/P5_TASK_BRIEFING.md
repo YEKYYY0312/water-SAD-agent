@@ -163,14 +163,12 @@ python scripts/eval_drawing_p5_fp.py --report
 
 - [ ] 误报分析报告：归纳误报类型、频次、根因
 - [ ] 改进建议（如果误报率 > 10%）：具体到代码行、参数值
-- [ ] 更新 `docs/P5_COMPLETION_REPORT.md`
 
 ### 5.3 交付物
 
 1. `scripts/eval_drawing_p5_fp.py`（评测脚本）
 2. `data/eval/drawing_p5_fp_annotations.json`（人工标注）
 3. `data/eval/drawing_p5_fp_results.json`（评测结果）
-4. `docs/P5_COMPLETION_REPORT.md`（完成报告）
 
 ---
 

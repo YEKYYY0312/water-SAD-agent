@@ -63,7 +63,6 @@
 
 **质量层与鲁棒性验收**
 - [x] 受限 prose 润色 + 确定性自检管线：`data/eval/docgen_quality.jsonl` 离线 4/4；
-  2026-09-04 真实 DeepSeek 运行 4/4（仅证明 4 条样本，见 `docs/evals/p2-quality-2026-09-04.md`）
 - [x] 材料鲁棒性套件：`data/eval/material_quality.jsonl` 7/7；xlsx round-trip 由
   `tests/test_materials_quality.py` 覆盖
 - [x] PR baseline 已纳入 `docgen_p0` 与 `material_p0`；`data/eval/baseline.json` 默认比较
