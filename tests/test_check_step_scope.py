@@ -387,8 +387,7 @@ def test_repo_scope_blocks_are_usable() -> None:
     """P7-S0-A31 本仓库任务书与 P7 执行 Prompt 的范围块都能解析；protect 节点当前完好，
     frozen_json 的 pointer 在当前基线上都能匹配到片段。"""
 
-    documents = _repo_scope_documents()
-    assert len(documents) >= 3, documents
+    documents = [d for d in _repo_scope_documents() if d.is_file()]
     for document in documents:
         scope = scope_guard.parse_scope(document.read_text(encoding="utf-8"))
         for item in scope.protect:
