@@ -70,11 +70,6 @@
 ### 2.4 文档类（11 份完成报告 + 多份任务规划）
 
 ```
-docs/P2_COMPLETION_REPORT.md         (9 KB, 2026-09-15)
-docs/P3_COMPLETION_REPORT.md         (8.5 KB, 2026-09-16)
-docs/P4_COMPLETION_REPORT.md         (5.7 KB, 2026-09-16)
-docs/P5_COMPLETION_REPORT.md         (3.8 KB, 2026-09-16)
-docs/P5.1_COMPLETION_REPORT.md       (5.4 KB, 2026-09-16)
 REVIEW_SUMMARY.md                    (顶层, 9.8 KB)
 ```
 
@@ -183,9 +178,6 @@ git add data/drawings/real_samples/MANIFEST.md
 **影响**: 无法追溯各阶段交付证据
 
 **建议入库**：
-- `docs/P2_COMPLETION_REPORT.md`
-- `docs/P3_COMPLETION_REPORT.md`
-- `docs/P5.1_COMPLETION_REPORT.md`
 - `REVIEW_SUMMARY.md`
 
 P4/P5 COMPLETION_REPORT 偏简略，可选。
@@ -274,9 +266,6 @@ git add data/eval/drawing_p5_fp_annotations.json
 git add data/drawings/real_samples/MANIFEST.md
 
 # 4. 入库核心完成报告
-git add docs/P2_COMPLETION_REPORT.md
-git add docs/P3_COMPLETION_REPORT.md
-git add docs/P5.1_COMPLETION_REPORT.md
 git add REVIEW_SUMMARY.md
 
 # 5. 入库评测脚本
@@ -316,7 +305,6 @@ git commit -m "feat(drawing): 入库 P2–P5.1 真实图纸链路（MIF/符号�
 - MIF 转义解码：1,320 条 → 残留 0
 - INSERT 块展开：PUMP-03 = 5,729 → 5,922 实体
 
-决策记录见 docs/P2/P3/P5.1_COMPLETION_REPORT.md
 
 Co-authored-by: Claude Code <claude-code@anthropic.com>"
 ```

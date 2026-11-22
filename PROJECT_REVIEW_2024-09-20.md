@@ -304,16 +304,12 @@ principal = Principal.authenticated(
 **任务规划**：
 - P2_TASK_PROMPT.md
 - P3_CURSOR_PROMPT.md, P3_TASK_BRIEFING.md
-- P4_TASK_PLAN.md, P4_COMPLETION_REPORT.md, P4_SUMMARY.md
-- P5_TASK_BRIEFING.md, P5_COMPLETION_REPORT.md, P5_SUMMARY.md
 - P5.1_TASK_PLAN.md
 
 **P2.5 治理文档**：
 - P2.5_AUTO_ANNOTATION.md
 - P2.5_CURSOR_INSTRUCTIONS.md
 - P2.5_NEXT_STEPS.md
-- P2.5_STATUS.md
-- P2.5_SUMMARY.md
 - P2.5_TASK_PROMPT.md
 - P2.5_快速启动.md
 
@@ -321,7 +317,6 @@ principal = Principal.authenticated(
 - MULTI_AGENT_TOOL_REVIEW.md
 - PRE_PRODUCTION_REVIEW.md
 - SYMBOL_RECOGNITION_DIAGNOSIS.md
-- REVIEW_SUMMARY_2026-09-15.md
 
 **设计文档**：
 - docs/design/13-p3-drawing-review.md

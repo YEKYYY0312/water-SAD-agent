@@ -32,12 +32,6 @@ jobs:
         env:
           VENV: .venv
         run: bash scripts/ci_gate.sh
-      - name: Upload the P5 report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: p5-report
-          path: data/eval/reports/
 
   frontend:
     runs-on: ubuntu-24.04
