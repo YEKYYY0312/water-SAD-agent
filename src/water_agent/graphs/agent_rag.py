@@ -70,6 +70,12 @@ from water_agent.generation.cost import estimate_model_cost
 from water_agent.generation.governed_chat import GovernedChatModel
 from water_agent.graphs.calculation_answer import (
     WARNING_PROGRAMMATIC_CALCULATION,
+    render_programmatic_darcy,
+    render_programmatic_diameter,
+    render_programmatic_hazen,
+    render_programmatic_manning,
+    render_programmatic_pump_head,
+    render_programmatic_shevelev,
     render_programmatic_velocity,
 )
 from water_agent.ingestion.version_registry import get_version_registry
@@ -735,6 +741,22 @@ def make_agent_loop(
                 # 不得静默丢弃——否则用户会以为查过了
                 _record("web_search_not_exposed", {"groups": missing})
                 not_exposed_warning.append(WARNING_WEB_SEARCH_NOT_EXPOSED)
+        if {"calc_head_loss_darcy_weisbach", "calc_diameter", "calc_head_loss_hazen_williams", "calc_head_loss_shevelev", "calc_slope_manning", "calc_pump_head"} & set(decision_state.get("exposed", [])):
+            limited = [str(item[0]) for item in decision_state.get("dropped", [])
+                       if item and item[0] in {"materials", "drawing", "hydraulics:darcy", "hydraulics:diameter", "hydraulics:hazen", "hydraulics:shevelev", "hydraulics:manning", "hydraulics:pump_head"}]
+            if limited:
+                not_exposed_warning.append(
+                    "TOOL_EXPOSURE_LIMITED：" + "、".join(
+                        {"hydraulics:darcy": "calc_head_loss_darcy_weisbach",
+                         "hydraulics:diameter": "calc_diameter",
+                         "hydraulics:hazen": "calc_head_loss_hazen_williams",
+                         "hydraulics:shevelev": "calc_head_loss_shevelev",
+                         "hydraulics:manning": "calc_slope_manning",
+                         "hydraulics:pump_head": "calc_pump_head",
+                         "materials": "material_stats", "drawing": "read_drawing"}.get(group, group)
+                        for group in limited)
+                    + " 因工具预算未开放，请将计算、读图和材料统计拆成独立请求。"
+                )
         holder["exposed"] = (
             set(decision_state["exposed"]) if decision_state.get("strategy") == "intent" else None
         )
@@ -839,7 +861,17 @@ def make_agent_loop(
             inner_state = {**inner_state, **restored}
         inner_config = config if recursion_limit is None else {**config, "recursion_limit": recursion_limit}
         try:
-            result = dict(react_agent.invoke(inner_state, config=inner_config))
+            from water_agent.tools.darcy_request import darcy_request_scope
+            from water_agent.tools.diameter_request import diameter_request_scope
+            from water_agent.tools.hazen_request import hazen_request_scope
+            from water_agent.tools.manning_request import manning_request_scope
+            from water_agent.tools.pump_head_request import pump_head_request_scope
+            from water_agent.tools.shevelev_request import shevelev_request_scope
+
+            human = _last_human_message(state.get("messages", []))
+            query_text = human.content if human and isinstance(human.content, str) else None
+            with darcy_request_scope(query_text), diameter_request_scope(query_text), hazen_request_scope(query_text), shevelev_request_scope(query_text), manning_request_scope(query_text), pump_head_request_scope(query_text):
+                result = dict(react_agent.invoke(inner_state, config=inner_config))
             # 换进内层的原对象不写回状态（checkpoint 照旧存 dict，下次进入再换）
             for key in restored:
                 result.pop(key, None)
@@ -857,8 +889,9 @@ def make_agent_loop(
             _project_web_signal(result)
             if not_exposed_warning:
                 warnings = list(result.get("warnings") or state.get("warnings", []) or [])
-                if WARNING_WEB_SEARCH_NOT_EXPOSED not in warnings:
-                    warnings.append(WARNING_WEB_SEARCH_NOT_EXPOSED)
+                for warning in not_exposed_warning:
+                    if warning not in warnings:
+                        warnings.append(warning)
                 result["warnings"] = warnings
             return result
         except ToolBudgetExceeded as exc:
@@ -1208,7 +1241,13 @@ def make_citation_validator(version_registry: Any | None = None):
             )
             return {"status": STATUS_FAILED, "errors": errors}
 
-        calculation_answer = render_programmatic_velocity(messages)
+        calculation_answer = (render_programmatic_velocity(messages)
+                              or render_programmatic_darcy(messages)
+                              or render_programmatic_diameter(messages)
+                              or render_programmatic_hazen(messages)
+                              or render_programmatic_shevelev(messages)
+                              or render_programmatic_manning(messages)
+                              or render_programmatic_pump_head(messages))
         if calculation_answer is not None:
             if WARNING_PROGRAMMATIC_CALCULATION not in warnings:
                 warnings.append(WARNING_PROGRAMMATIC_CALCULATION)

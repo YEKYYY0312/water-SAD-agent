@@ -123,7 +123,7 @@ def test_the_directory_is_not_a_model_tool() -> None:
     assert not any("registry" in name for name in registered)
     assert "mcp_registry" not in inventory.scan_tool_spec_names()
     coverage = inventory.governance_coverage()
-    assert coverage["tools"] == coverage["tools_guardrail_validated"] == 7
+    assert coverage["tools"] == coverage["tools_guardrail_validated"] == 16  # T2-7B internal-only specs
 
 
 def test_the_eleventh_egress_site_is_registered_like_web_search() -> None:

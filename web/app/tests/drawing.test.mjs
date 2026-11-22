@@ -173,15 +173,16 @@ test("the panel states the draft notice and computes no numbers itself", async (
   assert.doesNotMatch(panel, /"DN50"|"PPR"|"楼梯间"/);
 });
 
-test("workbench keeps the drawing panel mutually exclusive with memory and settings", async () => {
+test("workbench keeps drawing, memory, settings and project calculation mutually exclusive", async () => {
   const source = await readFile(new URL("../src/Workbench.tsx", import.meta.url), "utf8");
   assert.match(source, /DrawingPanel/);
   assert.match(source, /aria-pressed=\{workspace\.drawingOpen\}/);
-  // 打开任何一个面板都要关掉另外两个。
-  const openers = source.split("const open").slice(1).map((chunk) => chunk.slice(0, chunk.indexOf("};")));
-  assert.equal(openers.length, 3);
-  for (const opener of openers) {
-    const closes = ["setMemoryOpen(false)", "setSettingsOpen(false)", "setDrawingOpen(false)"].filter((call) => opener.includes(call));
-    assert.equal(closes.length, 2, opener.slice(0, 40));
+  const panels = { Memory: "setMemoryOpen", Settings: "setSettingsOpen", Drawing: "setDrawingOpen", Calculation: "setCalculationOpen" };
+  for (const [panel, action] of Object.entries(panels)) {
+    const opener = source.match(new RegExp(String.raw`const open${panel} = \(\) => \{([\s\S]*?)\n  \};`))?.[1];
+    assert.ok(opener, panel);
+    for (const other of Object.values(panels).filter(setter => setter !== action)) {
+      assert.ok(opener.includes(`${other}(false)`), `${panel} closes ${other}`);
+    }
   }
 });

@@ -9,7 +9,6 @@ plausible.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -298,38 +297,49 @@ def test_compose_config_parses_base_and_overlay_together() -> None:
     assert "WEB_SECURE_COOKIE" not in json.loads(base_only.stdout)["services"]["app"]["environment"]
 
 
+@pytest.mark.parametrize(
+    ("state", "reason", "calls"),
+    [
+        ("cli-unreachable", "docker daemon unreachable", []),
+        ("daemon-unreachable", "docker daemon unreachable", ["info"]),
+        ("image-missing", "not built locally", ["info", "image inspect water-agent-definitely-not-built:latest"]),
+    ],
+)
 def test_image_check_skips_structurally_instead_of_failing(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    state: str, reason: str, calls: list[str],
 ) -> None:
-    """Both SKIP routes the task book allows must be structured and exit 0."""
+    """Exercise each real script branch without relying on a host Docker daemon.
 
-    del monkeypatch
+    A missing image is only reachable after a successful daemon probe. The
+    previous test consulted the host for that branch, so a stopped daemon made
+    the assertion wrong even though the production script behaved correctly.
+    """
     script = REPO_ROOT / "scripts" / "check_image.sh"
-    bash = shutil.which("bash") or "/bin/bash"
-
-    unreachable = subprocess.run(
-        [bash, str(script)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "DOCKER": "/nonexistent/docker"},
+    fake = tmp_path / "fake-docker"
+    call_log = tmp_path / "docker-calls.txt"
+    fake.write_text(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "$*" >> "$DOCKER_CALL_LOG"\n'
+        'case "$1" in\n'
+        '  info) [ "$FAKE_DOCKER_STATE" = "image-missing" ] ;;\n'
+        '  image) [ "$2" = "inspect" ] || exit 99; exit 1 ;;\n'
+        '  *) exit 99 ;;\n'
+        'esac\n',
+        encoding="utf-8",
     )
-    assert unreachable.returncode == 0, unreachable.stderr
-    payload = json.loads(unreachable.stdout.strip().splitlines()[-1])
-    assert payload["status"] == "SKIP"
-    assert "unreachable" in payload["reason"]
-
-    missing_image = subprocess.run(
-        [bash, str(script), "water-agent-definitely-not-built:latest"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=dict(os.environ),
+    fake.chmod(0o700)
+    executable = tmp_path / "not-installed" if state == "cli-unreachable" else fake
+    monkeypatch.setenv("DOCKER", str(executable))
+    monkeypatch.setenv("FAKE_DOCKER_STATE", state)
+    monkeypatch.setenv("DOCKER_CALL_LOG", str(call_log))
+    result = subprocess.run(
+        [shutil.which("bash") or "/bin/bash", str(script), "water-agent-definitely-not-built:latest"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     )
-    if missing_image.returncode != 0:
-        pytest.skip("docker CLI is not available on this host; the image SKIP route needs it")
-    payload = json.loads(missing_image.stdout.strip().splitlines()[-1])
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.strip())
     assert payload["status"] == "SKIP"
-    assert "not built locally" in payload["reason"]
+    assert reason in payload["reason"]
+    assert payload["image"] == "water-agent-definitely-not-built:latest"
+    assert (call_log.read_text().splitlines() if call_log.exists() else []) == calls

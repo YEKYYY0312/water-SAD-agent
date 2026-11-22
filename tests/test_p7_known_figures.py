@@ -33,7 +33,15 @@ def _caps(view: dict[str, Any] | None) -> set[str]:
 def test_local_tool_schema_headroom_is_three_characters(profiles: dict[str, Any]) -> None:
     """P7-S0-A12 F4：5 个本地工具的 schema 共 4497 字符，离 4500 的上限只剩 3。"""
 
-    surface = profiles["session_drawing_arg"]["surface"]
+    registered = profiles["session_drawing_arg"]["surface"]
+    # T2-1 adds an intent-only sixth tool. Measure the actual exposure of the
+    # original five, with all original core/drawing/material abilities present.
+    assert registered["schema_chars_total"] > 4500
+    probe = registered["exposure"]["probes"]["drawing_materials"]
+    assert set(probe["exposed"]) == {
+        "retrieve_clauses", "cite_clauses", "calc_velocity", "material_stats", "read_drawing",
+    }
+    surface = {"schema_chars_total": probe["schema_chars"], "tools": registered["tools"]}
     assert surface["schema_chars_total"] == 4497
     assert surface["tools"]["read_drawing"]["schema_chars"] == 956
     assert 4500 - surface["schema_chars_total"] == 3
@@ -71,14 +79,20 @@ def test_exposed_tools_always_fit_the_tool_guide(profiles: dict[str, Any]) -> No
     assert both["dropped"] == [] and both["schema_chars"] == 4497
 
     mcp = profiles["session_mcp_fake"]["surface"]
+    darcy_chars = mcp["tools"]["calc_head_loss_darcy_weisbach"]["schema_chars"] + 2
+    hazen_chars = mcp["tools"]["calc_head_loss_hazen_williams"]["schema_chars"] + 2
+    shevelev_chars = mcp["tools"]["calc_head_loss_shevelev"]["schema_chars"] + 2
+    manning_chars = mcp["tools"]["calc_slope_manning"]["schema_chars"] + 2
+    pump_chars = mcp["tools"]["calc_pump_head"]["schema_chars"] + 2
+    diameter_chars = mcp["tools"]["calc_diameter"]["schema_chars"] + 2
     assert mcp["exposure"]["probes"]["materials"]["dropped"] == [["mcp:snapfake", "schema_budget"]]
     assert "mcp_snapfake_echo_query" in mcp["exposure"]["probes"]["clause_qa"]["exposed"]
 
     # 回退格式（full 回滚开关 / 没有暴露决定时）仍是 S0 的现状
-    assert drawing["tool_guide"].endswith(_TRUNCATED.format(n=1))
+    assert drawing["tool_guide"].endswith(_TRUNCATED.format(n=6))
     assert "read_drawing" not in drawing["tool_guide"]
-    assert mcp["tool_guide"].endswith(_TRUNCATED.format(n=2))
-    assert mcp["schema_chars_total"] == 4724
+    assert mcp["tool_guide"].endswith(_TRUNCATED.format(n=7))
+    assert mcp["schema_chars_total"] - darcy_chars - diameter_chars - hazen_chars - shevelev_chars - manning_chars - pump_chars == 4724
 
 
 def test_mcp_manifest_reaches_the_cache_service(profiles: dict[str, Any]) -> None:

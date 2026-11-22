@@ -4,7 +4,7 @@
   "info": {
     "langchain_core": "1.6.1",
     "langgraph": "1.2.11",
-    "last_write_reason": "P7-S13：新增 session_skills_installed（已安装层）；既有 20 个 profile 与三个版本号逐字不变",
+    "last_write_reason": "T2-6 explicit nonnegative four-component calc_pump_head; CALCULATE only; preserve previous schemas and registration order; tool policy p2-step6-2026-11-16",
     "python": "3.12.14"
   },
   "profiles": {
@@ -104,6 +104,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -127,10 +169,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -144,6 +186,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -156,10 +204,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -173,6 +221,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -187,10 +241,10 @@
                 "read_drawing"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "52479bab6e2bc572"
+                "chars": 514,
+                "sha256": "cfe943b8df2abdd3"
               },
-              "guide_chars": 360,
+              "guide_chars": 514,
               "reasons": [
                 [
                   "clauses",
@@ -211,7 +265,14 @@
               ],
               "schema_chars": 4497,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -222,10 +283,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 321,
-                "sha256": "1b9f0cbc9d3431e0"
+                "chars": 453,
+                "sha256": "d002971155c88a92"
               },
-              "guide_chars": 321,
+              "guide_chars": 453,
               "reasons": [
                 [
                   "clauses",
@@ -243,6 +304,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "read_drawing"
               ]
             }
@@ -250,6 +317,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -276,6 +349,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "read_drawing"
         ],
@@ -295,13 +374,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4497,
+        "schema_chars_total": 9090,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "c9ac4623d416a503"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 1 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -492,6 +613,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -518,10 +681,10 @@
                 "mcp_snaprfake_lookup_project"
               ],
               "guide": {
-                "chars": 466,
-                "sha256": "fae4b3df487f050e"
+                "chars": 598,
+                "sha256": "41e38bf49eede3e2"
               },
-              "guide_chars": 466,
+              "guide_chars": 598,
               "reasons": [
                 [
                   "clauses",
@@ -539,6 +702,12 @@
               "schema_chars": 3314,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -552,10 +721,10 @@
                 "mcp_snaprfake_lookup_project"
               ],
               "guide": {
-                "chars": 466,
-                "sha256": "fae4b3df487f050e"
+                "chars": 598,
+                "sha256": "41e38bf49eede3e2"
               },
-              "guide_chars": 466,
+              "guide_chars": 598,
               "reasons": [
                 [
                   "clauses",
@@ -573,6 +742,12 @@
               "schema_chars": 3314,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -590,10 +765,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 362,
-                "sha256": "8e451e015da5f1ed"
+                "chars": 494,
+                "sha256": "a93ada8220ff3f01"
               },
-              "guide_chars": 362,
+              "guide_chars": 494,
               "reasons": [
                 [
                   "clauses",
@@ -611,6 +786,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snaprfake_echo_query",
                 "mcp_snaprfake_lookup_project"
               ]
@@ -629,10 +810,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 362,
-                "sha256": "8e451e015da5f1ed"
+                "chars": 494,
+                "sha256": "a93ada8220ff3f01"
               },
-              "guide_chars": 362,
+              "guide_chars": 494,
               "reasons": [
                 [
                   "clauses",
@@ -650,6 +831,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snaprfake_echo_query",
                 "mcp_snaprfake_lookup_project"
               ]
@@ -658,6 +845,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -686,6 +879,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "mcp_snaprfake_echo_query",
           "mcp_snaprfake_lookup_project"
@@ -707,13 +906,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4728,
+        "schema_chars_total": 9321,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "16019d287d18d6f1"
+          "chars": 1606,
+          "sha256": "3dccf0eb21f7dab8"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 7 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -898,6 +1139,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -914,10 +1197,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -931,6 +1214,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -942,10 +1231,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -959,6 +1248,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -971,10 +1266,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -991,7 +1286,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -1002,10 +1304,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -1022,12 +1324,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -1053,6 +1368,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -1071,13 +1392,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -1187,6 +1550,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -1203,10 +1608,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -1220,6 +1625,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -1231,10 +1642,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -1248,6 +1659,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -1260,10 +1677,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -1280,7 +1697,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -1291,10 +1715,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -1311,12 +1735,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -1342,6 +1779,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -1360,13 +1803,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -1475,6 +1960,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -1498,10 +2025,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -1515,6 +2042,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -1527,10 +2060,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -1544,6 +2077,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -1558,10 +2097,10 @@
                 "read_drawing"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "52479bab6e2bc572"
+                "chars": 514,
+                "sha256": "cfe943b8df2abdd3"
               },
-              "guide_chars": 360,
+              "guide_chars": 514,
               "reasons": [
                 [
                   "clauses",
@@ -1582,7 +2121,14 @@
               ],
               "schema_chars": 4497,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -1593,10 +2139,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 321,
-                "sha256": "1b9f0cbc9d3431e0"
+                "chars": 453,
+                "sha256": "d002971155c88a92"
               },
-              "guide_chars": 321,
+              "guide_chars": 453,
               "reasons": [
                 [
                   "clauses",
@@ -1614,6 +2160,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "read_drawing"
               ]
             }
@@ -1621,6 +2173,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -1647,6 +2205,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "read_drawing"
         ],
@@ -1666,13 +2230,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4497,
+        "schema_chars_total": 9090,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "c9ac4623d416a503"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 1 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -1788,6 +2394,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -1811,10 +2459,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -1828,6 +2476,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -1840,10 +2494,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 277,
-                "sha256": "716dd910479178d7"
+                "chars": 409,
+                "sha256": "1c4ed7484fcc25b9"
               },
-              "guide_chars": 277,
+              "guide_chars": 409,
               "reasons": [
                 [
                   "clauses",
@@ -1857,6 +2511,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "read_drawing"
               ]
@@ -1871,10 +2531,10 @@
                 "read_drawing"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "52479bab6e2bc572"
+                "chars": 514,
+                "sha256": "cfe943b8df2abdd3"
               },
-              "guide_chars": 360,
+              "guide_chars": 514,
               "reasons": [
                 [
                   "clauses",
@@ -1895,7 +2555,14 @@
               ],
               "schema_chars": 4497,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -1906,10 +2573,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 321,
-                "sha256": "1b9f0cbc9d3431e0"
+                "chars": 453,
+                "sha256": "d002971155c88a92"
               },
-              "guide_chars": 321,
+              "guide_chars": 453,
               "reasons": [
                 [
                   "clauses",
@@ -1927,6 +2594,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "read_drawing"
               ]
             }
@@ -1934,6 +2607,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -1960,6 +2639,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "read_drawing"
         ],
@@ -1979,13 +2664,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4497,
+        "schema_chars_total": 9090,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "c9ac4623d416a503"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 1 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -2125,6 +2852,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -2141,10 +2910,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -2158,6 +2927,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2169,10 +2944,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -2186,6 +2961,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2198,10 +2979,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -2218,7 +2999,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -2229,10 +3017,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -2249,12 +3037,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -2280,6 +3081,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -2298,13 +3105,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -2444,6 +3293,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -2470,10 +3361,10 @@
                 "mcp_snaphttp_lookup_project"
               ],
               "guide": {
-                "chars": 482,
-                "sha256": "8502095023edaf31"
+                "chars": 614,
+                "sha256": "66c5e49f7575337e"
               },
-              "guide_chars": 482,
+              "guide_chars": 614,
               "reasons": [
                 [
                   "clauses",
@@ -2491,6 +3382,12 @@
               "schema_chars": 3321,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2504,10 +3401,10 @@
                 "mcp_snaphttp_lookup_project"
               ],
               "guide": {
-                "chars": 482,
-                "sha256": "8502095023edaf31"
+                "chars": 614,
+                "sha256": "66c5e49f7575337e"
               },
-              "guide_chars": 482,
+              "guide_chars": 614,
               "reasons": [
                 [
                   "clauses",
@@ -2525,6 +3422,12 @@
               "schema_chars": 3321,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2542,10 +3445,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "44792caa716a3714"
+                "chars": 492,
+                "sha256": "addee20489640a7d"
               },
-              "guide_chars": 360,
+              "guide_chars": 492,
               "reasons": [
                 [
                   "clauses",
@@ -2563,6 +3466,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snaphttp_echo_query",
                 "mcp_snaphttp_lookup_project"
               ]
@@ -2581,10 +3490,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "44792caa716a3714"
+                "chars": 492,
+                "sha256": "addee20489640a7d"
               },
-              "guide_chars": 360,
+              "guide_chars": 492,
               "reasons": [
                 [
                   "clauses",
@@ -2602,6 +3511,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snaphttp_echo_query",
                 "mcp_snaphttp_lookup_project"
               ]
@@ -2610,6 +3525,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -2638,6 +3559,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "mcp_snaphttp_echo_query",
           "mcp_snaphttp_lookup_project"
@@ -2659,13 +3586,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4735,
+        "schema_chars_total": 9328,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "16019d287d18d6f1"
+          "chars": 1606,
+          "sha256": "3dccf0eb21f7dab8"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 7 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -2810,6 +3779,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -2826,10 +3837,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -2843,6 +3854,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2854,10 +3871,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -2871,6 +3888,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -2883,10 +3906,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -2903,7 +3926,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -2914,10 +3944,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -2934,12 +3964,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -2965,6 +4008,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -2983,13 +4032,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -3131,6 +4222,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -3157,10 +4290,10 @@
                 "mcp_snapfake_lookup_project"
               ],
               "guide": {
-                "chars": 462,
-                "sha256": "feb97af881acafd5"
+                "chars": 594,
+                "sha256": "68d361d16a27c91b"
               },
-              "guide_chars": 462,
+              "guide_chars": 594,
               "reasons": [
                 [
                   "clauses",
@@ -3178,6 +4311,12 @@
               "schema_chars": 3310,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3191,10 +4330,10 @@
                 "mcp_snapfake_lookup_project"
               ],
               "guide": {
-                "chars": 462,
-                "sha256": "feb97af881acafd5"
+                "chars": 594,
+                "sha256": "68d361d16a27c91b"
               },
-              "guide_chars": 462,
+              "guide_chars": 594,
               "reasons": [
                 [
                   "clauses",
@@ -3212,6 +4351,12 @@
               "schema_chars": 3310,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3229,10 +4374,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "61daf79cb7625e9d"
+                "chars": 492,
+                "sha256": "50d0d3b33e8df04b"
               },
-              "guide_chars": 360,
+              "guide_chars": 492,
               "reasons": [
                 [
                   "clauses",
@@ -3250,6 +4395,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snapfake_echo_query",
                 "mcp_snapfake_lookup_project"
               ]
@@ -3268,10 +4419,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 360,
-                "sha256": "61daf79cb7625e9d"
+                "chars": 492,
+                "sha256": "50d0d3b33e8df04b"
               },
-              "guide_chars": 360,
+              "guide_chars": 492,
               "reasons": [
                 [
                   "clauses",
@@ -3289,6 +4440,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snapfake_echo_query",
                 "mcp_snapfake_lookup_project"
               ]
@@ -3297,6 +4454,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -3325,6 +4488,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "mcp_snapfake_echo_query",
           "mcp_snapfake_lookup_project"
@@ -3346,13 +4515,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4724,
+        "schema_chars_total": 9317,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "16019d287d18d6f1"
+          "chars": 1606,
+          "sha256": "3dccf0eb21f7dab8"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 7 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -3537,6 +4748,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -3553,10 +4806,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -3570,6 +4823,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3581,10 +4840,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -3598,6 +4857,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3610,10 +4875,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -3630,7 +4895,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -3641,10 +4913,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -3661,12 +4933,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -3692,6 +4977,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -3710,13 +5001,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -3854,6 +5187,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -3870,10 +5245,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -3887,6 +5262,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3898,10 +5279,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 264,
-                "sha256": "47f4fa4b02e420b5"
+                "chars": 396,
+                "sha256": "19391a57496b3ddc"
               },
-              "guide_chars": 264,
+              "guide_chars": 396,
               "reasons": [
                 [
                   "clauses",
@@ -3915,6 +5296,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -3927,10 +5314,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -3947,7 +5334,14 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             },
             "materials": {
               "dropped": [],
@@ -3958,10 +5352,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 286,
-                "sha256": "d85445dd54f5551d"
+                "chars": 440,
+                "sha256": "d1a6670edb7c0ce4"
               },
-              "guide_chars": 286,
+              "guide_chars": 440,
               "reasons": [
                 [
                   "clauses",
@@ -3978,12 +5372,25 @@
               ],
               "schema_chars": 3539,
               "strategy": "intent",
-              "unexposed": []
+              "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head"
+              ]
             }
           },
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -4009,6 +5416,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats"
         ],
         "registry_principal": {
@@ -4027,13 +5440,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 3539,
+        "schema_chars_total": 8132,
         "system_prompt": {
-          "chars": 1455,
-          "sha256": "88cfe4f9a9936373"
+          "chars": 1606,
+          "sha256": "3e11e8daa63c03d7"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 5 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -4143,6 +5598,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -4166,10 +5663,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "a824511094c0323b"
+                "chars": 407,
+                "sha256": "897af75ae0abe3fa"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -4183,6 +5680,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "load_skill"
               ]
@@ -4195,10 +5698,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "a824511094c0323b"
+                "chars": 407,
+                "sha256": "897af75ae0abe3fa"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -4212,6 +5715,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "load_skill"
               ]
@@ -4225,10 +5734,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "e955213cdc7f1c20"
+                "chars": 451,
+                "sha256": "bf995ef6148efe37"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -4246,6 +5755,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "load_skill"
               ]
             },
@@ -4258,10 +5773,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "e955213cdc7f1c20"
+                "chars": 451,
+                "sha256": "bf995ef6148efe37"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -4279,6 +5794,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "load_skill"
               ]
             }
@@ -4286,6 +5807,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "load_skill",
@@ -4312,6 +5839,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "load_skill"
         ],
@@ -4331,13 +5864,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4258,
+        "schema_chars_total": 8851,
         "system_prompt": {
-          "chars": 1592,
-          "sha256": "88d53fd2f1d25095"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n- load_skill：按名加载操作规程。加载后规程进入系统提示、本会话后续轮次持续生效。Use when 用户点名某个规程，或问题明显符合下列某个规程的用途；先加载再动手。Do not use for 检索条文或计算数值（规程只规定怎么做，数值与条文仍走各自的工具）。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -4454,6 +6029,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -4477,10 +6094,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "a824511094c0323b"
+                "chars": 407,
+                "sha256": "897af75ae0abe3fa"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -4494,6 +6111,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "load_skill"
               ]
@@ -4506,10 +6129,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "a824511094c0323b"
+                "chars": 407,
+                "sha256": "897af75ae0abe3fa"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -4523,6 +6146,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "load_skill"
               ]
@@ -4536,10 +6165,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "e955213cdc7f1c20"
+                "chars": 451,
+                "sha256": "bf995ef6148efe37"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -4557,6 +6186,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "load_skill"
               ]
             },
@@ -4569,10 +6204,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "e955213cdc7f1c20"
+                "chars": 451,
+                "sha256": "bf995ef6148efe37"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -4590,6 +6225,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "load_skill"
               ]
             }
@@ -4597,6 +6238,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "load_skill",
@@ -4623,6 +6270,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "load_skill"
         ],
@@ -4642,13 +6295,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4325,
+        "schema_chars_total": 8918,
         "system_prompt": {
-          "chars": 1592,
-          "sha256": "88d53fd2f1d25095"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n- load_skill：按名加载操作规程。加载后规程进入系统提示、本会话后续轮次持续生效。Use when 用户点名某个规程，或问题明显符合下列某个规程的用途；先加载再动手。Do not use for 检索条文或计算数值（规程只规定怎么做，数值与条文仍走各自的工具）。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -4816,6 +6511,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -4842,10 +6579,10 @@
                 "mcp_snapweb_lookup_project"
               ],
               "guide": {
-                "chars": 458,
-                "sha256": "d89669a2212c4450"
+                "chars": 590,
+                "sha256": "44c1c40f1cfd0f34"
               },
-              "guide_chars": 458,
+              "guide_chars": 590,
               "reasons": [
                 [
                   "clauses",
@@ -4863,6 +6600,12 @@
               "schema_chars": 3306,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -4876,10 +6619,10 @@
                 "mcp_snapweb_lookup_project"
               ],
               "guide": {
-                "chars": 458,
-                "sha256": "d89669a2212c4450"
+                "chars": 590,
+                "sha256": "44c1c40f1cfd0f34"
               },
-              "guide_chars": 458,
+              "guide_chars": 590,
               "reasons": [
                 [
                   "clauses",
@@ -4897,6 +6640,12 @@
               "schema_chars": 3306,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -4914,10 +6663,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 358,
-                "sha256": "12167dd27b58df8b"
+                "chars": 490,
+                "sha256": "bf90748faa0acf8a"
               },
-              "guide_chars": 358,
+              "guide_chars": 490,
               "reasons": [
                 [
                   "clauses",
@@ -4935,6 +6684,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snapweb_echo_query",
                 "mcp_snapweb_lookup_project"
               ]
@@ -4953,10 +6708,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 358,
-                "sha256": "12167dd27b58df8b"
+                "chars": 490,
+                "sha256": "bf90748faa0acf8a"
               },
-              "guide_chars": 358,
+              "guide_chars": 490,
               "reasons": [
                 [
                   "clauses",
@@ -4974,6 +6729,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "mcp_snapweb_echo_query",
                 "mcp_snapweb_lookup_project"
               ]
@@ -4982,6 +6743,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -5010,6 +6777,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "mcp_snapweb_echo_query",
           "mcp_snapweb_lookup_project"
@@ -5031,13 +6804,55 @@
           ],
           "kind": "authenticated"
         },
-        "schema_chars_total": 4720,
+        "schema_chars_total": 9313,
         "system_prompt": {
-          "chars": 1470,
-          "sha256": "16019d287d18d6f1"
+          "chars": 1606,
+          "sha256": "3dccf0eb21f7dab8"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n…（受预算限制省略 2 行）",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 7 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -5160,6 +6975,48 @@
               ]
             ],
             [
+              "hydraulics:darcy",
+              "intent",
+              [
+                "calc_head_loss_darcy_weisbach"
+              ]
+            ],
+            [
+              "hydraulics:diameter",
+              "intent",
+              [
+                "calc_diameter"
+              ]
+            ],
+            [
+              "hydraulics:hazen",
+              "intent",
+              [
+                "calc_head_loss_hazen_williams"
+              ]
+            ],
+            [
+              "hydraulics:shevelev",
+              "intent",
+              [
+                "calc_head_loss_shevelev"
+              ]
+            ],
+            [
+              "hydraulics:manning",
+              "intent",
+              [
+                "calc_slope_manning"
+              ]
+            ],
+            [
+              "hydraulics:pump_head",
+              "intent",
+              [
+                "calc_pump_head"
+              ]
+            ],
+            [
               "materials",
               "intent",
               [
@@ -5183,10 +7040,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "af94b0cfcede1b2c"
+                "chars": 407,
+                "sha256": "f79c50ba5e519869"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -5200,6 +7057,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "web_search"
               ]
@@ -5212,10 +7075,10 @@
                 "calc_velocity"
               ],
               "guide": {
-                "chars": 275,
-                "sha256": "af94b0cfcede1b2c"
+                "chars": 407,
+                "sha256": "f79c50ba5e519869"
               },
-              "guide_chars": 275,
+              "guide_chars": 407,
               "reasons": [
                 [
                   "clauses",
@@ -5229,6 +7092,12 @@
               "schema_chars": 2125,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats",
                 "web_search"
               ]
@@ -5242,10 +7111,10 @@
                 "web_search"
               ],
               "guide": {
-                "chars": 311,
-                "sha256": "066917ce2846f177"
+                "chars": 443,
+                "sha256": "58658eecde36e0e8"
               },
-              "guide_chars": 311,
+              "guide_chars": 443,
               "reasons": [
                 [
                   "clauses",
@@ -5263,6 +7132,12 @@
               "schema_chars": 2719,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "material_stats"
               ]
             },
@@ -5275,10 +7150,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "0540dce8bf17dc7e"
+                "chars": 451,
+                "sha256": "da12138c5ca804bf"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -5296,6 +7171,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "web_search"
               ]
             },
@@ -5308,10 +7189,10 @@
                 "material_stats"
               ],
               "guide": {
-                "chars": 319,
-                "sha256": "0540dce8bf17dc7e"
+                "chars": 451,
+                "sha256": "da12138c5ca804bf"
               },
-              "guide_chars": 319,
+              "guide_chars": 451,
               "reasons": [
                 [
                   "clauses",
@@ -5329,6 +7210,12 @@
               "schema_chars": 3539,
               "strategy": "intent",
               "unexposed": [
+                "calc_head_loss_darcy_weisbach",
+                "calc_diameter",
+                "calc_head_loss_hazen_williams",
+                "calc_head_loss_shevelev",
+                "calc_slope_manning",
+                "calc_pump_head",
                 "web_search"
               ]
             }
@@ -5336,6 +7223,12 @@
           "strategy": "intent"
         },
         "model_tool_order": [
+          "calc_diameter",
+          "calc_head_loss_darcy_weisbach",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_pump_head",
+          "calc_slope_manning",
           "calc_velocity",
           "cite_clauses",
           "material_stats",
@@ -5363,6 +7256,12 @@
           "retrieve_clauses",
           "cite_clauses",
           "calc_velocity",
+          "calc_head_loss_darcy_weisbach",
+          "calc_diameter",
+          "calc_head_loss_hazen_williams",
+          "calc_head_loss_shevelev",
+          "calc_slope_manning",
+          "calc_pump_head",
           "material_stats",
           "web_search"
         ],
@@ -5383,13 +7282,55 @@
           ],
           "kind": "local_cli"
         },
-        "schema_chars_total": 4133,
+        "schema_chars_total": 8726,
         "system_prompt": {
-          "chars": 1628,
-          "sha256": "270387e8a64903c7"
+          "chars": 1606,
+          "sha256": "28585b1901464910"
         },
-        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- material_stats：把管段表按材质+管径聚合为材料清单（单位 m），每行返回来源管段号与逐段长度明细。Use when 需要统计给排水管道工程量/材料（各段有管径、长度、材质）或输出 Excel 前的数量汇总。Do not use for 水力计算数值（流速/损失/坡度等走 calc 工具），也不要用于缺少管径或长度的估算。\n- web_search：联网搜索公开网页，返回标题、摘要与网址（均为未经核验的外部摘录）。Use when 用户已勾选联网，且问题需要规范库之外的公开信息（产品资料、新闻、非规范类做法）。Do not use for 规范条文或数值（走 retrieve_clauses / calc_velocity）；不要把项目资料、个人信息放进搜索词。",
+        "tool_guide": "【可用工具】\n- retrieve_clauses：按查询在规范条款库里检索，返回 top_k 条条款的 source_id/标题/正文 JSON，结果已截断到 ≤10KB。Use when 回答需要引用具体规范条文或拿检索上下文。Do not use for 纯数值计算（应调用计算工具）。\n- cite_clauses：声明回答将要引用的规范条款，返回被登记的 source_id 列表与声明详情。只能引用检索上下文中已返回的条款号，不可从记忆补充。Use when 需要显式登记某条规范条文作为回答引用、或把引用写入会话状态。Do not use for 检索内容（应调用 retrieve_clauses）。\n- calc_velocity：计算满管流圆管断面平均流速，返回 velocity_mps（m/s）及按场景判定的越界 assumptions（如高于/低于常用区间）。Use when 用户给出管径与流量求流速。Do not use for 非满管重力流（应改用排水坡度工具）。\n- calc_head_loss_darcy_weisbach：Darcy–Weisbach沿程损失(m)：hf=f·(L/d)·v²/(2g)。Use when 用户指定此公式及L(m)、实际内径(mm)、v(m/s)、Darcy f；g默认9.81。Do not use for 缺参/未知单位/DN推内径/Fanning；先澄清，不猜f、不作合规判断。\n- calc_diameter：由流量和目标流速计算圆管实际内径(mm)。Use when 用户给定Q(L/s)、v(m/s)，d=sqrt(4Q/(πv))。Do not use for 缺参/单位不明；先澄清，不猜流速、不圆整DN、不选型或判合规。\n…（受预算限制省略 6 行）",
         "tools": {
+          "calc_diameter": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 538,
+            "schema_sha256": "23534df6a1f383d1",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_darcy_weisbach": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 941,
+            "schema_sha256": "55279b5f81e91ad8",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_hazen_williams": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 799,
+            "schema_sha256": "352f36e349c16a96",
+            "timeout_seconds": 30.0
+          },
+          "calc_head_loss_shevelev": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 681,
+            "schema_sha256": "2f2f5bd7b64d0a72",
+            "timeout_seconds": 30.0
+          },
+          "calc_pump_head": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 817,
+            "schema_sha256": "d2be2887ff22cb5e",
+            "timeout_seconds": 30.0
+          },
+          "calc_slope_manning": {
+            "execute": "_execute",
+            "has_guard": true,
+            "schema_chars": 805,
+            "schema_sha256": "c43bfc86eeba801d",
+            "timeout_seconds": 30.0
+          },
           "calc_velocity": {
             "execute": "_execute",
             "has_guard": false,
@@ -5432,6 +7373,6 @@
   "versions": {
     "MCP_CONFIG_VERSION": "p7-s8-2026-10-12",
     "PROMPT_TEMPLATE_VERSION": "p7-s9-skill-context-2026-10-09",
-    "TOOL_POLICY_VERSION": "p7-step12-2026-10-20"
+    "TOOL_POLICY_VERSION": "p2-step6-2026-11-16"
   }
 }

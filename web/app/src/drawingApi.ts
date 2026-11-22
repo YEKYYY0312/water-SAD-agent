@@ -13,6 +13,7 @@ export type BuildingTypeOption = {
 
 export type DrawingOptions = {
   system_types: string[];
+  drainage?: DrainageOptions;
   building_types: BuildingTypeOption[];
   diameters: string[];
   materials: string[];
@@ -26,6 +27,53 @@ export type DrawingOptions = {
   dwg: { available: boolean; experimental: true };
   notice: string;
   rules_version: string;
+};
+
+export type DrainagePoint = { x_mm: number; y_mm: number; invert_mm: number };
+export type DrainageFixtureKey = "toilet" | "basin" | "floor_drain";
+export type DrainageRequest = {
+  system_type: string;
+  room_width_mm: number;
+  room_depth_mm: number;
+  fixtures: Record<DrainageFixtureKey, DrainagePoint & { dn_mm: number }>;
+  junction: DrainagePoint;
+  riser: DrainagePoint;
+  collector_dn_mm: number;
+};
+export type DualPointKind = DrainageFixtureKey | "other" | "junction" | "outlet";
+export type DualPipeMark = "DN" | "De";
+export type DualDrainageRequest = {
+  system_type: string;
+  topology: "dual_outlet";
+  room_width_mm: number;
+  room_depth_mm: number;
+  nodes: (DrainagePoint & { id: string; kind: DualPointKind })[];
+  pipes: { start: string; end: string; mark: DualPipeMark; size_mm: number }[];
+};
+export type DualDrainageOptions = {
+  topology: DualDrainageRequest["topology"];
+  max_nodes: number;
+  point_kinds: { value: DualPointKind; label: string }[];
+  diameter_marks: DualPipeMark[];
+  example: DualDrainageRequest;
+};
+export type DrainageOptions = {
+  system_type: string;
+  fixtures: { key: DrainageFixtureKey; label: string }[];
+  diameters_mm: number[];
+  example: DrainageRequest;
+  dual_outlet?: DualDrainageOptions;
+};
+export type DrainageResponse = Pick<GenerationResponse, "generation_id" | "created_at" | "notice" | "download"> & {
+  system_type: string;
+  limitation: string;
+  sheets: { title: string; filename: string }[];
+  topology?: DualDrainageRequest["topology"];
+  outlet_ids?: string[];
+  segments: {
+    id: string; from_invert_mm: number; to_invert_mm: number; note: string;
+    outlet_id?: string; diameter_label?: string; slope_percent?: number;
+  }[];
 };
 
 export type PipeSpec = { dn: string; material: string };
@@ -137,7 +185,15 @@ export class DrawingApi {
     return decode<DrawingOptions>(await fetch("/api/drawings/options", { credentials: "same-origin" }));
   }
 
-  async generate(request: GenerationRequest): Promise<GenerationResponse> {
+  generate(request: GenerationRequest): Promise<GenerationResponse> {
+    return this.postGeneration(request);
+  }
+
+  generateDrainage(request: DrainageRequest | DualDrainageRequest): Promise<DrainageResponse> {
+    return this.postGeneration(request);
+  }
+
+  private async postGeneration<T>(request: GenerationRequest | DrainageRequest | DualDrainageRequest): Promise<T> {
     const headers = new Headers({ "Content-Type": "application/json" });
     const token = csrfToken();
     if (token) headers.set("X-CSRF-Token", token);
@@ -147,7 +203,7 @@ export class DrawingApi {
       body: JSON.stringify(request),
       credentials: "same-origin",
     });
-    return decode<GenerationResponse>(response);
+    return decode<T>(response);
   }
 
   /** 取回 ZIP 并触发同页下载（与导出下载同一做法），返回文件名。 */

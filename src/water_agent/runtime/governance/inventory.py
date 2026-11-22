@@ -337,7 +337,9 @@ PROVIDER_CALL_SITES: tuple[ProviderCallSite, ...] = (
 #: P7 S9：新增 `load_skill` 工具与 `Capability.LOAD_SKILL`（进默认能力集），可用工具集与能力映射已变，递进。
 #: P7 S12：新增 `web_search` 工具与 `Capability.WEB_SEARCH`（不进默认能力集，装配期按"部署开关 + 本条消息勾选"追加），
 #: 可用工具集与能力映射已变，递进。
-TOOL_POLICY_VERSION = "p7-step12-2026-10-20"
+PROJECT_CALCULATION_POLICY_VERSION = "t27-v1"
+# Internal service-only tools do not change the model-visible assembly version.
+TOOL_POLICY_VERSION = "p2-step6-2026-11-16"
 
 #: 工具能力清单。**新增 ToolSpec 必须先加到这里**。
 #:
@@ -351,6 +353,12 @@ TOOL_POLICY_VERSION = "p7-step12-2026-10-20"
 #: （已实测不识别相对路径），而由工具层三层纵深防御承担，见
 #: ``drawing/dxf_reader.py`` 与规格 §4.3。
 TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
+    ToolCapabilityEntry(tool_name="project_calc_velocity", module="water_agent/tools/project_calculation.py",
+        required_capability=Capability.CALCULATE, effect="纯计算（项目服务内部受信绑定）", guardrail_validated=True),
+    ToolCapabilityEntry(tool_name="project_calc_darcy", module="water_agent/tools/project_calculation.py",
+        required_capability=Capability.CALCULATE, effect="纯计算（项目服务内部受信绑定）", guardrail_validated=True),
+    ToolCapabilityEntry(tool_name="project_calc_pump_head", module="water_agent/tools/project_calculation.py",
+        required_capability=Capability.CALCULATE, effect="纯计算（项目服务内部受信绑定）", guardrail_validated=True),
     ToolCapabilityEntry(
         tool_name="retrieve_clauses",
         module="water_agent/tools/retrieve_clauses.py",
@@ -370,6 +378,48 @@ TOOL_CAPABILITIES: tuple[ToolCapabilityEntry, ...] = (
         module="water_agent/tools/calc_velocity.py",
         required_capability=Capability.CALCULATE,
         effect="纯计算（程序化，LLM 不参与数值运算）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_head_loss_darcy_weisbach",
+        module="water_agent/tools/calc_head_loss.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户明确指定 Darcy–Weisbach 及参数）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_diameter",
+        module="water_agent/tools/calc_diameter.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户给定流量及目标流速，返回实际内径）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_head_loss_hazen_williams",
+        module="water_agent/tools/calc_hazen.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户明确Hazen–Williams与四项输入，C无默认）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_head_loss_shevelev",
+        module="water_agent/tools/calc_shevelev.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户明确舍维列夫与三项输入，分支程序选择）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_slope_manning",
+        module="water_agent/tools/calc_manning.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户明确曼宁与四项输入，SI n无默认）",
+        guardrail_validated=True,
+    ),
+    ToolCapabilityEntry(
+        tool_name="calc_pump_head",
+        module="water_agent/tools/calc_pump_head.py",
+        required_capability=Capability.CALCULATE,
+        effect="纯计算（用户明确四项非负扬程，零合法，无默认）",
         guardrail_validated=True,
     ),
     ToolCapabilityEntry(

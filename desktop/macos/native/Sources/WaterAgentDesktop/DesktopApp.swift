@@ -343,7 +343,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         guard !quitting, window.attachedSheet == nil, let origin,
               let pageURL = webView.url, origin.contains(pageURL),
-              origin.allowsConfirmation(from: frame.request.url, isMainFrame: frame.isMainFrame) else {
+              origin.allowsConfirmation(from: webFrameRequestURL(frame), isMainFrame: frame.isMainFrame) else {
             completionHandler(false)
             return
         }
@@ -361,7 +361,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let origin, let url = action.request.url else { decisionHandler(.cancel); return }
-        let fromApp = origin.contains(action.sourceFrame.request.url ?? origin.url)
+        let fromApp = navigationSourceRequestURL(action).map(origin.contains) ?? false
         if action.shouldPerformDownload || url.scheme == "blob" {
             decisionHandler(fromApp && origin.allowsDownload(url) ? .download : .cancel)
             return
@@ -434,7 +434,7 @@ final class DesktopApp: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNav
         alert("下载未完成", text: "请重试导出，并检查保存目录是否可写。")
     }
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
-        guard let origin, let source = frame.request.url, origin.contains(source) else { completionHandler(nil); return }
+        guard let origin, let source = webFrameRequestURL(frame), origin.contains(source) else { completionHandler(nil); return }
         let panel = NSOpenPanel(); panel.title = "选择要上传的文件"
         panel.canChooseFiles = true; panel.canChooseDirectories = false
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection

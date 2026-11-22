@@ -21,6 +21,7 @@ ASSEMBLY_MODULE = "plugins/assembly.py"
 
 #: 不面向模型的内部注册表（P7-I01 白名单），每条都要说明为什么不算第二条装配路径。
 INTERNAL_REGISTRY_SITES: dict[str, str] = {
+    "multi_agent/project_calculation.py": "T2-7B离线确定性执行器，仅三个内部受治理计算spec，不进入模型/插件/CLI/Web",
     "mcp/memory_adapter.py": "Memory MCP 适配器的私有注册表，只做记忆搜索，工具从不交给模型",
     "runtime/governance/scenarios.py": "治理评测场景，只调用 calc_velocity 验证护栏与 trace",
     "harness/memory_eval.py": "memory_p0 评测，比对记忆注入前后的工具清单与提示词不变",

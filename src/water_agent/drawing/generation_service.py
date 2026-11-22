@@ -292,6 +292,47 @@ def _write(path: Path, data: bytes) -> None:
     os.chmod(path, FILE_MODE)
 
 
+def publish_drawing_zip(
+    export_root: Path,
+    generation_id: str,
+    payloads: dict[str, bytes],
+    readme: str,
+    metadata: dict[str, Any],
+) -> int:
+    """Atomically publish a set of already verified sheets with its owner metadata."""
+
+    root = generations_root(export_root)
+    root.mkdir(parents=True, exist_ok=True)
+    partial = root / f".partial-{generation_id}"
+    partial.mkdir(mode=DIR_MODE)
+    try:
+        os.chmod(partial, DIR_MODE)
+        for filename, data in payloads.items():
+            _write(partial / filename, data)
+        readme_bytes = readme.encode("utf-8-sig")
+        _write(partial / README_NAME, readme_bytes)
+        archive_path = partial / ZIP_NAME
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for filename, data in payloads.items():
+                archive.writestr(filename, data)
+            archive.writestr(README_NAME, readme_bytes)
+        os.chmod(archive_path, FILE_MODE)
+        zip_bytes = archive_path.stat().st_size
+        meta = {
+            **metadata,
+            "meta_version": META_VERSION,
+            "generation_id": generation_id,
+            "zip_bytes": zip_bytes,
+            "files": sorted(payloads),
+        }
+        _write(partial / META_NAME, json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
+        os.replace(partial, root / generation_id)
+    finally:
+        if partial.exists():
+            shutil.rmtree(partial, ignore_errors=True)
+    return zip_bytes
+
+
 def _render_failed(stage: str, exc: BaseException) -> GenerationError:
     # 内部异常只进服务端日志；对外只有稳定码与固定说法（不回显异常文本）。
     logger.error("drawing generation failed at %s: %s", stage, type(exc).__name__, exc_info=exc)
@@ -333,52 +374,28 @@ def generate_drawing_set(
 
     generation_id = uuid.uuid4().hex
     created_at = datetime.now(UTC).isoformat(timespec="seconds")
-    root = generations_root(export_root)
-    root.mkdir(parents=True, exist_ok=True)
-    partial = root / f".partial-{generation_id}"
-    final = root / generation_id
+    final = generations_root(export_root) / generation_id
     zip_name = f"给水图纸-{parsed.building_type.value}-{parsed.floors}层-{generation_id[:8]}.zip"
+    draft = GenerationResult(
+        generation_id=generation_id,
+        created_at=created_at,
+        owner_user_id=owner_user_id,
+        plan=plan,
+        sheets=tuple(sheets),
+        directory=final,
+        zip_name=zip_name,
+        zip_bytes=0,
+    )
     mark = time.perf_counter()
-    try:
-        partial.mkdir(mode=DIR_MODE)
-        os.chmod(partial, DIR_MODE)
-        for filename, data in payloads.items():
-            _write(partial / filename, data)
-        draft = GenerationResult(
-            generation_id=generation_id,
-            created_at=created_at,
-            owner_user_id=owner_user_id,
-            plan=plan,
-            sheets=tuple(sheets),
-            directory=final,
-            zip_name=zip_name,
-            zip_bytes=0,
-            timings_ms=timings,
-        )
-        readme = _readme(draft, table).encode("utf-8-sig")
-        _write(partial / README_NAME, readme)
-        with zipfile.ZipFile(partial / ZIP_NAME, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for filename, data in payloads.items():
-                archive.writestr(filename, data)
-            archive.writestr(README_NAME, readme)
-        os.chmod(partial / ZIP_NAME, FILE_MODE)
-        zip_bytes = (partial / ZIP_NAME).stat().st_size
-        meta = {
-            "meta_version": META_VERSION,
-            "generation_id": generation_id,
+    zip_bytes = publish_drawing_zip(
+        export_root, generation_id, payloads, _readme(draft, table), {
             "owner_user_id": owner_user_id,
             "created_at": created_at,
             "zip_name": zip_name,
-            "zip_bytes": zip_bytes,
-            "files": sorted(payloads),
             "request": parsed.model_dump(mode="json"),
             "rules_version": plan.rules_version,
-        }
-        _write(partial / META_NAME, json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
-        os.replace(partial, final)
-    except OSError:
-        shutil.rmtree(partial, ignore_errors=True)
-        raise
+        },
+    )
     timings["write"] = (time.perf_counter() - mark) * 1000
     timings["total"] = (time.perf_counter() - started) * 1000
     return GenerationResult(

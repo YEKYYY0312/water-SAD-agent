@@ -233,3 +233,39 @@ def test_executable_rpath_resolves_from_the_bundle_executable_directory(tmp_path
         == binary.parent / "../Resources"
     )
     assert resolve_rpath(tmp_path, binary, "/usr/lib/swift") is None
+
+
+def test_explicit_local_source_is_packaged_without_staging_git(tmp_path, monkeypatch):
+    from desktop.macos.packaging import build_app
+    source = tmp_path / "repo"
+    relative = Path("src/water_agent/tools/calc_head_loss.py")
+    (source / relative).parent.mkdir(parents=True)
+    (source / relative).write_text("# new locally authorized source\n")
+    monkeypatch.setattr(build_app, "ROOT", source)
+    monkeypatch.setattr(build_app.subprocess, "check_output", lambda *_a, **_k: b"")
+    destination = tmp_path / "bundle"
+    build_app.tracked_backend(destination, local_sources=[relative])
+    assert (destination / relative).read_text() == (source / relative).read_text()
+
+
+@pytest.mark.parametrize("relative", ["config/local.py", "src/water_agent/private.json", "../outside.py", "/tmp/outside.py"])
+def test_local_source_option_cannot_publish_configuration_or_arbitrary_files(tmp_path, monkeypatch, relative):
+    from desktop.macos.packaging import build_app
+    monkeypatch.setattr(build_app, "ROOT", tmp_path)
+    monkeypatch.setattr(build_app.subprocess, "check_output", lambda *_a, **_k: b"")
+    with pytest.raises(ValueError):
+        build_app.tracked_backend(tmp_path / "bundle", local_sources=[Path(relative)])
+
+
+def test_strip_developer_swift_rpaths_from_release_executable(monkeypatch,tmp_path):
+    from desktop.macos.packaging import build_app
+    binary=tmp_path/'WaterAgentDesktop'
+    commands='''path /usr/lib/swift (offset 12)
+path @loader_path (offset 12)
+path /Library/Developer/CommandLineTools/usr/lib/swift/macosx (offset 12)
+path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx (offset 12)'''
+    monkeypatch.setattr(build_app.subprocess,'check_output',lambda *a,**k: commands)
+    calls=[];monkeypatch.setattr(build_app,'run',lambda cmd: calls.append(cmd))
+    build_app.strip_developer_swift_rpaths(binary)
+    assert [c[2] for c in calls]==['/Library/Developer/CommandLineTools/usr/lib/swift/macosx','/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx']
+    assert all(c[:2]==['/usr/bin/install_name_tool','-delete_rpath'] and c[-1]==str(binary) for c in calls)

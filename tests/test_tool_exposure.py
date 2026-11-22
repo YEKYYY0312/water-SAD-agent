@@ -84,7 +84,7 @@ def test_groups_come_from_contributions(drawing_root: Path, mcp_assembly: MCPGat
     """P7-S4-A02：组来自插件贡献——检索 / 引用与流速为 core，材料与读图为 intent，MCP 每台 server 一组 ambient。"""
 
     groups = {group.group_id: group for group in _assemble(drawing=drawing_root, mcp=mcp_assembly).exposure.groups}
-    assert list(groups) == ["clauses", "hydraulics", "materials", "drawing", "mcp:txfake"]
+    assert list(groups) == ["clauses", "hydraulics", "hydraulics:darcy", "hydraulics:diameter", "hydraulics:hazen", "hydraulics:shevelev", "hydraulics:manning", "hydraulics:pump_head", "materials", "drawing", "mcp:txfake"]
     assert groups["clauses"].tools == ("retrieve_clauses", "cite_clauses")
     assert groups["clauses"].rule.mode == groups["hydraulics"].rule.mode == "core"
     assert groups["materials"].rule.mode == groups["drawing"].rule.mode == "intent"
@@ -132,7 +132,7 @@ def test_intent_groups_open_only_on_matching_questions(drawing_root: Path) -> No
     policy = _assemble(drawing=drawing_root).exposure
     plain = policy.decide("给水管道的设计秒流量如何确定")
     assert plain.exposed == CORE_TOOLS
-    assert plain.unexposed == ("material_stats", "read_drawing")
+    assert plain.unexposed == ("calc_head_loss_darcy_weisbach", "calc_diameter", "calc_head_loss_hazen_williams", "calc_head_loss_shevelev", "calc_slope_manning", "calc_pump_head", "material_stats", "read_drawing")
     assert dict(plain.reasons) == {"clauses": "core", "hydraulics": "core"}
     both = policy.decide("从 P-01 的管线算出各规格管道的总长度")
     assert both.exposed == (*CORE_TOOLS, "material_stats", "read_drawing")
@@ -316,7 +316,7 @@ def test_model_receives_only_exposed_tools(tmp_path: Path, drawing_root: Path, s
     assert _bound(first_model) == [set(CORE_TOOLS)]
     guide = tx.guide_segment(first_model.state["received"][0])  # type: ignore[attr-defined]
     assert tx.guide_tools(guide) == list(CORE_TOOLS)
-    assert "本轮未开放：material_stats、read_drawing" in guide
+    assert "本轮未开放：calc_head_loss_darcy_weisbach、calc_diameter、calc_head_loss_hazen_williams、calc_head_loss_shevelev、calc_slope_manning、calc_pump_head、material_stats、read_drawing" in guide
     events = _events(first_trace, "tool_exposure")
     assert len(events) == 1
     assert events[0]["query"] == ""

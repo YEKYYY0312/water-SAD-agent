@@ -11,13 +11,20 @@ from pathlib import Path
 
 from water_agent.drawing.drawing_root import DrawingRootResult
 from water_agent.plugins.base import AssemblyContext, PluginContribution, ToolPlugin
-from water_agent.plugins.exposure import CORE, REQUEST, ExposureRule
+from water_agent.plugins.exposure import CORE, REQUEST, ExposureRule, ToolGroup
 from water_agent.plugins.mcp_gateway import McpGatewayPlugin
 from water_agent.runtime.governance.contracts import Capability
 from water_agent.skills.library import BUILTIN_SKILLS_DIR, SkillLibrary, build_skill_library
 from water_agent.skills.models import Skill
+from water_agent.tools.calc_diameter import calc_diameter_spec
+from water_agent.tools.calc_hazen import calc_head_loss_hazen_williams_spec
+from water_agent.tools.calc_head_loss import calc_head_loss_darcy_weisbach_spec
+from water_agent.tools.calc_manning import calc_slope_manning_spec
+from water_agent.tools.calc_pump_head import calc_pump_head_spec
+from water_agent.tools.calc_shevelev import calc_head_loss_shevelev_spec
 from water_agent.tools.calc_velocity import calc_velocity_spec
 from water_agent.tools.cite import build_cite_clauses_tool_with_context_check
+from water_agent.tools.diameter_request import DIAMETER_INTENT_PATTERNS
 from water_agent.tools.load_skill import build_load_skill_tool, fit_catalog
 from water_agent.tools.material_stats import material_stats_spec
 from water_agent.tools.read_drawing import maybe_build_read_drawing_tool
@@ -78,14 +85,46 @@ class ClausesPlugin:
         )
 
 
+DARCY_EXPOSURE = ExposureRule(
+    mode="intent", keywords=("darcy", "weisbach", "摩阻系数", "摩擦损失"),
+    patterns=(r"^(?![\s\S]*(?:hazen|williams|舍维列夫|shevelev|泵扬程|pump[ _]head))[\s\S]*(?:沿程|水头损失)",
+              r"^(?![\s\S]*(?:hazen|williams|舍维列夫|shevelev))[\s\S]*(?:另算|另求)(?:沿程损失|沿程水头损失)",),
+)
+PUMP_HEAD_EXPOSURE = ExposureRule(mode="intent", keywords=("泵扬程", "pump head", "pump_head"))
+MANNING_EXPOSURE = ExposureRule(mode="intent", keywords=("曼宁", "manning"))
+SHEVELEV_EXPOSURE = ExposureRule(mode="intent", keywords=("舍维列夫", "shevelev"))
+HAZEN_EXPOSURE = ExposureRule(mode="intent", keywords=("hazen", "williams"))
+DIAMETER_EXPOSURE = ExposureRule(
+    mode="intent", keywords=("目标流速", "设计流速", "calc_diameter"),
+    patterns=tuple(r"^(?![\s\S]*(?:曼宁|manning))[\s\S]*" + pattern for pattern in DIAMETER_INTENT_PATTERNS)
+             + (r"(?:计算|求)(?:实际内径|管内径|管径|内径)", r"(?:内径|管径)(?:是多少|多少)"),
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class HydraulicsContribution(PluginContribution):
+    def exposure_groups(self) -> tuple[ToolGroup, ...]:
+        return (
+            ToolGroup("hydraulics", ("calc_velocity",), CORE),
+            ToolGroup("hydraulics:darcy", ("calc_head_loss_darcy_weisbach",), DARCY_EXPOSURE),
+            ToolGroup("hydraulics:diameter", ("calc_diameter",), DIAMETER_EXPOSURE),
+            ToolGroup("hydraulics:hazen", ("calc_head_loss_hazen_williams",), HAZEN_EXPOSURE),
+            ToolGroup("hydraulics:shevelev", ("calc_head_loss_shevelev",), SHEVELEV_EXPOSURE),
+            ToolGroup("hydraulics:manning", ("calc_slope_manning",), MANNING_EXPOSURE),
+            ToolGroup("hydraulics:pump_head", ("calc_pump_head",), PUMP_HEAD_EXPOSURE),
+        )
+
+
 class HydraulicsPlugin:
     """流速计算。core：没暴露计算工具，模型只能心算（铁律①），漏判的代价远大于 953 字符。"""
 
     plugin_id = "hydraulics"
 
     def contribute(self, ctx: AssemblyContext) -> PluginContribution:
-        return PluginContribution(
-            plugin_id=self.plugin_id, tools=(calc_velocity_spec,), exposure=CORE
+        return HydraulicsContribution(
+            plugin_id=self.plugin_id,
+            tools=(calc_velocity_spec, calc_head_loss_darcy_weisbach_spec, calc_diameter_spec, calc_head_loss_hazen_williams_spec, calc_head_loss_shevelev_spec, calc_slope_manning_spec, calc_pump_head_spec),
+            exposure=CORE,
         )
 
 

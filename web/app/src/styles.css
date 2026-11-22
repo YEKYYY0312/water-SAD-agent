@@ -502,3 +502,28 @@ code { font-family: var(--mono); font-size: .92em; }
 .web-search-note { padding: 0 .35rem; color: var(--warn); font-size: .78rem; line-height: 1.5; }
 .web-search-panel { display: grid; gap: 1rem; }
 .web-search-status { display: grid; gap: .65rem; }
+
+/* 项目计算沿用工作台设置区的表单与配色。 */
+.project-calc-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.project-calc-card, .project-calc-preview { display: grid; gap: .75rem; min-width: 0; }
+.project-calc-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; border: 0; margin: 0; padding: 0; }
+.project-calc-fields label, .project-calc-revision { display: grid; gap: .25rem; font-size: .85rem; }
+.project-calc-preview { border-top: 1px solid var(--line); padding-top: .75rem; }
+.project-calc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.project-calc-status { color: var(--muted); font-size: .88rem; }
+.project-calc-metrics, .project-calc-values { display: grid; gap: .5rem; margin: 0; }
+.project-calc-metrics div, .project-calc-values div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .35rem; }
+.project-calc-metrics div { padding: .55rem .7rem; border-radius: var(--r-item); background: var(--surface); }
+.project-calc-metrics dd, .project-calc-values dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.project-calc-values, .project-calc-notes { color: var(--muted); font-size: .85rem; }
+.project-calc-refresh { justify-self: start; }
+@media (max-width: 62rem) { .project-calc-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 34rem) { .project-calc-fields { grid-template-columns: minmax(0, 1fr); } }
+
+.drainage-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.drainage-form .drainage-point { margin-top: .9rem; padding-top: .65rem; border-top: 1px solid var(--line); }
+.drainage-point legend { padding-right: .4rem; font-size: .9rem; font-weight: 600; }
+.drainage-inputs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-top: .65rem; }
+.drainage-field { display: grid; gap: .25rem; min-width: 0; font-size: .85rem; }
+.drainage-form .dialog-actions { margin-top: 1rem; }
+@media (max-width: 60rem) { .drainage-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

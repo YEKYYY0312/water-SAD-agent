@@ -773,8 +773,8 @@ class TestInventoryCoverage:
         assert governance_coverage() == {
             "provider_call_sites": 11,
             "provider_governed": 11,
-            "tools": 7,
-            "tools_guardrail_validated": 7,
+            "tools": 16,  # T2-7B: three internal CALCULATE specs; model surface unchanged.
+            "tools_guardrail_validated": 16,
         }
         for site in PROVIDER_CALL_SITES:
             assert site.governed is True, f"{site.site_id} 未接入 ProviderGateway"

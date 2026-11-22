@@ -493,9 +493,16 @@ async def run_events(
         return _database_unavailable()
     try:
         parse_last_event_id(last_event_id)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"version": _API_VERSION, "ok": False,
+                            "error": {"code": "WEB_EVENT_CURSOR_INVALID", "message": "Invalid Last-Event-ID"}})
+    try:
+        parse_last_event_id(last_event_id)
         manager.get_visible_run(run_id, user.user_id)
         manager.has_event_log(run_id)
     except ValueError:
+        if manager.project_runtime is not None and manager.project_runtime.owns_run(run_id):
+            return _run_unavailable()
         return JSONResponse(
             status_code=400,
             content={
@@ -534,6 +541,10 @@ async def cancel_run(
         payload = manager.cancel(run_id, user.user_id)
     except (ResourceNotFoundError, RunNotManagedError):
         return _not_found()
+    except PermissionError:
+        return _forbidden()
+    except (ValueError, OSError, SQLAlchemyError):
+        return _run_unavailable()
     return JSONResponse(status_code=202, content=_ok(payload))
 
 

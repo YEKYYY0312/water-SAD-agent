@@ -38,6 +38,8 @@ export type WorkspaceRunState = {
   calculations: CalculationCard[];
   warnings: string[];
   errors: string[];
+  /** 服务端恢复的下载能力；不伪造已执行的工具卡片。 */
+  exportFormats?: ("docx" | "xlsx")[];
   trace: TraceSnapshot | null;
   lastEventId: string;
   /** 挂起的人工确认请求（P7-S7）：有值时界面显示确认卡片，决定提交后清空。 */
@@ -322,6 +324,11 @@ export function applyRunEvent(state: WorkspaceRunState, event: WorkspaceRunEvent
       model: modelFromFinalPayload(payload),
       errors,
       warnings,
+      ...(Array.isArray(payload.export_formats) ? {
+        exportFormats: payload.export_formats.filter(
+          (value): value is "docx" | "xlsx" => value === "docx" || value === "xlsx",
+        ),
+      } : {}),
     };
   }
   return next;

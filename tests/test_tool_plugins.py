@@ -305,7 +305,7 @@ def test_tools_sorted_and_bound_to_registry(ctx: AssemblyContext) -> None:
     assert names == sorted(names) == assembly.registry.list_all_names()
     assert all(getattr(tool, "registry", None) is assembly.registry for tool in assembly.tools)
     registered = [entry["function"]["name"] for entry in assembly.registry.list_tools()]
-    assert registered == ["retrieve_clauses", "cite_clauses", "calc_velocity", "material_stats"]
+    assert registered == ["retrieve_clauses", "cite_clauses", "calc_velocity", "calc_head_loss_darcy_weisbach", "calc_diameter", "calc_head_loss_hazen_williams", "calc_head_loss_shevelev", "calc_slope_manning", "calc_pump_head", "material_stats"]
     assert tuple(item.plugin_id for item in assembly.contributions) == BUILTIN_PLUGIN_ORDER
     assert assembly.contribution(DrawingContribution).status == "skipped"
     assert assembly.contribution(McpContribution).tools == ()

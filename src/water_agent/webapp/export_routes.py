@@ -14,15 +14,15 @@ Order of checks (the order is the authorization property):
 3. **ownership** (``get_owned_for_user``) -- a project member who can *see* the
    run but did not start it gets 403.  Export materialises the answer as a file
    that leaves the system, so it is an owner action like cancellation;
-4. **in-process result** -- the run's answer lives only in the ``RunManager``
-   handle (runs rows carry status only), so a run from before a restart, or one
-   still streaming, answers 404 ``WEB_EXPORT_UNAVAILABLE``.  Same lifetime as
-   ``/api/runs/{id}/trace``; recorded as a known limitation, not hidden.
+4. **final result** -- use the exact live or privately saved per-run inputs.
+   Unfinished/failed runs and legacy results without a snapshot answer 404
+   ``WEB_EXPORT_UNAVAILABLE``.
 
 Exports are written to the exports volume (``resolve_export_dir``) under a fresh
 per-request directory, read back into memory and the directory removed before
 the response is returned, on every branch -- the volume is a staging area, not
-an archive.  ``Range`` is not honoured: the response is always the whole file.
+an archive of rendered files. Private ``.snapshots`` retain export inputs.
+``Range`` is not honoured: the response is always the whole file.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy.exc import SQLAlchemyError
 
 from water_agent.docgen.docx_export import (
     DocxExportError,
@@ -140,12 +141,16 @@ def _render_docx(snapshot: dict[str, Any], title: str, target: Path) -> Path:
     citations = _citations(snapshot)
     calc_results = _calc_results(snapshot)
     if calc_results:
+        exact_calculation = any(item.get("tool_name") in {"calc_head_loss_darcy_weisbach", "calc_diameter", "calc_head_loss_hazen_williams", "calc_head_loss_shevelev", "calc_slope_manning", "calc_pump_head"}
+                                for item in snapshot["calculations"])
         return render_calculation_book_docx(
             title=title,
             input_params=dict(snapshot["calc_inputs"]),
             calc_results=calc_results,
             citations=citations,
             output_path=target,
+            answer_text=snapshot["answer"] if exact_calculation else "",
+            exact_numbers=exact_calculation,
         )
     return render_design_note_docx(
         title=title,
@@ -196,7 +201,26 @@ async def export_run(
     try:
         runs.get_owned_for_user(run_id, user.user_id)
     except ResourceNotFoundError:
+        if manager.project_runtime is not None and manager.project_runtime.owns_run(run_id):
+            return _not_found()
         return _error("WEB_FORBIDDEN", "Only the run owner can export it", status_code=403)
+    if manager.project_runtime is not None and manager.project_runtime.owns_run(run_id):
+        if export_format != "docx":
+            return _unavailable("Project calculations export docx only")
+        try:
+            content = manager.project_runtime.document(run_id)
+            currentness = manager.project_runtime.currentness(run_id)
+        except PermissionError:
+            return _error("WEB_FORBIDDEN", "Project permission required", status_code=403)
+        except (ResourceNotFoundError, ValueError, OSError, SQLAlchemyError):
+            return _error("PROJECT_PERSISTENCE_FAILED", "Committed project result unavailable", status_code=503)
+        return Response(content=content, media_type=EXPORT_FORMATS["docx"],
+                        headers={"Content-Disposition": content_disposition(f"project-{run_id}.docx"),
+                                 "X-Project-Current": str(currentness["is_current"]).lower(),
+                                 "X-Project-Revision": str(currentness["revision"]),
+                                 "Link": f'</api/runs/{run_id}/project-approval>; rel="describedby"'})
+    if run.status != "succeeded":
+        return _unavailable("Only succeeded runs can be exported")
 
     try:
         snapshot = manager.export_snapshot(run_id)

@@ -48,6 +48,7 @@ export type SystemCapabilities = {
   authentication: string;
   persistence: string;
   sse: string;
+  project_calculation?: boolean;
   drawing: DrawingCapability;
   mcp: {
     status: "blocked" | "not_configured" | "unavailable";
@@ -119,7 +120,7 @@ export function csrfToken(): string | undefined {
   return pair ? decodeURIComponent(pair.slice("wa_csrf=".length)) : undefined;
 }
 
-async function decodeEnvelope<T>(response: Response): Promise<T> {
+export async function decodeEnvelope<T>(response: Response): Promise<T> {
   let envelope: ApiEnvelope<T>;
   try {
     envelope = (await response.json()) as ApiEnvelope<T>;

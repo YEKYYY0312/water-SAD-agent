@@ -141,7 +141,7 @@ export function fieldErrors(fields: FieldError[]): { byField: FormErrors; other:
 
 const DRAWING_ERROR_COPY: Record<string, string> = {
   GEN_INVALID_INPUT: "参数不合法，请按标出的字段修改。",
-  GEN_UNSUPPORTED_SYSTEM: "本步只支持给水系统（排水、消防、热水为后续工作）。",
+  GEN_UNSUPPORTED_SYSTEM: "此系统类型未开放出图，请选择给水或排水。",
   GEN_RENDER_FAILED: "图纸生成失败（内部错误），请稍后重试；如持续出现请联系管理员。",
   WEB_FORBIDDEN: "只读账号不能生成图纸。",
   WEB_EXPORT_STORAGE_UNAVAILABLE: "服务器的导出目录不可写，请联系管理员。",

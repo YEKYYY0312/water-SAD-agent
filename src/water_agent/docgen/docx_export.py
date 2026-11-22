@@ -250,6 +250,7 @@ def _write_docx(
     citations: Sequence[Any],
     input_params: dict[str, Any] | None,
     values_table: bool,
+    exact_numbers: bool = False,
 ) -> Path:
     try:
         import docx  # type: ignore[import-untyped]
@@ -264,6 +265,11 @@ def _write_docx(
     _configure_header(document, title)
     _add_heading(document, title or rendered.title.lstrip("# "), style="Title")
 
+    def value_text(value: Any) -> str:
+        if exact_numbers and _is_number(value):
+            return str(value).removesuffix(".0")
+        return _value_text(value)
+
     params_key = "计算参数与结果" if rendered.doc_type == "calculation_book" else "设计参数与计算结果"
     for section in rendered.sections:
         _add_heading(document, section.heading)
@@ -275,7 +281,7 @@ def _write_docx(
                         document,
                         ["参数", "数值", "单位"],
                         [
-                            [key, _value_text(value), UNIT_MAP.get(key, "")]
+                            [key, value_text(value), UNIT_MAP.get(key, "")]
                             for key, value in input_params.items()
                         ],
                     )
@@ -287,7 +293,7 @@ def _write_docx(
                     document,
                     ["参数", "数值", "单位"],
                     [
-                        [key, _fmt_number(value), UNIT_MAP.get(key, "")]
+                        [key, value_text(value), UNIT_MAP.get(key, "")]
                         for key, value in rendered.calc_values.items()
                     ],
                 )
@@ -322,6 +328,9 @@ def render_calculation_book_docx(
     calc_results: list[CalcResult],
     citations: list[CitationClaim],
     output_path: Path,
+    *,
+    answer_text: str = "",
+    exact_numbers: bool = False,
 ) -> Path:
     """计算书：标题 → 工程概况 → 设计依据 → 输入参数表 + 程序化结果表 → 结论 → 引用。
 
@@ -337,6 +346,10 @@ def render_calculation_book_docx(
         calc_result=calc_result or None,
         citations=_citation_ids(citations),
     )
+    if answer_text:
+        rendered.sections = _renumber([
+            *rendered.sections, DocSection(key="已校验回答", heading="已校验回答", lines=answer_text.splitlines()),
+        ])
     problems = check_docgen_self_check(rendered, calc_result=calc_result or None)
     if problems:
         raise DocxExportError(problems)
@@ -347,6 +360,7 @@ def render_calculation_book_docx(
         citations=citations,
         input_params=input_params,
         values_table=True,
+        exact_numbers=exact_numbers,
     )
 
 

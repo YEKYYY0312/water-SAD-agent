@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -89,7 +90,7 @@ def _to_float(value: Any) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(number):
         return None
@@ -195,7 +196,12 @@ def calc_head_loss_darcy_weisbach(inputs: dict[str, Any]) -> CalcResult:
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
     velocity = _numeric(inputs, "velocity_mps")
     friction = _numeric(inputs, "friction_factor")
-    head_loss = friction * (length_m / diameter_m) * (velocity**2 / (2.0 * gravity))
+    try:
+        head_loss = friction * (length_m / diameter_m) * (velocity**2 / (2.0 * gravity))
+    except (OverflowError, ZeroDivisionError):
+        return CalcResult(ok=False, errors=["Darcy–Weisbach 计算溢出或单位换算下溢，请核对输入范围"])
+    if not math.isfinite(head_loss) or head_loss <= 0:
+        return CalcResult(ok=False, errors=["Darcy–Weisbach 结果不是有限正数，请核对输入范围"])
     return CalcResult(ok=True, values={"head_loss_m": head_loss})
 
 
@@ -212,7 +218,21 @@ def calc_head_loss_hazen_williams(inputs: dict[str, Any]) -> CalcResult:
     diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
     flow_m3s = _numeric(inputs, "flow_lps") / 1000.0
     c = _numeric(inputs, "hazen_williams_c")
-    head_loss = 10.67 * length_m * flow_m3s**1.852 / (c**1.852 * diameter_m**4.8704)
+    try:
+        flow_power, c_power, diameter_power = flow_m3s**1.852, c**1.852, diameter_m**4.8704
+        numerator_scale = 10.67 * length_m
+        numerator, denominator = numerator_scale * flow_power, c_power * diameter_power
+        # A positive subnormal power can lose most significant digits while
+        # the final value is finite. Fail closed outside normal float range.
+        intermediates = (flow_m3s, diameter_m, flow_power, c_power, diameter_power,
+                         numerator_scale, numerator, denominator)
+        if any(not math.isfinite(v) or v < sys.float_info.min for v in intermediates):
+            return CalcResult(ok=False, errors=["Hazen–Williams中间量溢出或下溢，请核对输入范围"])
+        head_loss = numerator / denominator
+    except (OverflowError, ZeroDivisionError):
+        return CalcResult(ok=False, errors=["Hazen–Williams计算溢出或下溢，请核对输入范围"])
+    if not math.isfinite(head_loss) or head_loss < sys.float_info.min:
+        return CalcResult(ok=False, errors=["Hazen–Williams结果不是有限正数，请核对输入范围"])
     return CalcResult(ok=True, values={"head_loss_m": head_loss})
 
 
@@ -237,11 +257,30 @@ def calc_head_loss_shevelev(inputs: dict[str, Any]) -> CalcResult:
             f"管径 {diameter_mm:.0f} mm 超出舍维列夫公式经验适用范围 DN50–DN1000，结果仅供参考"
         )
 
-    if velocity >= SHEVELEV_SPEED_BREAKPOINT:
-        slope = 0.00107 * velocity**2 / diameter_m**1.3
-    else:
-        slope = 0.000912 * velocity**2 * (1 + 0.867 / velocity) ** 0.3 / diameter_m**1.3
-    return CalcResult(ok=True, values={"head_loss_m": slope * length_m}, assumptions=assumptions)
+    try:
+        velocity_squared, diameter_power = velocity**2, diameter_m**1.3
+        intermediates = [length_m, diameter_m, velocity_squared, diameter_power]
+        if velocity >= SHEVELEV_SPEED_BREAKPOINT:
+            numerator = 0.00107 * velocity_squared
+        else:
+            reciprocal_term = 0.867 / velocity
+            base = 1 + reciprocal_term
+            correction = base**0.3
+            scaled = 0.000912 * velocity_squared
+            numerator = scaled * correction
+            intermediates.extend((reciprocal_term, base, correction, scaled))
+        intermediates.append(numerator)
+        # Positive subnormal intermediates can lose significant precision even
+        # when the final answer is finite: fail closed, without changing §2.3.
+        if any(not math.isfinite(v) or v < sys.float_info.min for v in intermediates):
+            return CalcResult(ok=False, errors=["舍维列夫中间量溢出或下溢，请核对输入范围"], assumptions=assumptions)
+        slope = numerator / diameter_power
+        head_loss = slope * length_m
+        if any(not math.isfinite(v) or v < sys.float_info.min for v in (slope, head_loss)):
+            return CalcResult(ok=False, errors=["舍维列夫结果溢出或下溢，请核对输入范围"], assumptions=assumptions)
+    except (OverflowError, ZeroDivisionError):
+        return CalcResult(ok=False, errors=["舍维列夫计算溢出或下溢，请核对输入范围"], assumptions=assumptions)
+    return CalcResult(ok=True, values={"head_loss_m": head_loss}, assumptions=assumptions)
 
 
 def calc_diameter(inputs: dict[str, Any]) -> CalcResult:
@@ -255,8 +294,16 @@ def calc_diameter(inputs: dict[str, Any]) -> CalcResult:
 
     flow_m3s = _numeric(inputs, "flow_lps") / 1000.0
     velocity = _numeric(inputs, "velocity_mps")
-    diameter_m = math.sqrt(4.0 * flow_m3s / (math.pi * velocity))
-    return CalcResult(ok=True, values={"diameter_mm": diameter_m * 1000.0})
+    denominator = math.pi * velocity
+    if flow_m3s <= 0 or not math.isfinite(denominator):
+        return CalcResult(ok=False, errors=["管径计算超出浮点可表示范围，请调整输入数量级。"])
+    squared = 4.0 * flow_m3s / denominator
+    if not math.isfinite(squared) or squared <= 0:
+        return CalcResult(ok=False, errors=["管径计算超出浮点可表示范围，请调整输入数量级。"])
+    diameter_mm = math.sqrt(squared) * 1000.0
+    if not math.isfinite(diameter_mm) or diameter_mm <= 0:
+        return CalcResult(ok=False, errors=["管径计算超出浮点可表示范围，请调整输入数量级。"])
+    return CalcResult(ok=True, values={"diameter_mm": diameter_mm})
 
 
 def calc_slope_manning(inputs: dict[str, Any]) -> CalcResult:
@@ -264,7 +311,10 @@ def calc_slope_manning(inputs: dict[str, Any]) -> CalcResult:
     bad = _require(inputs, ["flow_lps", "diameter_mm", "fill_ratio", "manning_n"])
     if bad is not None:
         return bad
-    invalid = _positive_numbers(inputs, ["flow_lps", "diameter_mm", "manning_n"])
+    try:
+        invalid = _positive_numbers(inputs, ["flow_lps", "diameter_mm", "manning_n"])
+    except OverflowError:
+        return CalcResult(ok=False, errors=["曼宁输入超出浮点表示范围。"])
     if invalid:
         return CalcResult(ok=False, errors=[f"{name} 必须为正数" for name in invalid])
 
@@ -272,16 +322,47 @@ def calc_slope_manning(inputs: dict[str, Any]) -> CalcResult:
     if fill_ratio is None or not (0 < fill_ratio < 1):
         return CalcResult(ok=False, errors=["fill_ratio 必须在 (0, 1) 开区间内"])
 
-    diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
-    flow_m3s = _numeric(inputs, "flow_lps") / 1000.0
-    manning_n = _numeric(inputs, "manning_n")
-
-    theta = 2.0 * math.acos(1.0 - 2.0 * fill_ratio)
-    area = (diameter_m**2 / 8.0) * (theta - math.sin(theta))
-    wetted_perimeter = (diameter_m / 2.0) * theta
-    hydraulic_radius = area / wetted_perimeter
-
-    slope = (manning_n * flow_m3s / (area * hydraulic_radius ** (2.0 / 3.0))) ** 2
+    # Equivalent half-angle geometry avoids 1-2r rounding to 1 near zero.
+    # Near full, complement evaluation retains the small dry cap angle.
+    try:
+        diameter_m = _numeric(inputs, "diameter_mm") / 1000.0
+        flow_m3s = _numeric(inputs, "flow_lps") / 1000.0
+        manning_n = _numeric(inputs, "manning_n")
+        theta = (4 * math.asin(math.sqrt(fill_ratio)) if fill_ratio <= .5 else
+                 2 * math.pi - 4 * math.asin(math.sqrt(1-fill_ratio)))
+        if theta < .5:
+            # theta-sin(theta): alternating series, next term < 2e-19
+            # relative to the leading term at theta=.5 (through theta^17).
+            term = theta**3 / 6
+            segment = term
+            for k in range(2, 9):
+                term *= -theta**2 / ((2*k)*(2*k+1))
+                segment += term
+        else:
+            segment = theta - math.sin(theta)
+        squared_d = diameter_m**2
+        area = squared_d / 8 * segment
+        wetted_perimeter = diameter_m / 2 * theta
+        hydraulic_radius = area / wetted_perimeter
+        radius_root = math.cbrt(hydraulic_radius)
+        radius_power = radius_root**2
+        numerator = manning_n * flow_m3s
+        denominator = area * radius_power
+        ratio = numerator / denominator
+        slope = ratio**2
+        import sys
+        intermediates = (diameter_m, flow_m3s, manning_n, theta, segment,
+                         squared_d, squared_d/8, diameter_m/2, area, wetted_perimeter,
+                         hydraulic_radius, radius_root, radius_power, numerator, denominator, ratio, slope)
+        if any(not math.isfinite(v) or v < sys.float_info.min for v in intermediates):
+            raise ArithmeticError
+        # The frozen absolute error contract is 1e-9 for large slopes;
+        # reserve 128 output ulps for accumulated geometry/power/ratio rounding,
+        # rather than checking final representability alone.
+        if 128 * math.ulp(slope) > 1e-9:
+            raise ArithmeticError
+    except (ArithmeticError, ValueError):
+        return CalcResult(ok=False, errors=["曼宁数值精度或浮点表示范围不足；合法充满度未钳制，请调整输入数量级。"])
     return CalcResult(ok=True, values={"slope": slope})
 
 
@@ -295,6 +376,8 @@ def calc_pump_head(inputs: dict[str, Any]) -> CalcResult:
         return CalcResult(ok=False, errors=[f"{name} 必须为非负数" for name in invalid])
 
     total = sum(_numeric(inputs, name) for name in ["static_head_m", "friction_head_m", "local_head_m", "residual_head_m"])
+    if not math.isfinite(total):
+        return CalcResult(ok=False, errors=["泵扬程合计超出有限数值范围"], assumptions=["仅给定四分量数学合计，工程适用性未核验"])
     return CalcResult(ok=True, values={"pump_head_m": total})
 
 

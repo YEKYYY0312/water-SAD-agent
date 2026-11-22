@@ -9,16 +9,16 @@ export type ExportFormat = "docx" | "xlsx";
  * - Excel：本次运行里 material_stats 成功返回过——只有材料清单才有表可导。
  *   计算结果（calc_velocity）进 Word 计算书，不单独出 Excel。
  */
-export function availableExports(run: Pick<WorkspaceRunState, "status" | "runId" | "answer" | "tools">): ExportFormat[] {
+export function availableExports(run: Pick<WorkspaceRunState, "status" | "runId" | "answer" | "tools" | "exportFormats">): ExportFormat[] {
   if (run.status !== "succeeded" || !run.runId) return [];
   const formats: ExportFormat[] = [];
   if (run.answer.trim()) formats.push("docx");
-  if (run.tools.some((tool) => tool.tool_name === "material_stats" && tool.status === "succeeded")) formats.push("xlsx");
+  if (run.exportFormats?.includes("xlsx") || run.tools.some((tool) => tool.tool_name === "material_stats" && tool.status === "succeeded")) formats.push("xlsx");
   return formats;
 }
 
 const EXPORT_ERROR_COPY: Record<string, string> = {
-  WEB_EXPORT_UNAVAILABLE: "这次回答已不在服务器内存中（服务重启过），请重新提问后再下载。",
+  WEB_EXPORT_UNAVAILABLE: "这次回答没有可下载的已保存结果，旧版本的历史回答可能无法再次导出。",
   WEB_EXPORT_SELF_CHECK_FAILED: "回答引用了未经检索的条款，不能生成正式文档。",
   WEB_EXPORT_FORMAT_UNSUPPORTED: "不支持该文件格式。",
   WEB_FORBIDDEN: "只有提问人可以下载这份回答。",

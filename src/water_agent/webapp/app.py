@@ -151,6 +151,8 @@ def create_app(
     app.include_router(settings_router)
     app.include_router(upload_router)
     app.include_router(export_router)
+    from water_agent.webapp.project_calculation_routes import router as project_calculation_router
+    app.include_router(project_calculation_router)
     app.include_router(drawing_router)
     app.include_router(mcp_admin_router)
     app.include_router(mcp_registry_router)
@@ -175,6 +177,7 @@ def create_app(
             tenant_id=tenant_id,
             trace_dir=trace_dir,
             session_dir=session_dir,
+            export_dir=export_dir,
         )
         if configured_database is not None
         else None
@@ -334,6 +337,10 @@ def create_app(
                 "authentication": "session_cookie",
                 "persistence": "postgresql" if configured_database is not None else "memory_dev_only",
                 "sse": "resumable_last_event_id",
+                "project_calculation": (
+                    app.state.run_manager is not None
+                    and app.state.run_manager.project_runtime is not None
+                ),
                 "drawing": {
                     "status": drawing_status,
                     "configured_status": drawing.status,

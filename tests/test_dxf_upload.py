@@ -301,8 +301,8 @@ def test_tool_schema_budget_and_governance_counts_are_untouched() -> None:
         # P7-S13 / S14：skill 注册表与 MCP 目录使远程出口由 9 变 11；它们不是模型工具，工具数不变
         "provider_call_sites": 11,
         "provider_governed": 11,
-        "tools": 7,
-        "tools_guardrail_validated": 7,
+        "tools": 16,  # T2-7B internal-only CALCULATE specs.
+        "tools_guardrail_validated": 16,
     }
     assert json.dumps  # keep import used when the dict above changes shape
 

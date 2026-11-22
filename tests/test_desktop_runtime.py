@@ -407,3 +407,20 @@ def test_all_service_helpers_receive_explicit_original_supervisor_pid(tmp_path):
             assert argv[argv.index('--parent-pid') + 1] == str(os.getpid())
     finally:
         runtime.close()
+
+
+def test_project_calculation_desktop_requires_local_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv('WATER_AGENT_PROJECT_CALCULATION', 'on')
+    paths = complete_paths(tmp_path)
+    marker = paths.root / 'config' / 'project-calculation.enabled'
+    assert isolated_environment(paths, tmp_path / 'socket').get('WATER_AGENT_PROJECT_CALCULATION') != 'on'
+    marker.write_text('unexpected contents')
+    assert isolated_environment(paths, tmp_path / 'socket').get('WATER_AGENT_PROJECT_CALCULATION') != 'on'
+    marker.write_bytes(b'')
+    marker.chmod(0o600)
+    assert isolated_environment(paths, tmp_path / 'socket')['WATER_AGENT_PROJECT_CALCULATION'] == 'on'
+    marker.unlink()
+    outside = tmp_path / 'other'
+    outside.touch()
+    marker.symlink_to(outside)
+    assert isolated_environment(paths, tmp_path / 'socket').get('WATER_AGENT_PROJECT_CALCULATION') != 'on'

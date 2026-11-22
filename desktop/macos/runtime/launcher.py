@@ -8,6 +8,7 @@ import queue
 import secrets
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -100,6 +101,16 @@ def isolated_environment(paths: DesktopPaths, socket_dir: Path) -> dict[str, str
     # Explicitly select the release index; never silently choose a developer DB.
     env['WATER_AGENT_INDEX_PATH'] = str(select_bundle_index(paths.resources))
     env.update(embedding_environment(paths))
+    marker = paths.root / 'config' / 'project-calculation.enabled'
+    try:
+        metadata = marker.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if (stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.geteuid()
+                and metadata.st_nlink == 1 and stat.S_IMODE(metadata.st_mode) == 0o600
+                and metadata.st_size == 0):
+            env['WATER_AGENT_PROJECT_CALCULATION'] = 'on'
     for binary, name in [('dwg2dxf', 'WATER_AGENT_DWG2DXF'),
                          ('dxf2dwg', 'WATER_AGENT_DXF2DWG')]:
         executable = paths.resources / 'libredwg' / 'bin' / binary

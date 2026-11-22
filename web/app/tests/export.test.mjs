@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { ExportApi, availableExports, exportErrorMessage, filenameFromDisposition } from "../src/exportApi.ts";
 import { WorkspaceApiError } from "../src/workspaceApi.ts";
+import { applyRunEvent, emptyRunState } from "../src/workspaceState.ts";
 
 const run = (overrides = {}) => ({ status: "succeeded", runId: "r-1", answer: "回答", tools: [], ...overrides });
 
@@ -32,9 +33,26 @@ test("chinese filename is decoded from RFC 5987", () => {
 });
 
 test("export codes have actionable copy", () => {
-  assert.match(exportErrorMessage("WEB_EXPORT_UNAVAILABLE"), /重新提问/);
+  assert.match(exportErrorMessage("WEB_EXPORT_UNAVAILABLE"), /已保存结果/);
   assert.match(exportErrorMessage("WEB_EXPORT_SELF_CHECK_FAILED"), /条款/);
   assert.equal(exportErrorMessage("NEW_CODE", "原话"), "原话");
+});
+
+test("persisted final result restores Excel without fabricating tool cards", () => {
+  assert.deepEqual(availableExports(run({ exportFormats: ["docx", "xlsx"], tools: [] })), ["docx", "xlsx"]);
+  assert.deepEqual(availableExports(run({ exportFormats: ["xlsx"], status: "failed" })), []);
+  assert.deepEqual(availableExports(run({ exportFormats: ["unknown"] })), ["docx"]);
+});
+
+test("terminal SSE replay restores download capabilities but not tool executions", () => {
+  const state = applyRunEvent(emptyRunState(), {
+    event_id: "8", type: "finalize", run_id: "r-1", thread_id: "t-1",
+    time: "2026-11-09T00:00:00Z", payload_version: "v1",
+    payload: { status: "succeeded", answer: "材料清单", export_formats: ["docx", "xlsx", "unknown"] },
+  });
+  assert.deepEqual(state.tools, []);
+  assert.deepEqual(state.exportFormats, ["docx", "xlsx"]);
+  assert.deepEqual(availableExports(state), ["docx", "xlsx"]);
 });
 
 test("click triggers a same-page download, not a navigation", async () => {

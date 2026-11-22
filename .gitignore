@@ -23,6 +23,7 @@ data/eval/traces/
 data/eval/judge_cache/
 data/quality/reports/
 data/sessions/
+data/exports/
 :memory:.lock
 :memory:.wal
 

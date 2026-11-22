@@ -6,6 +6,7 @@ import { loginPresentation } from "./authState";
 import { DrawingPanel } from "./DrawingPanel";
 import { Icon } from "./icons";
 import { MemoryWorkspace } from "./MemoryWorkspace";
+import { ProjectCalculationPanel } from "./ProjectCalculationPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { useWorkspaceController } from "./useWorkspaceController";
 import { Inspector } from "./workspaceInspector";
@@ -18,6 +19,7 @@ export function Workbench() {
   const desktop = loginPresentation(typeof navigator === "undefined" ? "" : navigator.userAgent).desktop;
   const workspace = useWorkspaceController();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [calculationOpen, setCalculationOpen] = useState(false);
   // 窄屏上检查面板是覆盖层，默认收起，否则一进来就挡住整个会话。
   const [inspectorOpen, setInspectorOpen] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -46,12 +48,14 @@ export function Workbench() {
   };
   // 面板互斥：主区只有一处，同时打开会让「返回会话」按钮的含义变得含糊。
   const openMemory = () => {
+    setCalculationOpen(false);
     workspace.setSettingsOpen(false);
     workspace.setDrawingOpen(false);
     workspace.setMemoryOpen((current) => !current);
     setSidebarOpen(false);
   };
   const openSettings = () => {
+    setCalculationOpen(false);
     workspace.setMemoryOpen(false);
     workspace.setDrawingOpen(false);
     workspace.setSettingsOpen((current) => !current);
@@ -59,12 +63,26 @@ export function Workbench() {
   };
   // 生成图纸不绑定会话（路由不带 thread_id），和长期记忆、设置一样是全局工具页，入口放侧栏。
   const openDrawing = () => {
+    setCalculationOpen(false);
     workspace.setMemoryOpen(false);
     workspace.setSettingsOpen(false);
     workspace.setDrawingOpen((current) => !current);
     setSidebarOpen(false);
   };
-  const panelOpen = workspace.memoryOpen || workspace.settingsOpen || workspace.drawingOpen;
+  const projectSession = workspace.selectedSession?.project_id
+    && workspace.selectedSession.project_id === workspace.selectedProjectId
+    ? workspace.selectedSession : null;
+  const calculationAvailable = workspace.capabilities?.project_calculation === true && projectSession !== null;
+  const showCalculation = calculationOpen && calculationAvailable;
+  const openCalculation = () => {
+    workspace.setMemoryOpen(false);
+    workspace.setSettingsOpen(false);
+    workspace.setDrawingOpen(false);
+    setCalculationOpen((current) => !current);
+    setSidebarOpen(false);
+    setInspectorOpen(false);
+  };
+  const panelOpen = showCalculation || workspace.memoryOpen || workspace.settingsOpen || workspace.drawingOpen;
   const serviceState = workspace.pageError
     ? "attention"
     : workspace.capabilities
@@ -76,6 +94,11 @@ export function Workbench() {
 
   const footer = (
     <div className="sidebar-footer">
+      {calculationAvailable && (
+        <button type="button" className="nav-row" aria-pressed={showCalculation} onClick={openCalculation}>
+          <Icon name="drawing" /><span>项目计算</span>
+        </button>
+      )}
       <button type="button" className="nav-row drawing-toggle" aria-pressed={workspace.drawingOpen} onClick={openDrawing}>
         <Icon name="drawing" /><span>{workspace.drawingOpen ? "返回会话" : "生成图纸"}</span>
       </button>
@@ -109,15 +132,21 @@ export function Workbench() {
         footer={footer}
         onProjectNameChange={workspace.setNewProjectName}
         onCreateProject={workspace.createProject}
-        onSelectProject={(projectId) => { workspace.selectProject(projectId); setSidebarOpen(false); }}
-        onSelectSession={(threadId) => { workspace.selectSession(threadId); setSidebarOpen(false); }}
-        onCreateSession={() => { workspace.setMemoryOpen(false); workspace.setSettingsOpen(false); workspace.setDrawingOpen(false); workspace.createSession(); setSidebarOpen(false); }}
+        onSelectProject={(projectId) => { setCalculationOpen(false); workspace.selectProject(projectId); setSidebarOpen(false); }}
+        onSelectSession={(threadId) => { setCalculationOpen(false); workspace.selectSession(threadId); setSidebarOpen(false); }}
+        onCreateSession={() => { setCalculationOpen(false); workspace.setMemoryOpen(false); workspace.setSettingsOpen(false); workspace.setDrawingOpen(false); workspace.createSession(); setSidebarOpen(false); }}
         onDeleteUpload={workspace.deleteUpload}
       />
       <div className="main">
         {/* 会话面板自己在消息流里渲染错误；只有记忆/设置页需要顶部横幅。 */}
         {workspace.pageError && panelOpen && <div className="global-error" role="alert">{workspace.pageError}</div>}
-        {workspace.drawingOpen ? (
+        {showCalculation && projectSession?.project_id ? (
+          <section className="panel-page" aria-labelledby="project-calculation-heading">
+            <ProjectCalculationPanel key={projectSession.thread_id} threadId={projectSession.thread_id}
+              projectId={projectSession.project_id} projectName={projectName}
+              onBack={() => setCalculationOpen(false)} />
+          </section>
+        ) : workspace.drawingOpen ? (
           <section className="panel-page drawing-conversation" aria-labelledby="drawing-heading">
             <DrawingPanel onBack={() => workspace.setDrawingOpen(false)} />
           </section>

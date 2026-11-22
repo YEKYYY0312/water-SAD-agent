@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
+import math
 import os
 import time
 from collections.abc import Callable
@@ -18,6 +20,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from water_agent.documents.storage import ExportSnapshotStore, resolve_export_dir
 from water_agent.graphs.agent_rag import current_turn_messages
 from water_agent.graphs.confirmation import (
     STATUS_WAITING_CONFIRMATION,
@@ -41,6 +44,7 @@ from water_agent.storage.repository import (
     WebSessionRepository,
 )
 from water_agent.storage.scoped_checkpoint import ScopedPostgresSaver
+from water_agent.webapp.auth.user_store import UserNotFoundError
 
 RUN_EVENT_PAYLOAD_VERSION = "v1"
 #: ``waiting_confirmation``（P7-S7）：作答停在人工确认门。不是终态——线程互斥释放、SSE 流结束，
@@ -131,6 +135,7 @@ class _RunHandle:
     seen_tool_calls: set[str] = field(default_factory=set)
     seen_tool_messages: set[str] = field(default_factory=set)
     calculations: list[dict[str, Any]] = field(default_factory=list)
+    current_query: str | None = None  # Trusted request text, not checkpoint/tool prose.
     # P5-S48 导出专用，**不进 SSE**（前端事件契约不变）：最后一次 material_stats 的
     # 材料表，以及与 calc_velocity 结果按 tool_call_id 配对的数值输入参数。
     # 材料表取"最后一次"而不是累加：模型对同一批管段重复调用时，累加就是重复计量。
@@ -371,10 +376,12 @@ class RunManager:
         trace_dir: str | os.PathLike[str] | None = None,
         session_dir: str | os.PathLike[str] = "data/sessions",
         max_workers: int = 4,
+        export_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         self.database = database
         self.run_repository = RunRepository(database)
         self.sessions = WebSessionRepository(database)
+        self.export_store = ExportSnapshotStore(resolve_export_dir(export_dir) / ".snapshots")
         self.tenant_id = tenant_id
         self.memory_enabled = (
             os.getenv("MEMORY_ENABLED", "true").lower() != "false"
@@ -403,6 +410,10 @@ class RunManager:
         self.checkpointer_factory: Callable[[Database], Any] = postgres_checkpointer
         self._lock = RLock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="water-agent-run")
+        self.project_runtime: Any = None
+        if os.getenv("WATER_AGENT_PROJECT_CALCULATION", "off") == "on":
+            from water_agent.webapp.project_calculation_runtime import ProjectCalculationRuntime
+            self.project_runtime = ProjectCalculationRuntime(self, resolve_export_dir(export_dir) / ".project-calculations")
 
     def start(
         self,
@@ -432,6 +443,7 @@ class RunManager:
             attachment_ids=list(attachment_ids or []),
             model=model,
             web_search=web_search,
+            current_query=query,
         )
         with self._lock:
             if run_key in self._handles:
@@ -1200,13 +1212,129 @@ class RunManager:
                 result_payload["code"] = _safe_text(payload["code"], limit=120)
             if payload.get("message"):
                 result_payload["message"] = _safe_text(payload["message"], limit=500)
-            calculation = self._calculation_payload(tool_name, payload)
+            darcy = tool_name == "calc_head_loss_darcy_weisbach"
+            diameter = tool_name == "calc_diameter"
+            trusted_darcy = False
+            trusted_diameter = False
+            if diameter:
+                from water_agent.tools.calc_diameter import (
+                    calc_diameter_spec,
+                    verified_diameter_result,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                trusted_diameter = (
+                    isinstance(artifact, dict) and set(artifact) == {PROGRAMMATIC_CALC_ARTIFACT}
+                    and verified_diameter_result(handle.tool_call_args.get(tool_call_id, {}),
+                                                payload, receipt, tool_call_id)
+                    and (registry is None or registry.get(tool_name) is calc_diameter_spec)
+                    and getattr(message, "status", None) == "success" and not failed
+                )
+            if darcy:
+                from water_agent.tools.calc_head_loss import (
+                    DarcyArgs,
+                    calc_head_loss_darcy_weisbach_spec,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                try:
+                    trusted_darcy = (
+                        isinstance(receipt, dict) and receipt.get("tool_name") == tool_name
+                        and receipt.get("tool_call_id") == tool_call_id
+                        and receipt.get("result") == payload
+                        and receipt.get("args") == DarcyArgs.model_validate(
+                            handle.tool_call_args.get(tool_call_id, {})
+                        ).model_dump() == payload.get("inputs")
+                        and (registry is None or registry.get(tool_name) is calc_head_loss_darcy_weisbach_spec)
+                        and getattr(message, "status", None) == "success" and not failed
+                    )
+                except (ValueError, TypeError):
+                    trusted_darcy = False
+            hazen = tool_name == "calc_head_loss_hazen_williams"
+            trusted_hazen = False
+            if hazen:
+                from water_agent.tools.calc_hazen import (
+                    calc_head_loss_hazen_williams_spec,
+                    verified_hazen_result,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                trusted_hazen = (
+                    isinstance(artifact, dict) and set(artifact) == {PROGRAMMATIC_CALC_ARTIFACT}
+                    and handle.current_query is not None
+                    and verified_hazen_result(handle.tool_call_args.get(tool_call_id, {}),
+                                             payload, receipt, tool_call_id, handle.current_query)
+                    and (registry is None or registry.get(tool_name) is calc_head_loss_hazen_williams_spec)
+                    and getattr(message, "status", None) == "success" and not failed
+                )
+            shevelev = tool_name == "calc_head_loss_shevelev"
+            trusted_shevelev = False
+            if shevelev:
+                from water_agent.tools.calc_shevelev import (
+                    calc_head_loss_shevelev_spec,
+                    verified_shevelev_result,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                trusted_shevelev = (
+                    isinstance(artifact, dict) and set(artifact) == {PROGRAMMATIC_CALC_ARTIFACT}
+                    and verified_shevelev_result(handle.tool_call_args.get(tool_call_id, {}),
+                                                payload, receipt, tool_call_id, handle.current_query)
+                    and (registry is None or registry.get(tool_name) is calc_head_loss_shevelev_spec)
+                    and getattr(message, "status", None) == "success" and not failed
+                )
+            manning = tool_name == "calc_slope_manning"
+            trusted_manning = False
+            if manning:
+                from water_agent.tools.calc_manning import (
+                    calc_slope_manning_spec,
+                    verified_manning_result,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                trusted_manning = (
+                    isinstance(artifact, dict) and set(artifact) == {PROGRAMMATIC_CALC_ARTIFACT}
+                    and verified_manning_result(handle.tool_call_args.get(tool_call_id, {}),
+                                                payload, receipt, tool_call_id, handle.current_query)
+                    and (registry is None or registry.get(tool_name) is calc_slope_manning_spec)
+                    and getattr(message, "status", None) == "success" and not failed
+                )
+            pump_head = tool_name == "calc_pump_head"
+            trusted_pump_head = False
+            if pump_head:
+                from water_agent.tools.calc_pump_head import (
+                    calc_pump_head_spec,
+                    verified_pump_head_result,
+                )
+                from water_agent.tools.ds_adapters import PROGRAMMATIC_CALC_ARTIFACT
+
+                artifact = getattr(message, "artifact", None)
+                receipt = artifact.get(PROGRAMMATIC_CALC_ARTIFACT) if isinstance(artifact, dict) else None
+                trusted_pump_head = (
+                    isinstance(artifact, dict) and set(artifact) == {PROGRAMMATIC_CALC_ARTIFACT}
+                    and verified_pump_head_result(handle.tool_call_args.get(tool_call_id, {}),
+                                                payload, receipt, tool_call_id, handle.current_query)
+                    and (registry is None or registry.get(tool_name) is calc_pump_head_spec)
+                    and getattr(message, "status", None) == "success" and not failed
+                )
+            trusted = (not darcy or trusted_darcy) and (not diameter or trusted_diameter) and (not hazen or trusted_hazen) and (not shevelev or trusted_shevelev) and (not manning or trusted_manning) and (not pump_head or trusted_pump_head)
+            calculation = self._calculation_payload(tool_name, payload) if trusted else None
             if calculation is not None:
                 result_payload["calculation"] = calculation
                 handle.calculations.append(calculation)
                 # 输入只取调用参数里的数值：它们是模型传给程序化工具的原值，
                 # 计算书把它们原样列出，不做任何换算。
-                for key, value in handle.tool_call_args.get(tool_call_id, {}).items():
+                for key, value in (payload["inputs"] if darcy or diameter or hazen or shevelev or manning or pump_head else handle.tool_call_args.get(tool_call_id, {})).items():
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         handle.calc_inputs[str(key)] = value
             if tool_name == "material_stats" and not failed:
@@ -1242,19 +1370,21 @@ class RunManager:
         }
 
     def export_snapshot(self, run_id: UUID | str) -> dict[str, Any]:
-        """Export material for a finalized run of this process (P5-S48 Step 4).
+        """Export exact live or saved per-run results after caller authorization.
 
-        Same lifetime as :meth:`trace`: the run's result lives only in the
-        in-process handle, so a run this process never executed (or executed
-        before a restart) raises :class:`RunNotManagedError`.  A run that has not
-        finalized yet also raises it -- exporting a half-written answer would
-        produce a document that silently disagrees with what the user sees once
-        the stream ends.
-
-        Callers must authorize first; this method does no ownership check.
+        Unfinished runs and legacy results without a saved snapshot remain
+        unavailable. Never infer an old result from the latest thread answer.
         """
 
-        handle = self._get_handle(run_id)
+        if self.project_runtime is not None and self.project_runtime.owns_run(run_id):
+            try:
+                return dict(self.project_runtime.saved(run_id)["snapshot"])
+            except (ValueError, OSError, PermissionError, ResourceNotFoundError) as exc:
+                raise RunNotManagedError("project result unavailable") from exc
+        try:
+            handle = self._get_handle(run_id)
+        except RunNotManagedError:
+            return dict(self._saved_export(run_id)["snapshot"])
         with handle.condition:
             if not handle.finalized:
                 raise RunNotManagedError("run has not finalized")
@@ -1263,17 +1393,50 @@ class RunManager:
                 None,
             )
             payload = dict(finalize.payload) if finalize is not None else {}
-            return {
-                "run_id": handle.run_id,
-                "status": handle.status,
-                "answer": str(payload.get("answer") or ""),
-                "citations": list(payload.get("citations") or []),
-                "calculations": list(handle.calculations),
-                "calc_inputs": dict(handle.calc_inputs),
-                "material_table": (
-                    None if handle.material_table is None else dict(handle.material_table)
-                ),
-            }
+            return self._export_data(handle, payload)
+
+    @staticmethod
+    def _export_data(handle: _RunHandle, payload: dict[str, Any]) -> dict[str, Any]:
+        return ExportSnapshotStore.sanitize_snapshot({
+            "run_id": handle.run_id,
+            "status": handle.status,
+            "answer": str(payload.get("answer") or ""),
+            "citations": list(payload.get("citations") or []),
+            "calculations": list(handle.calculations),
+            "calc_inputs": dict(handle.calc_inputs),
+            "material_table": None if handle.material_table is None else dict(handle.material_table),
+        })
+
+    def _saved_export(self, run_id: UUID | str) -> dict[str, Any]:
+        from water_agent.runtime.governance.binding import local_request_context
+        from water_agent.runtime.governance.pipeline import default_guardrail_pipeline
+
+        saved = self.export_store.read(str(run_id))
+        if saved is None:
+            raise RunNotManagedError("run result not saved")
+        try:
+            run = self.run_repository.get_owned_for_user(run_id, saved["owner_user_id"])
+        except ResourceNotFoundError:
+            raise RunNotManagedError("run result not available") from None
+        if saved["version"] == 2:
+            if self.project_runtime is None:
+                raise RunNotManagedError("project publication unavailable")
+            try:
+                return cast(dict[str, Any], self.project_runtime.saved(run_id))
+            except (ValueError, OSError, PermissionError, ResourceNotFoundError) as exc:
+                raise RunNotManagedError("project result unavailable") from exc
+        event = saved["finalize"]
+        if run.status != "succeeded" or str(run.thread_id) != event["thread_id"]:
+            raise RunNotManagedError("run result binding unavailable")
+        outcome = default_guardrail_pipeline().check_output(
+            saved["snapshot"]["answer"],
+            local_request_context(thread_id=f"export-{run.thread_id}"),
+        )
+        if not outcome.allowed:
+            raise RunNotManagedError("saved output withheld")
+        saved["snapshot"]["answer"] = outcome.content
+        event["payload"]["answer"] = outcome.content
+        return saved
 
     @staticmethod
     def _tool_payload(content: Any) -> dict[str, Any]:
@@ -1291,6 +1454,63 @@ class RunManager:
     def _calculation_payload(tool_name: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Expose only the known programmatic calculation result shape."""
 
+        if tool_name == "calc_pump_head":
+            value = payload.get("pump_head_m")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"pump_head_m": value}, "units": {"pump_head_m": "m"},
+                "assumptions": [f"公式：{payload['formula']}",
+                                str(payload["calculation_note"]), *payload["assumptions"]],
+            }
+        if tool_name == "calc_slope_manning":
+            value = payload.get("slope")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"slope": value}, "units": {"slope": "m/m"},
+                "assumptions": [f"公式：{payload['formula']}",
+                                str(payload["calculation_note"]), *payload["assumptions"]],
+            }
+        if tool_name == "calc_head_loss_shevelev":
+            value = payload.get("head_loss_m")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"head_loss_m": value}, "units": {"head_loss_m": "m"},
+                "assumptions": [f"所选分支：{payload['branch']}；公式：{payload['formula']}",
+                                str(payload["calculation_note"]), *payload["assumptions"]],
+            }
+        if tool_name == "calc_head_loss_hazen_williams":
+            value = payload.get("head_loss_m")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"head_loss_m": value}, "units": {"head_loss_m": "m"},
+                "assumptions": [str(payload["formula"]), str(payload["calculation_note"])],
+            }
+        if tool_name == "calc_diameter":
+            value = payload.get("diameter_mm")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"diameter_mm": value}, "units": {"diameter_mm": "mm"},
+                "assumptions": [str(payload["formula"]), str(payload["calculation_note"])],
+            }
+        if tool_name == "calc_head_loss_darcy_weisbach":
+            value = payload.get("head_loss_m")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value <= 0 or payload.get("error"):
+                return None
+            return {
+                "tool_name": tool_name, "programmatic": True,
+                "values": {"head_loss_m": value}, "units": {"head_loss_m": "m"},
+                "assumptions": [str(payload["formula"]), str(payload["coefficient_note"])],
+            }
         if (
             tool_name != "calc_velocity"
             or isinstance(payload.get("velocity_mps"), bool)
@@ -1348,8 +1568,26 @@ class RunManager:
             payload = {"status": status, "error": "run state persistence unavailable"}
         self._finish_trace(handle, status, payload.get("error"))
         final_payload = {"status": status, **payload}
-        self._append(handle, "finalize", final_payload)
         with handle.condition:
+            final_payload["export_formats"] = (
+                (["docx"] if str(final_payload.get("answer") or "").strip() else [])
+                + (["xlsx"] if handle.material_table is not None else [])
+            ) if status == "succeeded" else []
+            event = self._append(handle, "finalize", final_payload)
+            if status == "succeeded":
+                try:
+                    self.export_store.write({
+                        "version": 1, "owner_user_id": str(handle.owner_user_id),
+                        "snapshot": self._export_data(handle, final_payload),
+                        "finalize": event.envelope(),
+                    })
+                except (OSError, ValueError, TypeError):
+                    # Answer delivery still succeeds; do not promise durability.
+                    final_payload["warnings"] = [
+                        *list(final_payload.get("warnings") or []),
+                        "导出结果未能保存，重开后可能无法下载。",
+                    ]
+                    logging.getLogger(__name__).warning("export_snapshot_persist_failed")
             handle.finalizing = False
             handle.finalized = True
             handle.condition.notify_all()
@@ -1370,6 +1608,8 @@ class RunManager:
             return
 
     def cancel(self, run_id: UUID | str, user_id: UUID) -> dict[str, str]:
+        if self.project_runtime is not None and self.project_runtime.owns_run(run_id):
+            return cast(dict[str, str], self.project_runtime.cancel(run_id, user_id))
         self.run_repository.get_owned_for_user(run_id, user_id)
         handle = self._get_handle(run_id)
         with handle.condition:
@@ -1392,12 +1632,24 @@ class RunManager:
         return handle
 
     def has_event_log(self, run_id: UUID | str) -> bool:
-        """Return whether this process can serve the run's replay log."""
+        """Return whether live events or a saved terminal result can replay."""
 
-        self._get_handle(run_id)
+        if self.project_runtime is not None and self.project_runtime.owns_run(run_id):
+            self.project_runtime.ensure_events(run_id)
+            return True
+        try:
+            self._get_handle(run_id)
+        except RunNotManagedError:
+            self._saved_export(run_id)
         return True
 
     def get_visible_run(self, run_id: UUID | str, user_id: UUID) -> Any:
+        if self.project_runtime is not None and self.project_runtime.owns_run(run_id):
+            try:
+                self.project_runtime.context(run_id, user_id)
+            except (PermissionError, ValueError, UserNotFoundError) as exc:
+                raise ResourceNotFoundError("run unavailable") from exc
+            return self.run_repository.get_owned_for_user(run_id, user_id)
         return self.run_repository.get_for_user(run_id, user_id)
 
     def stream(
@@ -1407,13 +1659,37 @@ class RunManager:
         last_event_id: str | None,
         is_authorized: Callable[[], bool],
     ):
+        if self.project_runtime is not None and self.project_runtime.owns_run(run_id):
+            yield from self.project_runtime.stream(run_id, last_event_id, is_authorized)
+            return
         cursor = parse_last_event_id(last_event_id)
         # stream_end 是否该发，只取决于客户端**连上时**的游标：连上时就已越过
         # finalize 的重连不该再收到任何帧（test_web_sse 的空尾断言）。
         # 不能用"发完 pending 之后的 cursor"判断——finalize 恒为最后一条事件，
         # 发完之后 cursor 必然越过它，stream_end 于是永远不发（review 09-28 #4）。
         connect_cursor = cursor
-        handle = self._get_handle(run_id)
+        try:
+            handle = self._get_handle(run_id)
+        except RunNotManagedError:
+            saved = self._saved_export(run_id)
+            raw = saved["finalize"]
+            if cursor >= int(raw["event_id"]):
+                return
+            event = RunEvent(
+                event_id=int(raw["event_id"]), event_type="finalize", run_id=str(run_id),
+                thread_id=raw["thread_id"], time=raw["time"], payload=raw["payload"],
+            )
+            if self._authorization_check(is_authorized):
+                yield event.sse()
+            else:
+                return
+            if self._authorization_check(is_authorized):
+                yield RunEvent(
+                    event_id=event.event_id + 1, event_type="stream_end",
+                    run_id=event.run_id, thread_id=event.thread_id, time=_now(),
+                    payload={"status": "succeeded"},
+                ).sse()
+            return
         while True:
             if not self._authorization_check(is_authorized):
                 return

@@ -1,4 +1,4 @@
-"""P6-S1 Step 6: parametric water-supply drawing generation over HTTP.
+"""Parametric water-supply and bathroom drainage drawing generation over HTTP.
 
 Thin adapter, same discipline as ``upload_routes.py`` / ``export_routes.py``: no
 geometry, no rules, no rendering is defined here.  Everything is delegated to
@@ -30,11 +30,14 @@ from starlette.concurrency import run_in_threadpool
 from water_agent.documents.dwg_convert import dwg_roundtrip_available
 from water_agent.documents.storage import resolve_export_dir
 from water_agent.drawing.building_rules import BuildingType, load_building_rules
+from water_agent.drawing.drainage import DRAINAGE_SYSTEM, drainage_options, generate_drainage_set
+from water_agent.drawing.drainage_dual import DUAL_OUTLET, dual_options, generate_dual_drainage_set
 from water_agent.drawing.generation_models import (
     DEFAULT_FLOOR_HEIGHT_M,
     FLOOR_HEIGHT_RANGE_M,
     FLOORS_RANGE,
     GEN_INVALID_INPUT,
+    GEN_UNSUPPORTED_SYSTEM,
     PRESSURE_RANGE_MPA,
     SUPPORTED_SYSTEM,
     UNITS_RANGE,
@@ -92,9 +95,12 @@ async def drawing_options(auth: tuple = Depends(require_password_changed)) -> JS
                 "detail": typed.detail.detail_type,
             }
         )
+    drainage = drainage_options()
+    drainage["dual_outlet"] = dual_options()
     return _ok(
         {
-            "system_types": [SUPPORTED_SYSTEM],
+            "system_types": [SUPPORTED_SYSTEM, DRAINAGE_SYSTEM],
+            "drainage": drainage,
             "building_types": building_types,
             "diameters": [dn.value for dn in NominalDiameter],
             "materials": [material.value for material in PipeMaterial],
@@ -124,15 +130,24 @@ async def generate_drawings(request: Request, auth: tuple = Depends(require_pass
     root = _export_root(request)
     try:
         async with _GENERATION_SLOTS:
-            result = await run_in_threadpool(
-                generate_drawing_set, payload, export_root=root, owner_user_id=str(user.user_id)
-            )
+            if isinstance(payload, dict) and payload.get("system_type") == DRAINAGE_SYSTEM:
+                generate = (generate_dual_drainage_set if payload.get("topology") == DUAL_OUTLET
+                            else generate_drainage_set)
+                response = await run_in_threadpool(
+                    generate, payload, export_root=root, owner_user_id=str(user.user_id)
+                )
+            else:
+                result = await run_in_threadpool(
+                    generate_drawing_set, payload, export_root=root, owner_user_id=str(user.user_id)
+                )
+                response = result.to_response()
     except GenerationError as exc:
-        return _error(exc.code, exc.message, status_code=exc.status_code, fields=exc.fields)
+        message = "当前支持给水和单卫生间生活排水出图" if exc.code == GEN_UNSUPPORTED_SYSTEM else exc.message
+        return _error(exc.code, message, status_code=exc.status_code, fields=exc.fields)
     except OSError:
         # The exports volume is not writable: a deployment condition, not a bad request.
         return _error("WEB_EXPORT_STORAGE_UNAVAILABLE", "Export storage is not writable", status_code=503)
-    return _ok(result.to_response(), status_code=201)
+    return _ok(response, status_code=201)
 
 
 @router.get("/api/drawings/{generation_id}/download")

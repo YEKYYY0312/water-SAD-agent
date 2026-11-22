@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { AnswerMarkdown } from "./AnswerMarkdown";
+import { DrainageDrawingPanel } from "./DrainageDrawingPanel";
 import { DrawingApi, DrawingApiError, type DrawingOptions, type GenerationResponse } from "./drawingApi.ts";
 import {
   DRAFT_NOTICE,
@@ -137,6 +138,7 @@ function Result({ result, onDownload, downloading }: { result: GenerationRespons
 }
 
 export function DrawingPanel({ onBack }: { onBack?: () => void }) {
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
   const [options, setOptions] = useState<DrawingOptions | null>(null);
   const [form, setForm] = useState<DrawingForm | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -199,19 +201,33 @@ export function DrawingPanel({ onBack }: { onBack?: () => void }) {
   };
 
   const type = options && form ? options.building_types.find((item) => item.value === form.building_type) : undefined;
+  const activeSystem = selectedSystem ?? options?.system_types[0];
+  const drainageOptions = options?.drainage;
+  const showingDrainage = drainageOptions !== undefined && activeSystem === drainageOptions.system_type;
+
 
   return (
     <section className="settings-panel drawing-panel" aria-labelledby="drawing-heading">
       <div className="settings-heading-row">
-        <h2 id="drawing-heading">生成给水图纸</h2>
+        <h2 id="drawing-heading">生成图纸</h2>
         {onBack && (
           <button type="button" className="quiet-button" onClick={onBack}>
             返回会话
           </button>
         )}
       </div>
+      {options && (
+        <div className="dialog-form">
+          <Field label="系统类型">
+            <select value={activeSystem} disabled={busy} onChange={(event) => setSelectedSystem(event.target.value)}>
+              {options.system_types.map((value) => <option key={value}>{value}</option>)}
+            </select>
+          </Field>
+        </div>
+      )}
+      {showingDrainage ? <DrainageDrawingPanel options={drainageOptions} /> : <>
       <div className="workspace-feedback feedback-info" role="note">
-        {DRAFT_NOTICE}。按参数由程序确定性生成标准层平面图、给水系统轴测图、节点大样图三张 DXF；只做给水系统，不画建筑结构、不标长度尺寸，未考虑结构梁高与其他专业管线。
+        {DRAFT_NOTICE}。按参数由程序确定性生成标准层平面图、给水系统轴测图、节点大样图三张 DXF。结构梁高、设备净空与其他专业管线需另行复核。
       </div>
 
       <Problem problem={problem} />
@@ -220,13 +236,6 @@ export function DrawingPanel({ onBack }: { onBack?: () => void }) {
       {options && form && (
         <form className="settings-card dialog-form drawing-form" onSubmit={submit} noValidate>
           <div className="form-grid">
-            <Field label="系统类型">
-              <select value={options.system_types[0]} disabled>
-                {options.system_types.map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </Field>
             <Field label="建筑类型" error={errors.building_type}>
               <select value={form.building_type} onChange={(e) => setForm(withBuildingType(form, options, e.target.value))}>
                 {options.building_types.map((item) => (
@@ -310,6 +319,7 @@ export function DrawingPanel({ onBack }: { onBack?: () => void }) {
       )}
 
       {result && <Result result={result} onDownload={download} downloading={downloading} />}
+      </>}
     </section>
   );
 }

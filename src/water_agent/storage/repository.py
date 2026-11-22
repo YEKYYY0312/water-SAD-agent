@@ -419,6 +419,7 @@ class RunRepository:
             "blocked",
             "cancelled",
             "waiting_confirmation",
+            "waiting_approval",
         }
         if status not in allowed:
             raise ValueError(f"unknown run status: {status}")

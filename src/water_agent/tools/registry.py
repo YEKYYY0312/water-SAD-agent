@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
@@ -154,8 +155,17 @@ class ToolRegistry:
         """
         return self._invoke(name, dict(args), grant=grant)
 
+    def invoke_with_evidence(self, name: str, args: dict[str, Any], *, scope: Any) -> Any:
+        """Internal project execution; scope is issued by the local project service."""
+        from water_agent.multi_agent.project_calculation import ProjectNodeScope
+
+        if not isinstance(scope, ProjectNodeScope):
+            raise TypeError("PROJECT_UNTRUSTED_SOURCE")
+        return scope.invoke(self, name, args)
+
     def _invoke(
-        self, name: str, args: dict[str, Any], *, grant: ConfirmationGrant | None
+        self, name: str, args: dict[str, Any], *, grant: ConfirmationGrant | None,
+        before_execute: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> dict:
         invocation_id = uuid4().hex[:16]
         args_hash = _hash_args(args)
@@ -247,6 +257,15 @@ class ToolRegistry:
                     executed=False,
                 )
                 return _structured_error(CODE_TOOL_ERROR, f"安全校验未通过：{exc}", ["调整参数后重试"])
+
+        if before_execute is not None:
+            try:
+                before_execute(invocation_id, payload)
+            except Exception:  # noqa: BLE001 - required evidence failure must block execution
+                self._emit("record_tool_event", tool_name=name, status="failed",
+                           code="PROJECT_PERSISTENCE_FAILED", invocation_id=invocation_id,
+                           args_hash=args_hash, executed=False)
+                return _structured_error("PROJECT_PERSISTENCE_FAILED", "执行证据记录失败")
 
         try:
             started = time.monotonic()

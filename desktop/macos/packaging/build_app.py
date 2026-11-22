@@ -75,7 +75,7 @@ def verify_index(index: Path) -> dict:
     return metadata
 
 
-def tracked_backend(destination: Path) -> None:
+def tracked_backend(destination: Path, *, local_sources: list[Path] | None = None) -> None:
     output = subprocess.check_output(
         [
             "git",
@@ -91,6 +91,14 @@ def tracked_backend(destination: Path) -> None:
         cwd=ROOT,
     )
     paths = [Path(name.decode()) for name in output.split(b"\0") if name]
+    # Explicit local-only builds may include reviewed new modules without git add.
+    # Never sweep an untracked directory into the bundle.
+    for relative in local_sources or []:
+        validate_publish_path(relative)
+        if not relative.is_relative_to(Path("src/water_agent")) or relative.suffix != ".py":
+            raise ValueError("local source must be a Python module under src/water_agent")
+        if relative not in paths:
+            paths.append(relative)
     copy_selected(ROOT, destination, paths)
 
 
@@ -286,6 +294,17 @@ def sign(app: Path) -> None:
     run(["/usr/bin/codesign", "--force", "--sign", "-", str(app)])
 
 
+def strip_developer_swift_rpaths(executable: Path) -> None:
+    # Swift embeds a build-toolchain fallback rpath even when macOS provides
+    # the complete Swift ABI. Never let the shipped app search that host path.
+    commands = subprocess.check_output(["/usr/bin/otool", "-l", str(executable)], text=True)
+    import re
+
+    for rpath in re.findall(r"\bpath (.+?) \(offset", commands):
+        if rpath.startswith(("/Library/Developer/", "/Applications/Xcode.app/Contents/Developer/")):
+            run(["/usr/bin/install_name_tool", "-delete_rpath", rpath, str(executable)])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--index", required=True, type=Path)
@@ -293,6 +312,8 @@ def main() -> None:
         "--skip-frontend", action="store_true", help="Reuse an already tested local dist"
     )
     parser.add_argument("--no-dmg", action="store_true")
+    parser.add_argument("--local-source", action="append", type=Path, default=[],
+                        help="Explicit reviewed new Python module; include without Git staging")
     args = parser.parse_args()
     index_metadata = verify_index(args.index)
     record = json.loads((WORK / "cache/dependencies.json").read_text())
@@ -334,7 +355,7 @@ def main() -> None:
         native_metadata["libredwg"]["synthetic_production_roundtrip"] = json.loads(
             dwg_report.read_text()
         )
-    tracked_backend(resources / "backend")
+    tracked_backend(resources / "backend", local_sources=args.local_source)
     shutil.copytree(ROOT / "web/app/dist", resources / "backend/web/app/dist")
     shutil.copytree(
         ROOT / "desktop/macos/runtime",
@@ -364,14 +385,7 @@ def main() -> None:
             }
         )
     )
-    # Swift embeds a build-toolchain fallback rpath even when macOS provides
-    # the complete Swift ABI. Never let the shipped app search that host path.
-    commands = subprocess.check_output(["/usr/bin/otool", "-l", str(executable)], text=True)
-    import re
-
-    for rpath in re.findall(r"\bpath (.+?) \(offset", commands):
-        if rpath.startswith("/Library/Developer/"):
-            run(["/usr/bin/install_name_tool", "-delete_rpath", rpath, str(executable)])
+    strip_developer_swift_rpaths(executable)
     for path in resources.rglob("__pycache__"):
         shutil.rmtree(path)
     problems = scan_tree(app, native=True)

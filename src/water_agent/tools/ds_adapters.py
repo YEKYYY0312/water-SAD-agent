@@ -23,6 +23,7 @@ from typing import Any
 from uuid import uuid4
 
 from langchain_core.callbacks import CallbackManagerForToolRun
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from pydantic import ConfigDict
@@ -30,8 +31,18 @@ from pydantic import ConfigDict
 from water_agent.external.taint import normalize_url
 from water_agent.runtime.cancellation import raise_if_cancelled
 from water_agent.runtime.governance.contracts import SourceTag
+from water_agent.tools.calc_diameter import DiameterArgs, calc_diameter_spec
+from water_agent.tools.calc_hazen import HazenArgs, calc_head_loss_hazen_williams_spec
+from water_agent.tools.calc_head_loss import DarcyArgs, calc_head_loss_darcy_weisbach_spec
+from water_agent.tools.calc_manning import ManningArgs, calc_slope_manning_spec
+from water_agent.tools.calc_pump_head import PumpHeadArgs, calc_pump_head_spec
+from water_agent.tools.calc_shevelev import ShevelevArgs, calc_head_loss_shevelev_spec
 from water_agent.tools.calc_velocity import VelocityArgs, calc_velocity_spec
+from water_agent.tools.hazen_request import current_hazen_query
+from water_agent.tools.manning_request import current_manning_query
+from water_agent.tools.pump_head_request import current_pump_head_query
 from water_agent.tools.registry import ToolRegistry
+from water_agent.tools.shevelev_request import current_shevelev_query
 
 PROGRAMMATIC_CALC_ARTIFACT = "water_agent_programmatic_calculation"
 
@@ -71,6 +82,19 @@ class _RegistryBackedTool(StructuredTool):
     registry: ToolRegistry | None = None
     tool_name: str = ""
 
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().run(*args, **kwargs)
+        # Bind the private canonical receipt to the actual ToolMessage id, after
+        # LangChain has produced it. Neither id nor receipt is model supplied data.
+        if (self.registry is not None
+                and any(self.registry.get(self.tool_name) is spec for spec in
+                        (calc_head_loss_darcy_weisbach_spec, calc_diameter_spec, calc_head_loss_hazen_williams_spec, calc_head_loss_shevelev_spec, calc_slope_manning_spec, calc_pump_head_spec))
+                and isinstance(result, ToolMessage)
+                and isinstance(result.artifact, dict)
+                and PROGRAMMATIC_CALC_ARTIFACT in result.artifact):
+            result.artifact[PROGRAMMATIC_CALC_ARTIFACT]["tool_call_id"] = result.tool_call_id
+        return result
+
     def _parse_input(self, tool_input: Any, tool_call_id: str | None = None) -> Any:
         # 跳过 StructuredTool 自带 schema 校验：输入校验统一由 Registry.invoke 承担
         return tool_input
@@ -92,6 +116,25 @@ class _RegistryBackedTool(StructuredTool):
             return _with_web_artifact(result)
         if spec is calc_velocity_spec:
             return result, _velocity_receipt(kwargs, result)
+        if spec is not None and any(spec is canonical for canonical in (calc_head_loss_darcy_weisbach_spec, calc_diameter_spec, calc_head_loss_hazen_williams_spec, calc_head_loss_shevelev_spec, calc_slope_manning_spec, calc_pump_head_spec)):
+            value = result.get("pump_head_m" if spec is calc_pump_head_spec else "slope" if spec is calc_slope_manning_spec else "diameter_mm" if spec is calc_diameter_spec else "head_loss_m")
+            args_model = PumpHeadArgs if spec is calc_pump_head_spec else ManningArgs if spec is calc_slope_manning_spec else DiameterArgs if spec is calc_diameter_spec else (ShevelevArgs if spec is calc_head_loss_shevelev_spec else (HazenArgs if spec is calc_head_loss_hazen_williams_spec else DarcyArgs))
+            receipt: dict[str, Any] = {}
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and (value >= 0 if spec is calc_pump_head_spec else value > 0) and not result.get("error"):
+                receipt[PROGRAMMATIC_CALC_ARTIFACT] = {
+                    "tool_name": spec.name, "args": args_model.model_validate(kwargs).model_dump(),
+                    "result": result,
+                }
+            if receipt and spec is calc_head_loss_hazen_williams_spec:
+                receipt[PROGRAMMATIC_CALC_ARTIFACT]["query"] = current_hazen_query()
+            if receipt and spec is calc_head_loss_shevelev_spec:
+                receipt[PROGRAMMATIC_CALC_ARTIFACT]["query"] = current_shevelev_query()
+                receipt[PROGRAMMATIC_CALC_ARTIFACT]["branch"] = result["branch"]
+            if receipt and spec is calc_slope_manning_spec:
+                receipt[PROGRAMMATIC_CALC_ARTIFACT]["query"] = current_manning_query()
+            if receipt and spec is calc_pump_head_spec:
+                receipt[PROGRAMMATIC_CALC_ARTIFACT]["query"] = current_pump_head_query()
+            return result, receipt
         return result
 
 
@@ -144,7 +187,8 @@ def tool_spec_to_base_tool(registry: ToolRegistry, tool_name: str) -> Structured
     if spec.result_source is SourceTag.WEB_CONTENT:
         # 联网内容工具：结果拆成 content（正文）与 artifact（污点标记 + 规范化网址），见 _with_web_artifact
         extra["response_format"] = "content_and_artifact"
-    if spec is calc_velocity_spec:
+    if any(spec is canonical for canonical in
+           (calc_velocity_spec, calc_head_loss_darcy_weisbach_spec, calc_diameter_spec, calc_head_loss_hazen_williams_spec, calc_head_loss_shevelev_spec, calc_slope_manning_spec, calc_pump_head_spec)):
         extra["response_format"] = "content_and_artifact"
     return _RegistryBackedTool(
         name=spec.name,

@@ -88,3 +88,35 @@ final class PolicyTests: XCTestCase {
     }
 
 }
+
+// The Objective-C WebKit boundary can violate its nonnull request annotation.
+// Exercise nil before any Swift URLRequest bridge, with a real WKWebView cold load.
+import WebKit
+
+final class WebFrameTests: XCTestCase {
+    @MainActor func testMissingFrameRequestIsNotTrusted() {
+        XCTAssertNil(webFrameRequestURL(nil))
+    }
+    @MainActor func testColdWebViewNavigationUsesOptionalSourceRequest() {
+        let done = expectation(description: "local cold navigation")
+        let delegate = ColdNavigationDelegate(done: done)
+        let view = WKWebView(frame: .zero)
+        view.navigationDelegate = delegate
+        view.load(URLRequest(url: URL(string: "http://127.0.0.1:32145")!))
+        wait(for: [done], timeout: 10)
+        XCTAssertTrue(delegate.called)
+    }
+}
+
+@MainActor private final class ColdNavigationDelegate: NSObject, WKNavigationDelegate {
+    let done: XCTestExpectation
+    var called = false
+    init(done: XCTestExpectation) { self.done = done }
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        _ = navigationSourceRequestURL(action)
+        called = true
+        decisionHandler(.cancel) // No network request leaves this local test.
+        done.fulfill()
+    }
+}

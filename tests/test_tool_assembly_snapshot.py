@@ -217,14 +217,18 @@ def test_negative_control_dropped_grant_detected(
     assert any("/lifecycle/app/probes/mcp_echo" in line for line in lines), lines
 
 
+@pytest.mark.parametrize("mutated_budget", [500, 1200])
 def test_negative_control_guide_budget_detected(
-    baseline: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    baseline: dict[str, Any], monkeypatch: pytest.MonkeyPatch, mutated_budget: int
 ) -> None:
-    """P7-S0-A10 反证：把工具指引预算从 800 调到 900，截断消失，快照必须变化。"""
+    """P7-S0-A10 反证：缩小/扩大800预算跨越整工具行边界，快照必须变化。
+
+    T2-6增加工具后400小于core指引，装配会失败；以500/1200跨越整工具行边界，生产预算仍为800。
+    """
 
     from water_agent.prompting import assembler
 
-    monkeypatch.setitem(assembler.SEGMENT_BUDGETS, "tool_guide", 900)
+    monkeypatch.setitem(assembler.SEGMENT_BUDGETS, "tool_guide", mutated_budget)
     lines = _profile_diff(baseline, snap.collect_snapshot(_subset("session_drawing_arg")))
 
     assert any("/surface/tool_guide" in line for line in lines), lines

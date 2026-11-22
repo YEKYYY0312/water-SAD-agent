@@ -1858,3 +1858,16 @@ def run_orchestrator(brief: dict[str, Any] | ProjectBrief, *, staging_dir: str |
         project = brief.model_dump(mode="json") if isinstance(brief, ProjectBrief) else brief
         result = app.invoke(default_multi_agent_state(project_brief=project, staging_dir=staging, final_dir=final), config=config)
         return dict(app.invoke(Command(resume=approval), config=config)) if result.get("__interrupt__") and approval is not None else dict(result)
+
+
+def run_calculation_only(service, context, *, recover: bool = False) -> dict[str, Any]:
+    """Explicit internal C path; legacy orchestration and production entry points stay separate.
+
+    The trusted host owns the service/authority and confirms a plan before calling.
+    C ends at waiting_approval/approved: it never builds a published final package.
+    """
+    from water_agent.multi_agent.project_calculation_service import CalculationService
+
+    if not isinstance(service, CalculationService):
+        raise ValueError("PROJECT_SCOPE_MISMATCH")  # noqa: TRY004 - stable internal error
+    return service.recover(context) if recover else service.execute(context)
